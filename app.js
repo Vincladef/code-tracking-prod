@@ -126,6 +126,10 @@ async function ensureProfile(db, uid) {
 }
 
 export async function initApp({ app, db, user }) {
+  // Réaffiche le sidebar en mode utilisateur
+  const sidebar = document.getElementById("sidebar");
+  if (sidebar) sidebar.style.display = "";
+
   L.group("app.init", user?.uid);
   if (!user || !user.uid) {
     L.error("No UID in context");
@@ -232,29 +236,12 @@ async function loadUsers(db) {
 
 function renderUser(db, uid) {
   initApp({
-    app,
+    app: ctx.app,
     db,
     user: {
       uid
     }
   });
-}
-
-function boot() {
-  const hash = location.hash;
-  if (hash.startsWith("#/admin")) {
-    renderAdmin(ctx.db); // page admin
-  } else if (hash.startsWith("#/u/")) {
-    const uid = hash.split("/")[2];
-    if (uid) {
-      renderUser(ctx.db, uid); // page utilisateur
-    } else {
-      document.getElementById("view-root").innerHTML =
-        "<div class='card'>Utilisateur introuvable.</div>";
-    }
-  } else {
-    location.hash = "#/admin"; // redirection par défaut
-  }
 }
 
 function render() {
