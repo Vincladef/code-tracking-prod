@@ -3,12 +3,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Espace par utilisateur via lien: /u/{uid}/...
+    // Tout l'espace d'un utilisateur accessible publiquement via son UID
+    // Exemple : /u/abc123/profile, /u/abc123/goals/..., etc.
     match /u/{uid}/{document=**} {
-      allow read, write: if true;   // public par UID (non authentifié)
+      allow read, write: if true;
     }
 
-    // Tout le reste interdit (empêche d'utiliser les anciennes collections racine)
+    // Bloquer tout le reste
     match /{document=**} {
       allow read, write: if false;
     }
