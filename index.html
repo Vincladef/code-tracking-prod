@@ -1,185 +1,190 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tracker d’habitudes & Pratique délibérée</title>
-  <link rel="icon" href="data:," />
-  <style>
-    :root{
-      color-scheme: dark light;
-      --bg:#0b0f14; --panel:#101823; --muted:#94a3b8; --text:#e5e7eb; --accent:#60a5fa;
-      --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --border:#1f2937; --soft:#0e1621;
-      --shadow: 0 10px 25px rgba(0,0,0,.25), 0 2px 6px rgba(0,0,0,.2);
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-      color:var(--text); background:linear-gradient(180deg, var(--bg), var(--soft));
-    }
-    header{
-      position:sticky; top:0; z-index:10;
-      background:rgba(16,24,35,.85); backdrop-filter: blur(8px);
-      border-bottom:1px solid var(--border);
-    }
-    .wrap{max-width:1100px; margin:0 auto; padding:12px 16px}
-    h1{font-size:20px; margin:0; letter-spacing:.3px}
-    nav{display:flex; gap:8px; flex-wrap:wrap}
-    .row{display:grid; grid-template-columns: 280px 1fr; gap:16px}
-    @media (max-width: 920px){ .row{grid-template-columns: 1fr} }
-  
-    .panel{
-      background:var(--panel); border:1px solid var(--border); border-radius:16px; padding:14px;
-      box-shadow: var(--shadow);
-    }
-    .btn{
-      appearance:none; border:1px solid #2b3649; background:#0f172a; color:var(--text);
-      padding:10px 14px; border-radius:12px; cursor:pointer; transition: all .15s ease;
-    }
-    .btn:hover{ transform: translateY(-1px); border-color:#3b4a66 }
-    .btn.primary{ background:#111827; border-color:#3b82f6; color:#e5f0ff }
-    .btn.ghost{ background:transparent }
-    .btn.small{ padding:6px 10px; font-size:12px }
-  
-    .pill{ font-size:11px; border:1px solid #334155; border-radius:999px; padding:3px 9px; color:#cbd5e1 }
-    .accent{ color: var(--accent) }
-    .muted{ color: var(--muted) }
-    .grid{ display:grid; gap:10px }
-    .grid.cols-2{ grid-template-columns: repeat(2, minmax(0,1fr)) }
-    .grid.cols-3{ grid-template-columns: repeat(3, minmax(0,1fr)) }
-    .field{ display:grid; gap:6px }
-    label{ font-size:12px; color:#cbd5e1 }
-    input, select, textarea{
-      width:100%; background:#0b1220; border:1px solid var(--border); color:var(--text);
-      border-radius:10px; padding:10px 12px;
-    }
-    textarea{ min-height: 90px }
-    details{ border:1px solid var(--border); border-radius:12px; padding:10px 12px; background:#0b1220 }
-    details > summary{ cursor:pointer; color:#aab0bb }
-  
-    .list{ display:grid; gap:10px }
-    .consigne{ border:1px dashed #223045; border-radius:12px; padding:10px }
-    .consigne .title{ font-weight:600 }
-    .consigne .meta{ font-size:12px; color:#a3a3a3; display:flex; gap:8px; flex-wrap:wrap }
-  
-    .kpi{ display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap:10px }
-    @media (max-width: 700px){ .kpi{ grid-template-columns: 1fr } }
-  
-    .card{ background:#0b1220; border:1px solid var(--border); border-radius:12px; padding:14px }
-    .table{ width:100%; border-collapse: collapse }
-    .table th,.table td{ padding:8px; border-bottom:1px solid var(--border); text-align:left }
-  
-    .section-title{ display:flex; justify-content:space-between; align-items:center; margin:8px 0 }
-    .hidden{ display:none }
-    .flex{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
-    .right{ margin-left:auto }
-    .badge{ font-size:11px; padding:3px 9px; border-radius:999px; border:1px solid #334155 }
-    .badge.high{ border-color:#60a5fa } .badge.medium{ border-color:#9ca3af } .badge.low{ border-color:#64748b }
-  
-    footer{ color:#94a3b8; font-size:12px; padding:24px 0 60px; text-align:center }
-  
-    /* petit tiroir de logs on-screen si debug */
-    #debug-drawer{
-      position:fixed; right:10px; bottom:10px; width:360px; max-height:45vh; overflow:auto;
-      background:rgba(8,12,18,.9); border:1px solid var(--border); border-radius:12px; padding:10px;
-      box-shadow: var(--shadow); font-size:12px; color:#cbd5e1; display:none;
-    }
-    #debug-drawer.visible{ display:block }
-    #debug-drawer pre{ margin:0; white-space:pre-wrap }
-  </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tracker d’habitudes & Pratique délibérée</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
+  <style>
+    button {
+      all: unset;
+      display: inline-block;
+      cursor: pointer;
+    }
+    :root{
+      color-scheme: dark light;
+      --bg:#0b0f14; --panel:#101823; --muted:#94a3b8; --text:#e5e7eb; --accent:#60a5fa;
+      --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --border:#1f2937; --soft:#0e1621;
+      --shadow: 0 10px 25px rgba(0,0,0,.25), 0 2px 6px rgba(0,0,0,.2);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      color:var(--text); background:linear-gradient(180deg, var(--bg), var(--soft));
+    }
+    header{
+      position:sticky; top:0; z-index:10;
+      background:rgba(16,24,35,.85); backdrop-filter: blur(8px);
+      border-bottom:1px solid var(--border);
+    }
+    .wrap{max-width:1100px; margin:0 auto; padding:12px 16px}
+    h1{font-size:20px; margin:0; letter-spacing:.3px}
+    nav{display:flex; gap:8px; flex-wrap:wrap}
+    .row{display:grid; grid-template-columns: 280px 1fr; gap:16px}
+    @media (max-width: 920px){ .row{grid-template-columns: 1fr} }
+
+    .panel{
+      background:var(--panel); border:1px solid var(--border); border-radius:16px; padding:14px;
+      box-shadow: var(--shadow);
+    }
+    .btn{
+      appearance:none; border:1px solid #2b3649; background:#0f172a; color:var(--text);
+      padding:10px 14px; border-radius:12px; cursor:pointer; transition: all .15s ease;
+    }
+    .btn:hover{ transform: translateY(-1px); border-color:#3b4a66 }
+    .btn.primary{ background:#111827; border-color:#3b82f6; color:#e5f0ff }
+    .btn.ghost{ background:transparent }
+    .btn.small{ padding:6px 10px; font-size:12px }
+
+    .pill{ font-size:11px; border:1px solid #334155; border-radius:999px; padding:3px 9px; color:#cbd5e1 }
+    .accent{ color: var(--accent) }
+    .muted{ color: var(--muted) }
+    .grid{ display:grid; gap:10px }
+    .grid.cols-2{ grid-template-columns: repeat(2, minmax(0,1fr)) }
+    .grid.cols-3{ grid-template-columns: repeat(3, minmax(0,1fr)) }
+    .field{ display:grid; gap:6px }
+    label{ font-size:12px; color:#cbd5e1 }
+    input, select, textarea{
+      width:100%; background:#0b1220; border:1px solid var(--border); color:var(--text);
+      border-radius:10px; padding:10px 12px;
+    }
+    textarea{ min-height: 90px }
+    details{ border:1px solid var(--border); border-radius:12px; padding:10px 12px; background:#0b1220 }
+    details > summary{ cursor:pointer; color:#aab0bb }
+
+    .list{ display:grid; gap:10px }
+    .consigne{ border:1px dashed #223045; border-radius:12px; padding:10px }
+    .consigne .title{ font-weight:600 }
+    .consigne .meta{ font-size:12px; color:#a3a3a3; display:flex; gap:8px; flex-wrap:wrap }
+
+    .kpi{ display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap:10px }
+    @media (max-width: 700px){ .kpi{ grid-template-columns: 1fr } }
+
+    .card{ background:#0b1220; border:1px solid var(--border); border-radius:12px; padding:14px }
+    .table{ width:100%; border-collapse: collapse }
+    .table th,.table td{ padding:8px; border-bottom:1px solid var(--border); text-align:left }
+
+    .section-title{ display:flex; justify-content:space-between; align-items:center; margin:8px 0 }
+    .hidden{ display:none }
+    .flex{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+    .right{ margin-left:auto }
+    .badge{ font-size:11px; padding:3px 9px; border-radius:999px; border:1px solid #334155 }
+    .badge.high{ border-color:#60a5fa } .badge.medium{ border-color:#9ca3af } .badge.low{ border-color:#64748b }
+
+    footer{ color:#94a3b8; font-size:12px; padding:24px 0 60px; text-align:center }
+
+    /* petit tiroir de logs on-screen si debug */
+    #debug-drawer{
+      position:fixed; right:10px; bottom:10px; width:360px; max-height:45vh; overflow:auto;
+      background:rgba(8,12,18,.9); border:1px solid var(--border); border-radius:12px; padding:10px;
+      box-shadow: var(--shadow); font-size:12px; color:#cbd5e1; display:none;
+    }
+    #debug-drawer.visible{ display:block }
+    #debug-drawer pre{ margin:0; white-space:pre-wrap }
+  </style>
 </head>
 <body>
 <header>
-  <div class="wrap" style="display:flex; align-items:center; gap:12px;">
-    <h1>Tracker — <span class="accent">Habitudes</span> &amp; <span class="accent">Pratique</span></h1>
-    <nav class="right">
-      <button class="btn small" data-route="#/dashboard">Tableau de bord</button>
-      <button class="btn small" data-route="#/daily">Mode Journalier</button>
-      <button class="btn small" data-route="#/practice">Pratique Délibérée</button>
-      <button class="btn small" data-route="#/goals">Objectifs</button>
-      <button class="btn small" data-route="#/history">Historique</button>
-      <button class="btn small" data-route="#/admin">Admin</button>
-    </nav>
-  </div>
+  <div class="wrap" style="display:flex; align-items:center; gap:12px;">
+    <h1>Tracker — <span class="accent">Habitudes</span> &amp; <span class="accent">Pratique</span></h1>
+    <nav class="right">
+      <button class="btn small" data-route="#/dashboard">Tableau de bord</button>
+      <button class="btn small" data-route="#/daily">Mode Journalier</button>
+      <button class="btn small" data-route="#/practice">Pratique Délibérée</button>
+      <button class="btn small" data-route="#/goals">Objectifs</button>
+      <button class="btn small" data-route="#/history">Historique</button>
+      <button class="btn small" data-route="#/admin">Admin</button>
+    </nav>
+  </div>
 </header>
 
 <main class="wrap">
-  <div class="row">
-    <aside class="panel" id="sidebar">
-      <div class="grid">
-        <button class="btn primary" id="btn-new-session">+ Nouvelle session</button>
-        <button class="btn" id="btn-add-consigne">+ Ajouter une consigne</button>
-        <button class="btn" id="btn-add-goal">+ Créer un objectif</button>
-      </div>
-      <hr style="border-color:#1f2937; margin:12px 0;">
-      <div class="grid">
-        <div class="field">
-          <label>Votre profil</label>
-          <div id="profile-box" class="card muted">Chargement…</div>
-        </div>
-        <div class="field">
-          <label>Catégories</label>
-          <div id="category-box" class="card"></div>
-        </div>
-      </div>
-    </aside>
+  <div class="row">
+    <aside class="panel" id="sidebar">
+      <div class="grid">
+        <button class="btn primary" id="btn-new-session">+ Nouvelle session</button>
+        <button class="btn" id="btn-add-consigne">+ Ajouter une consigne</button>
+        <button class="btn" id="btn-add-goal">+ Créer un objectif</button>
+      </div>
+      <hr style="border-color:#1f2937; margin:12px 0;">
+      <div class="grid">
+        <div class="field">
+          <label>Votre profil</label>
+          <div id="profile-box" class="card muted">Chargement…</div>
+        </div>
+        <div class="field">
+          <label>Catégories</label>
+          <div id="category-box" class="card"></div>
+        </div>
+      </div>
+    </aside>
 
-    <section class="panel" id="view">
-      <div id="view-root">Chargement…</div>
-    </section>
-  </div>
+    <section class="panel" id="view">
+      <div id="view-root">Chargement…</div>
+    </section>
+  </div>
 </main>
 
 <footer>
-  V1 — GitHub Pages + Firebase Firestore (auth anonyme). Design minimal. ©
+  V1 — GitHub Pages + Firebase Firestore (auth anonyme). Design minimal. ©
 </footer>
 
 <div id="debug-drawer"></div><script type="module">
-  import { D } from "./schema.js";
-  const drawer = document.getElementById("debug-drawer");
-  if (D.on && drawer){
-    drawer.classList.add("visible");
-    const o = console.info;
-    console.info = (...args) => { o.apply(console, args); const pre=document.createElement("pre"); pre.textContent=args.map(a=>typeof a==='string'?a:JSON.stringify(a)).join(' '); drawer.appendChild(pre); };
-  }
+  import { D } from "./schema.js";
+  const drawer = document.getElementById("debug-drawer");
+  if (D.on && drawer){
+    drawer.classList.add("visible");
+    const o = console.info;
+    console.info = (...args) => { o.apply(console, args); const pre=document.createElement("pre"); pre.textContent=args.map(a=>typeof a==='string'?a:JSON.stringify(a)).join(' '); drawer.appendChild(pre); };
+  }
 </script>
 
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import { initApp } from "./app.js";
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { initApp } from "./app.js";
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyAQcvZ9a2j4MHF04RjMHIey0R_iwnjZf4o",
-    authDomain: "tracking-d-habitudes.firebaseapp.com",
-    projectId: "tracking-d-habitudes",
-    storageBucket: "tracking-d-habitudes.firebasestorage.app",
-    messagingSenderId: "739389871966",
-    appId: "1:739389871966:web:684e26dbdfb0c0a69221cf",
-    measurementId: "G-ZPHWB5DKWF"
-  };
+  const firebaseConfig = {
+    apiKey: "AIzaSyAQcvZ9a2j4MHF04RjMHIey0R_iwnjZf4o",
+    authDomain: "tracking-d-habitudes.firebaseapp.com",
+    projectId: "tracking-d-habitudes",
+    storageBucket: "tracking-d-habitudes.firebasestorage.app",
+    messagingSenderId: "739389871966",
+    appId: "1:739389871966:web:684e26dbdfb0c0a69221cf",
+    measurementId: "G-ZPHWB5DKWF"
+  };
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
 
-  function getUidFromHash() {
-    const m = location.hash.match(/^#\/u\/([^/?#]+)/);
-    return m ? m[1] : null;
-  }
+  function getUidFromHash() {
+    const m = location.hash.match(/^#\/u\/([^/?#]+)/);
+    return m ? m[1] : null;
+  }
 
-  function boot() {
-    const uid = getUidFromHash();
-    if (!uid) {
-      const root = document.getElementById("view-root");
-      if (root) root.innerHTML = `<div class="card">Aucun UID dans l’URL.<br>Utilise un lien du type <code>${location.origin}${location.pathname}#/u/TON_UID</code></div>`;
-      return;
-    }
-    initApp({ app, db, user: { uid } });
-  }
+  function boot() {
+    const uid = getUidFromHash();
+    if (!uid) {
+      const root = document.getElementById("view-root");
+      if (root) root.innerHTML = `<div class="card">Aucun UID dans l’URL.<br>Utilise un lien du type <code>${location.origin}${location.pathname}#/u/TON_UID</code></div>`;
+      return;
+    }
+    initApp({ app, db, user: { uid } });
+  }
 
-  window.addEventListener("hashchange", boot);
-  boot();</script>
+  window.addEventListener("hashchange", boot);
+  boot();</script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </body>
