@@ -4,6 +4,7 @@ import {
   query, where, orderBy, getDocs, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import * as Schema from "./schema.js";
+import { col, docIn, D } from "./schema.js";
 
 function $(sel){ return document.querySelector(sel); }
 function el(tag, attrs={}, children=[]){
@@ -127,9 +128,9 @@ export async function openConsigneForm(ctx, consigne=null){
         ? { type:"daily" } : { type:"daysOfWeek", days: Array.from(document.querySelectorAll("#dow-picker input:checked")).map(cb => Number(cb.value)) };
     }
     if (consigne?.id){
-      await updateDoc(Schema.docRef(ctx.db, ctx.user.uid, "consignes", consigne.id), payload);
+      await updateDoc(docIn(ctx.db, ctx.user.uid, "consignes", consigne.id), payload);
     } else {
-      await addDoc(Schema.colRef(ctx.db, ctx.user.uid, "consignes"), payload);
+      await addDoc(col(ctx.db, ctx.user.uid, "consignes"), payload);
     }
     location.hash = (mode === "practice") ? "#/practice" : "#/daily";
   };
@@ -168,7 +169,7 @@ function controlsForConsigne(consigne){
 
 async function listConsignes(ctx, mode){
   const qy = query(
-    Schema.colRef(ctx.db, ctx.user.uid, "consignes"),
+    col(ctx.db, ctx.user.uid, "consignes"),
     where("mode","==",mode),
     where("active","==",true),
     orderBy("priority")
@@ -188,6 +189,7 @@ function groupByCategory(items){
 }
 
 async function saveResponse(ctx, consigne, mode, value){
+  D.group("modes.saveResponse", { consigneId: consigne.id, mode, value });
   const payload = {
     ownerUid: ctx.user.uid,
     consigneId: consigne.id,
@@ -201,7 +203,8 @@ async function saveResponse(ctx, consigne, mode, value){
   else answerKind = "yes";
   const upd = Schema.nextCooldownAfterAnswer(consigne, srPrev, answerKind);
   await Schema.upsertSRState(ctx.db, ctx.user.uid, consigne.id, mode, upd);
-  await addDoc(Schema.colRef(ctx.db, ctx.user.uid, "responses"), payload);
+  await addDoc(col(ctx.db, ctx.user.uid, "responses"), payload);
+  D.groupEnd();
 }
 
 function consigneCard(consigne, extraMeta=""){
@@ -233,9 +236,12 @@ function consigneCard(consigne, extraMeta=""){
 }
 
 export async function renderDashboard(ctx, root){
+  D.group("modes.renderDashboard");
   window.__ctx = ctx;
   const consignesDaily = await listConsignes(ctx, "daily");
   const consignesPractice = await listConsignes(ctx, "practice");
+  D.info("counts", { daily: consignesDaily.length, practice: consignesPractice.length });
+
   root.innerHTML = "";
   const top = el("div",{class:"kpi"});
   top.append(el("div",{class:"card"}, `Consignes (journalier): ${consignesDaily.length}`));
@@ -255,9 +261,12 @@ export async function renderDashboard(ctx, root){
   lists.append(el("div",{class:"card"}, el("div",{}, "Par catégorie (journalier)"), el("div",{}, Object.keys(g1).join(", ") || "—")));
   lists.append(el("div",{class:"card"}, el("div",{}, "Par catégorie (pratique)"), el("div",{}, Object.keys(g2).join(", ") || "—")));
   root.append(lists);
+
+  D.groupEnd();
 }
 
 export async function renderDaily(ctx, root){
+  D.group("modes.renderDaily");
   window.__ctx = ctx;
   const all = await listConsignes(ctx, "daily");
   const visible = [];
@@ -266,6 +275,8 @@ export async function renderDaily(ctx, root){
     const sr = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "daily");
     (Schema.isDueToday(c, sr) ? visible : hidden).push({ c, sr });
   }
+  D.info("visible/hidden", { visible: visible.length, hidden: hidden.length });
+
   const order = { high: 0, medium: 1, low: 2 };
   visible.sort((a,b) => (order[a.c.priority]-order[b.c.priority]));
   hidden.sort((a,b) => (order[a.c.priority]-order[b.c.priority]));
@@ -298,9 +309,11 @@ export async function renderDaily(ctx, root){
     det.append(inner);
     root.append(det);
   }
+  D.groupEnd();
 }
 
 export async function renderPractice(ctx, root, { newSession=false }={}){
+  D.group("modes.renderPractice", { newSession });
   window.__ctx = ctx;
   if (newSession){
     await startNewPracticeSession(ctx);
@@ -313,6 +326,7 @@ export async function renderPractice(ctx, root, { newSession=false }={}){
   const cats = Object.keys(groups);
   if (!cats.length) {
     root.append(el("div",{class:"card"}, "Aucune consigne de pratique. Ajoutez-en d’abord."));
+    D.groupEnd();
     return;
   }
   cats.forEach(c=> sel.append(el("option",{value:c}, c)));
@@ -350,23 +364,24 @@ export async function renderPractice(ctx, root, { newSession=false }={}){
   }
   sel.onchange = draw;
   draw();
+  D.groupEnd();
 }
 
 async function startNewPracticeSession(ctx){
   // on décrémente cooldownSessions>0 au début d'une nouvelle session
   const qy = query(
-    Schema.colRef(ctx.db, ctx.user.uid, "srStates"),
+    col(ctx.db, ctx.user.uid, "srStates"),
     where("mode","==","practice"),
     where("cooldownSessions",">",0)
   );
   const ss = await getDocs(qy);
   for (const d of ss.docs){
     const v = d.data().cooldownSessions || 0;
-    await updateDoc(Schema.docRef(ctx.db, ctx.user.uid, "srStates", d.id), {
+    await updateDoc(docIn(ctx.db, ctx.user.uid, "srStates", d.id), {
       cooldownSessions: Math.max(0, v-1), updatedAt: Schema.now(), ownerUid: ctx.user.uid
     });
   }
-  await addDoc(Schema.colRef(ctx.db, ctx.user.uid, "sessions"), {
+  await addDoc(col(ctx.db, ctx.user.uid, "sessions"), {
     ownerUid: ctx.user.uid, startedAt: Schema.now()
   });
 }
@@ -392,7 +407,7 @@ export async function renderHistory(ctx, root){
     tbody.innerHTML = "<tr><td colspan='5' class='muted'>Chargement…</td></tr>";
     const lim = Number(limitSel.value);
     const qy = query(
-      Schema.colRef(ctx.db, ctx.user.uid, "responses"),
+      col(ctx.db, ctx.user.uid, "responses"),
       orderBy("createdAt","desc"),
       limit(lim)
     );
@@ -400,7 +415,7 @@ export async function renderHistory(ctx, root){
     const rows = [];
     for (const d of ss.docs){
       const r = d.data();
-      const cSnap = await getDoc(Schema.docRef(ctx.db, ctx.user.uid, "consignes", r.consigneId));
+      const cSnap = await getDoc(docIn(ctx.db, ctx.user.uid, "consignes", r.consigneId));
       const cons = cSnap.exists() ? cSnap.data() : { text:"(supprimée)", category:"—" };
       if (modeSel.value!=="all" && r.mode !== modeSel.value) continue;
       rows.push({

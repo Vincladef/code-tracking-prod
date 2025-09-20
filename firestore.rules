@@ -1,31 +1,16 @@
+// Firestore rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Profil utilisateur (document à la racine /users/{uid})
-    match /users/{uid} {
-      // Lecture ouverte (tu donnes déjà le lien)
-      allow read: if true;
-
-      // Création / mise à jour : on exige ownerUid == uid si le champ est fourni
-      allow create, update: if
-        !('ownerUid' in request.resource.data) || request.resource.data.ownerUid == uid;
-
-      allow delete: if true;
+    // Espace par utilisateur via lien: /u/{uid}/...
+    match /u/{uid}/{document=**} {
+      allow read, write: if true;   // public par UID (non authentifié)
     }
 
-    // TOUTES les sous-collections de /users/{uid}/... (consignes, responses, srStates, goals, goalResponses, sessions, categories)
-    match /users/{uid}/{coll}/{doc} {
-      // Lecture ouverte (limité par le fait que le lien contient déjà le uid)
-      allow read: if true;
-
-      // Création : ownerUid doit être == uid
-      allow create: if request.resource.data.ownerUid == uid;
-
-      // Update/Delete : ownerUid immuable et == uid
-      allow update, delete: if
-        resource.data.ownerUid == uid &&
-        request.resource.data.ownerUid == uid;
+    // Tout le reste interdit (empêche d'utiliser les anciennes collections racine)
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
