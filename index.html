@@ -70,8 +70,8 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore }   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import { startRouter }    from "./app.js";
+  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { startRouter } from "./app.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyAQcvZ9a2j4MHF04RjMHIey0R_iwnjZf4o",
@@ -83,11 +83,10 @@
     measurementId: "G-ZPHWB5DKWF"
   };
 
-  // 1) Firebase
   const app = initializeApp(firebaseConfig);
-  const db  = getFirestore(app);
+  const db = getFirestore(app);
 
-  // 2) On laisse app.js décider : admin si pas d'UID, sinon user.
+  // One single entrypoint: the router decides “admin” vs “user”
   startRouter(app, db);
 </script>
 

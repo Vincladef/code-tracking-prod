@@ -32,9 +32,16 @@ function $$(sel) {
 }
 
 function routeTo(hash) {
+  // hash like "#/dashboard", "#/practice?new=1", etc.
   if (!hash) hash = "#/dashboard";
-  ctx.route = hash;
-  window.location.hash = hash;
+
+  // If we are currently on a user URL, prefix all routes with /u/{uid}/...
+  const m = (location.hash || "").match(/^#\/u\/([^/]+)/);
+  const base = m ? `#/u/${m[1]}/` : "#/";
+  const target = m ? base + hash.replace(/^#\//, "") : hash;
+
+  ctx.route = target;
+  window.location.hash = target;
   render();
 }
 
@@ -90,7 +97,7 @@ function handleRoute() {
       location.hash = "#/admin";
       return;
     }
-    // Monte l’espace utilisateur (initApp gère ensuite les écrans)
+    // Mount the user space (initApp handles the screens next)
     initApp({
       app: ctx.app,
       db: ctx.db,
@@ -105,14 +112,14 @@ function handleRoute() {
 }
 
 export function startRouter(app, db) {
-  // On garde app/db dans le contexte pour les écrans
+  // We keep app/db in the context for the screens
   ctx.app = app;
   ctx.db = db;
-  handleRoute(); // premier rendu
+  handleRoute(); // initial render
   window.addEventListener("hashchange", handleRoute); // navigation
 }
 
-// Fonction ensureProfile implémentée localement
+// Local ensureProfile function
 async function ensureProfile(db, uid) {
   const ref = doc(db, "u", uid);
   const snap = await getDoc(ref);
@@ -126,7 +133,7 @@ async function ensureProfile(db, uid) {
 }
 
 export async function initApp({ app, db, user }) {
-  // Réaffiche le sidebar en mode utilisateur
+  // Show the sidebar in user mode
   const sidebar = document.getElementById("sidebar");
   if (sidebar) sidebar.style.display = "";
 
@@ -166,7 +173,7 @@ function newUid() {
 }
 
 export function renderAdmin(db) {
-  // Optionnel: cacher la nav/aside si ton HTML en contient
+  // Hide the sidebar in admin mode
   const sidebar = document.getElementById("sidebar");
   if (sidebar) sidebar.style.display = "none";
 
@@ -220,15 +227,15 @@ async function loadUsers(db) {
   });
   list.innerHTML = items.join("") || "<div class='muted'>Aucun utilisateur</div>";
 
-  // Ajout du délégateur pour le clic
+  // Add a delegate for the click
   list.addEventListener("click", (e) => {
     const a = e.target.closest("a[data-uid]");
     if (!a) return;
-    // Si pas d’ouverture nouvel onglet, on route en local
+    // If it's not opening in a new tab, we route locally
     if (!a.target || a.target === "_self") {
       e.preventDefault();
       location.hash = `#/u/${a.dataset.uid}`;
-      // on force la route sans attendre l’événement (utile sur certains navigateurs)
+      // force the route without waiting for the event (useful on some browsers)
       handleRoute();
     }
   });
@@ -247,16 +254,30 @@ function renderUser(db, uid) {
 function render() {
   const root = document.getElementById("view-root");
   if (!root) return;
-  const [path, arg1] = ctx.route.replace(/^#\//, "").split("/");
-  const searchParams = new URLSearchParams(ctx.route.split("?")[1] || "");
-  switch (path) {
+
+  // tokens: ["u", "{uid}", "dashboard?new=1"] OR ["dashboard?..."]
+  const tokens = (ctx.route || location.hash || "#/dashboard")
+    .replace(/^#\//, "")
+    .split("/");
+
+  let section = tokens[0];
+  let sub = null;
+  if (section === "u") {
+    // Nested user routes
+    sub = tokens[2] || "dashboard"; // default screen for a user
+    ctx.user = { uid: tokens[1] }; // new: preserve the user UID
+  }
+
+  const qp = new URLSearchParams((ctx.route || "").split("?")[1] || "");
+
+  switch (section === "u" ? sub : section) {
     case "dashboard":
       return Modes.renderDashboard(ctx, root);
     case "daily":
       return Modes.renderDaily(ctx, root);
     case "practice":
       return Modes.renderPractice(ctx, root, {
-        newSession: searchParams.get("new") === "1"
+        newSession: qp.get("new") === "1"
       });
     case "history":
       return Modes.renderHistory(ctx, root);
@@ -264,9 +285,6 @@ function render() {
       return Goals.renderGoals(ctx, root);
     case "admin":
       return renderAdmin(ctx.db);
-    case "u":
-      window.location.hash = "#/dashboard";
-      return;
     default:
       root.innerHTML = "<div class='card'>Page inconnue.</div>";
   }
