@@ -17,46 +17,28 @@ function logStep(step, data) {
 export const ctx = {
   app: null,
   db: null,
-  user: null,         // { uid } passed by index.html
-  profile: null,     // profile doc
+  user: null, // { uid } passed by index.html
+  profile: null, // profile doc
   categories: [],
   route: "#/dashboard",
 };
 
-function $(sel){ return document.querySelector(sel); }
-function $$ (sel){ return Array.from(document.querySelectorAll(sel)); }
+function $(sel) {
+  return document.querySelector(sel);
+}
 
-function routeTo(hash){
+function $$(sel) {
+  return Array.from(document.querySelectorAll(sel));
+}
+
+function routeTo(hash) {
   if (!hash) hash = "#/dashboard";
   ctx.route = hash;
   window.location.hash = hash;
   render();
 }
 
-// NOTE: This function is replaced by the call to Schema.ensureProfile(db, uid)
-// so it is no longer needed. The profile logic is now centralized in schema.js.
-/*
-async function ensureProfile(){
-  const uid = ctx.user.uid;
-  const ref = doc(ctx.db, "users", uid);
-  const snap = await getDoc(ref);
-  if (!snap.exists()){
-    const slug = await Schema.generateSlug(ctx.db);
-    const profile = {
-      ownerUid: uid,
-      displayName: "Invité",
-      slug, createdAt: Schema.now(),
-      email: "",
-    };
-    await setDoc(ref, profile, { merge: true });
-    return profile;
-  } else {
-    return snap.data();
-  }
-}
-*/
-
-async function loadCategories(){
+async function loadCategories() {
   // Categories are per user, default fallback if empty
   const uid = ctx.user.uid;
   const cats = await Schema.fetchCategories(ctx.db, uid);
@@ -64,7 +46,7 @@ async function loadCategories(){
   renderSidebar();
 }
 
-function renderSidebar(){
+function renderSidebar() {
   const box = $("#profile-box");
   if (!box) return;
   const link = `${location.origin}${location.pathname}#/u/${ctx.user.uid}`;
@@ -75,14 +57,14 @@ function renderSidebar(){
   `;
   const catBox = $("#category-box");
   if (!catBox) return;
-  if (!ctx.categories.length){
+  if (!ctx.categories.length) {
     catBox.innerHTML = '<span class="muted">Aucune catégorie. Elles seront créées automatiquement lors de l’ajout d’une consigne.</span>';
   } else {
     catBox.innerHTML = ctx.categories.map(c => `<div class="flex"><span>${c.name}</span><span class="pill">${c.mode}</span></div>`).join("");
   }
 }
 
-function bindNav(){
+function bindNav() {
   $$("button[data-route]").forEach(btn => {
     btn.onclick = () => routeTo(btn.getAttribute("data-route"));
   });
@@ -91,7 +73,7 @@ function bindNav(){
   $("#btn-add-goal").onclick = () => Goals.openGoalForm(ctx);
 }
 
-export async function initApp({ app, db, user }){
+export async function initApp({ app, db, user }) {
   L.group("app.init", user?.uid);
   if (!user || !user.uid) {
     L.error("No UID in context");
@@ -105,7 +87,7 @@ export async function initApp({ app, db, user }){
   const profile = await Schema.ensureProfile(db, user.uid);
   ctx.profile = profile;
   L.info("Profile loaded:", profile);
-  
+
   // Display profile in the sidebar
   const box = document.getElementById("profile-box");
   if (box) box.innerHTML = `<div><b>UID:</b> ${user.uid}<br><span class="muted">Profil chargé.</span></div>`;
@@ -122,7 +104,7 @@ export async function initApp({ app, db, user }){
   L.groupEnd();
 }
 
-function newUid(){
+function newUid() {
   // Simple, readable, unique UID
   return "u-" + Math.random().toString(36).slice(2, 10);
 }
@@ -139,13 +121,16 @@ function renderAdmin(db) {
   `;
 
   // écouter le submit
-  document.getElementById("new-user-form").addEventListener("submit", async (e) => {
+  document.getElementById("new-user-form").addEventListener("submit", async(e) => {
     e.preventDefault();
     const name = document.getElementById("new-user-name").value.trim();
     if (!name) return;
 
     const uid = newUid(); // générer un identifiant unique
-    await setDoc(doc(db, "users", uid), { name, createdAt: Date.now() });
+    await setDoc(doc(db, "users", uid), {
+      name,
+      createdAt: Date.now()
+    });
 
     console.info("Nouvel utilisateur créé:", uid);
     renderAdmin(db); // recharger la liste
@@ -170,35 +155,47 @@ async function loadUsers(db) {
   });
 }
 
+function renderUser(db, uid) {
+  initApp({
+    app,
+    db,
+    user: {
+      uid
+    }
+  });
+}
+
 function boot() {
   const hash = location.hash;
   if (hash.startsWith("#/admin")) {
-    renderAdmin(db);
+    renderAdmin(db); // page admin
   } else if (hash.startsWith("#/u/")) {
     const uid = hash.split("/")[2];
     if (uid) {
-      initApp({ app, db, user: { uid } });
+      renderUser(db, uid); // page utilisateur
     } else {
-      document.getElementById("view-root").innerHTML = "<div class='card'>Utilisateur introuvable.</div>";
+      document.getElementById("view-root").innerHTML =
+        "<div class='card'>Utilisateur introuvable.</div>";
     }
   } else {
-    // par défaut -> redirection vers admin
-    location.hash = "#/admin";
+    location.hash = "#/admin"; // redirection par défaut
   }
 }
 
-function render(){
+function render() {
   const root = document.getElementById("view-root");
   if (!root) return;
-  const [path, arg1] = ctx.route.replace(/^#\//,"").split("/");
+  const [path, arg1] = ctx.route.replace(/^#\//, "").split("/");
   const searchParams = new URLSearchParams(ctx.route.split("?")[1] || "");
-  switch(path){
+  switch (path) {
     case "dashboard":
       return Modes.renderDashboard(ctx, root);
     case "daily":
       return Modes.renderDaily(ctx, root);
     case "practice":
-      return Modes.renderPractice(ctx, root, { newSession: searchParams.get("new")==="1" });
+      return Modes.renderPractice(ctx, root, {
+        newSession: searchParams.get("new") === "1"
+      });
     case "history":
       return Modes.renderHistory(ctx, root);
     case "goals":

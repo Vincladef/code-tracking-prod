@@ -49,11 +49,6 @@ export function newUid() {
   return Math.random().toString(36).substring(2, 10);
 }
 
-export async function createUser(db, name) {
-  const id = "u-" + newUid();
-  return { id, name };
-}
-
 // --- Algo : due & spaced repetition ---
 export function isDueToday(consigne, srState, date = new Date()){
   const day = date.getDay(); // 0 Sun .. 6 Sat
@@ -118,9 +113,6 @@ export async function readSRState(db, uid, consigneId, mode){
 }
 
 // --- Nouvelles collections /u/{uid}/... ---
-// NOTE: These functions need to be added to the schema.js
-//       as they are not present in the user's initial code block.
-
 export async function fetchConsignes(db, uid, mode) {
   const qy = query(
     col(db, uid, "consignes"),
@@ -182,22 +174,4 @@ export async function startNewPracticeSession(db, uid) {
     ownerUid: uid,
     startedAt: now()
   });
-}
-
-// Ensure the profile doc exists for a given UID
-export async function ensureProfile(db, uid) {
-  const ref = doc(db, "users", uid);
-  const snap = await getDoc(ref);
-  if (snap.exists()) {
-    return snap.data();
-  } else {
-    // Generate a default profile
-    const profile = {
-      ownerUid: uid,
-      displayName: "Invité",
-      createdAt: now(),
-    };
-    await setDoc(ref, profile);
-    return profile;
-  }
 }
