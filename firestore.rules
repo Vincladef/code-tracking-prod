@@ -2,61 +2,30 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Vérifie que le champ ownerUid existe
-    function hasOwnerExisting() {
-      return resource.data.ownerUid != null;
-    }
-
-    function hasOwnerNew() {
-      return request.resource.data.ownerUid != null;
-    }
-
-    // -------- USERS --------
+    // Profil utilisateur (document à la racine /users/{uid})
     match /users/{uid} {
-      allow read, write: if hasOwnerExisting() || hasOwnerNew();
+      // Lecture ouverte (tu donnes déjà le lien)
+      allow read: if true;
+
+      // Création / mise à jour : on exige ownerUid == uid si le champ est fourni
+      allow create, update: if
+        !('ownerUid' in request.resource.data) || request.resource.data.ownerUid == uid;
+
+      allow delete: if true;
     }
 
-    // -------- AUTRES COLLECTIONS --------
-    match /categories/{id} {
-      allow read: if hasOwnerExisting();
-      allow create: if hasOwnerNew();
-      allow update, delete: if hasOwnerExisting();
-    }
+    // TOUTES les sous-collections de /users/{uid}/... (consignes, responses, srStates, goals, goalResponses, sessions, categories)
+    match /users/{uid}/{coll}/{doc} {
+      // Lecture ouverte (limité par le fait que le lien contient déjà le uid)
+      allow read: if true;
 
-    match /consignes/{id} {
-      allow read: if hasOwnerExisting();
-      allow create: if hasOwnerNew();
-      allow update, delete: if hasOwnerExisting();
-    }
+      // Création : ownerUid doit être == uid
+      allow create: if request.resource.data.ownerUid == uid;
 
-    match /responses/{id} {
-      allow read: if hasOwnerExisting();
-      allow create: if hasOwnerNew();
-      allow update, delete: if hasOwnerExisting();
-    }
-
-    match /srStates/{id} {
-      allow read: if hasOwnerExisting();
-      allow create: if hasOwnerNew();
-      allow update, delete: if hasOwnerExisting();
-    }
-
-    match /sessions/{id} {
-      allow read: if hasOwnerExisting();
-      allow create: if hasOwnerNew();
-      allow update, delete: if hasOwnerExisting();
-    }
-
-    match /goals/{id} {
-      allow read: if hasOwnerExisting();
-      allow create: if hasOwnerNew();
-      allow update, delete: if hasOwnerExisting();
-    }
-
-    match /goalResponses/{id} {
-      allow read: if hasOwnerExisting();
-      allow create: if hasOwnerNew();
-      allow update, delete: if hasOwnerExisting();
+      // Update/Delete : ownerUid immuable et == uid
+      allow update, delete: if
+        resource.data.ownerUid == uid &&
+        request.resource.data.ownerUid == uid;
     }
   }
 }
