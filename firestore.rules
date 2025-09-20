@@ -1,43 +1,62 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isOwner() {
-      return request.auth != null && request.auth.uid == resource.data.ownerUid;
-    }
-    function isOwnerNew(data) {
-      return request.auth != null && request.auth.uid == data.ownerUid;
+
+    // Vérifie que le champ ownerUid existe
+    function hasOwnerExisting() {
+      return resource.data.ownerUid != null;
     }
 
+    function hasOwnerNew() {
+      return request.resource.data.ownerUid != null;
+    }
+
+    // -------- USERS --------
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if hasOwnerExisting() || hasOwnerNew();
     }
 
+    // -------- AUTRES COLLECTIONS --------
     match /categories/{id} {
-      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+      allow read: if hasOwnerExisting();
+      allow create: if hasOwnerNew();
+      allow update, delete: if hasOwnerExisting();
     }
 
     match /consignes/{id} {
-      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+      allow read: if hasOwnerExisting();
+      allow create: if hasOwnerNew();
+      allow update, delete: if hasOwnerExisting();
     }
 
     match /responses/{id} {
-      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+      allow read: if hasOwnerExisting();
+      allow create: if hasOwnerNew();
+      allow update, delete: if hasOwnerExisting();
     }
 
     match /srStates/{id} {
-      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+      allow read: if hasOwnerExisting();
+      allow create: if hasOwnerNew();
+      allow update, delete: if hasOwnerExisting();
     }
 
     match /sessions/{id} {
-      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+      allow read: if hasOwnerExisting();
+      allow create: if hasOwnerNew();
+      allow update, delete: if hasOwnerExisting();
     }
 
     match /goals/{id} {
-      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+      allow read: if hasOwnerExisting();
+      allow create: if hasOwnerNew();
+      allow update, delete: if hasOwnerExisting();
     }
 
     match /goalResponses/{id} {
-      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+      allow read: if hasOwnerExisting();
+      allow create: if hasOwnerNew();
+      allow update, delete: if hasOwnerExisting();
     }
   }
 }
