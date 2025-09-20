@@ -1,6 +1,6 @@
 // app.js — bootstrapping, routing, context, nav
 import {
-  getFirestore, doc, setDoc, getDoc, collection, query, where, orderBy, limit, getDocs
+  getFirestore, doc, setDoc, getDoc, collection, query, where, orderBy, limit, getDocs, collectionGroup
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import * as Schema from "./schema.js";
 import * as Modes from "./modes.js";
@@ -75,18 +75,15 @@ function bindNav() {
 
 // Fonction ensureProfile implémentée localement
 async function ensureProfile(db, uid) {
-  const docRef = doc(db, "profiles", uid);
-  const docSnap = await getDoc(docRef);
-  if (docSnap.exists()) {
-    return docSnap.data();
-  } else {
-    const newProfile = {
-      displayName: "Nouvel Utilisateur",
-      createdAt: Date.now()
-    };
-    await setDoc(docRef, newProfile);
-    return newProfile;
-  }
+  const ref = doc(db, "u", uid);
+  const snap = await getDoc(ref);
+  if (snap.exists()) return snap.data();
+  const newProfile = {
+    displayName: "Nouvel utilisateur",
+    createdAt: new Date().toISOString()
+  };
+  await setDoc(ref, newProfile);
+  return newProfile;
 }
 
 export async function initApp({ app, db, user }) {
@@ -126,49 +123,55 @@ function newUid() {
 }
 
 export function renderAdmin(db) {
+  // Optionnel: cacher la nav/aside si ton HTML en contient
+  const sidebar = document.getElementById("sidebar");
+  if (sidebar) sidebar.style.display = "none";
+
   const root = document.getElementById("view-root");
   root.innerHTML = `
-    <h2>Admin – Gestion des utilisateurs</h2>
-    <form id="new-user-form" class="card">
-      <input type="text" id="new-user-name" placeholder="Nom" required />
-      <button class="btn primary" type="submit">Ajouter un utilisateur</button>
-    </form>
-    <div id="user-list" class="list"></div>
+    <div class="grid" style="gap:12px">
+      <h2>Admin — Utilisateurs</h2>
+      <form id="new-user-form" class="card" style="display:grid;gap:8px;max-width:420px">
+        <input class="input" type="text" id="new-user-name" placeholder="Nom de l’utilisateur" required />
+        <button class="btn primary" type="submit">Créer l’utilisateur</button>
+      </form>
+      <div class="card"><b>Utilisateurs existants</b><div id="user-list" class="list" style="margin-top:8px"></div></div>
+    </div>
   `;
 
-  // écouter le submit
   document.getElementById("new-user-form").addEventListener("submit", async(e) => {
     e.preventDefault();
     const name = document.getElementById("new-user-name").value.trim();
     if (!name) return;
-
-    const uid = newUid(); // générer un identifiant unique
-    await setDoc(doc(db, "users", uid), {
-      name,
-      createdAt: Date.now()
+    const uid = newUid();
+    await setDoc(doc(db, "u", uid), {
+      displayName: name,
+      createdAt: new Date().toISOString()
     });
-
     console.info("Nouvel utilisateur créé:", uid);
-    renderAdmin(db); // recharger la liste
+    loadUsers(db);
   });
 
-  // afficher la liste existante
   loadUsers(db);
 }
 
 async function loadUsers(db) {
   const list = document.getElementById("user-list");
-  const q = await getDocs(collection(db, "users"));
-  list.innerHTML = "";
-  q.forEach(docSnap => {
-    const data = docSnap.data();
-    const uid = docSnap.id;
+  list.innerHTML = "<div class='muted'>Chargement…</div>";
+  const ss = await getDocs(collection(db, "u"));
+  const items = [];
+  ss.forEach(d => {
+    const data = d.data();
+    const uid = d.id;
     const link = `${location.origin}${location.pathname}#/u/${uid}`;
-    const item = document.createElement("div");
-    item.className = "card";
-    item.innerHTML = `<strong>${data.name}</strong><br><a href="${link}">${link}</a>`;
-    list.appendChild(item);
+    items.push(`
+      <div class="card" style="display:flex;justify-content:space-between;align-items:center">
+        <div><b>${data.displayName || "(sans nom)"}</b><br><span class="muted">UID: ${uid}</span></div>
+        <a class="btn small" href="${link}">Ouvrir</a>
+      </div>
+    `);
   });
+  list.innerHTML = items.join("") || "<div class='muted'>Aucun utilisateur</div>";
 }
 
 function renderUser(db, uid) {

@@ -1,12 +1,21 @@
-// schema.js — data types, helpers, spaced repetition logic (version sous-collections /users/{uid}/...)
+// --- DEBUG LOGGER (utilisé par index.html et app.js)
+export const D = {
+  on: true, // passe à false pour couper le tiroir de logs
+  info:  (...a) => console.info(...a),
+  warn:  (...a) => console.warn(...a),
+  error: (...a) => console.error(...a),
+  group: (...a) => console.group(...a),
+  groupEnd:     () => console.groupEnd(),
+};
+// --- Helpers de chemin /u/{uid}/...
 import {
-  collection, doc, setDoc, getDoc, getDocs, addDoc, query, where, orderBy, serverTimestamp, updateDoc, limit
+  collection, doc, setDoc, getDoc, getDocs, addDoc, query, where, orderBy, updateDoc, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// --- helpers chemin + logger global ---
-export const col = (db, uid, name) => collection(db, "users", uid, name);
-export const docIn = (db, uid, name, id) => doc(db, "users", uid, name, id);
+export const col   = (db, uid, name)       => collection(db, "u", uid, name);
+export const docIn = (db, uid, name, id)   => doc(db, "u", uid, name, id);
 
+// Timestamp lisible (les graphs lisent une chaîne)
 export const now = () => new Date().toISOString();
 export const todayKey = (d = new Date()) => d.toISOString().slice(0,10); // YYYY-MM-DD
 
@@ -175,12 +184,3 @@ export async function startNewPracticeSession(db, uid) {
     startedAt: now()
   });
 }
-
-// Logger object for debugging
-export const D = {
-  on: true, // false en prod
-  info: console.info.bind(console),
-  error: console.error.bind(console),
-  group: console.group ? console.group.bind(console) : console.log.bind(console),
-  groupEnd: console.groupEnd ? console.groupEnd.bind(console) : ()=>{},
-};
