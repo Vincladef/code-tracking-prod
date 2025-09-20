@@ -16,9 +16,9 @@ function el(tag, attrs={}, children=[]){
 export function openGoalForm(ctx, goal=null){
   const root = $("#view-root");
   const isEdit = !!goal;
-  root.innerHTML = \`
+  root.innerHTML = `
     <div class="grid">
-      <div class="section-title"><h2>\${isEdit?"Modifier":"Créer"} un objectif</h2></div>
+      <div class="section-title"><h2>${isEdit?"Modifier":"Créer"} un objectif</h2></div>
       <div class="grid cols-2">
         <div class="field"><label>Titre de l’objectif</label><input id="g-title" placeholder="Ex. Améliorer ma posture"></div>
         <div class="field"><label>Catégorie</label><input id="g-cat" placeholder="Santé, Apprentissage…"></div>
@@ -61,7 +61,7 @@ export function openGoalForm(ctx, goal=null){
         <button class="btn" id="g-cancel">Annuler</button>
       </div>
     </div>
-  \`;
+  `;
   if (isEdit){
     $("#g-title").value = goal.title || "";
     $("#g-cat").value = goal.category || "";
@@ -114,7 +114,7 @@ function section(title, items){
   for (const g of items){
     const card = el("div",{class:"card"});
     card.append(el("div",{class:"flex"}, el("div",{style:"font-weight:600"}, g.title), el("span",{class:"badge "+g.priority}, g.priority)));
-    card.append(el("div",{class:"muted"}, \`\${g.category} • \${g.temporalUnit}\`));
+    card.append(el("div",{class:"muted"}, `${g.category} • ${g.temporalUnit}`));
     const btns = el("div",{class:"flex"});
     btns.append(el("button",{class:"btn small", onclick:()=>openGoalForm(window.__ctx, g)},"Modifier"));
     btns.append(el("button",{class:"btn small", onclick:()=>openGoalTracker(window.__ctx, g)},"Suivi"));
@@ -165,7 +165,7 @@ export async function openGoalTracker(ctx, goal){
   const root = $("#view-root");
   root.innerHTML = "";
   root.append(el("h2",{}, goal.title));
-  root.append(el("div",{class:"muted"}, \`\${goal.category} • \${goal.temporalUnit}\`));
+  root.append(el("div",{class:"muted"}, `${goal.category} • ${goal.temporalUnit}`));
 
   const ctrl = answerControls(goal);
   ctrl.addEventListener("click", async (e)=>{
