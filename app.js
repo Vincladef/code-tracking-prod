@@ -102,47 +102,47 @@ export async function initApp({ app, db, user }){
 }
 
 function newUid(){
-  // UID simple, lisible, unique
-  return "u-" + Math.random().toString(36).slice(2, 10);
+  // UID simple, lisible, unique
+  return "u-" + Math.random().toString(36).slice(2, 10);
 }
 
 export function renderAdmin(ctx, root){
-  root.innerHTML = `
-    <div class="grid">
-      <div class="section-title">
-        <h2>Admin — Créer un utilisateur</h2>
-      </div>
+  root.innerHTML = `
+    <div class="grid">
+      <div class="section-title">
+        <h2>Admin — Créer un utilisateur</h2>
+      </div>
 
-      <div class="grid cols-2">
-        <div class="field">
-          <label>Nom/Pseudo</label>
-          <input id="adm-name" placeholder="Ex. Alice" />
-        </div>
-        <div class="field">
-          <label>&nbsp;</label>
-          <button class="btn primary" id="adm-create">Créer</button>
-        </div>
-      </div>
+      <div class="grid cols-2">
+        <div class="field">
+          <label>Nom/Pseudo</label>
+          <input id="adm-name" placeholder="Ex. Alice" />
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="btn primary" id="adm-create">Créer</button>
+        </div>
+      </div>
 
-      <div id="adm-out" class="card muted" style="margin-top:8px;">Aucun lien généré pour l’instant.</div>
-    </div>
-  `;
+      <div id="adm-out" class="card muted" style="margin-top:8px;">Aucun lien généré pour l’instant.</div>
+    </div>
+  `;
 
-  const out = document.getElementById("adm-out");
-  document.getElementById("adm-create").onclick = async () => {
-    const name = (document.getElementById("adm-name").value || "").trim() || "Utilisateur";
-    const uid = newUid();
+  const out = document.getElementById("adm-out");
+  document.getElementById("adm-create").onclick = async () => {
+    const name = (document.getElementById("adm-name").value || "").trim() || "Utilisateur";
+    const uid = newUid();
 
-    await setDoc(doc(ctx.db, "users", uid), {
-      displayName: name,
-      createdAt: new Date().toISOString()
-    });
+    await setDoc(doc(ctx.db, "users", uid), {
+      displayName: name,
+      createdAt: new Date().toISOString()
+    });
 
-    const link = `${location.origin}${location.pathname}#/u/${uid}`;
-    out.innerHTML = `Utilisateur <strong>${name}</strong> créé.<br>
-      Lien : <a class="link" href="${link}">${link}</a><br>
-      Donne-lui ce lien.`;
-  };
+    const link = `${location.origin}${location.pathname}#/u/${uid}`;
+    out.innerHTML = `Utilisateur <strong>${name}</strong> créé.<br>
+      Lien : <a class="link" href="${link}">${link}</a><br>
+      Donne-lui ce lien.`;
+  };
 }
 
 function render(){
@@ -161,8 +161,8 @@ function render(){
       return Modes.renderHistory(ctx, root);
     case "goals":
       return Goals.renderGoals(ctx, root);
-    case "admin":
-      return renderAdmin(ctx, root);
+    case "admin":
+      return renderAdmin(ctx, root);
     case "u":
       window.location.hash = "#/dashboard";
       return;

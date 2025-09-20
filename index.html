@@ -63,6 +63,7 @@
       <button class="btn small" data-route="#/practice">Pratique Délibérée</button>
       <button class="btn small" data-route="#/goals">Objectifs</button>
       <button class="btn small" data-route="#/history">Historique</button>
+      <button class="btn small" data-route="#/admin">Admin</button>
     </nav>
   </div>
 </header>
@@ -99,40 +100,40 @@
 </footer>
 
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import { initApp } from "./app.js";
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { initApp } from "./app.js";
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyAQcvZ9a2j4MHF04RjMHIey0R_iwnjZf4o",
-    authDomain: "tracking-d-habitudes.firebaseapp.com",
-    projectId: "tracking-d-habitudes",
-    storageBucket: "tracking-d-habitudes.firebasestorage.app",
-    messagingSenderId: "739389871966",
-    appId: "1:739389871966:web:684e26dbdfb0c0a69221cf",
-    measurementId: "G-ZPHWB5DKWF"
-  };
+  const firebaseConfig = {
+    apiKey: "AIzaSyAQcvZ9a2j4MHF04RjMHIey0R_iwnjZf4o",
+    authDomain: "tracking-d-habitudes.firebaseapp.com",
+    projectId: "tracking-d-habitudes",
+    storageBucket: "tracking-d-habitudes.firebasestorage.app",
+    messagingSenderId: "739389871966",
+    appId: "1:739389871966:web:684e26dbdfb0c0a69221cf",
+    measurementId: "G-ZPHWB5DKWF"
+  };
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
 
-  function getUidFromHash() {
-    const m = location.hash.match(/^#\/u\/([^/?#]+)/);
-    return m ? m[1] : null;
-  }
+  function getUidFromHash() {
+    const m = location.hash.match(/^#\/u\/([^/?#]+)/);
+    return m ? m[1] : null;
+  }
 
-  function boot() {
-    const uid = getUidFromHash();
-    if (!uid) {
-      const root = document.getElementById("view-root");
-      if (root) root.innerHTML = `<div class="card">Aucun UID dans l’URL.<br>Utilise un lien du type <code>${location.origin}${location.pathname}#/u/TON_UID</code></div>`;
-      return;
-    }
-    initApp({ app, db, user: { uid } });
-  }
+  function boot() {
+    const uid = getUidFromHash();
+    if (!uid) {
+      const root = document.getElementById("view-root");
+      if (root) root.innerHTML = `<div class="card">Aucun UID dans l’URL.<br>Utilise un lien du type <code>${location.origin}${location.pathname}#/u/TON_UID</code></div>`;
+      return;
+    }
+    initApp({ app, db, user: { uid } });
+  }
 
-  window.addEventListener("hashchange", boot);
-  boot();</script>
+  window.addEventListener("hashchange", boot);
+  boot();</script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </body>
