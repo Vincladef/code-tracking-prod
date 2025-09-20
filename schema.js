@@ -175,3 +175,12 @@ export async function startNewPracticeSession(db, uid) {
     startedAt: now()
   });
 }
+
+// Logger object for debugging
+export const D = {
+  on: true, // false en prod
+  info: console.info.bind(console),
+  error: console.error.bind(console),
+  group: console.group ? console.group.bind(console) : console.log.bind(console),
+  groupEnd: console.groupEnd ? console.groupEnd.bind(console) : ()=>{},
+};

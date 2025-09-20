@@ -20,7 +20,7 @@ export const ctx = {
   user: null, // { uid } passed by index.html
   profile: null, // profile doc
   categories: [],
-  route: "#/admin", // default route changed to admin
+  route: "#/dashboard",
 };
 
 function $(sel) {
@@ -32,7 +32,7 @@ function $$(sel) {
 }
 
 function routeTo(hash) {
-  if (!hash) hash = "#/admin"; // default route changed
+  if (!hash) hash = "#/dashboard";
   ctx.route = hash;
   window.location.hash = hash;
   render();
@@ -53,18 +53,40 @@ function renderSidebar() {
   box.innerHTML = `
     <div><strong>${ctx.profile.displayName || "Utilisateur"}</strong></div>
     <div class="muted">UID : <code>${ctx.user.uid}</code></div>
-    <div class="muted"><a class="link" href="${link}">Ouvrir profil</a></div>
+    <div class="muted">Lien direct : <a class="link" href="${link}">${link}</a></div>
   `;
+  const catBox = $("#category-box");
+  if (!catBox) return;
+  if (!ctx.categories.length) {
+    catBox.innerHTML = '<span class="muted">Aucune catégorie. Elles seront créées automatiquement lors de l’ajout d’une consigne.</span>';
+  } else {
+    catBox.innerHTML = ctx.categories.map(c => `<div class="flex"><span>${c.name}</span><span class="pill">${c.mode}</span></div>`).join("");
+  }
 }
 
 function bindNav() {
   $$("button[data-route]").forEach(btn => {
     btn.onclick = () => routeTo(btn.getAttribute("data-route"));
   });
-  // Commented or deleted unused buttons
-  // $("#btn-new-session").onclick = () => routeTo("#/practice?new=1");
-  // $("#btn-add-consigne").onclick = () => Modes.openConsigneForm(ctx);
-  // $("#btn-add-goal").onclick = () => Goals.openGoalForm(ctx);
+  $("#btn-new-session").onclick = () => routeTo("#/practice?new=1");
+  $("#btn-add-consigne").onclick = () => Modes.openConsigneForm(ctx);
+  $("#btn-add-goal").onclick = () => Goals.openGoalForm(ctx);
+}
+
+// Fonction ensureProfile implémentée localement
+async function ensureProfile(db, uid) {
+  const docRef = doc(db, "profiles", uid);
+  const docSnap = await getDoc(docRef);
+  if (docSnap.exists()) {
+    return docSnap.data();
+  } else {
+    const newProfile = {
+      displayName: "Nouvel Utilisateur",
+      createdAt: Date.now()
+    };
+    await setDoc(docRef, newProfile);
+    return newProfile;
+  }
 }
 
 export async function initApp({ app, db, user }) {
@@ -78,7 +100,7 @@ export async function initApp({ app, db, user }) {
   ctx.db = db;
   ctx.user = user;
 
-  const profile = await Schema.ensureProfile(db, user.uid);
+  const profile = await ensureProfile(db, user.uid);
   ctx.profile = profile;
   L.info("Profile loaded:", profile);
 
@@ -86,13 +108,12 @@ export async function initApp({ app, db, user }) {
   const box = document.getElementById("profile-box");
   if (box) box.innerHTML = `<div><b>UID:</b> ${user.uid}<br><span class="muted">Profil chargé.</span></div>`;
 
-  // Commented out unused functions
-  // await loadCategories();
-  // bindNav();
+  await loadCategories();
+  bindNav();
 
-  ctx.route = location.hash || "#/admin"; // default route changed to admin
+  ctx.route = location.hash || "#/dashboard";
   window.addEventListener("hashchange", () => {
-    ctx.route = location.hash || "#/admin"; // default route changed to admin
+    ctx.route = location.hash || "#/dashboard";
     render();
   });
   render();
@@ -104,7 +125,7 @@ function newUid() {
   return "u-" + Math.random().toString(36).slice(2, 10);
 }
 
-function renderAdmin(db) {
+export function renderAdmin(db) {
   const root = document.getElementById("view-root");
   root.innerHTML = `
     <h2>Admin – Gestion des utilisateurs</h2>
@@ -152,7 +173,7 @@ async function loadUsers(db) {
 
 function renderUser(db, uid) {
   initApp({
-    app: ctx.app,
+    app,
     db,
     user: {
       uid
@@ -161,25 +182,46 @@ function renderUser(db, uid) {
 }
 
 function boot() {
-  render(); // delegate to render()
+  const hash = location.hash;
+  if (hash.startsWith("#/admin")) {
+    renderAdmin(ctx.db); // page admin
+  } else if (hash.startsWith("#/u/")) {
+    const uid = hash.split("/")[2];
+    if (uid) {
+      renderUser(ctx.db, uid); // page utilisateur
+    } else {
+      document.getElementById("view-root").innerHTML =
+        "<div class='card'>Utilisateur introuvable.</div>";
+    }
+  } else {
+    location.hash = "#/admin"; // redirection par défaut
+  }
 }
 
 function render() {
   const root = document.getElementById("view-root");
   if (!root) return;
-
-  const hash = location.hash;
-
-  if (hash.startsWith("#/admin")) {
-    renderAdmin(ctx.db);
-  } else if (hash.startsWith("#/u/")) {
-    const uid = hash.split("/")[2];
-    if (uid) {
-      renderUser(ctx.db, uid);
-    } else {
-      root.innerHTML = "<div class='card'>Utilisateur introuvable.</div>";
-    }
-  } else {
-    location.hash = "#/admin"; // default to admin
+  const [path, arg1] = ctx.route.replace(/^#\//, "").split("/");
+  const searchParams = new URLSearchParams(ctx.route.split("?")[1] || "");
+  switch (path) {
+    case "dashboard":
+      return Modes.renderDashboard(ctx, root);
+    case "daily":
+      return Modes.renderDaily(ctx, root);
+    case "practice":
+      return Modes.renderPractice(ctx, root, {
+        newSession: searchParams.get("new") === "1"
+      });
+    case "history":
+      return Modes.renderHistory(ctx, root);
+    case "goals":
+      return Goals.renderGoals(ctx, root);
+    case "admin":
+      return renderAdmin(ctx.db);
+    case "u":
+      window.location.hash = "#/dashboard";
+      return;
+    default:
+      root.innerHTML = "<div class='card'>Page inconnue.</div>";
   }
 }
