@@ -1,438 +1,394 @@
-// modes.js — Daily & Practice UI, history, consigne management (version sous-collections /users/{uid}/...)
+// modes.js — Consignes + Vues Journalier / Pratique / Dashboard / Historique
 import {
-  collection, doc, setDoc, getDoc, addDoc, updateDoc,
-  query, where, orderBy, getDocs, limit
+  addDoc, setDoc, updateDoc, deleteDoc, doc, getDoc, getDocs,
+  collection, query, where, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import * as Schema from "./schema.js";
-import { col, docIn, D } from "./schema.js";
+import { col, docIn, now } from "./schema.js";
 
+// ---------- petites aides DOM ----------
 function $(sel){ return document.querySelector(sel); }
 function el(tag, attrs={}, children=[]){
   const n = document.createElement(tag);
-  Object.entries(attrs).forEach(([k,v]) => (k==="class") ? n.className=v : n.setAttribute(k,v));
-  (Array.isArray(children)?children:[children]).forEach(c => n.append(c.nodeType?c:document.createTextNode(c)));
+  Object.entries(attrs).forEach(([k,v])=>{
+    if (k === "class") n.className = v;
+    else if (k === "style") n.setAttribute("style", v);
+    else if (k.startsWith("on") && typeof v === "function") n[k] = v;
+    else n.setAttribute(k, v);
+  });
+  (Array.isArray(children) ? children : [children])
+    .forEach(c => n.append(c?.nodeType ? c : document.createTextNode(c ?? "")));
   return n;
 }
 
-export async function openConsigneForm(ctx, consigne=null){
-  const root = $("#view-root");
-  const isEdit = !!consigne;
-  root.innerHTML = `
-    <div class="grid">
-      <div class="section-title">
-        <h2>${isEdit?"Modifier":"Ajouter"} une consigne</h2>
-      </div>
-      <div class="grid cols-2">
-        <div class="field">
-          <label>Texte</label>
-          <textarea id="c-text" placeholder="Ex. : Est-ce que je me suis étiré ce matin ?"></textarea>
-        </div>
-        <div class="grid">
-          <div class="field">
-            <label>Catégorie</label>
-            <input id="c-cat" placeholder="Ex. Santé, Musique…" />
-          </div>
-          <div class="field">
-            <label>Mode</label>
-            <select id="c-mode">
-              <option value="daily">Journalier</option>
-              <option value="practice">Pratique délibérée</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Type de réponse</label>
-            <select id="c-type">
-              <option value="likert6">Échelle de Likert (6)</option>
-              <option value="num">Échelle numérique (1-10)</option>
-              <option value="short">Texte court</option>
-              <option value="long">Texte long</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Priorité</label>
-            <select id="c-priority">
-              <option value="high">Haute</option>
-              <option value="medium" selected>Moyenne</option>
-              <option value="low">Basse</option>
-            </select>
-          </div>
-          <div class="field" id="freq-box">
-            <label>Fréquence (Journalier)</label>
-            <select id="c-frequency">
-              <option value="daily" selected>Quotidienne</option>
-              <option value="dow">Jours spécifiques</option>
-            </select>
-            <div id="dow-picker" class="muted" style="margin-top:6px;">
-              <label><input type="checkbox" value="1" checked> Lun</label>
-              <label><input type="checkbox" value="2" checked> Mar</label>
-              <label><input type="checkbox" value="3" checked> Mer</label>
-              <label><input type="checkbox" value="4" checked> Jeu</label>
-              <label><input type="checkbox" value="5" checked> Ven</label>
-              <label><input type="checkbox" value="6"> Sam</label>
-              <label><input type="checkbox" value="0"> Dim</label>
-            </div>
-          </div>
-          <div class="field">
-            <label>Répétition espacée</label>
-            <select id="c-sr"><option value="1" selected>Activée</option><option value="0">Désactivée</option></select>
-          </div>
-        </div>
-      </div>
-      <div class="flex">
-        <button class="btn primary" id="c-save">Enregistrer</button>
-        <button class="btn" id="c-cancel">Annuler</button>
-      </div>
-    </div>
-  `;
-  if (isEdit){
-    $("#c-text").value = consigne.text || "";
-    $("#c-cat").value = consigne.category || "";
-    $("#c-mode").value = consigne.mode || "daily";
-    $("#c-type").value = consigne.type || "likert6";
-    $("#c-priority").value = consigne.priority || "medium";
-    const freq = consigne.frequency?.type || "daily";
-    $("#c-frequency").value = (freq === "daysOfWeek") ? "dow" : "daily";
-    if (freq === "daysOfWeek"){
-      const days = consigne.frequency.days || [];
-      document.querySelectorAll("#dow-picker input[type=checkbox]").forEach(cb => {
-        cb.checked = days.includes(Number(cb.value));
-      });
-    }
-    $("#c-sr").value = consigne.spacedRepetitionEnabled ? "1" : "0";
-  }
-  const updateFreqVis = ()=>{
-    const show = $("#c-frequency").value === "dow";
-    $("#dow-picker").style.display = show ? "grid" : "none";
-  };
-  updateFreqVis();
-  $("#c-frequency").onchange = updateFreqVis;
+// ---------- constantes ----------
+const LIKERT6 = [
+  ["no_answer", "NR"], ["no","Non"], ["rather_no","Plutôt non"],
+  ["medium","Moyen"], ["rather_yes","Plutôt oui"], ["yes","Oui"]
+];
 
-  $("#c-cancel").onclick = () => renderDaily(ctx, $("#view-root"));
-  $("#c-save").onclick = async () => {
-    const text = $("#c-text").value.trim();
-    const category = $("#c-cat").value.trim() || "Général";
-    const mode = $("#c-mode").value;
-    const type = $("#c-type").value;
-    const priority = $("#c-priority").value;
-    const freqType = $("#c-frequency").value;
-    const spaced = $("#c-sr").value === "1";
-    if (!text) { alert("Le texte est obligatoire."); return; }
-    const cat = await Schema.ensureCategory(ctx.db, ctx.user.uid, category, mode);
-    const payload = {
-      ownerUid: ctx.user.uid, text, category: cat.name, categoryId: cat.id,
-      type, priority, mode, spacedRepetitionEnabled: spaced, active: true,
-      createdAt: Schema.now()
-    };
-    if (mode === "daily"){
-      payload.frequency = (freqType === "daily")
-        ? { type:"daily" } : { type:"daysOfWeek", days: Array.from(document.querySelectorAll("#dow-picker input:checked")).map(cb => Number(cb.value)) };
-    }
-    if (consigne?.id){
-      await updateDoc(docIn(ctx.db, ctx.user.uid, "consignes", consigne.id), payload);
-    } else {
-      await addDoc(col(ctx.db, ctx.user.uid, "consignes"), payload);
-    }
-    location.hash = (mode === "practice") ? "#/practice" : "#/daily";
-  };
+const PRIORITIES = ["high","medium","low"];
+const TYPE_LABEL = { short:"Texte court", long:"Texte long", likert6:"Likert (6)", num:"Échelle 1-10" };
+const MODE_LABEL = { daily:"Journalier", practice:"Pratique délibérée" };
+
+// ---------- outils / logique ----------
+function todayDow(){ return new Date().getDay(); } // 0=dimanche ... 6=samedi
+function isDueByFrequency(c){
+  // c.frequency = { kind:"everyday" } ou { kind:"days", days:[0..6] }
+  if (!c.frequency || c.frequency.kind === "everyday") return true;
+  if (c.frequency.kind === "days" && Array.isArray(c.frequency.days)){
+    return c.frequency.days.includes(todayDow());
+  }
+  return true;
 }
 
-function controlsForConsigne(consigne){
-  const c = el("div", {class:"flex"});
-  if (consigne.type === "likert6"){
-    const opts = [
-      ["no_answer","NR"],["no","Non"],["rather_no","Plutôt non"],["medium","Moyen"],["rather_yes","Plutôt oui"],["yes","Oui"]
-    ];
-    opts.forEach(([val,label])=>{
-      const b = el("button",{class:"btn small", "data-answer":val}, label);
-      c.append(b);
-    });
-  } else if (consigne.type === "num"){
-    const inp = el("input",{type:"range", min:"1", max:"10", value:"5", style:"width:220px;"});
-    const out = el("span",{class:"pill"}, "5");
-    inp.oninput = ()=> out.textContent = inp.value;
-    const ok = el("button",{class:"btn small"}, "Valider");
-    ok.onclick = ()=> c.dispatchEvent(new CustomEvent("answer-num",{detail: Number(inp.value)}));
-    c.append(inp,out,ok);
-  } else if (consigne.type === "short"){
-    const inp = el("input",{placeholder:"Votre réponse (≤200c)", maxlength:"200"});
-    const ok = el("button",{class:"btn small"},"Valider");
-    ok.onclick = ()=> c.dispatchEvent(new CustomEvent("answer-text",{detail: inp.value.trim()}));
-    c.append(inp, ok);
-  } else {
-    const inp = el("textarea",{placeholder:"Votre réponse"});
-    const ok = el("button",{class:"btn small"},"Valider");
-    ok.onclick = ()=> c.dispatchEvent(new CustomEvent("answer-text",{detail: inp.value.trim()}));
-    c.append(inp, ok);
-  }
-  return c;
+function isHiddenBySR(srState){
+  if (!srState) return false;
+  const u = srState.hideUntil;
+  if (!u) return false;
+  return new Date(u) > new Date();
 }
 
-async function listConsignes(ctx, mode){
-  const qy = query(
-    col(ctx.db, ctx.user.uid, "consignes"),
-    where("mode","==",mode),
-    where("active","==",true),
-    orderBy("priority")
+function canUseSR(){
+  return typeof Schema.nextCooldownAfterAnswer === "function" &&
+         typeof Schema.readSRState === "function" &&
+         typeof Schema.upsertSRState === "function";
+}
+
+function toLikertDefaultValueByType(type, value){
+  if (type === "likert6") return value || "medium";
+  if (type === "num")     return Number(value ?? 5);
+  if (type === "short")   return String(value ?? "");
+  if (type === "long")    return String(value ?? "");
+  return value;
+}
+
+// ---------- CRUD Consignes ----------
+async function fetchConsignes(ctx, mode){
+  const qy = query(col(ctx.db, ctx.user.uid, "consignes"),
+    where("active","==", true),
+    where("mode","==", mode),
+    orderBy("priority","asc"),
+    orderBy("createdAt","desc")
   );
   const ss = await getDocs(qy);
-  return ss.docs.map(d => ({ id: d.id, ...d.data() }));
+  return ss.docs.map(d => ({ id:d.id, ...d.data() }));
 }
 
-function groupByCategory(items){
-  const map = {};
-  for (const it of items){
-    const key = it.category || "Général";
-    map[key] = map[key] || [];
-    map[key].push(it);
+async function saveConsigne(ctx, existingId, payload){
+  if (existingId){
+    await updateDoc(docIn(ctx.db, ctx.user.uid, "consignes", existingId), payload);
+    return existingId;
   }
-  return map;
+  const ref = await addDoc(col(ctx.db, ctx.user.uid, "consignes"), payload);
+  return ref.id;
 }
 
-async function saveResponse(ctx, consigne, mode, value){
-  D.group("modes.saveResponse", { consigneId: consigne.id, mode, value });
+async function softDeleteConsigne(ctx, id){
+  await updateDoc(docIn(ctx.db, ctx.user.uid, "consignes", id), { active:false, deletedAt: now() });
+}
+
+// ---------- Enregistrement réponses ----------
+async function saveResponse(ctx, consigne, value){
+  // 1) crée la réponse
   const payload = {
     ownerUid: ctx.user.uid,
     consigneId: consigne.id,
-    mode, value,
-    createdAt: Schema.now(),
+    value,
+    type: consigne.type,
+    mode: consigne.mode,
+    createdAt: now(),
   };
-  const srPrev = await Schema.readSRState(ctx.db, ctx.user.uid, consigne.id, mode);
-  let answerKind = null;
-  if (consigne.type === "likert6") answerKind = value;
-  else if (consigne.type === "num") answerKind = value;
-  else answerKind = "yes";
-  const upd = Schema.nextCooldownAfterAnswer(consigne, srPrev, answerKind);
-  await Schema.upsertSRState(ctx.db, ctx.user.uid, consigne.id, mode, upd);
   await addDoc(col(ctx.db, ctx.user.uid, "responses"), payload);
-  D.groupEnd();
-}
 
-function consigneCard(consigne, extraMeta=""){
-  const d = el("div",{class:"consigne"});
-  const line = el("div",{class:"flex"});
-  line.append(el("div",{class:"title"}, consigne.text));
-  line.append(el("span",{class:`badge ${consigne.priority}`}, consigne.priority));
-  if (extraMeta) line.append(el("span",{class:"pill"}, extraMeta));
-  d.append(line);
-  const meta = el("div",{class:"meta"});
-  meta.append(`Catégorie: ${consigne.category}`);
-  if (consigne.mode==="daily"){
-    meta.append(`Fréquence: ${consigne.frequency?.type==="daysOfWeek"?"Jours spécifiques":"Quotidienne"}`);
+  // 2) met à jour l'état SR si dispo
+  if (canUseSR() && consigne.srEnabled){
+    const prev = await Schema.readSRState(ctx.db, ctx.user.uid, consigne.id, consigne.mode);
+    // valeur "positive" pour l'algorithme SR: on interprète
+    const pos = consigne.type === "likert6" ? value
+              : consigne.type === "num"     ? (Number(value) >= 6 ? "yes" : "medium")
+              : "yes";
+    const next = Schema.nextCooldownAfterAnswer({ ...consigne }, prev, pos);
+    await Schema.upsertSRState(ctx.db, ctx.user.uid, consigne.id, consigne.mode, next);
   }
-  d.append(meta);
-  const controls = controlsForConsigne(consigne);
-  controls.addEventListener("click", async (e)=>{
-    const btn = e.target.closest("button[data-answer]");
-    if (!btn) return;
-    const val = btn.getAttribute("data-answer");
-    await saveResponse(window.__ctx, consigne, consigne.mode, val);
-    btn.textContent = "✓";
-    btn.disabled = true;
-  });
-  controls.addEventListener("answer-num", async (e)=>{ await saveResponse(window.__ctx, consigne, consigne.mode, e.detail); });
-  controls.addEventListener("answer-text", async (e)=>{ await saveResponse(window.__ctx, consigne, consigne.mode, e.detail); });
-  d.append(controls);
-  return d;
 }
 
-export async function renderDashboard(ctx, root){
-  D.group("modes.renderDashboard");
-  window.__ctx = ctx;
-  const consignesDaily = await listConsignes(ctx, "daily");
-  const consignesPractice = await listConsignes(ctx, "practice");
-  D.info("counts", { daily: consignesDaily.length, practice: consignesPractice.length });
+// ---------- UI : Formulaire Consigne ----------
+export function openConsigneForm(ctx, consigne=null){
+  const root = $("#view-root");
+  const isEdit = !!consigne;
+  const initial = consigne || {
+    text:"", category:"Général", type:"likert6", priority:"medium", mode:"daily",
+    frequency:{ kind:"everyday" }, srEnabled:true, active:true
+  };
 
   root.innerHTML = "";
-  const top = el("div",{class:"kpi"});
-  top.append(el("div",{class:"card"}, `Consignes (journalier): ${consignesDaily.length}`));
-  top.append(el("div",{class:"card"}, `Consignes (pratique): ${consignesPractice.length}`));
-  top.append(el("div",{class:"card"}, "Sessions aujourd’hui : (bientôt)"));
-  root.append(top);
-  const g1 = groupByCategory(consignesDaily);
-  const g2 = groupByCategory(consignesPractice);
-  const section = el("div",{class:"grid"});
-  section.append(el("h3",{}, "Raccourcis"));
-  const bar = el("div",{class:"flex"});
-  bar.append(el("button",{class:"btn", onclick:()=>openConsigneForm(ctx)},"+ Ajouter une consigne"));
-  bar.append(el("button",{class:"btn", onclick:()=>location.hash="#/practice?new=1"},"+ Nouvelle session"));
-  section.append(bar);
-  root.append(section);
-  const lists = el("div",{class:"grid cols-2"});
-  lists.append(el("div",{class:"card"}, el("div",{}, "Par catégorie (journalier)"), el("div",{}, Object.keys(g1).join(", ") || "—")));
-  lists.append(el("div",{class:"card"}, el("div",{}, "Par catégorie (pratique)"), el("div",{}, Object.keys(g2).join(", ") || "—")));
-  root.append(lists);
+  root.append(el("h2",{}, `${isEdit?"Modifier":"Créer"} une consigne`));
 
-  D.groupEnd();
+  const form = el("div",{class:"grid cols-2", style:"gap:12px"});
+  form.append(
+    field("Texte de la consigne", el("input",{id:"c-text", value:initial.text, placeholder:"Ex. Boire 2 verres d’eau"})),
+    field("Catégorie", el("input",{id:"c-cat", value:initial.category, placeholder:"Santé, Musique, ..."})),
+    field("Type de réponse", select("c-type", initial.type, [
+      ["likert6", TYPE_LABEL.likert6], ["num", TYPE_LABEL.num],
+      ["short", TYPE_LABEL.short], ["long", TYPE_LABEL.long]
+    ])),
+    field("Priorité", select("c-pri", initial.priority, [
+      ["high","Haute"], ["medium","Moyenne"], ["low","Basse"]
+    ])),
+    field("Mode d’utilisation", select("c-mode", initial.mode, [
+      ["daily", MODE_LABEL.daily], ["practice", MODE_LABEL.practice]
+    ])),
+    // fréquence (journalier)
+    el("div",{class:"field"},[
+      el("label",{},"Fréquence (mode journalier)"),
+      el("div",{}, [
+        el("label", {style:"display:flex;gap:8px;align-items:center"}, [
+          el("input",{type:"radio",name:"c-freq", value:"everyday", checked: initial.frequency?.kind!=="days"}),
+          "Quotidienne"
+        ]),
+        el("label", {style:"display:flex;gap:8px;align-items:center;margin-top:6px"}, [
+          el("input",{type:"radio",name:"c-freq", value:"days", checked: initial.frequency?.kind==="days"}),
+          "Jours spécifiques",
+        ]),
+        el("div",{id:"c-days", style:`margin-top:6px; display:${initial.frequency?.kind==="days"?"block":"none"}`},
+          dayCheckboxes(initial.frequency?.days || []))
+      ])
+    ]),
+    field("Répétition espacée", select("c-sr", initial.srEnabled?"1":"0", [["1","Activée"],["0","Désactivée"]])),
+  );
+  root.append(form);
+
+  const bar = el("div",{class:"flex", style:"gap:8px;margin-top:10px"});
+  const saveBtn = el("button",{class:"btn primary"},"Enregistrer");
+  const cancelBtn = el("button",{class:"btn"},"Annuler");
+  if (isEdit){
+    const delBtn = el("button",{class:"btn", style:"margin-left:auto;color:#fca5a5;border-color:#f87171"},"Supprimer");
+    delBtn.onclick = async ()=>{
+      if (confirm("Supprimer la consigne ? (désactivation)")){
+        await softDeleteConsigne(ctx, consigne.id);
+        location.hash = "#/dashboard";
+      }
+    };
+    bar.append(delBtn);
+  }
+  bar.append(saveBtn, cancelBtn);
+  root.append(bar);
+
+  // dynamique affichage jours
+  root.addEventListener("change",(e)=>{
+    if (e.target?.name === "c-freq"){
+      $("#c-days").style.display = (e.target.value === "days") ? "block" : "none";
+    }
+  });
+
+  cancelBtn.onclick = ()=> location.hash = "#/dashboard";
+  saveBtn.onclick = async ()=>{
+    const freqRadio = [...root.querySelectorAll("input[name='c-freq']")].find(r=>r.checked)?.value || "everyday";
+    const days = [...root.querySelectorAll("input[name='dow']:checked")].map(i=>Number(i.value));
+    const payload = {
+      ownerUid: ctx.user.uid,
+      active: true,
+      text: $("#c-text").value.trim(),
+      category: $("#c-cat").value.trim() || "Général",
+      type: $("#c-type").value,
+      priority: $("#c-pri").value,
+      mode: $("#c-mode").value,
+      frequency: (freqRadio === "days") ? { kind:"days", days } : { kind:"everyday" },
+      srEnabled: $("#c-sr").value === "1",
+      createdAt: consigne?.createdAt || now()
+    };
+    if (!payload.text){ alert("Le texte de la consigne est obligatoire."); return; }
+    await saveConsigne(ctx, consigne?.id, payload);
+    location.hash = "#/dashboard";
+  };
+}
+
+function field(labelNode, control){
+  return el("div",{class:"field"}, [ el("label",{},labelNode), control ]);
+}
+function select(id, value, options){
+  const s = el("select",{id});
+  options.forEach(([v,l])=> s.append(el("option",{value:v, selected:String(v)===String(value)}, l)));
+  return s;
+}
+function dayCheckboxes(selected){
+  const labels = ["D","L","M","M","J","V","S"];
+  const wrap = el("div",{class:"flex", style:"gap:6px;flex-wrap:wrap"});
+  for (let i=0;i<7;i++){
+    const chk = el("label",{class:"pill", style:"display:flex;gap:6px;align-items:center;cursor:pointer"},[
+      el("input",{type:"checkbox", name:"dow", value:String(i), checked:selected.includes(i)}),
+      labels[i]
+    ]);
+    wrap.append(chk);
+  }
+  return wrap;
+}
+
+// ---------- rendu des cartes de consignes + contrôles de réponse ----------
+function consigneCard(ctx, c, onAnswered){
+  const card = el("div",{class:"card"});
+  const head = el("div",{class:"flex"},[
+    el("div",{style:"font-weight:600"}, c.text),
+    el("span",{class:`badge ${c.priority}`}, c.priority),
+    el("span",{class:"pill", style:"margin-left:auto"}, MODE_LABEL[c.mode] || c.mode)
+  ]);
+  card.append(head);
+  card.append(el("div",{class:"muted"}, `${c.category}`));
+
+  // contrôles par type
+  const controls = el("div",{class:"flex", style:"gap:6px;margin-top:6px"});
+  if (c.type === "likert6"){
+    LIKERT6.forEach(([v,l])=>{
+      const b = el("button",{class:"btn small"}, l);
+      b.onclick = async ()=>{ await saveResponse(ctx, c, v); onAnswered?.(); };
+      controls.append(b);
+    });
+  } else if (c.type === "num"){
+    const inp = el("input",{type:"range", min:"1", max:"10", value:"5", style:"width:200px"});
+    const out = el("span",{class:"pill"},"5");
+    const ok = el("button",{class:"btn small"},"Valider");
+    inp.oninput = ()=> out.textContent = inp.value;
+    ok.onclick = async ()=>{ await saveResponse(ctx, c, Number(inp.value)); onAnswered?.(); };
+    controls.append(inp,out,ok);
+  } else if (c.type === "short"){
+    const inp = el("input",{placeholder:"Réponse ≤ 200 c.", maxLength:"200"});
+    const ok = el("button",{class:"btn small"},"Valider");
+    ok.onclick = async ()=>{ await saveResponse(ctx, c, inp.value.trim()); onAnswered?.(); };
+    controls.append(inp, ok);
+  } else {
+    const inp = el("textarea",{placeholder:"Votre réponse"});
+    const ok = el("button",{class:"btn small"},"Valider");
+    ok.onclick = async ()=>{ await saveResponse(ctx, c, inp.value.trim()); onAnswered?.(); };
+    controls.append(inp, ok);
+  }
+  card.append(controls);
+
+  // actions secondaires
+  const actions = el("div",{class:"flex", style:"gap:6px;margin-top:6px"});
+  actions.append(
+    el("button",{class:"btn small", onclick:()=>openConsigneForm(ctx, c)},"Modifier"),
+    el("button",{class:"btn small", onclick:async()=>{ if(confirm("Supprimer ?")){ await softDeleteConsigne(ctx, c.id); location.reload(); } }},"Supprimer")
+  );
+  card.append(actions);
+
+  return card;
+}
+
+// ---------- Vues ----------
+export async function renderDashboard(ctx, root){
+  root.innerHTML = "";
+  root.append(el("h2",{},"Tableau de bord"));
+
+  // Comptages rapides
+  const [daily, practice] = await Promise.all([
+    fetchConsignes(ctx, "daily"), fetchConsignes(ctx, "practice")
+  ]);
+  const counts = el("div",{class:"card"},[
+    el("div",{}, `Consignes (journalier): ${daily.length}`),
+    el("div",{}, `Consignes (pratique): ${practice.length}`),
+    el("div",{style:"margin-top:8px;font-weight:600"}, "Raccourcis"),
+    el("div",{}, [
+      el("button",{class:"btn small", onclick:()=>openConsigneForm(ctx)}, "+ Ajouter une consigne"),
+      el("button",{class:"btn small", style:"margin-left:6px", onclick:()=>location.hash = "#/daily"}, "Par catégorie (journalier)"),
+      el("button",{class:"btn small", style:"margin-left:6px", onclick:()=>location.hash = "#/practice"}, "Par catégorie (pratique)"),
+      el("button",{class:"btn small", style:"margin-left:6px", onclick:()=>location.hash = "#/history"}, "Historique")
+    ])
+  ]);
+  root.append(counts);
 }
 
 export async function renderDaily(ctx, root){
-  D.group("modes.renderDaily");
-  window.__ctx = ctx;
-  const all = await listConsignes(ctx, "daily");
-  const visible = [];
-  const hidden = [];
-  for (const c of all){
-    const sr = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "daily");
-    (Schema.isDueToday(c, sr) ? visible : hidden).push({ c, sr });
-  }
-  D.info("visible/hidden", { visible: visible.length, hidden: hidden.length });
-
-  const order = { high: 0, medium: 1, low: 2 };
-  visible.sort((a,b) => (order[a.c.priority]-order[b.c.priority]));
-  hidden.sort((a,b) => (order[a.c.priority]-order[b.c.priority]));
-
   root.innerHTML = "";
-  const title = el("div",{class:"section-title"});
-  title.append(el("h2",{}, "Consignes du jour"));
-  title.append(el("span",{class:"muted"}, `${visible.length} visibles • ${hidden.length} masquées`));
-  root.append(title);
-
-  const list = el("div",{class:"list"});
-  for (const pri of ["high","medium","low"]){
-    const items = visible.filter(x=>x.c.priority===pri);
-    if (!items.length) continue;
-    list.append(el("h3",{}, pri === "high" ? "Priorité haute" : pri==="medium" ? "Standard" : "Priorité basse"));
-    for (const it of items){
-      list.append(consigneCard(it.c));
-    }
-  }
+  root.append(el("h2",{},"Mode Journalier"));
+  const list = el("div",{class:"grid"});
+  root.append(el("div",{class:"flex", style:"gap:8px;margin-bottom:8px"},[
+    el("button",{class:"btn small", onclick:()=>openConsigneForm(ctx)}, "+ Ajouter une consigne")
+  ]));
   root.append(list);
 
-  if (hidden.length){
-    const det = el("details",{});
-    det.append(el("summary",{}, `Consignes masquées (${hidden.length}) — répétition espacée`));
-    const inner = el("div",{class:"grid", style:"margin-top:8px;"});
-    for (const it of hidden){
-      const meta = (it.c.mode==="daily" && it.sr?.cooldownUntil) ? `Réapparaît après ${it.sr.cooldownUntil}` : "";
-      inner.append(consigneCard(it.c, meta));
-    }
-    det.append(inner);
-    root.append(det);
-  }
-  D.groupEnd();
-}
+  const all = await fetchConsignes(ctx, "daily");
 
-export async function renderPractice(ctx, root, { newSession=false }={}){
-  D.group("modes.renderPractice", { newSession });
-  window.__ctx = ctx;
-  if (newSession){
-    await startNewPracticeSession(ctx);
+  // filtre: fréquence + SR
+  const ready = [];
+  for (const c of all){
+    if (!isDueByFrequency(c)) continue;
+    if (c.srEnabled && canUseSR()){
+      const st = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "daily");
+      if (isHiddenBySR(st)) continue;
+    }
+    ready.push(c);
   }
-  const consignes = await listConsignes(ctx, "practice");
-  const groups = groupByCategory(consignes);
-  root.innerHTML = "";
-  root.append(el("h2",{}, "Pratique délibérée"));
-  const sel = el("select",{id:"practice-cat"});
-  const cats = Object.keys(groups);
-  if (!cats.length) {
-    root.append(el("div",{class:"card"}, "Aucune consigne de pratique. Ajoutez-en d’abord."));
-    D.groupEnd();
+
+  if (!ready.length){
+    list.append(el("div",{class:"muted"},"Rien à faire pour aujourd’hui 🎉"));
     return;
   }
-  cats.forEach(c=> sel.append(el("option",{value:c}, c)));
-  const box = el("div",{class:"grid"});
-  box.append(el("div",{class:"field"}, el("label",{},"Catégorie"), sel));
-  const cont = el("div",{class:"list"});
-  box.append(cont);
-  root.append(box);
 
-  async function draw(){
-    cont.innerHTML = "";
-    const cat = sel.value;
-    const items = groups[cat] || [];
-    const toShow = [];
-    const masked = [];
-    for (const it of items){
-      const sr = await Schema.readSRState(ctx.db, ctx.user.uid, it.id, "practice");
-      (Schema.isDueToday(it, sr) ? toShow : masked).push({ it, sr });
-    }
-    cont.append(el("div",{class:"muted"}, `${toShow.length} visibles • ${masked.length} masquées`));
-    for (const {it} of toShow){
-      cont.append(consigneCard(it));
-    }
-    if (masked.length){
-      const det = el("details",{});
-      det.append(el("summary",{},"Masquées (répétition espacée)"));
-      const inner = el("div",{class:"grid", style:"margin-top:8px;"});
-      for (const {it,sr} of masked){
-        const meta = sr?.cooldownSessions ? `Masquée pour ${sr.cooldownSessions} session(s)` : "";
-        inner.append(consigneCard(it, meta));
-      }
-      det.append(inner);
-      cont.append(det);
-    }
+  // tri par priorité + rendu
+  for (const p of PRIORITIES){
+    const inP = ready.filter(c=>c.priority===p);
+    if (!inP.length) continue;
+    list.append(el("h3",{}, p==="high"?"Priorité haute": p==="medium"?"Priorité moyenne":"Priorité basse"));
+    inP.forEach(c => list.append(consigneCard(ctx, c, ()=>renderDaily(ctx, root))));
   }
-  sel.onchange = draw;
-  draw();
-  D.groupEnd();
 }
 
-async function startNewPracticeSession(ctx){
-  // on décrémente cooldownSessions>0 au début d'une nouvelle session
-  const qy = query(
-    col(ctx.db, ctx.user.uid, "srStates"),
-    where("mode","==","practice"),
-    where("cooldownSessions",">",0)
-  );
-  const ss = await getDocs(qy);
-  for (const d of ss.docs){
-    const v = d.data().cooldownSessions || 0;
-    await updateDoc(docIn(ctx.db, ctx.user.uid, "srStates", d.id), {
-      cooldownSessions: Math.max(0, v-1), updatedAt: Schema.now(), ownerUid: ctx.user.uid
-    });
+export async function renderPractice(ctx, root){
+  root.innerHTML = "";
+  root.append(el("h2",{},"Pratique délibérée"));
+  root.append(el("div",{class:"flex", style:"gap:8px;margin-bottom:8px"},[
+    el("button",{class:"btn small", onclick:()=>openConsigneForm(ctx)}, "+ Ajouter une consigne")
+  ]));
+
+  const all = await fetchConsignes(ctx, "practice");
+  const ready = [];
+  for (const c of all){
+    if (c.srEnabled && canUseSR()){
+      const st = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "practice");
+      if (isHiddenBySR(st)) continue;
+    }
+    ready.push(c);
   }
-  await addDoc(col(ctx.db, ctx.user.uid, "sessions"), {
-    ownerUid: ctx.user.uid, startedAt: Schema.now()
-  });
+
+  if (!ready.length){
+    root.append(el("div",{class:"muted"},"Aucune consigne pour cette session."));
+    return;
+  }
+
+  const wrap = el("div",{class:"grid"});
+  for (const p of PRIORITIES){
+    const inP = ready.filter(c=>c.priority===p);
+    if (!inP.length) continue;
+    wrap.append(el("h3",{}, p==="high"?"Priorité haute": p==="medium"?"Priorité moyenne":"Priorité basse"));
+    inP.forEach(c => wrap.append(consigneCard(ctx, c, ()=>renderPractice(ctx, root))));
+  }
+  root.append(wrap);
 }
 
 export async function renderHistory(ctx, root){
-  window.__ctx = ctx;
   root.innerHTML = "";
   root.append(el("h2",{},"Historique"));
-  const box = el("div",{class:"grid"});
-  const filt = el("div",{class:"flex"});
-  const modeSel = el("select",{}); ["all","daily","practice"].forEach(m=> modeSel.append(el("option",{value:m}, m)));
-  const limitSel = el("select",{}); ["50","200","1000"].forEach(n=> limitSel.append(el("option",{value:n}, `${n} dernières entrées`)));
-  limitSel.value = "200";
-  filt.append(el("div",{},"Mode :"), modeSel, el("div",{style:"width:12px"}), el("div",{},"Plage :"), limitSel);
-  box.append(filt);
-  const table = el("table",{class:"table"});
-  table.innerHTML = "<thead><tr><th>Date</th><th>Mode</th><th>Catégorie</th><th>Consigne</th><th>Valeur</th></tr></thead><tbody></tbody>";
-  const tbody = table.querySelector("tbody");
-  box.append(table);
-  root.append(box);
+  const list = el("div",{class:"grid"});
+  root.append(list);
 
-  async function load(){
-    tbody.innerHTML = "<tr><td colspan='5' class='muted'>Chargement…</td></tr>";
-    const lim = Number(limitSel.value);
-    const qy = query(
-      col(ctx.db, ctx.user.uid, "responses"),
-      orderBy("createdAt","desc"),
-      limit(lim)
-    );
-    const ss = await getDocs(qy);
-    const rows = [];
-    for (const d of ss.docs){
-      const r = d.data();
-      const cSnap = await getDoc(docIn(ctx.db, ctx.user.uid, "consignes", r.consigneId));
-      const cons = cSnap.exists() ? cSnap.data() : { text:"(supprimée)", category:"—" };
-      if (modeSel.value!=="all" && r.mode !== modeSel.value) continue;
-      rows.push({
-        date: r.createdAt, mode: r.mode, category: cons.category || "—", text: cons.text, value: formatVal(cons, r.value)
-      });
-    }
-    tbody.innerHTML = rows.map(r =>
-      `<tr><td>${r.date}</td><td>${r.mode}</td><td>${r.category}</td><td>${r.text}</td><td>${r.value}</td></tr>`
-    ).join("") || "<tr><td colspan='5'>—</td></tr>";
+  const qy = query(col(ctx.db, ctx.user.uid, "responses"), orderBy("createdAt","desc"), limit(50));
+  const ss = await getDocs(qy);
+  if (ss.empty){ list.append(el("div",{class:"muted"},"Aucune réponse.")); return; }
+
+  for (const d of ss.docs){
+    const r = d.data();
+    const cSnap = await getDoc(docIn(ctx.db, ctx.user.uid, "consignes", r.consigneId));
+    const c = cSnap.exists() ? cSnap.data() : { text:`(consigne ${r.consigneId})` };
+    const row = el("div",{class:"card"});
+    row.append(el("div",{style:"font-weight:600"}, c.text));
+    row.append(el("div",{class:"muted"}, `${MODE_LABEL[r.mode]||r.mode} • ${r.createdAt}`));
+    row.append(el("div",{}, `Réponse: ${formatValue(r.type, r.value)}`));
+    list.append(row);
   }
-  function formatVal(cons, v){
-    if (cons.type==="likert6") return v;
-    if (cons.type==="num") return v;
-    if (typeof v === "string") return v.slice(0,120);
-    return JSON.stringify(v);
-  }
-  limitSel.onchange = load;
-  modeSel.onchange = load;
-  load();
+}
+
+function formatValue(type, v){
+  if (type==="likert6"){ const found = LIKERT6.find(([k])=>k===v); return found?found[1]:v; }
+  return String(v);
 }
