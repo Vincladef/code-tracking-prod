@@ -10,8 +10,8 @@ export const ctx = {
   app: null,
   db: null,
   auth: null,
-  user: null,        // Firebase user (anon)
-  profile: null,     // profile doc
+  user: null,         // Firebase user (anon)
+  profile: null,      // profile doc
   categories: [],
   route: "#/dashboard",
 };
@@ -61,7 +61,7 @@ function renderSidebar(){
   box.innerHTML = `
     <div><strong>${ctx.profile.displayName || "Invité"}</strong></div>
     <div class="muted">UID: <code>${ctx.user.uid}</code></div>
-    <div class="muted">Lien direct : <a class="link" href="${link}">${link}</a></div>
+    <div class="muted">Lien direct : <a class="link" href="${link}">${link}</a></div>
     <div class="muted" style="margin-top:6px;">⚠️ En V1, l’accès multi‑appareil nécessite l’export/import de données (Settings → bientôt).</div>
   `;
   const catBox = $("#category-box");
@@ -116,11 +116,11 @@ function render(){
       return Goals.renderGoals(ctx, root);
     case "u":
       // Pretty user URLs — informational in V1
-      root.innerHTML = \`<div class="grid">
+      root.innerHTML = `<div class="grid">
         <h2>Profil public</h2>
-        <div class="card">Ce lien est décoratif en V1 (sécurité via UID). Slug demandé : <strong>\${arg1}</strong>.</div>
+        <div class="card">Ce lien est décoratif en V1 (sécurité via UID). Slug demandé : <strong>${arg1}</strong>.</div>
         <div><button class="btn" onclick="location.hash='#/dashboard'">Retour</button></div>
-      </div>\`;
+      </div>`;
       return;
     default:
       root.innerHTML = "<div class='card'>Page inconnue.</div>";
