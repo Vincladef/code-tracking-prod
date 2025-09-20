@@ -49,21 +49,20 @@
   </div></section>
 </main>
 
-<footer class="text-center text-gray-500 text-sm py-6">
-  V1 — GitHub Pages + Firebase Firestore (auth anonyme). Design minimal. ©
-</footer>
-
-<div id="debug-drawer"></div>
+<div id="debug-drawer" class="hidden"></div>
 <script type="module">
+  // Si tu ne veux aucun log à l'écran, supprime entièrement ce <script>.
+  // Sinon: mets D.on = true dans schema.js
   import { D } from "./schema.js";
   const drawer = document.getElementById("debug-drawer");
-  if (D.on && drawer) {
-    drawer.classList.add("visible");
+  if (D.on && drawer){
+    drawer.classList.remove("hidden");
+    drawer.style.display = "block";
     const o = console.info;
     console.info = (...args) => {
       o.apply(console, args);
       const pre = document.createElement("pre");
-      pre.textContent = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+      pre.textContent = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
       drawer.appendChild(pre);
     };
   }
@@ -71,8 +70,8 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import { initApp, renderAdmin } from "./app.js";
+  import { getFirestore }    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { initApp, renderAdmin, ctx } from "./app.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyAQcvZ9a2j4MHF04RjMHIey0R_iwnjZf4o",
@@ -84,21 +83,33 @@
     measurementId: "G-ZPHWB5DKWF"
   };
 
+  // 1) Firebase
   const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  const db  = getFirestore(app);
 
-  function getUidFromHash() {
+  // 2) Helper URL
+  function uidFromHash(){
     const m = location.hash.match(/^#\/u\/([^/?#]+)/);
     return m ? m[1] : null;
   }
 
-  function boot() {
-    const uid = getUidFromHash();
-    if (!uid) {
-      location.hash = "#/admin";   // par défaut : admin
-      renderAdmin(db);             // rend directement la page admin
+  // 3) Router minimal
+  async function boot(){
+    const uid = uidFromHash();
+
+    // Cas ADMIN (pas d’UID ou #/admin)
+    if (!uid || location.hash.startsWith("#/admin")) {
+      // Donne le db au contexte pour que renderAdmin l’utilise si besoin
+      ctx.db = db;
+      // masque éventuellement l’aside (si présent dans ton HTML)
+      const aside = document.getElementById("sidebar");
+      if (aside) aside.style.display = "none";
+      // affiche l’admin
+      renderAdmin(db);
       return;
     }
+
+    // Cas UTILISATEUR (#/u/UID)
     initApp({ app, db, user: { uid } });
   }
 
@@ -107,5 +118,6 @@
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
 </body>
 </html>
