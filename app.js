@@ -63,11 +63,12 @@ function renderSidebar() {
     <div class="muted">Lien direct : <a class="link" href="${link}">${link}</a></div>
   `;
   const catBox = $("#category-box");
-  if (!catBox) return;
-  if (!ctx.categories.length) {
-    catBox.innerHTML = '<span class="muted">Aucune catégorie. Elles seront créées automatiquement lors de l’ajout d’une consigne.</span>';
-  } else {
-    catBox.innerHTML = ctx.categories.map(c => `<div class="flex"><span>${c.name}</span><span class="pill">${c.mode}</span></div>`).join("");
+  if (catBox) {
+    if (!ctx.categories.length) {
+      catBox.innerHTML = '<span class="muted">Aucune catégorie. Elles seront créées automatiquement lors de l’ajout d’une consigne.</span>';
+    } else {
+      catBox.innerHTML = ctx.categories.map(c => `<div class="flex"><span>${c.name}</span><span class="pill">${c.mode}</span></div>`).join("");
+    }
   }
 }
 
@@ -92,12 +93,21 @@ function bindNav() {
 function handleRoute() {
   const h = location.hash || "#/admin";
   if (h.startsWith("#/u/")) {
-    const uid = h.split("/")[2];
+    const tokens = h.split("/"); // ["#/u", "{uid}", "{section?}"]
+    const uid = tokens[2];
+    const section = tokens[3]; // "dashboard", "goals", etc.
+
     if (!uid) {
       location.hash = "#/admin";
       return;
     }
-    // Mount the user space (initApp handles the screens next)
+
+    // if we just have #/u/{uid}, normalize to #/u/{uid}/dashboard
+    if (!section) {
+      location.replace(`#/u/${uid}/dashboard`);
+      return;
+    }
+
     initApp({
       app: ctx.app,
       db: ctx.db,
@@ -106,7 +116,6 @@ function handleRoute() {
       }
     });
   } else {
-    // Admin
     renderAdmin(ctx.db);
   }
 }
@@ -213,7 +222,8 @@ async function loadUsers(db) {
   ss.forEach(d => {
     const data = d.data();
     const uid = d.id;
-    const link = `${location.origin}${location.pathname}#/u/${uid}`;
+    // Correction ici : le lien pointe directement vers le tableau de bord de l'utilisateur
+    const link = `${location.origin}${location.pathname}#/u/${uid}/dashboard`;
     items.push(`
       <div class="card" style="display:flex;justify-content:space-between;align-items:center">
         <div><b>${data.displayName || "(sans nom)"}</b><br><span class="muted">UID: ${uid}</span></div>
