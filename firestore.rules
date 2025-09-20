@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner() {
+      return request.auth != null && request.auth.uid == resource.data.ownerUid;
+    }
+    function isOwnerNew(data) {
+      return request.auth != null && request.auth.uid == data.ownerUid;
+    }
+
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /categories/{id} {
+      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+    }
+
+    match /consignes/{id} {
+      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+    }
+
+    match /responses/{id} {
+      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+    }
+
+    match /srStates/{id} {
+      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+    }
+
+    match /sessions/{id} {
+      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+    }
+
+    match /goals/{id} {
+      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+    }
+
+    match /goalResponses/{id} {
+      allow read, write: if isOwner() || isOwnerNew(request.resource.data);
+    }
+  }
+}
