@@ -65,12 +65,20 @@ function renderSidebar() {
 }
 
 function bindNav() {
+  // Navigation haut (Dashboard, Daily, Practice, etc.)
   $$("button[data-route]").forEach(btn => {
     btn.onclick = () => routeTo(btn.getAttribute("data-route"));
   });
-  $("#btn-new-session").onclick = () => routeTo("#/practice?new=1");
-  $("#btn-add-consigne").onclick = () => Modes.openConsigneForm(ctx);
-  $("#btn-add-goal").onclick = () => Goals.openGoalForm(ctx);
+
+  // Boutons spécifiques (seulement si présents dans le DOM)
+  const btnSession = $("#btn-new-session");
+  if (btnSession) btnSession.onclick = () => routeTo("#/practice?new=1");
+
+  const btnConsigne = $("#btn-add-consigne");
+  if (btnConsigne) btnConsigne.onclick = () => Modes.openConsigneForm(ctx);
+
+  const btnGoal = $("#btn-add-goal");
+  if (btnGoal) btnGoal.onclick = () => Goals.openGoalForm(ctx);
 }
 
 // --- Router global (admin <-> user) ---
