@@ -20,7 +20,7 @@ export const ctx = {
   user: null, // { uid } passed by index.html
   profile: null, // profile doc
   categories: [],
-  route: "#/dashboard",
+  route: "#/daily",
 };
 
 function $(sel) {
@@ -32,8 +32,8 @@ function $$(sel) {
 }
 
 function routeTo(hash) {
-  // hash like "#/dashboard", "#/practice?new=1", etc.
-  if (!hash) hash = "#/dashboard";
+  // hash like "#/daily", "#/practice?new=1", etc.
+  if (!hash) hash = "#/daily";
 
   // If we are currently on a user URL, prefix all routes with /u/{uid}/...
   const m = (location.hash || "").match(/^#\/u\/([^/]+)/);
@@ -73,7 +73,7 @@ function renderSidebar() {
 }
 
 function bindNav() {
-  // Navigation haut (Dashboard, Daily, Practice, etc.)
+  // Navigation haut (Daily, Practice, etc.)
   $$("button[data-route]").forEach(btn => {
     btn.onclick = () => routeTo(btn.getAttribute("data-route"));
   });
@@ -95,16 +95,16 @@ function handleRoute() {
   if (h.startsWith("#/u/")) {
     const tokens = h.split("/"); // ["#/u", "{uid}", "{section?}"]
     const uid = tokens[2];
-    const section = tokens[3]; // "dashboard", "goals", etc.
+    const section = tokens[3]; // "daily", "goals", etc.
 
     if (!uid) {
       location.hash = "#/admin";
       return;
     }
 
-    // if we just have #/u/{uid}, normalize to #/u/{uid}/dashboard
+    // if we just have #/u/{uid}, normalize to #/u/{uid}/daily
     if (!section) {
-      location.replace(`#/u/${uid}/dashboard`);
+      location.replace(`#/u/${uid}/daily`);
       return;
     }
 
@@ -167,9 +167,9 @@ export async function initApp({ app, db, user }) {
   await loadCategories();
   bindNav();
 
-  ctx.route = location.hash || "#/dashboard";
+  ctx.route = location.hash || "#/daily";
   window.addEventListener("hashchange", () => {
-    ctx.route = location.hash || "#/dashboard";
+    ctx.route = location.hash || "#/daily";
     render();
   });
   render();
@@ -223,7 +223,7 @@ async function loadUsers(db) {
     const data = d.data();
     const uid = d.id;
     // Correction ici : le lien pointe directement vers le tableau de bord de l'utilisateur
-    const link = `${location.origin}${location.pathname}#/u/${uid}/dashboard`;
+    const link = `${location.origin}${location.pathname}#/u/${uid}/daily`;
     items.push(`
       <div class="card" style="display:flex;justify-content:space-between;align-items:center">
         <div><b>${data.displayName || "(sans nom)"}</b><br><span class="muted">UID: ${uid}</span></div>
@@ -265,8 +265,8 @@ function render() {
   const root = document.getElementById("view-root");
   if (!root) return;
 
-  // tokens: ["u", "{uid}", "dashboard?new=1"] OR ["dashboard?..."]
-  const tokens = (ctx.route || location.hash || "#/dashboard")
+  // tokens: ["u", "{uid}", "daily?new=1"] OR ["daily?..."]
+  const tokens = (ctx.route || location.hash || "#/daily")
     .replace(/^#\//, "")
     .split("/");
 
@@ -274,7 +274,7 @@ function render() {
   let sub = null;
   if (section === "u") {
     // Nested user routes
-    sub = tokens[2] || "dashboard"; // default screen for a user
+    sub = tokens[2] || "daily"; // default screen for a user
     ctx.user = { uid: tokens[1] }; // new: preserve the user UID
   }
 
@@ -282,7 +282,6 @@ function render() {
 
   switch (section === "u" ? sub : section) {
     case "dashboard":
-      return Modes.renderDashboard(ctx, root);
     case "daily":
       return Modes.renderDaily(ctx, root);
     case "practice":
