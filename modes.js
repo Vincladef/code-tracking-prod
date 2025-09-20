@@ -1,7 +1,7 @@
 // modes.js — Daily & Practice UI, history, consigne management
 import {
-  getFirestore, collection, doc, setDoc, getDoc, addDoc, updateDoc,
-  query, where, orderBy, getDocs, serverTimestamp, limit
+  collection, doc, setDoc, getDoc, addDoc, updateDoc,
+  query, where, orderBy, getDocs, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import * as Schema from "./schema.js";
 
@@ -16,15 +16,15 @@ function el(tag, attrs={}, children=[]){
 export async function openConsigneForm(ctx, consigne=null){
   const root = $("#view-root");
   const isEdit = !!consigne;
-  root.innerHTML = \`
+  root.innerHTML = `
     <div class="grid">
       <div class="section-title">
-        <h2>\${isEdit?"Modifier":"Ajouter"} une consigne</h2>
+        <h2>${isEdit ? "Modifier" : "Ajouter"} une consigne</h2>
       </div>
       <div class="grid cols-2">
         <div class="field">
           <label>Texte</label>
-          <textarea id="c-text" placeholder="Ex. : Est-ce que je me suis étiré ce matin ?"></textarea>
+          <textarea id="c-text" placeholder="Ex. : Est-ce que je me suis étiré ce matin ?"></textarea>
         </div>
         <div class="grid">
           <div class="field">
@@ -82,7 +82,7 @@ export async function openConsigneForm(ctx, consigne=null){
         <button class="btn" id="c-cancel">Annuler</button>
       </div>
     </div>
-  \`;
+  `;
   // Defaults if editing
   if (isEdit){
     $("#c-text").value = consigne.text || "";
@@ -248,7 +248,7 @@ export async function renderDashboard(ctx, root){
   const top = el("div",{class:"kpi"});
   top.append(el("div",{class:"card"}, `Consignes (journalier): ${consignesDaily.length}`));
   top.append(el("div",{class:"card"}, `Consignes (pratique): ${consignesPractice.length}`));
-  top.append(el("div",{class:"card"}, "Sessions aujourd’hui : (bientôt)"));
+  top.append(el("div",{class:"card"}, "Sessions aujourd’hui : (bientôt)"));
   root.append(top);
   const g1 = groupByCategory(consignesDaily);
   const g2 = groupByCategory(consignesPractice);
@@ -387,7 +387,7 @@ export async function renderHistory(ctx, root){
   const modeSel = el("select",{}); ["all","daily","practice"].forEach(m=> modeSel.append(el("option",{value:m}, m)));
   const limitSel = el("select",{}); ["50","200","1000"].forEach(n=> limitSel.append(el("option",{value:n}, `${n} dernières entrées`)));
   limitSel.value = "200";
-  filt.append(el("div",{},"Mode :"), modeSel, el("div",{style:"width:12px"}), el("div",{},"Plage :"), limitSel);
+  filt.append(el("div",{},"Mode :"), modeSel, el("div",{style:"width:12px"}), el("div",{},"Plage :"), limitSel);
   box.append(filt);
   const table = el("table",{class:"table"});
   table.innerHTML = "<thead><tr><th>Date</th><th>Mode</th><th>Catégorie</th><th>Consigne</th><th>Valeur</th></tr></thead><tbody></tbody>";
@@ -414,7 +414,9 @@ export async function renderHistory(ctx, root){
         date: r.createdAt, mode: r.mode, category: cons.category || "—", text: cons.text, value: formatVal(cons, r.value)
       });
     }
-    tbody.innerHTML = rows.map(r=>\`<tr><td>\${r.date}</td><td>\${r.mode}</td><td>\${r.category}</td><td>\${r.text}</td><td>\${r.value}</td></tr>\`).join("") || "<tr><td colspan='5'>—</td></tr>";
+    tbody.innerHTML = rows.map(r =>
+      `<tr><td>${r.date}</td><td>${r.mode}</td><td>${r.category}</td><td>${r.text}</td><td>${r.value}</td></tr>`
+    ).join("") || "<tr><td colspan='5'>—</td></tr>";
   }
   function formatVal(cons, v){
     if (cons.type==="likert6") return v;
