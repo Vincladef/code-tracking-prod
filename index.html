@@ -1,113 +1,106 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tracker d’habitudes & Pratique délibérée</title>
-  <link rel="icon" href="data:," />
-  <style>
-    :root { --bg:#0b0f14; --panel:#101823; --muted:#6b7280; --text:#e5e7eb; --accent:#60a5fa; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
-    * { box-sizing: border-box; }
-    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--text); background: linear-gradient(180deg,#0b0f14,#0e1621); min-height:100vh; }
-    header { position: sticky; top:0; z-index:10; background: rgba(16,24,35,0.9); backdrop-filter: blur(8px); border-bottom: 1px solid #1f2937; }
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 12px 16px; }
-    h1 { font-size: 18px; margin: 0; }
-    nav { display: flex; gap: 8px; flex-wrap: wrap; }
-    .row { display: grid; grid-template-columns: 240px 1fr; gap: 16px; }
-    @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
-    .panel { background: var(--panel); border: 1px solid #1f2937; border-radius: 16px; padding: 14px; }
-    .btn { appearance: none; border: 1px solid #334155; background: #0f172a; color: var(--text); padding: 8px 12px; border-radius: 12px; cursor: pointer; }
-    .btn:hover { border-color: #475569; }
-    .btn.primary { background: #111827; border-color: #3b82f6; color: #e5f0ff; }
-    .btn.ghost { background: transparent; }
-    .btn.small { padding: 6px 8px; font-size: 12px; }
-    .pill { font-size: 11px; border: 1px solid #334155; border-radius: 999px; padding: 2px 8px; color: #cbd5e1; }
-    .accent { color: var(--accent); }
-    .muted { color: var(--muted); }
-    .grid { display: grid; gap: 10px; }
-    .grid.cols-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
-    .grid.cols-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
-    .field { display: grid; gap:6px; }
-    label { font-size: 12px; color: #cbd5e1; }
-    input, select, textarea { width: 100%; background: #0b1220; border: 1px solid #1f2937; color: var(--text); border-radius: 10px; padding: 8px 10px; }
-    textarea { min-height: 80px; }
-    details { border: 1px solid #1f2937; border-radius: 12px; padding: 8px 10px; background: #0b1220; }
-    details > summary { cursor: pointer; color:#9ca3af; }
-    .list { display: grid; gap: 8px; }
-    .consigne { border: 1px dashed #223045; border-radius: 12px; padding: 10px; }
-    .consigne .title { font-weight: 600; }
-    .consigne .meta { font-size: 12px; color:#a3a3a3; display:flex; gap:8px; flex-wrap: wrap; }
-    .kpi { display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
-    .card { background: #0b1220; border: 1px solid #1f2937; border-radius: 12px; padding: 12px; }
-    .table { width: 100%; border-collapse: collapse; }
-    .table th, .table td { padding: 8px; border-bottom: 1px solid #1f2937; text-align: left; }
-    .section-title { display:flex; justify-content: space-between; align-items:center; margin: 8px 0; }
-    .hidden { display:none; }
-    .flex { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
-    .right { margin-left:auto; }
-    .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid #334155; }
-    .badge.high { border-color:#60a5fa; }
-    .badge.medium { border-color:#9ca3af; }
-    .badge.low { border-color:#64748b; }
-    footer { color:#94a3b8; font-size:12px; padding:24px 0 50px; text-align:center; }
-    .link { color:#93c5fd; text-decoration: underline; text-underline-offset: 2px; }
-  </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tracker d’habitudes & Pratique délibérée</title>
+  <link rel="icon" href="data:," />
+  <style>
+    :root { --bg:#0b0f14; --panel:#101823; --muted:#6b7280; --text:#e5e7eb; --accent:#60a5fa; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--text); background: linear-gradient(180deg,#0b0f14,#0e1621); min-height:100vh; }
+    header { position: sticky; top:0; z-index:10; background: rgba(16,24,35,0.9); backdrop-filter: blur(8px); border-bottom: 1px solid #1f2937; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 12px 16px; }
+    h1 { font-size: 18px; margin: 0; }
+    nav { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row { display: grid; grid-template-columns: 240px 1fr; gap: 16px; }
+    @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
+    .panel { background: var(--panel); border: 1px solid #1f2937; border-radius: 16px; padding: 14px; }
+    .btn { appearance: none; border: 1px solid #334155; background: #0f172a; color: var(--text); padding: 8px 12px; border-radius: 12px; cursor: pointer; }
+    .btn:hover { border-color: #475569; }
+    .btn.primary { background: #111827; border-color: #3b82f6; color: #e5f0ff; }
+    .btn.ghost { background: transparent; }
+    .btn.small { padding: 6px 8px; font-size: 12px; }
+    .pill { font-size: 11px; border: 1px solid #334155; border-radius: 999px; padding: 2px 8px; color: #cbd5e1; }
+    .accent { color: var(--accent); }
+    .muted { color: var(--muted); }
+    .grid { display: grid; gap: 10px; }
+    .grid.cols-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .grid.cols-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .field { display: grid; gap:6px; }
+    label { font-size: 12px; color: #cbd5e1; }
+    input, select, textarea { width: 100%; background: #0b1220; border: 1px solid #1f2937; color: var(--text); border-radius: 10px; padding: 8px 10px; }
+    textarea { min-height: 80px; }
+    details { border: 1px solid #1f2937; border-radius: 12px; padding: 8px 10px; background: #0b1220; }
+    details > summary { cursor: pointer; color:#9ca3af; }
+    .list { display: grid; gap: 8px; }
+    .consigne { border: 1px dashed #223045; border-radius: 12px; padding: 10px; }
+    .consigne .title { font-weight: 600; }
+    .consigne .meta { font-size: 12px; color:#a3a3a3; display:flex; gap:8px; flex-wrap: wrap; }
+    .kpi { display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+    .card { background: #0b1220; border: 1px solid #1f2937; border-radius: 12px; padding: 12px; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th, .table td { padding: 8px; border-bottom: 1px solid #1f2937; text-align: left; }
+    .section-title { display:flex; justify-content: space-between; align-items:center; margin: 8px 0; }
+    .hidden { display:none; }
+    .flex { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
+    .right { margin-left:auto; }
+    .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid #334155; }
+    .badge.high { border-color:#60a5fa; }
+    .badge.medium { border-color:#9ca3af; }
+    .badge.low { border-color:#64748b; }
+    footer { color:#94a3b8; font-size:12px; padding:24px 0 50px; text-align:center; }
+    .link { color:#93c5fd; text-decoration: underline; text-underline-offset: 2px; }
+  </style>
 </head>
 <body>
 <header>
-  <div class="wrap" style="display:flex; align-items:center; gap:12px;">
-    <h1>Tracker — <span class="accent">Habitudes</span> &amp; <span class="accent">Pratique</span></h1>
-    <nav class="right">
-      <button class="btn small" data-route="#/dashboard">Tableau de bord</button>
-      <button class="btn small" data-route="#/daily">Mode Journalier</button>
-      <button class="btn small" data-route="#/practice">Pratique Délibérée</button>
-      <button class="btn small" data-route="#/goals">Objectifs</button>
-      <button class="btn small" data-route="#/history">Historique</button>
-    </nav>
-  </div>
+  <div class="wrap" style="display:flex; align-items:center; gap:12px;">
+    <h1>Tracker — <span class="accent">Habitudes</span> &amp; <span class="accent">Pratique</span></h1>
+    <nav class="right">
+      <button class="btn small" data-route="#/dashboard">Tableau de bord</button>
+      <button class="btn small" data-route="#/daily">Mode Journalier</button>
+      <button class="btn small" data-route="#/practice">Pratique Délibérée</button>
+      <button class="btn small" data-route="#/goals">Objectifs</button>
+      <button class="btn small" data-route="#/history">Historique</button>
+    </nav>
+  </div>
 </header>
 
 <main class="wrap">
-  <div class="row">
-    <aside class="panel" id="sidebar">
-      <div class="grid">
-        <button class="btn primary" id="btn-new-session">+ Nouvelle session</button>
-        <button class="btn" id="btn-add-consigne">+ Ajouter une consigne</button>
-        <button class="btn" id="btn-add-goal">+ Créer un objectif</button>
-      </div>
-      <hr style="border-color:#1f2937; margin:12px 0;">
-      <div class="grid">
-        <div class="field">
-          <label>Votre profil</label>
-          <div id="profile-box" class="card muted">Chargement…</div>
-        </div>
-        <div class="field">
-          <label>Catégories</label>
-          <div id="category-box" class="card"></div>
-        </div>
-      </div>
-    </aside>
+  <div class="row">
+    <aside class="panel" id="sidebar">
+      <div class="grid">
+        <button class="btn primary" id="btn-new-session">+ Nouvelle session</button>
+        <button class="btn" id="btn-add-consigne">+ Ajouter une consigne</button>
+        <button class="btn" id="btn-add-goal">+ Créer un objectif</button>
+      </div>
+      <hr style="border-color:#1f2937; margin:12px 0;">
+      <div class="grid">
+        <div class="field">
+          <label>Votre profil</label>
+          <div id="profile-box" class="card muted">Chargement…</div>
+        </div>
+        <div class="field">
+          <label>Catégories</label>
+          <div id="category-box" class="card"></div>
+        </div>
+      </div>
+    </aside>
 
-    <section class="panel" id="view">
-      <div id="view-root">Chargement…</div>
-    </section>
-  </div>
+    <section class="panel" id="view">
+      <div id="view-root">Chargement…</div>
+    </section>
+  </div>
 </main>
 
 <footer>
-  V1 — GitHub Pages + Firebase Firestore (auth anonyme). Design minimal. ©
+  V1 — GitHub Pages + Firebase Firestore (auth anonyme). Design minimal. ©
 </footer>
 
-<!-- Firebase SDKs -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
   import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-  // ✅ Tes modules locaux (ils sont bien à la racine du repo)
-  import * as Schema from "./schema.js";
-  import * as Modes from "./modes.js";
-  import * as Goals from "./goals.js";
   import { initApp } from "./app.js";
 
   const firebaseConfig = {
@@ -120,20 +113,27 @@
     measurementId: "G-ZPHWB5DKWF"
   };
 
-  // Initialize Firebase
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
-  const auth = getAuth(app);
 
-  signInAnonymously(auth).catch(console.error);
+  function getUidFromHash() {
+    const m = location.hash.match(/^#\/u\/([^/?#]+)/);
+    return m ? m[1] : null;
+  }
 
-  onAuthStateChanged(auth, async (user) => {
-    if (!user) return;
-    await initApp({ app, db, auth });
-  });
-</script>
+  function boot() {
+    const uid = getUidFromHash();
+    if (!uid) {
+      const root = document.getElementById("view-root");
+      if (root) root.innerHTML = `<div class="card">Aucun UID dans l’URL.<br>Utilise un lien du type <code>${location.origin}${location.pathname}#/u/TON_UID</code></div>`;
+      return;
+    }
+    initApp({ app, db, user: { uid } });
+  }
 
-<!-- Chart.js for simple graphs -->
+  window.addEventListener("hashchange", boot);
+  boot();</script>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </body>
 </html>
