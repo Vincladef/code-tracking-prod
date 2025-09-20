@@ -73,6 +73,37 @@ function bindNav() {
   $("#btn-add-goal").onclick = () => Goals.openGoalForm(ctx);
 }
 
+// --- Router global (admin <-> user) ---
+function handleRoute() {
+  const h = location.hash || "#/admin";
+  if (h.startsWith("#/u/")) {
+    const uid = h.split("/")[2];
+    if (!uid) {
+      location.hash = "#/admin";
+      return;
+    }
+    // Monte l’espace utilisateur (initApp gère ensuite les écrans)
+    initApp({
+      app: ctx.app,
+      db: ctx.db,
+      user: {
+        uid
+      }
+    });
+  } else {
+    // Admin
+    renderAdmin(ctx.db);
+  }
+}
+
+export function startRouter(app, db) {
+  // On garde app/db dans le contexte pour les écrans
+  ctx.app = app;
+  ctx.db = db;
+  handleRoute(); // premier rendu
+  window.addEventListener("hashchange", handleRoute); // navigation
+}
+
 // Fonction ensureProfile implémentée localement
 async function ensureProfile(db, uid) {
   const ref = doc(db, "u", uid);
@@ -167,11 +198,28 @@ async function loadUsers(db) {
     items.push(`
       <div class="card" style="display:flex;justify-content:space-between;align-items:center">
         <div><b>${data.displayName || "(sans nom)"}</b><br><span class="muted">UID: ${uid}</span></div>
-        <a class="btn small" href="${link}">Ouvrir</a>
+        <a class="btn small"
+           href="${link}"
+           target="_blank"
+           rel="noopener noreferrer"
+           data-uid="${uid}">Ouvrir</a>
       </div>
     `);
   });
   list.innerHTML = items.join("") || "<div class='muted'>Aucun utilisateur</div>";
+
+  // Ajout du délégateur pour le clic
+  list.addEventListener("click", (e) => {
+    const a = e.target.closest("a[data-uid]");
+    if (!a) return;
+    // Si pas d’ouverture nouvel onglet, on route en local
+    if (!a.target || a.target === "_self") {
+      e.preventDefault();
+      location.hash = `#/u/${a.dataset.uid}`;
+      // on force la route sans attendre l’événement (utile sur certains navigateurs)
+      handleRoute();
+    }
+  });
 }
 
 function renderUser(db, uid) {

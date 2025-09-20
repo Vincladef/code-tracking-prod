@@ -70,8 +70,8 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore }    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import { initApp, renderAdmin, ctx } from "./app.js";
+  import { getFirestore }   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { startRouter }    from "./app.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyAQcvZ9a2j4MHF04RjMHIey0R_iwnjZf4o",
@@ -87,34 +87,8 @@
   const app = initializeApp(firebaseConfig);
   const db  = getFirestore(app);
 
-  // 2) Helper URL
-  function uidFromHash(){
-    const m = location.hash.match(/^#\/u\/([^/?#]+)/);
-    return m ? m[1] : null;
-  }
-
-  // 3) Router minimal
-  async function boot(){
-    const uid = uidFromHash();
-
-    // Cas ADMIN (pas d’UID ou #/admin)
-    if (!uid || location.hash.startsWith("#/admin")) {
-      // Donne le db au contexte pour que renderAdmin l’utilise si besoin
-      ctx.db = db;
-      // masque éventuellement l’aside (si présent dans ton HTML)
-      const aside = document.getElementById("sidebar");
-      if (aside) aside.style.display = "none";
-      // affiche l’admin
-      renderAdmin(db);
-      return;
-    }
-
-    // Cas UTILISATEUR (#/u/UID)
-    initApp({ app, db, user: { uid } });
-  }
-
-  window.addEventListener("hashchange", boot);
-  boot();
+  // 2) On laisse app.js décider : admin si pas d'UID, sinon user.
+  startRouter(app, db);
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
