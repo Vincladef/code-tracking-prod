@@ -313,6 +313,117 @@ function dayBtn(i, active, label, onClick){
   return Btn(label, `${active?"border-sky-600 bg-sky-600/80 text-white":"opacity-90"}`, onClick);
 }
 
+function renderConsignesForm(ctx, root, consignes, {
+  infoText = "",
+  addButtonLabel = "+ Ajouter une consigne",
+  onAddConsigne = null,
+  flash = null,
+  emptyText = "Aucune consigne.",
+  onSubmitSuccess = null
+} = {}){
+  if (infoText || onAddConsigne){
+    const infoRow = el("div",{class:"flex flex-wrap items-center gap-3 mb-4"});
+    if (infoText){
+      infoRow.append(el("p",{class:`text-sm text-gray-400 ${onAddConsigne?"flex-1":""}`}, infoText));
+    }
+    if (onAddConsigne){
+      infoRow.append(Btn(addButtonLabel,
+        "border-sky-600 bg-sky-600/80 hover:bg-sky-600 text-white",
+        onAddConsigne));
+    }
+    root.append(infoRow);
+  }
+
+  if (flash?.text){
+    const color = flash.type === "success" ? "text-emerald-400" : "text-red-400";
+    root.append(el("div",{class:`mb-3 text-sm ${color}`}, flash.text));
+  }
+
+  if (!consignes.length){
+    const emptyNode = typeof emptyText === "string" ? el("div",{}, emptyText) : emptyText;
+    root.append(Card(emptyNode));
+    return;
+  }
+
+  const form = el("form",{class:"space-y-5"});
+  const entries = [];
+  let first = true;
+
+  for (const p of PRIORITIES){
+    const inP = consignes.filter(c=>c.priority===p);
+    if (!inP.length) continue;
+    const section = el("div",{class:"space-y-3"});
+    section.append(el("h3",{class:`text-lg font-semibold ${first?"":"mt-4"}`},
+      p==="high"?"Priorité haute":p==="medium"?"Priorité moyenne":"Priorité basse"));
+    const grid = el("div",{class:"grid gap-3 md:grid-cols-2"});
+    inP.forEach(c=>{
+      const entry = ConsigneCard(ctx,c);
+      grid.append(entry.card);
+      entries.push({ consigne:c, getValue: entry.getValue });
+    });
+    section.append(grid);
+    form.append(section);
+    first = false;
+  }
+
+  const footer = el("div",{class:"space-y-2"});
+  const submitRow = el("div",{class:"flex justify-end"});
+  const submitBtn = el("button",{type:"submit", class:"px-4 py-2 rounded-xl border border-sky-600 bg-sky-600/80 hover:bg-sky-600 text-white text-sm"}, "Envoyer les réponses");
+  submitRow.append(submitBtn);
+  const message = el("div",{class:"text-sm text-red-400", style:"display:none"});
+  footer.append(submitRow, message);
+  form.append(footer);
+
+  form.addEventListener("submit", async (e)=>{
+    e.preventDefault();
+    message.style.display = "none";
+    const original = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Envoi…";
+    let sent = 0;
+    try {
+      for (const entry of entries){
+        const value = entry.getValue();
+        if (value === null || value === undefined || value === "") continue;
+        await saveResponse(ctx, entry.consigne, value);
+        sent++;
+      }
+    } catch (err) {
+      console.error(err);
+      message.textContent = "Une erreur est survenue lors de l’envoi.";
+      message.className = "text-sm text-red-400";
+      message.style.display = "block";
+      submitBtn.disabled = false;
+      submitBtn.textContent = original;
+      return;
+    }
+
+    if (!sent){
+      message.textContent = "Sélectionne au moins une consigne avant d’envoyer.";
+      message.className = "text-sm text-red-400";
+      message.style.display = "block";
+      submitBtn.disabled = false;
+      submitBtn.textContent = original;
+      return;
+    }
+
+    if (typeof onSubmitSuccess === "function"){
+      submitBtn.disabled = false;
+      submitBtn.textContent = original;
+      await onSubmitSuccess(sent);
+      return;
+    }
+
+    message.textContent = sent === 1 ? "1 réponse envoyée" : `${sent} réponses envoyées`;
+    message.className = "text-sm text-emerald-400";
+    message.style.display = "block";
+    submitBtn.disabled = false;
+    submitBtn.textContent = original;
+  });
+
+  root.append(form);
+}
+
 // ---------- vues ----------
 export async function renderDaily(ctx, root, opts = {}){
   root.innerHTML="";
@@ -322,17 +433,6 @@ export async function renderDaily(ctx, root, opts = {}){
   const dow = params.has("dow") ? Number(params.get("dow")) : todayDow();
 
   root.append(DayPicker(dow));
-
-  const infoRow = el("div",{class:"flex flex-wrap items-center gap-3 mb-4"});
-  infoRow.append(el("p",{class:"text-sm text-gray-400 flex-1"},
-    "Sélectionne tes réponses du jour puis envoie-les en bas du formulaire."));
-  infoRow.append(Btn("+ Ajouter une consigne","border-sky-600 bg-sky-600/80 hover:bg-sky-600 text-white",()=>openConsigneForm(ctx)));
-  root.append(infoRow);
-
-  if (opts.flash){
-    const color = opts.flash.type === "success" ? "text-emerald-400" : "text-red-400";
-    root.append(el("div",{class:`mb-3 text-sm ${color}`}, opts.flash.text));
-  }
 
   const all = await fetchConsignes(ctx,"daily");
   const ready = [];
@@ -345,97 +445,25 @@ export async function renderDaily(ctx, root, opts = {}){
     ready.push(c);
   }
 
-  if (!ready.length){
-    root.append(Card(el("div",{},"Rien à faire pour ce jour 🎉")));
-    return;
-  }
-
-  const form = el("form",{class:"space-y-5"});
-  const entries = [];
-  let first = true;
-  for (const p of PRIORITIES){
-    const inP = ready.filter(c=>c.priority===p);
-    if (!inP.length) continue;
-    const section = el("div",{class:"space-y-3"});
-    section.append(el("h3",{class:`text-lg font-semibold ${first?"":"mt-4"}`},
-      p==="high"?"Priorité haute":p==="medium"?"Priorité moyenne":"Priorité basse"));
-    const grid = el("div",{class:"grid gap-3 md:grid-cols-2"});
-    inP.forEach(c=>{
-      const entry = ConsigneCard(ctx,c);
-      grid.append(entry.card);
-      entries.push({ consigne:c, getValue: entry.getValue });
-    });
-    section.append(grid);
-    form.append(section);
-    first = false;
-  }
-
-  const footer = el("div",{class:"space-y-2"});
-  const submitRow = el("div",{class:"flex justify-end"});
-  const submitBtn = el("button",{type:"submit", class:"px-4 py-2 rounded-xl border border-sky-600 bg-sky-600/80 hover:bg-sky-600 text-white text-sm"}, "Envoyer les réponses");
-  submitRow.append(submitBtn);
-  const message = el("div",{class:"text-sm text-red-400", style:"display:none"});
-  footer.append(submitRow, message);
-  form.append(footer);
-
-  form.addEventListener("submit", async (e)=>{
-    e.preventDefault();
-    message.style.display = "none";
-    const original = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = "Envoi…";
-    let sent = 0;
-    try {
-      for (const entry of entries){
-        const value = entry.getValue();
-        if (value === null || value === undefined || value === "") continue;
-        await saveResponse(ctx, entry.consigne, value);
-        sent++;
-      }
-    } catch (err) {
-      console.error(err);
-      message.textContent = "Une erreur est survenue lors de l’envoi.";
-      message.className = "text-sm text-red-400";
-      message.style.display = "block";
-      submitBtn.disabled = false;
-      submitBtn.textContent = original;
-      return;
+  renderConsignesForm(ctx, root, ready, {
+    infoText: "Sélectionne tes réponses du jour puis envoie-les en bas du formulaire.",
+    onAddConsigne: ()=>openConsigneForm(ctx),
+    flash: opts.flash,
+    emptyText: "Rien à faire pour ce jour 🎉",
+    onSubmitSuccess: async (sent)=>{
+      await renderDaily(ctx, root, {
+        flash: {
+          type: "success",
+          text: sent === 1 ? "1 réponse envoyée" : `${sent} réponses envoyées`
+        }
+      });
     }
-
-    if (!sent){
-      message.textContent = "Sélectionne au moins une consigne avant d’envoyer.";
-      message.className = "text-sm text-red-400";
-      message.style.display = "block";
-      submitBtn.disabled = false;
-      submitBtn.textContent = original;
-      return;
-    }
-
-    await renderDaily(ctx, root, {
-      flash: {
-        type: "success",
-        text: sent === 1 ? "1 réponse envoyée" : `${sent} réponses envoyées`
-      }
-    });
   });
-
-  root.append(form);
 }
 
 export async function renderPractice(ctx, root, opts = {}){
   root.innerHTML="";
   root.append(el("h2",{class:"text-xl font-semibold mb-3"}, "Pratique délibérée"));
-
-  const infoRow = el("div",{class:"flex flex-wrap items-center gap-3 mb-4"});
-  infoRow.append(el("p",{class:"text-sm text-gray-400 flex-1"},
-    "Prépare ta session puis envoie toutes tes réponses en une fois."));
-  infoRow.append(Btn("+ Ajouter une consigne","border-sky-600 bg-sky-600/80 hover:bg-sky-600 text-white",()=>openConsigneForm(ctx)));
-  root.append(infoRow);
-
-  if (opts.flash){
-    const color = opts.flash.type === "success" ? "text-emerald-400" : "text-red-400";
-    root.append(el("div",{class:`mb-3 text-sm ${color}`}, opts.flash.text));
-  }
 
   const all = await fetchConsignes(ctx,"practice");
   const ready=[];
@@ -446,81 +474,21 @@ export async function renderPractice(ctx, root, opts = {}){
     }
     ready.push(c);
   }
-  if (!ready.length){
-    root.append(Card("Aucune consigne pour cette session."));
-    return;
-  }
 
-  const form = el("form",{class:"space-y-5"});
-  const entries = [];
-  let first = true;
-  for (const p of PRIORITIES){
-    const inP = ready.filter(c=>c.priority===p);
-    if (!inP.length) continue;
-    const section = el("div",{class:"space-y-3"});
-    section.append(el("h3",{class:`text-lg font-semibold ${first?"":"mt-4"}`},
-      p==="high"?"Priorité haute":p==="medium"?"Priorité moyenne":"Priorité basse"));
-    const grid = el("div",{class:"grid gap-3 md:grid-cols-2"});
-    inP.forEach(c=>{
-      const entry = ConsigneCard(ctx,c);
-      grid.append(entry.card);
-      entries.push({ consigne:c, getValue: entry.getValue });
-    });
-    section.append(grid);
-    form.append(section);
-    first = false;
-  }
-
-  const footer = el("div",{class:"space-y-2"});
-  const submitRow = el("div",{class:"flex justify-end"});
-  const submitBtn = el("button",{type:"submit", class:"px-4 py-2 rounded-xl border border-sky-600 bg-sky-600/80 hover:bg-sky-600 text-white text-sm"}, "Envoyer les réponses");
-  submitRow.append(submitBtn);
-  const message = el("div",{class:"text-sm text-red-400", style:"display:none"});
-  footer.append(submitRow, message);
-  form.append(footer);
-
-  form.addEventListener("submit", async (e)=>{
-    e.preventDefault();
-    message.style.display = "none";
-    const original = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = "Envoi…";
-    let sent = 0;
-    try {
-      for (const entry of entries){
-        const value = entry.getValue();
-        if (value === null || value === undefined || value === "") continue;
-        await saveResponse(ctx, entry.consigne, value);
-        sent++;
-      }
-    } catch (err) {
-      console.error(err);
-      message.textContent = "Une erreur est survenue lors de l’envoi.";
-      message.className = "text-sm text-red-400";
-      message.style.display = "block";
-      submitBtn.disabled = false;
-      submitBtn.textContent = original;
-      return;
+  renderConsignesForm(ctx, root, ready, {
+    infoText: "Prépare ta session puis envoie toutes tes réponses en une fois.",
+    onAddConsigne: ()=>openConsigneForm(ctx),
+    flash: opts.flash,
+    emptyText: "Aucune consigne pour cette session.",
+    onSubmitSuccess: async (sent)=>{
+      await renderPractice(ctx, root, {
+        flash: {
+          type: "success",
+          text: sent === 1 ? "1 réponse envoyée" : `${sent} réponses envoyées`
+        }
+      });
     }
-
-    if (!sent){
-      message.textContent = "Sélectionne au moins une consigne avant d’envoyer.";
-      message.className = "text-sm text-red-400";
-      message.style.display = "block";
-      submitBtn.disabled = false;
-      submitBtn.textContent = original;
-      return;
-    }
-
-    await renderPractice(ctx, root, {
-      flash: {
-        type: "success",
-        text: sent === 1 ? "1 réponse envoyée" : `${sent} réponses envoyées`
-      }
-    });
   });
-
-  root.append(form);
 }
 
 export async function renderHistory(ctx, root){
