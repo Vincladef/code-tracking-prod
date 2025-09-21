@@ -6,37 +6,74 @@
   <title>Habitudes &amp; Pratique</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
   <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
   <style>
+    :root{
+      /* Pastels par section (par défaut = daily / bleu doux) */
+      --accent-50:  #ECF7FF;
+      --accent-200: #CFEBFF;
+      --accent-400: #9FD7FF;
+      --accent-600: #60BFFD;
+      --accent-700: #3EA6EB;
+
+      --card-bg: #ffffff;
+      --page-bg: #F6F7FB;
+      --text:    #334155; /* slate-700 */
+      --muted:   #94A3B8; /* slate-400 */
+      --ring:    var(--accent-400);
+    }
+    /* Pratique = vert doux */
+    [data-section="practice"]{
+      --accent-50:#F1FBF4; --accent-200:#D8F3E0; --accent-400:#BEE6C8; --accent-600:#8ED6A2; --accent-700:#63C582;
+    }
+    /* Objectifs = violet doux */
+    [data-section="goals"]{
+      --accent-50:#F7F3FF; --accent-200:#E9DFFF; --accent-400:#E3D0FF; --accent-600:#C7A7FF; --accent-700:#A884FF;
+    }
+
     body { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    input, textarea, select {
-      background: rgba(255,255,255,.05);
-      border: 1px solid rgba(255,255,255,.1);
-      color: #e5e7eb;
+    body{ background:var(--page-bg); color:var(--text); }
+
+    /* Cards blanches, coins 2xl, ombre douce */
+    .card{ background:var(--card-bg); border:1px solid #E5E7EB; border-radius:1rem; box-shadow: 0 8px 24px rgba(16,24,40,.06); }
+
+    /* Champs clairs + anneau pastel */
+    input, textarea, select{
+      background:#fff; border:1px solid #E5E7EB; color:var(--text); border-radius:.75rem; padding:.625rem .75rem;
     }
-    input:focus, textarea:focus, select:focus {
-      outline: none;
-      border-color: rgba(125,211,252,.6);
-      box-shadow: 0 0 0 2px rgba(56,189,248,.2);
-    }
-    .card {
-      background: rgba(15,23,42,.55);
-      border: 1px solid rgba(148,163,184,.2);
-      border-radius: 14px;
-      backdrop-filter: blur(6px);
-    }
-    #sidebar { display: none; }
+    input:focus, textarea:focus, select:focus{ outline:none; border-color:var(--ring); box-shadow:0 0 0 3px var(--accent-50); }
+
+    /* Onglets (pills) + état actif coloré */
+    .tabs{ display:flex; gap:.5rem; align-items:center; }
+    .tab{ border:1px solid #E5E7EB; background:#fff; border-radius:999px; padding:.5rem .875rem; font-size:.9rem; display:inline-flex; gap:.5rem; align-items:center; }
+    .tab[aria-current="page"]{ background:var(--accent-50); border-color:var(--accent-400); color:#0B4B66; }
+
+    /* Boutons */
+    .btn{ border-radius:.75rem; padding:.625rem 1rem; font-weight:600; }
+    .btn-primary{ background:var(--accent-600); color:#fff; }
+    .btn-primary:hover{ background:var(--accent-700); }
+    .btn-ghost{ background:transparent; border:1px solid var(--accent-200); color:#334155; }
+    .btn-ghost:hover{ background:var(--accent-50); }
+
+    /* Animation de changement d’onglet */
+    @keyframes fadeSlideIn{ from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:translateY(0);} }
+    .route-enter{ animation: fadeSlideIn .25s ease-out; }
+
+    /* Sidebar cachée par défaut (mode admin != user) */
+    #sidebar{ display:none; }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen">
+<body class="min-h-screen">
   <div class="flex min-h-screen flex-col">
-    <header class="border-b border-white/10 bg-slate-900/80 backdrop-blur">
+    <header class="border-b border-gray-200 bg-white">
       <div class="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-4">
         <h1 class="text-xl font-semibold">Habitudes &amp; Pratique</h1>
-        <nav class="flex flex-wrap items-center gap-2">
-          <button class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10" data-route="#/daily">Journalier</button>
-          <button class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10" data-route="#/practice">Pratique</button>
-          <button class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10" data-route="#/goals">Objectifs</button>
-          <button class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10" data-route="#/admin">Admin</button>
+        <nav class="tabs">
+          <button class="tab" data-route="#/daily"><span>📅</span><span>Journalier</span></button>
+          <button class="tab" data-route="#/practice"><span>⚡</span><span>Pratique</span></button>
+          <button class="tab" data-route="#/goals"><span>🎯</span><span>Objectifs</span></button>
+          <button class="tab" data-route="#/admin"><span>🛠</span><span>Admin</span></button>
         </nav>
       </div>
     </header>
@@ -44,11 +81,11 @@
     <main class="flex-1">
       <div class="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-6">
         <aside id="sidebar"></aside>
-        <div id="view-root" class="card p-4">Chargement…</div>
+        <div id="view-root">Chargement…</div>
       </div>
     </main>
 
-    <footer class="border-t border-white/10 py-6 text-center text-sm text-slate-400">
+    <footer class="border-t border-gray-200 py-6 text-center text-sm text-[var(--muted)]">
       &copy; Habitudes &amp; Pratique
     </footer>
   </div>

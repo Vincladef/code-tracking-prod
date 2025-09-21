@@ -57,14 +57,14 @@ function setActiveNav(sectionKey) {
     admin: "#/admin"
   };
   const activeTarget = map[sectionKey] || "#/daily";
-  $$("button[data-route]").forEach((btn) => {
+  const accentSection = map[sectionKey] ? sectionKey : "daily";
+
+  document.body.setAttribute("data-section", accentSection);
+
+  $$('button[data-route]').forEach((btn) => {
     const target = btn.getAttribute("data-route");
     const isActive = target === activeTarget;
-    btn.classList.toggle("bg-sky-600", isActive);
-    btn.classList.toggle("border-sky-500", isActive);
-    btn.classList.toggle("text-white", isActive);
-    btn.classList.toggle("bg-white/5", !isActive);
-    btn.classList.toggle("border-white/10", !isActive);
+    btn.setAttribute("aria-current", isActive ? "page" : "false");
   });
 }
 
@@ -254,13 +254,16 @@ export function renderAdmin(db) {
   const root = document.getElementById("view-root");
   log("admin:render");
   root.innerHTML = `
-    <div class="grid" style="gap:12px">
-      <h2>Admin — Utilisateurs</h2>
-      <form id="new-user-form" class="card" style="display:grid;gap:8px;max-width:420px">
-        <input class="input" type="text" id="new-user-name" placeholder="Nom de l’utilisateur" required />
-        <button class="btn primary" type="submit">Créer l’utilisateur</button>
+    <div class="space-y-4">
+      <h2 class="text-xl font-semibold">Admin — Utilisateurs</h2>
+      <form id="new-user-form" class="card p-4 space-y-3 max-w-md">
+        <input type="text" id="new-user-name" placeholder="Nom de l’utilisateur" required class="w-full" />
+        <button class="btn btn-primary" type="submit">Créer l’utilisateur</button>
       </form>
-      <div class="card"><b>Utilisateurs existants</b><div id="user-list" class="list" style="margin-top:8px"></div></div>
+      <div class="card p-4 space-y-3">
+        <div class="font-semibold">Utilisateurs existants</div>
+        <div id="user-list" class="grid gap-3"></div>
+      </div>
     </div>
   `;
 
@@ -283,7 +286,7 @@ export function renderAdmin(db) {
 
 async function loadUsers(db) {
   const list = document.getElementById("user-list");
-  list.innerHTML = "<div class='muted'>Chargement…</div>";
+  list.innerHTML = "<div class='text-sm text-[var(--muted)]'>Chargement…</div>";
   log("admin:users:load:start");
   const ss = await getDocs(collection(db, "u"));
   const items = [];
@@ -293,9 +296,12 @@ async function loadUsers(db) {
     // Correction ici : le lien pointe directement vers le tableau de bord de l'utilisateur
     const link = `${location.origin}${location.pathname}#/u/${uid}/daily`;
     items.push(`
-      <div class="card" style="display:flex;justify-content:space-between;align-items:center">
-        <div><b>${data.displayName || "(sans nom)"}</b><br><span class="muted">UID: ${uid}</span></div>
-        <a class="btn small"
+      <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3">
+        <div>
+          <div class="font-medium">${data.displayName || "(sans nom)"}</div>
+          <div class="text-sm text-[var(--muted)]">UID: ${uid}</div>
+        </div>
+        <a class="btn btn-ghost text-sm"
            href="${link}"
            target="_blank"
            rel="noopener noreferrer"
@@ -303,7 +309,7 @@ async function loadUsers(db) {
       </div>
     `);
   });
-  list.innerHTML = items.join("") || "<div class='muted'>Aucun utilisateur</div>";
+  list.innerHTML = items.join("") || "<div class='text-sm text-[var(--muted)]'>Aucun utilisateur</div>";
   log("admin:users:load:done", { count: items.length });
 
   // Add a delegate for the click
@@ -334,6 +340,11 @@ function renderUser(db, uid) {
 function render() {
   const root = document.getElementById("view-root");
   if (!root) return;
+
+  root.classList.remove("route-enter");
+  // eslint-disable-next-line no-unused-expressions
+  root.offsetHeight;
+  root.classList.add("route-enter");
 
   const h = ctx.route || location.hash || "#/daily";
   const tokens = h.replace(/^#\//, "").split("/"); // ["u","{uid}","daily?day=mon"] ou ["daily?..."]
