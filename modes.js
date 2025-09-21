@@ -72,41 +72,24 @@ function navigate(hash) {
   else window.location.hash = hash;
 }
 
-async function categorySelect(ctx, mode, currentName = null) {
+async function categorySelect(ctx, mode, currentName = "") {
   const cats = await Schema.fetchCategories(ctx.db, ctx.user.uid);
-  const options = cats
-    .filter((c) => c.mode === mode)
-    .map(
-      (c) =>
-        `<option value="${escapeHtml(c.name)}" ${c.name === currentName ? "selected" : ""}>${escapeHtml(c.name)}</option>`
-    )
-    .join("");
+  const names = cats.filter(c => c.mode === mode).map(c => c.name);
+  const listId = `category-list-${mode}-${Date.now()}`;
+
   return `
     <label class="block text-sm text-[var(--muted)] mb-1">Catégorie</label>
-    <div class="flex flex-wrap gap-2">
-      <select name="categorySelect" class="flex-1 min-w-[160px]">
-        <option value="">— choisir —</option>
-        ${options}
-        <option value="__new__">+ Nouvelle catégorie…</option>
-      </select>
-      <input name="categoryNew" placeholder="Nom de la catégorie"
-             class="hidden flex-1 min-w-[200px]" />
+    <input name="categoryInput"
+           list="${listId}"
+           class="w-full"
+           placeholder="Choisir ou taper un nom…"
+           value="${escapeHtml(currentName || "")}">
+    <datalist id="${listId}">
+      ${names.map(n => `<option value="${escapeHtml(n)}"></option>`).join("")}
+    </datalist>
+    <div class="text-xs text-[var(--muted)] mt-1">
+      Tu peux taper un nouveau nom ou choisir dans la liste.
     </div>
-    <script>
-      (function(){
-        const block = document.currentScript.previousElementSibling;
-        const sel = block.querySelector('[name=categorySelect]');
-        const input = block.querySelector('[name=categoryNew]');
-        sel.addEventListener('change', () => {
-          if (sel.value === '__new__') {
-            input.classList.remove('hidden');
-            input.focus();
-          } else {
-            input.classList.add('hidden');
-          }
-        });
-      })();
-    </script>
   `;
 }
 
@@ -248,8 +231,7 @@ export async function openConsigneForm(ctx, consigne = null) {
   $("#consigne-form", m).onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const sel = fd.get("categorySelect");
-    const cat = sel === "__new__" ? (fd.get("categoryNew") || "").trim() : (sel || "").trim();
+    const cat = (fd.get("categoryInput") || "").trim();
     if (!cat) return alert("Choisis (ou saisis) une catégorie.");
 
     await Schema.ensureCategory(ctx.db, ctx.user.uid, cat, mode);
