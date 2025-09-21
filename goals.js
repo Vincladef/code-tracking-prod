@@ -101,6 +101,11 @@ export async function renderGoals(ctx, root){
   window.__ctx = ctx;
   root.innerHTML = "";
   root.append(el("h2",{},"Objectifs"));
+  const bar = el("div",{class:"section-title"},[
+    el("div",{},""), // spacer
+    el("button",{class:"btn small right", onclick:()=>openGoalForm(ctx)}, "+ Nouvel objectif")
+  ]);
+  root.append(bar);
   const qy = query(col(ctx.db, ctx.user.uid, "goals"), orderBy("createdAt","desc"));
   const ss = await getDocs(qy);
   const byT = { weekly:[], monthly:[], yearly:[] };
@@ -162,7 +167,7 @@ async function saveGoalResponse(ctx, goal, value){
     ownerUid: ctx.user.uid, goalId: goal.id, value, temporalUnit: goal.temporalUnit, createdAt: Schema.now()
   };
   const srPrev = await Schema.readSRState(ctx.db, ctx.user.uid, goal.id, "goal_"+goal.temporalUnit);
-  const upd = Schema.nextCooldownAfterAnswer({ ...goal, mode:"daily" }, srPrev, (goal.type==="likert6"?value: (goal.type==="num"?value:"yes")));
+  const upd = Schema.nextCooldownAfterAnswer({ mode: "daily", type: goal.type }, srPrev, value);
   await Schema.upsertSRState(ctx.db, ctx.user.uid, goal.id, "goal_"+goal.temporalUnit, upd);
   await addDoc(col(ctx.db, ctx.user.uid, "goalResponses"), payload);
 }

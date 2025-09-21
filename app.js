@@ -199,7 +199,6 @@ export async function initApp({ app, db, user }) {
 
   const profile = await ensureProfile(db, user.uid);
   ctx.profile = profile;
-  L.info("Profile loaded:", profile);
   log("app:init:profile", { profile });
 
   // Display profile in the sidebar
@@ -316,39 +315,36 @@ function render() {
   const root = document.getElementById("view-root");
   if (!root) return;
 
-  const parsed = parseHash(ctx.route || location.hash || "#/daily");
-  log("render:start", parsed);
-  let section = parsed.segments[0] || "daily";
+  const h = ctx.route || location.hash || "#/daily";
+  const tokens = h.replace(/^#\//, "").split("/"); // ["u","{uid}","daily?day=mon"] ou ["daily?..."]
+
+  let section = tokens[0];
+  let sub = null;
   if (section === "u") {
-    const uid = parsed.segments[1];
-    const nested = parsed.segments[2] || "daily";
-    if (uid) {
-      ctx.user = { uid };
-    }
-    section = nested;
+    // /u/{uid}/{sub}
+    const uid = tokens[1];
+    sub = (tokens[2] || "daily");
+    // IMPORTANT: enlever la query de 'sub'
+    sub = sub.split("?")[0];
+    ctx.user = { uid };
   }
 
-  switch (section) {
+  // Query params (toujours depuis l'URL complète)
+  const qp = new URLSearchParams((h.split("?")[1] || ""));
+
+  switch (section === "u" ? sub : section) {
     case "dashboard":
     case "daily":
-      log("render:daily", { section });
-      return Modes.renderDaily(ctx, root);
+      return Modes.renderDaily(ctx, root, { day: qp.get("day") });
     case "practice":
-      log("render:practice", { search: parsed.search });
-      return Modes.renderPractice(ctx, root, {
-        newSession: parsed.qp.get("new") === "1"
-      });
+      return Modes.renderPractice(ctx, root, { newSession: qp.get("new") === "1" });
     case "history":
-      log("render:history");
       return Modes.renderHistory(ctx, root);
     case "goals":
-      log("render:goals");
       return Goals.renderGoals(ctx, root);
     case "admin":
-      log("render:admin");
       return renderAdmin(ctx.db);
     default:
-      log("render:unknown", { section });
       root.innerHTML = "<div class='card'>Page inconnue.</div>";
   }
 }

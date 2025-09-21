@@ -1,485 +1,288 @@
-// modes.js — UI propre : Journalier / Pratique / Historique / Form consignes
 import {
-  addDoc, setDoc, updateDoc, getDoc, getDocs,
-  doc, query, where, orderBy, limit
+  addDoc, getDoc, getDocs, doc, query, where, orderBy
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import * as Schema from "./schema.js";
-import { col, docIn, now } from "./schema.js";
+import { col, docIn } from "./schema.js";
 
-// ---------- helpers DOM ----------
-const $ = s => document.querySelector(s);
-const log = (...args) => console.debug("[modes]", ...args);
-const el = (t, a={}, c=[])=>{
-  const n = document.createElement(t);
-  Object.entries(a).forEach(([k,v])=>{
-    if (k==="class") n.className=v;
-    else if (k.startsWith("on") && typeof v==="function") n[k]=v;
+function $(s){ return document.querySelector(s); }
+function el(tag, attrs={}, children=[]){
+  const n = document.createElement(tag);
+  for (const [k,v] of Object.entries(attrs)){
+    if (k==="class") n.className = v;
+    else if (k==="onclick") n.onclick = v;
     else n.setAttribute(k,v);
-  });
-  (Array.isArray(c)?c:[c]).forEach(x=>n.append(x?.nodeType?x:document.createTextNode(x??"")));
-  return n;
-};
-const withinUser = (frag)=> {
-  const m=(location.hash||"").match(/^#\/u\/([^/]+)/);
-  return m ? `#/u/${m[1]}/${frag.replace(/^#\//,"")}` : frag;
-};
-
-// ---------- constantes ----------
-const LIKERT6 = [
-  ["no_answer","NR"],["no","Non"],["rather_no","Plutôt non"],
-  ["medium","Moyen"],["rather_yes","Plutôt oui"],["yes","Oui"]
-];
-const PRIORITIES = ["high","medium","low"];
-const MODE_LABEL = { daily:"Journalier", practice:"Pratique délibérée" };
-const TYPE_LABEL = { short:"Texte court", long:"Texte long", likert6:"Likert (6)", num:"Échelle 1–10" };
-
-// ---------- SR & fréquence ----------
-const DOW = ["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];
-const todayDow = ()=> new Date().getDay(); // 0..6 (Dim..Sam)
-
-function canUseSR(){
-  return typeof Schema.readSRState==="function" &&
-         typeof Schema.upsertSRState==="function" &&
-         typeof Schema.nextCooldownAfterAnswer==="function";
-}
-function hiddenBySR(st){
-  if (!st || !st.hideUntil) return false;
-  return new Date(st.hideUntil) > new Date();
-}
-function dueOnDay(consigne, dowIdx){
-  if (consigne.mode!=="daily") return true;
-  const f=consigne.frequency||{kind:"everyday"};
-  if (f.kind==="everyday") return true;
-  if (f.kind==="days" && Array.isArray(f.days)) return f.days.includes(dowIdx);
-  return true;
-}
-
-// ---------- data ----------
-async function fetchConsignes(ctx, mode){
-  log("consignes:fetch:start", { mode, uid: ctx.user?.uid });
-  const qy = query(
-    col(ctx.db, ctx.user.uid, "consignes"),
-    where("active","==", true),
-    where("mode","==", mode),
-    orderBy("priority","asc"),
-    orderBy("createdAt","desc")
-  );
-  const ss = await getDocs(qy);
-  const data = ss.docs.map(d=>({id:d.id, ...d.data()}));
-  log("consignes:fetch:done", { mode, count: data.length });
-  return data;
-}
-async function saveConsigne(ctx, id, payload){
-  log("consigne:save", { id, payload });
-  if (id){ await updateDoc(docIn(ctx.db, ctx.user.uid, "consignes", id), payload); return id; }
-  const ref = await addDoc(col(ctx.db, ctx.user.uid, "consignes"), payload);
-  return ref.id;
-}
-async function softDeleteConsigne(ctx, id){
-  log("consigne:delete", { id });
-  await updateDoc(docIn(ctx.db, ctx.user.uid, "consignes", id), { active:false, deletedAt: now() });
-}
-async function saveResponse(ctx, c, value){
-  log("response:save:start", { consigneId: c.id, mode: c.mode, type: c.type, value });
-  const docRef = await addDoc(col(ctx.db, ctx.user.uid, "responses"), {
-    ownerUid: ctx.user.uid, consigneId: c.id, value,
-    type: c.type, mode: c.mode, createdAt: now()
-  });
-  log("response:save:stored", { responseId: docRef.id, consigneId: c.id });
-  if (c.srEnabled && canUseSR()){
-    const prev = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, c.mode);
-    const positive = c.type==="likert6" ? value
-                   : c.type==="num"     ? (Number(value)>=6?"yes":"medium")
-                   : "yes";
-    const next = Schema.nextCooldownAfterAnswer(c, prev, positive);
-    await Schema.upsertSRState(ctx.db, ctx.user.uid, c.id, c.mode, next);
-    log("response:save:srUpdated", { consigneId: c.id, state: next });
   }
-  return { id: docRef.id };
+  (Array.isArray(children)?children:[children]).forEach(c => n.append(c?.nodeType?c:document.createTextNode(c)));
+  return n;
 }
 
-async function fetchConsigneHistory(ctx, consigneId, limitCount = 5) {
-  log("history:fetch:start", { consigneId, limit: limitCount });
-  const qy = query(
-    col(ctx.db, ctx.user.uid, "responses"),
-    where("consigneId", "==", consigneId),
-    orderBy("createdAt", "desc"),
-    limit(limitCount)
-  );
-  const snap = await getDocs(qy);
-  const items = snap.docs.map(d => d.data());
-  log("history:fetch:done", { consigneId, count: items.length });
-  return items;
-}
+// ---------- Formulaires d’édition de consigne ----------
+export function openConsigneForm(ctx, defaults={}){
+  const root = $("#view-root");
+  const isEdit = !!defaults.id;
+  root.innerHTML = "";
 
-// ---------- UI de base ----------
-function Card(children){ return el("div",{class:"bg-gray-900/70 border border-gray-700 rounded-2xl p-5 shadow"},children); }
-function Btn(label, extra="", onClick=null){
-  const b=el("button",{class:`px-3 py-1 rounded-xl border border-gray-600 bg-gray-800/70 hover:bg-gray-700 text-sm ${extra}`},label);
-  if (onClick) b.onclick=onClick; return b;
-}
-function SectionTitle(txt){ return el("h3",{class:"text-lg font-semibold mb-2"},txt); }
+  const modes = [["daily","Journalier"], ["practice","Pratique"]];
+  const types = [["likert6","Likert (6)"],["num","Échelle 1-10"],["short","Texte court"],["long","Texte long"]];
+  const priorities = [["high","Haute"],["medium","Moyenne"],["low","Basse"]];
 
-// ---------- Formulaire consigne ----------
-export function openConsigneForm(ctx, consigne=null){
-  const root=$("#view-root"); root.innerHTML="";
-  const initial = consigne || {
-    text:"", category:"Général", type:"likert6", priority:"medium",
-    mode:"daily", frequency:{kind:"everyday"}, srEnabled:true, active:true
-  };
-  root.append(el("h2",{class:"text-xl font-semibold mb-3"}, consigne?"Modifier la consigne":"Nouvelle consigne"));
-
-  const form = el("div",{class:"grid grid-cols-1 md:grid-cols-2 gap-4"});
-  form.append(
-    Card([
-      SectionTitle("Contenu"),
-      field("Texte", el("input",{id:"c-text",class:"w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2",placeholder:"Ex. Boire 2 verres d’eau", value:initial.text})),
-      field("Catégorie", el("input",{id:"c-cat",class:"w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2",value:initial.category})),
-      field("Type de réponse", select("c-type", initial.type, [
-        ["likert6", TYPE_LABEL.likert6],["num",TYPE_LABEL.num],["short",TYPE_LABEL.short],["long",TYPE_LABEL.long]
-      ])),
-      field("Priorité", select("c-pri", initial.priority, [
-        ["high","Haute"],["medium","Moyenne"],["low","Basse"]
-      ])),
-    ]),
-    Card([
-      SectionTitle("Utilisation"),
-      field("Mode", select("c-mode", initial.mode, [
-        ["daily","Journalier"],["practice","Pratique délibérée"]
-      ])),
-      field("Répétition espacée", select("c-sr", initial.srEnabled?"1":"0", [["1","Activée"],["0","Désactivée"]])),
-      el("div",{class:"mt-2"},[
-        el("label",{class:"block text-sm text-gray-400 mb-1"},"Fréquence (journalier)"),
-        el("div",{class:"space-y-2"},[
-          radio("c-freq","everyday", initial.frequency?.kind!=="days", "Quotidienne"),
-          radio("c-freq","days", initial.frequency?.kind==="days", "Jours spécifiques"),
-          el("div",{id:"c-days", class: initial.frequency?.kind==="days"?"block":"hidden"}, dayPickCheckboxes(initial.frequency?.days||[]))
+  root.append(
+    el("div",{class:"grid"},
+      [
+        el("h2",{} , (isEdit?"Modifier":"Ajouter")+" une consigne"),
+        el("div",{class:"grid cols-2"}, [
+          el("div",{class:"field"},[ el("label",{},"Texte"), el("textarea",{id:"c-text",placeholder:"Votre consigne (obligatoire)"},[]) ]),
+          el("div",{class:"field"},[ el("label",{},"Catégorie"), el("input",{id:"c-cat",placeholder:"Ex. Santé, Concentration…"}) ]),
+          el("div",{class:"field"},[
+            el("label",{},"Mode"),
+            (()=>{ const s=el("select",{id:"c-mode"}); modes.forEach(([v,l])=>s.append(el("option",{value:v},l))); return s; })()
+          ]),
+          el("div",{class:"field"},[
+            el("label",{},"Type de réponse"),
+            (()=>{ const s=el("select",{id:"c-type"}); types.forEach(([v,l])=>s.append(el("option",{value:v},l))); return s; })()
+          ]),
+          el("div",{class:"field"},[
+            el("label",{},"Priorité"),
+            (()=>{ const s=el("select",{id:"c-prio"}); priorities.forEach(([v,l])=>s.append(el("option",{value:v},l))); return s; })()
+          ]),
+          el("div",{class:"field"},[
+            el("label",{},"Répétition espacée"),
+            (()=>{ const s=el("select",{id:"c-sr"}); s.append(el("option",{value:"1"},"Activée")); s.append(el("option",{value:"0"},"Désactivée")); return s; })()
+          ]),
+          el("div",{class:"field"},[
+            el("label",{},"Fréquence (journalier)"),
+            (()=>{ const w=el("div",{class:"flex"});
+              ["lun","mar","mer","jeu","ven","sam","dim"].forEach(d=> w.append(el("label",{class:"pill"},
+                [el("input",{type:"checkbox","data-day":d,style:"margin-right:6px"}), d.toUpperCase()])));
+              return w;
+            })()
+          ])
+        ]),
+        el("div",{class:"flex"},[
+          el("button",{class:"btn primary", onclick: save}, "Enregistrer"),
+          el("button",{class:"btn", onclick: ()=>location.hash="#/daily"},"Annuler")
         ])
       ])
-    ])
   );
+
+  // set defaults if any
+  $("#c-text").value = defaults.text || "";
+  $("#c-cat").value = defaults.category || "";
+  $("#c-mode").value = defaults.mode || "daily";
+  $("#c-type").value = defaults.type || "likert6";
+  $("#c-prio").value = defaults.priority || "medium";
+  $("#c-sr").value = defaults.spacedRepetitionEnabled ? "1":"0";
+  if (defaults.days?.length){
+    defaults.days.forEach(d => {
+      const cb = document.querySelector(`input[data-day="${d}"]`);
+      if (cb) cb.checked = true;
+    });
+  }
+
+  async function save(){
+    const days = Array.from(document.querySelectorAll('input[data-day]:checked')).map(i=>i.getAttribute("data-day"));
+    const payload = {
+      ownerUid: ctx.user.uid,
+      text: $("#c-text").value.trim(),
+      category: $("#c-cat").value.trim() || "Général",
+      mode: $("#c-mode").value,
+      type: $("#c-type").value,
+      priority: $("#c-prio").value,
+      spacedRepetitionEnabled: $("#c-sr").value==="1",
+      days,
+      active: true,
+      createdAt: Schema.now(),
+    };
+    if (!payload.text) { alert("Le texte est obligatoire"); return; }
+    await addDoc(col(ctx.db, ctx.user.uid, "consignes"), payload);
+    location.hash = `#/u/${ctx.user.uid}/${payload.mode}`;
+  }
+}
+
+// ---------- Widgets de réponse ----------
+function inputFor(consigne){
+  // retourne { node, getValue() }
+  if (consigne.type === "likert6"){
+    const wrap = el("div",{class:"flex"});
+    const options = [["no_answer","NR"],["no","Non"],["rather_no","Plutôt non"],["medium","Moyen"],["rather_yes","Plutôt oui"],["yes","Oui"]];
+    let current = "no_answer";
+    options.forEach(([v,l])=>{
+      const b = el("button",{class:"btn small",onclick: ()=>{ current=v; Array.from(wrap.children).forEach(ch=>ch.classList.remove("primary")); b.classList.add("primary"); }}, l);
+      wrap.append(b);
+    });
+    return { node: wrap, getValue:()=>current };
+  }
+  if (consigne.type === "num"){
+    const r = el("input",{type:"range",min:"1",max:"10",value:"5",style:"width:220px"});
+    const out = el("span",{class:"pill"},"5");
+    r.oninput = ()=> out.textContent = r.value;
+    return { node: el("div",{class:"flex"},[r,out]), getValue:()=>Number(r.value) };
+  }
+  if (consigne.type === "short"){
+    const i = el("input",{maxlength:"200",placeholder:"Votre réponse (≤200c)"});
+    return { node: i, getValue:()=>i.value.trim() };
+  }
+  const t = el("textarea",{placeholder:"Votre réponse"});
+  return { node: t, getValue:()=>t.value.trim() };
+}
+
+// ---------- JOURNALIER ----------
+export async function renderDaily(ctx, root, opts={}){
+  const dayParam = (opts.day || currentDayKey()); // 'lun'...'dim'
+  root.innerHTML = "";
+
+  // header
+  const days = ["lun","mar","mer","jeu","ven","sam","dim"];
+  const dayNav = el("div",{class:"flex"});
+  days.forEach(d=>{
+    const b = el("button",{class:`btn small ${d===dayParam?"primary":""}`, onclick:()=> {
+      location.hash = `#/u/${ctx.user.uid}/daily?day=${d}`;
+    }}, d.toUpperCase());
+    dayNav.append(b);
+  });
+
+  // CTA ajouter une consigne
+  const addBtn = el("button",{class:"btn small right", onclick:()=>openConsigneForm(ctx,{mode:"daily"})},"+ Ajouter une consigne");
+
+  root.append(el("div",{class:"section-title"},[ el("h2",{},"Journalier"), el("div",{class:"right"},[addBtn]) ]));
+  root.append(dayNav);
+
+  // fetch consignes visibles pour ce jour
+  let consignes = await Schema.listConsignesByMode(ctx.db, ctx.user.uid, "daily");
+  consignes = await filterByDayAndSR(ctx, consignes, dayParam, "daily");
+
+  if (!consignes.length){
+    root.append(el("div",{class:"card muted"},"Aucune consigne pour ce jour."));
+    return;
+  }
+
+  // form unique
+  const form = el("form",{id:"daily-form", onsubmit: onSubmit});
+  const controls = [];
+  consignes.forEach(c=>{
+    const ctrl = inputFor(c);
+    controls.push({ consigne:c, getValue: ctrl.getValue });
+    form.append(el("div",{class:"card"},[
+      el("div",{class:"flex"}, el("div",{style:"font-weight:600"}, c.text), el("span",{class:`badge ${c.priority}`}, c.priority)),
+      el("div",{class:"muted"}, c.category || "—"),
+      ctrl.node
+    ]));
+  });
+  form.append(el("div",{class:"flex"}, el("button",{class:"btn primary", type:"submit"},"Valider toutes les réponses")));
   root.append(form);
 
-  const bar = el("div",{class:"flex gap-2 mt-4"});
-  const save = Btn("Enregistrer","border-sky-600 bg-sky-600/80 hover:bg-sky-600 text-white", async ()=>{
-    const freq = [...root.querySelectorAll("input[name='c-freq']")].find(r=>r.checked)?.value || "everyday";
-    const days = [...root.querySelectorAll("input[name='dow']:checked")].map(i=>Number(i.value));
-    const payload = {
-      ownerUid: ctx.user.uid, active:true,
-      text: $("#c-text").value.trim(),
-      category: $("#c-cat").value.trim()||"Général",
-      type: $("#c-type").value, priority: $("#c-pri").value,
-      mode: $("#c-mode").value,
-      frequency: (freq==="days")?{kind:"days",days}:{kind:"everyday"},
-      srEnabled: $("#c-sr").value==="1",
-      createdAt: consigne?.createdAt || now()
-    };
-    if (!payload.text){ alert("Le texte est obligatoire"); return; }
-    await saveConsigne(ctx, consigne?.id, payload);
-    location.hash = withinUser("#/daily");
-  });
-  const cancel = Btn("Annuler","", ()=> history.back());
-  bar.append(save, cancel);
-
-  if (consigne){
-    const del = Btn("Supprimer","ml-auto border-red-500/60 hover:bg-red-500/20", async()=>{
-      if(confirm("Supprimer (désactiver) cette consigne ?")){
-        await softDeleteConsigne(ctx, consigne.id);
-        location.hash = withinUser("#/daily");
-      }
-    });
-    bar.append(del);
+  async function onSubmit(e){
+    e.preventDefault();
+    const answers = controls.map(x => ({ consigne:x.consigne, value:x.getValue() }));
+    await Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers);
+    // recharger (SR peut masquer)
+    location.hash = `#/u/${ctx.user.uid}/daily?day=${dayParam}`;
   }
-  root.append(bar);
-
-  // show/hide jours spécifiques
-  root.addEventListener("change",(e)=>{
-    if (e.target?.name==="c-freq"){
-      $("#c-days").classList.toggle("hidden", e.target.value!=="days");
-    }
-  });
-}
-function field(label, control){
-  return el("div",{},[ el("label",{class:"block text-sm text-gray-400 mb-1"},label), control ]);
-}
-function select(id, value, opts){
-  const s=el("select",{id, class:"w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2"});
-  opts.forEach(([v,l])=>s.append(el("option",{value:v, selected:String(value)===String(v)},l)));
-  return s;
-}
-function radio(name, value, checked, label){
-  const id = `${name}-${value}`;
-  return el("label",{class:"flex items-center gap-2"},[
-    el("input",{type:"radio",name,value,id,checked}),
-    el("span",{},label)
-  ]);
-}
-function dayPickCheckboxes(selected){
-  const wrap=el("div",{class:"flex flex-wrap gap-2 mt-1"});
-  for(let i=1;i<=6;i++){ // L(1) à S(6)
-    const lab=el("label",{class:"px-2 py-1 rounded-xl border border-gray-600 bg-gray-800/50 cursor-pointer flex items-center gap-2"},[
-      el("input",{type:"checkbox",name:"dow",value:String(i),checked:selected.includes(i)}),
-      DOW[i]
-    ]);
-    wrap.append(lab);
-  }
-  // Dimanche (0)
-  const sun=el("label",{class:"px-2 py-1 rounded-xl border border-gray-600 bg-gray-800/50 cursor-pointer flex items-center gap-2"},[
-    el("input",{type:"checkbox",name:"dow",value:"0",checked:selected.includes(0)}),
-    DOW[0]
-  ]);
-  wrap.prepend(sun);
-  return wrap;
 }
 
-// ---------- cartes consignes ----------
-function ConsigneCard(ctx, c, onAnswered){
-  log("consigne:card:init", { consigneId: c.id, mode: c.mode, type: c.type });
-  const card = Card([]);
-  card.classList.add("space-y-2");
+// ---------- PRATIQUE ----------
+export async function renderPractice(ctx, root){
+  root.innerHTML = "";
+  root.append(el("div",{class:"section-title"},[
+    el("h2",{},"Pratique délibérée"),
+    el("button",{class:"btn small right", onclick:()=>openConsigneForm(ctx,{mode:"practice"})},"+ Ajouter une consigne")
+  ]));
 
-  const top = el("div",{class:"flex items-start gap-2"},[
-    el("div",{class:"font-semibold"}, c.text),
-    el("span",{class:"ml-auto text-xs px-2 py-0.5 rounded-full border border-gray-600 text-gray-300"}, MODE_LABEL[c.mode]||c.mode)
-  ]);
-  card.append(top);
-  card.append(el("div",{class:"text-sm text-gray-400"}, c.category || "Général"));
+  let consignes = await Schema.listConsignesByMode(ctx.db, ctx.user.uid, "practice");
+  consignes = await filterBySRForPractice(ctx, consignes);
 
-  const feedback = el("div",{class:"text-xs text-red-400 hidden"}, "");
-
-  const historyList = el("div",{class:"space-y-1 text-xs text-gray-300"});
-  const historyWrapper = el("div",{class:"mt-3 space-y-1"},[
-    el("div",{class:"text-xs uppercase tracking-wider text-gray-400"},"Historique récent"),
-    historyList
-  ]);
-
-  async function refreshHistory(){
-    log("consigne:card:history", { consigneId: c.id });
-    historyList.innerHTML = "";
-    historyList.append(el("div",{class:"text-xs text-gray-500"},"Chargement…"));
-    try {
-      const items = await fetchConsigneHistory(ctx, c.id, 5);
-      historyList.innerHTML = "";
-      if (!items.length){
-        historyList.append(el("div",{class:"text-xs text-gray-500"},"Aucune réponse enregistrée."));
-        return;
-      }
-      items.forEach(r => {
-        historyList.append(el("div",{class:"flex justify-between gap-2"},[
-          el("span",{class:"text-[10px] uppercase tracking-wide text-gray-500"}, formatTimestamp(r.createdAt)),
-          el("span",{class:"text-xs text-gray-200"}, formatValue(r.type || c.type, r.value))
-        ]));
-      });
-    } catch (err) {
-      console.error("[modes] consigne history", c.id, err);
-      historyList.innerHTML = "";
-      historyList.append(el("div",{class:"text-xs text-red-400"},"Erreur de chargement de l’historique."));
-    }
-  }
-
-  async function handleAnswer(value){
-    log("consigne:card:answer", { consigneId: c.id, value });
-    feedback.classList.add("hidden");
-    try {
-      await saveResponse(ctx,c,value);
-      await refreshHistory();
-      onAnswered?.(c);
-    } catch (err) {
-      console.error("[modes] consigne answer", c.id, err);
-      feedback.textContent = "Erreur lors de l’enregistrement. Voir console.";
-      feedback.classList.remove("hidden");
-    }
-  }
-
-  const controls = el("div",{class:"flex flex-wrap gap-2"});
-  if (c.type==="likert6"){
-    LIKERT6.forEach(([v,l])=>{
-      controls.append(Btn(l,"", async()=> handleAnswer(v)));
-    });
-  } else if (c.type==="num"){
-    const range = el("input",{type:"range", min:"1", max:"10", value:"5", class:"w-52"});
-    const out = el("span",{class:"px-2 py-0.5 rounded-xl border border-gray-600"}, "5");
-    range.oninput = ()=> out.textContent = range.value;
-    const ok = Btn("Valider","", async()=> handleAnswer(Number(range.value)));
-    controls.append(range,out,ok);
-  } else if (c.type==="short"){
-    const inp = el("input",{class:"bg-gray-900 border border-gray-700 rounded-xl px-3 py-2", placeholder:"Réponse ≤ 200 c.", maxLength:"200"});
-    const ok = Btn("Valider","", async()=> handleAnswer(inp.value.trim()));
-    controls.append(inp, ok);
-  } else {
-    const inp = el("textarea",{class:"bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 w-full", placeholder:"Votre réponse"});
-    const ok = Btn("Valider","", async()=> handleAnswer(inp.value.trim()));
-    controls.append(inp, ok);
-  }
-  card.append(controls);
-  card.append(feedback);
-  card.append(historyWrapper);
-
-  const actions = el("div",{class:"flex gap-2 pt-1"},[
-    Btn("Modifier","", ()=>openConsigneForm(ctx,c)),
-    Btn("Supprimer","border-red-500/60 hover:bg-red-500/20", async()=>{
-      if (confirm("Supprimer ?")){ await softDeleteConsigne(ctx,c.id); location.reload(); }
-    })
-  ]);
-  card.append(actions);
-
-  refreshHistory();
-  return card;
-}
-
-// ---------- pickers ----------
-function DayPicker(selectedDow){
-  const w=el("div",{class:"flex flex-wrap gap-2 mb-4"});
-  const go=(i)=>{
-    log("daily:dayPicker:navigate", { dow: i });
-    location.hash = withinUser(`#/daily?dow=${i}`);
-  };
-  for (let i=1;i<=6;i++){
-    w.append(dayBtn(i, selectedDow===i, DOW[i], ()=>go(i)));
-  }
-  w.prepend(dayBtn(0, selectedDow===0, DOW[0], ()=>go(0))); // Dim
-  return w;
-}
-function dayBtn(i, active, label, onClick){
-  return Btn(label, `${active?"border-sky-600 bg-sky-600/80 text-white":"opacity-90"}`, onClick);
-}
-
-// ---------- vues ----------
-export async function renderDaily(ctx, root){
-  root.innerHTML="";
-  root.append(el("h2",{class:"text-xl font-semibold mb-3"}, "Journalier"));
-
-  const params = new URLSearchParams((location.hash.split("?")[1])||"");
-  const dow = params.has("dow") ? Number(params.get("dow")) : todayDow();
-  log("daily:render", { dow, hash: location.hash });
-
-  root.append(DayPicker(dow));
-
-  const all = await fetchConsignes(ctx,"daily");
-  const ready = [];
-  for (const c of all){
-    if (!dueOnDay(c, dow)) continue;
-    if (c.srEnabled && canUseSR()){
-      const st = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "daily");
-      if (hiddenBySR(st)) continue;
-    }
-    ready.push(c);
-  }
-
-  log("daily:ready", { total: all.length, ready: ready.length });
-
-  if (!ready.length){
-    root.append(Card(el("div",{},"Rien à faire pour ce jour 🎉")));
+  if (!consignes.length){
+    root.append(el("div",{class:"card muted"},"Aucune consigne de pratique disponible pour cette itération."));
     return;
   }
 
-  for (const p of PRIORITIES){
-    const inP = ready.filter(c=>c.priority===p);
-    if (!inP.length) continue;
-    root.append(el("h3",{class:"mt-4 mb-2 text-lg font-semibold"},
-      p==="high"?"Priorité haute":p==="medium"?"Priorité moyenne":"Priorité basse"));
-    const grid = el("div",{class:"grid gap-3 md:grid-cols-2"});
-    inP.forEach(c=> grid.append(ConsigneCard(ctx,c, ()=>renderDaily(ctx,root))));
-    root.append(grid);
+  // form unique pour une itération
+  const sessionId = `s-${Date.now()}`;
+  const form = el("form",{id:"practice-form", onsubmit: onSubmit});
+  const controls = [];
+  consignes.forEach(c=>{
+    const ctrl = inputFor(c);
+    controls.push({ consigne:c, getValue: ctrl.getValue, node: ctrl.node });
+    form.append(el("div",{class:"card"},[
+      el("div",{class:"flex"}, el("div",{style:"font-weight:600"}, c.text), el("span",{class:`badge ${c.priority}`}, c.priority)),
+      el("div",{class:"muted"}, c.category || "—"),
+      ctrl.node,
+      // mini-historique (dernieres 3)
+      el("div",{class:"muted",style:"font-size:12px;margin-top:6px"}, "Historique (3 derniers) — "),
+      el("div",{id:`hist-${c.id}`,class:"muted",style:"font-size:12px"},"Chargement…")
+    ]));
+    loadMiniHistory(ctx, c.id);
+  });
+  form.append(el("div",{class:"flex"}, el("button",{class:"btn primary", type:"submit"},"Valider cette itération")));
+  root.append(form);
+
+  async function onSubmit(e){
+    e.preventDefault();
+    const answers = controls.map(x => ({ consigne:x.consigne, value:x.getValue(), sessionId }));
+    await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answers);
+    // nouvelle itération: on vide les contrôles & recharge SR
+    renderPractice(ctx, root);
   }
 }
 
-export async function renderPractice(ctx, root, options = {}){
-  const newSession = Boolean(options?.newSession);
-  log("practice:render", { newSession, hash: location.hash });
-  root.innerHTML="";
-  root.append(el("h2",{class:"text-xl font-semibold mb-3"}, "Pratique délibérée"));
-  root.append(el("div",{class:"mb-3"}, Btn("+ Ajouter une consigne","border-sky-600 bg-sky-600/80 hover:bg-sky-600 text-white",()=>openConsigneForm(ctx))));
-
-  if (newSession) {
-    try {
-      await Schema.startNewPracticeSession(ctx.db, ctx.user.uid);
-      log("practice:session:new", { uid: ctx.user.uid });
-    } catch (err) {
-      console.error("[modes] practice session", err);
-      root.append(Card(el("div",{class:"text-red-400"},"Impossible de démarrer une nouvelle session.")));
-    }
-    const normalized = withinUser("#/practice");
-    if (location.hash !== normalized) {
-      log("practice:session:normalize", { target: normalized });
-      location.replace(normalized);
-    }
-  }
-
-  const all = await fetchConsignes(ctx,"practice");
-  const ready=[];
-  for (const c of all){
-    if (c.srEnabled && canUseSR()){
-      const st = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "practice");
-      if (hiddenBySR(st)) continue;
-    }
-    ready.push(c);
-  }
-  log("practice:ready", { total: all.length, ready: ready.length });
-  if (!ready.length){ root.append(Card("Aucune consigne pour cette session.")); return; }
-
-  for (const p of PRIORITIES){
-    const inP = ready.filter(c=>c.priority===p);
-    if (!inP.length) continue;
-    root.append(el("h3",{class:"mt-4 mb-2 text-lg font-semibold"},
-      p==="high"?"Priorité haute":p==="medium"?"Priorité moyenne":"Priorité basse"));
-    const grid = el("div",{class:"grid gap-3 md:grid-cols-2"});
-    inP.forEach(c=> {
-      const card = ConsigneCard(ctx,c, ()=>{
-        const target = withinUser("#/practice?new=1");
-        log("practice:answered", { consigneId: c.id, target });
-        if (location.hash === target){
-          renderPractice(ctx, root, { newSession: true });
-        } else {
-          location.hash = target;
-        }
-      });
-      grid.append(card);
-    });
-    root.append(grid);
-  }
-}
+// ---------- HISTORIQUE (simple) ----------
 export async function renderHistory(ctx, root){
-  root.innerHTML="";
-  root.append(el("h2",{class:"text-xl font-semibold mb-3"}, "Historique"));
-  const list = el("div",{class:"grid gap-3"});
-  root.append(list);
-  log("history:render", { limit: 50 });
-
-  const qy = query(col(ctx.db, ctx.user.uid, "responses"), orderBy("createdAt","desc"), limit(50));
+  root.innerHTML = "";
+  root.append(el("h2",{},"Historique"));
+  const qy = query(col(ctx.db, ctx.user.uid, "responses"), orderBy("createdAt","desc"));
   const ss = await getDocs(qy);
-  if (ss.empty){
-    log("history:render:empty");
-    list.append(Card("Aucune réponse."));
-    return;
-  }
-
-  for (const d of ss.docs){
+  const list = el("div",{class:"list"});
+  ss.forEach(d=>{
     const r = d.data();
-    const cSnap = await getDoc(docIn(ctx.db, ctx.user.uid, "consignes", r.consigneId));
-    const c = cSnap.exists()? cSnap.data() : { text:`(consigne ${r.consigneId})` };
-    log("history:render:item", { consigneId: r.consigneId, mode: r.mode });
-    const row = Card([
-      el("div",{class:"font-semibold mb-1"}, c.text),
-      el("div",{class:"text-sm text-gray-400 mb-1"}, `${MODE_LABEL[r.mode]||r.mode} • ${r.createdAt}`),
-      el("div",{}, `Réponse : ${formatValue(r.type, r.value)}`)
-    ]);
-    list.append(row);
-  }
-}
-function formatValue(type,v){
-  if (type==="likert6"){ const f=LIKERT6.find(([k])=>k===v); return f?f[1]:v; }
-  return String(v);
+    list.append(el("div",{class:"card"},[
+      el("div",{style:"font-weight:600"}, `${r.category} • ${r.mode}`),
+      el("div",{}, `${r.createdAt} — ${r.consigneId} → ${typeof r.value==="object"?JSON.stringify(r.value):r.value}`)
+    ]));
+  });
+  root.append(list);
 }
 
-function formatTimestamp(ts){
-  if (!ts) return "—";
-  const date = new Date(ts);
-  if (Number.isNaN(date.getTime())) return ts;
-  return date.toLocaleString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+// ---------- helpers ----------
+async function filterByDayAndSR(ctx, consignes, dayKey, mode){
+  // dayKey dans c.days OU c.days vide => visible
+  const today = new Date();
+  const nowIso = today.toISOString();
+
+  const out = [];
+  for (const c of consignes){
+    if (c.days?.length && !c.days.includes(dayKey)) continue;
+    const sr = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "consigne");
+    if (mode==="daily" && sr?.hideUntil && sr.hideUntil > nowIso) continue;
+    out.push(c);
+  }
+  return out;
+}
+async function filterBySRForPractice(ctx, consignes){
+  const out = [];
+  for (const c of consignes){
+    const sr = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "consigne");
+    if (sr?.nextAllowedIndex && sr.nextAllowedIndex > 0){
+      // on décrémente à l’affichage: quand l’utilisateur voit la session, on considère l’étape franchie
+      await Schema.upsertSRState(ctx.db, ctx.user.uid, c.id, "consigne", { nextAllowedIndex: sr.nextAllowedIndex - 1, streak: sr.streak||0 });
+      continue;
+    }
+    out.push(c);
+  }
+  return out;
+}
+async function loadMiniHistory(ctx, consigneId){
+  const qy = query(col(ctx.db, ctx.user.uid, "responses"),
+    where("consigneId","==",consigneId), orderBy("createdAt","desc"));
+  const ss = await getDocs(qy);
+  const top3 = ss.docs.slice(0,3).map(d => d.data());
+  const div = document.getElementById(`hist-${consigneId}`);
+  if (!div) return;
+  if (!top3.length){ div.textContent = "—"; return; }
+  div.textContent = top3.map(r => `${r.createdAt.slice(0,16).replace("T"," ")}: ${typeof r.value==="object"?JSON.stringify(r.value):r.value}`).join(" · ");
+}
+function currentDayKey(){
+  // 1(lun)..7(dim) -> ['dim','lun','mar','mer','jeu','ven','sam'] si localisation FR
+  const map = ["dim","lun","mar","mer","jeu","ven","sam"];
+  const d = (new Date()).getDay(); // 0=dim
+  return map[d];
 }
