@@ -1,16 +1,20 @@
 // --- DEBUG LOGGER (utilisé par index.html et app.js)
-export const D = {
-  on: false,
-  group: (...a)=>{ if (false) console.group(...a); },
-  groupEnd: ()=>{ if (false) console.groupEnd(); },
-  info: (...a)=>{ if (false) console.info(...a); },
-  warn: (...a)=>{ if (false) console.warn(...a); },
-  error: (...a)=> console.error(...a),
-};
-const log = (...args) => console.debug("[schema]", ...args);
+export const D = { on: false, info(){}, group(){}, groupEnd(){}, error(){} };
+const log = () => {};
 // --- Helpers de chemin /u/{uid}/...
 import {
-  collection, doc, setDoc, getDoc, getDocs, addDoc, query, where, orderBy, updateDoc, limit
+  collection,
+  doc,
+  setDoc,
+  getDoc,
+  getDocs,
+  addDoc,
+  query,
+  where,
+  orderBy,
+  updateDoc,
+  limit,
+  serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 export const now = () => new Date().toISOString();
@@ -34,31 +38,76 @@ export const LIKERT_POINTS = {
   yes: 1
 };
 
+const PRIORITY_ALIAS = { high: 1, medium: 2, low: 3 };
+const DAY_ALIAS = {
+  mon: "LUN",
+  tue: "MAR",
+  wed: "MER",
+  thu: "JEU",
+  fri: "VEN",
+  sat: "SAM",
+  sun: "DIM"
+};
+const DAY_VALUES = new Set(["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"]);
+
+function normalizePriority(value) {
+  if (typeof value === "number" && value >= 1 && value <= 3) return value;
+  if (typeof value === "string") {
+    const key = value.toLowerCase();
+    const alias = PRIORITY_ALIAS[key];
+    if (alias) return alias;
+    const num = Number(value);
+    if (num >= 1 && num <= 3) return num;
+  }
+  return 2;
+}
+
+function normalizeDays(days) {
+  if (!Array.isArray(days)) return [];
+  return days
+    .map((d) => {
+      if (!d) return null;
+      const lower = String(d).toLowerCase();
+      if (DAY_ALIAS[lower]) return DAY_ALIAS[lower];
+      const upper = lower.toUpperCase();
+      if (DAY_VALUES.has(upper)) return upper;
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function hydrateConsigne(doc) {
+  const data = doc.data();
+  return {
+    id: doc.id,
+    ...data,
+    priority: normalizePriority(data.priority),
+    days: normalizeDays(data.days)
+  };
+}
+
 // --- Catégories & Users ---
 export async function fetchCategories(db, uid){
-  log("fetchCategories:start", { uid });
   const qy = query(col(db, uid, "categories"), orderBy("name"));
   const ss = await getDocs(qy);
-  const data = ss.docs.map(d => ({ id: d.id, ...d.data() }));
-  log("fetchCategories:done", { uid, count: data.length });
-  return data;
+  return ss.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
 export async function ensureCategory(db, uid, name, mode){
-  log("ensureCategory:start", { uid, name, mode });
   const qy = query(col(db, uid, "categories"),
     where("name","==",name), where("mode","==",mode), limit(1));
   const snap = await getDocs(qy);
   if (!snap.empty) {
     const existing = { id: snap.docs[0].id, ...snap.docs[0].data() };
-    log("ensureCategory:hit", { uid, id: existing.id });
     return existing;
   }
   const ref = await addDoc(col(db, uid, "categories"), {
-    ownerUid: uid, name, mode, createdAt: now()
+    ownerUid: uid,
+    name,
+    mode,
+    createdAt: serverTimestamp()
   });
   const created = { id: ref.id, ownerUid: uid, name, mode };
-  log("ensureCategory:created", { uid, id: created.id });
   return created;
 }
 
@@ -129,16 +178,22 @@ export async function saveResponses(db, uid, mode, answers) {
   await Promise.all(batch);
 }
 
+export async function startNewPracticeSession(db, uid) {
+  await addDoc(col(db, uid, "sessions"), {
+    ownerUid: uid,
+    startedAt: serverTimestamp()
+  });
+}
+
 // list consignes par mode
 export async function listConsignesByMode(db, uid, mode) {
   const qy = query(col(db, uid, "consignes"), where("mode", "==", mode), where("active", "==", true));
   const ss = await getDocs(qy);
-  return ss.docs.map(d => ({ id: d.id, ...d.data() }));
+  return ss.docs.map((d) => hydrateConsigne(d));
 }
 
 // --- Nouvelles collections /u/{uid}/... ---
 export async function fetchConsignes(db, uid, mode) {
-  log("fetchConsignes:start", { uid, mode });
   const qy = query(
     col(db, uid, "consignes"),
     where("mode", "==", mode),
@@ -146,23 +201,35 @@ export async function fetchConsignes(db, uid, mode) {
     orderBy("priority")
   );
   const ss = await getDocs(qy);
-  const data = ss.docs.map(d => ({ id: d.id, ...d.data() }));
-  log("fetchConsignes:done", { uid, mode, count: data.length });
-  return data;
+  return ss.docs.map((d) => hydrateConsigne(d));
 }
 
 export async function addConsigne(db, uid, payload) {
-  log("addConsigne:start", { uid, payload });
-  const ref = await addDoc(col(db, uid, "consignes"), { ...payload, createdAt: now() });
-  log("addConsigne:done", { uid, id: ref.id });
+  const ref = await addDoc(col(db, uid, "consignes"), {
+    ...payload,
+    priority: normalizePriority(payload.priority),
+    days: normalizeDays(payload.days),
+    createdAt: serverTimestamp()
+  });
   return ref;
 }
 
 export async function updateConsigne(db, uid, id, payload) {
-  log("updateConsigne:start", { uid, id, payload });
   const ref = docIn(db, uid, "consignes", id);
-  await updateDoc(ref, { ...payload, updatedAt: now() });
-  log("updateConsigne:done", { uid, id });
+  await updateDoc(ref, {
+    ...payload,
+    priority: normalizePriority(payload.priority),
+    days: normalizeDays(payload.days),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function softDeleteConsigne(db, uid, id) {
+  const ref = docIn(db, uid, "consignes", id);
+  await updateDoc(ref, {
+    active: false,
+    updatedAt: serverTimestamp()
+  });
 }
 
 export async function saveResponse(db, uid, consigne, value) {
