@@ -70,6 +70,9 @@
       pre.textContent = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
       drawer.appendChild(pre);
     };
+  } else if (drawer) {
+    drawer.classList.add("hidden");
+    drawer.style.display = "none";
   }
 </script>
 
