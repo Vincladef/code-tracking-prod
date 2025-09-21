@@ -191,3 +191,20 @@ export async function fetchHistory(db, uid, count = 200) {
   return data;
 }
 
+export async function fetchResponsesForConsigne(db, uid, consigneId, limitCount = 200) {
+  const qy = query(
+    col(db, uid, "responses"),
+    where("consigneId","==", consigneId),
+    orderBy("createdAt","desc"),
+    limit(limitCount)
+  );
+  const ss = await getDocs(qy);
+  return ss.docs.map(d => ({ id:d.id, ...d.data() }));
+}
+
+export function valueToNumericPoint(type, value) {
+  if (type === "likert6") return LIKERT_POINTS[value] ?? 0;
+  if (type === "num") return Number(value) || 0;
+  return null; // pour short/long -> pas de graph
+}
+
