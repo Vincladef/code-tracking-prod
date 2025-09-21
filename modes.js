@@ -5,6 +5,18 @@ import * as Schema from "./schema.js";
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+// --- Normalisation du jour (LUN..DIM ou mon..sun) ---
+const DAY_ALIAS = { mon: "LUN", tue: "MAR", wed: "MER", thu: "JEU", fri: "VEN", sat: "SAM", sun: "DIM" };
+const DAY_VALUES = new Set(["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"]);
+
+function normalizeDay(value) {
+  if (!value) return null;
+  const lower = String(value).toLowerCase();
+  if (DAY_ALIAS[lower]) return DAY_ALIAS[lower];
+  const upper = lower.toUpperCase();
+  return DAY_VALUES.has(upper) ? upper : null;
+}
+
 function escapeHtml(str) {
   return String(str ?? "")
     .replace(/&/g, "&amp;")
