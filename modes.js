@@ -121,32 +121,40 @@ function consigneActions() {
 }
 
 function inputForType(consigne) {
-  if (consigne.type === "short")
+  if (consigne.type === "short") {
     return `<input name="short:${consigne.id}" class="w-full" placeholder="Réponse">`;
-  if (consigne.type === "long")
+  }
+  if (consigne.type === "long") {
     return `<textarea name="long:${consigne.id}" rows="3" class="w-full" placeholder="Réponse"></textarea>`;
-  if (consigne.type === "num")
+  }
+  if (consigne.type === "num") {
     return `
       <input type="range" min="1" max="10" value="5" name="num:${consigne.id}" class="w-full">
       <div class="text-sm opacity-70 mt-1" data-meter="num:${consigne.id}">5</div>
-      <script>(()=>{const r=document.currentScript.previousElementSibling.previousElementSibling;const o=document.currentScript.previousElementSibling; if(r){r.addEventListener('input',()=>{o.textContent=r.value;});}})();</script>`;
-  return `
+      <script>(()=>{const r=document.currentScript.previousElementSibling.previousElementSibling;const o=document.currentScript.previousElementSibling;if(r){r.addEventListener('input',()=>{o.textContent=r.value;});}})();</script>
+    `;
+  }
+  if (consigne.type === "likert6") {
+    // Échelle d’incertitude
+    const items = [
+      ["no_answer", "Pas de réponse"],
+      ["no", "Non"],
+      ["rather_no", "Plutôt non"],
+      ["medium", "Neutre"],
+      ["rather_yes", "Plutôt oui"],
+      ["yes", "Oui"],
+    ];
+    return `
       <div class="flex flex-wrap gap-4">
-        ${[
-          ["no", "Non"],
-          ["rather_no", "Plutôt non"],
-          ["medium", "Moyen"],
-          ["rather_yes", "Plutôt oui"],
-          ["yes", "Oui"],
-        ]
-          .map(
-            ([value, label]) => `
+        ${items.map(([value, label]) => `
           <label class="inline-flex items-center gap-2">
-            <input type="radio" name="likert6:${consigne.id}" value="${value}"><span>${label}</span>
-          </label>`
-          )
-          .join("")}
-      </div>`;
+            <input type="radio" name="likert6:${consigne.id}" value="${value}">
+            <span>${label}</span>
+          </label>`).join("")}
+      </div>
+    `;
+  }
+  return "";
 }
 
 function collectAnswers(form, consignes) {
@@ -187,7 +195,9 @@ export async function openConsigneForm(ctx, consigne = null) {
         <select name="type" class="w-full">
           <option value="short" ${consigne?.type === "short" ? "selected" : ""}>Texte court</option>
           <option value="long" ${consigne?.type === "long" ? "selected" : ""}>Texte long</option>
-          <option value="likert6" ${consigne?.type === "likert6" ? "selected" : ""}>Échelle (Oui → Non)</option>
+          <option value="likert6" ${consigne?.type === "likert6" ? "selected" : ""}>
+            Échelle d’incertitude (Pas de réponse → Oui)
+          </option>
           <option value="num" ${consigne?.type === "num" ? "selected" : ""}>Échelle numérique (1–10)</option>
         </select>
       </label>
@@ -201,6 +211,11 @@ export async function openConsigneForm(ctx, consigne = null) {
           <option value="2" ${priority === 2 ? "selected" : ""}>Moyenne</option>
           <option value="3" ${priority === 3 ? "selected" : ""}>Basse</option>
         </select>
+      </label>
+
+      <label class="inline-flex items-center gap-2">
+        <input type="checkbox" name="srEnabled" ${consigne?.srEnabled !== false ? "checked" : ""}>
+        <span>Activer la répétition espacée</span>
       </label>
 
       ${mode === "daily"
@@ -246,6 +261,7 @@ export async function openConsigneForm(ctx, consigne = null) {
       type: fd.get("type"),
       category: cat,
       priority: Number(fd.get("priority") || 2),
+      srEnabled: fd.get("srEnabled") !== null,
       active: true
     };
     if (mode === "daily") {
@@ -376,7 +392,7 @@ export async function openHistory(ctx, consigne) {
         {
           no: 'Non',
           rather_no: 'Plutôt non',
-          medium: 'Moyen',
+          medium: 'Neutre',
           rather_yes: 'Plutôt oui',
           yes: 'Oui',
           no_answer: '—'

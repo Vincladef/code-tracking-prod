@@ -82,7 +82,8 @@ function hydrateConsigne(doc) {
     id: doc.id,
     ...data,
     priority: normalizePriority(data.priority),
-    days: normalizeDays(data.days)
+    days: normalizeDays(data.days),
+    srEnabled: data.srEnabled !== false,
   };
 }
 
@@ -167,10 +168,12 @@ export async function saveResponses(db, uid, mode, answers) {
       sessionId: a.sessionId || null,
       category: a.consigne.category || "Général",
     };
-    // SR
-    const prev = await readSRState(db, uid, a.consigne.id, "consigne");
-    const upd = nextCooldownAfterAnswer({ mode, type: a.consigne.type }, prev, a.value);
-    await upsertSRState(db, uid, a.consigne.id, "consigne", upd);
+    // SR (seulement si activée sur la consigne)
+    if (a.consigne?.srEnabled !== false) {
+      const prev = await readSRState(db, uid, a.consigne.id, "consigne");
+      const upd = nextCooldownAfterAnswer({ mode, type: a.consigne.type }, prev, a.value);
+      await upsertSRState(db, uid, a.consigne.id, "consigne", upd);
+    }
 
     // write
     batch.push(addDoc(col(db, uid, "responses"), payload));
@@ -207,6 +210,7 @@ export async function fetchConsignes(db, uid, mode) {
 export async function addConsigne(db, uid, payload) {
   const ref = await addDoc(col(db, uid, "consignes"), {
     ...payload,
+    srEnabled: payload.srEnabled !== false,
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
     createdAt: serverTimestamp()
@@ -218,6 +222,7 @@ export async function updateConsigne(db, uid, id, payload) {
   const ref = docIn(db, uid, "consignes", id);
   await updateDoc(ref, {
     ...payload,
+    srEnabled: payload.srEnabled !== false,
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
     updatedAt: serverTimestamp()
