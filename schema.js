@@ -1,11 +1,11 @@
 // --- DEBUG LOGGER (utilisé par index.html et app.js)
 export const D = {
-  on: true, // passe à false pour couper le tiroir de logs
-  info:  (...a) => console.info(...a),
-  warn:  (...a) => console.warn(...a),
-  error: (...a) => console.error(...a),
-  group: (...a) => console.group(...a),
-  groupEnd:     () => console.groupEnd(),
+  on: false, // passe à true pour voir le tiroir de logs
+  info:  (...a) => D.on && console.info(...a),
+  warn:  (...a) => D.on && console.warn(...a),
+  error: (...a) => D.on && console.error(...a),
+  group: (...a) => D.on && console.group(...a),
+  groupEnd:     () => D.on && console.groupEnd(),
 };
 // --- Helpers de chemin /u/{uid}/...
 import {
