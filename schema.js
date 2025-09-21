@@ -1,11 +1,11 @@
 // --- DEBUG LOGGER (utilisé par index.html et app.js)
 export const D = {
-  on: false, // passe à true pour voir le tiroir de logs
-  info:  (...a) => D.on && console.info(...a),
-  warn:  (...a) => D.on && console.warn(...a),
-  error: (...a) => D.on && console.error(...a),
-  group: (...a) => D.on && console.group(...a),
-  groupEnd:     () => D.on && console.groupEnd(),
+  on: false,                      // <- laisse false en prod
+  group: (..._a) => {},
+  groupEnd: (..._a) => {},
+  info: (..._a) => {},
+  warn: (..._a) => {},
+  error: (...a) => console.error(...a),
 };
 const log = (...args) => console.debug("[schema]", ...args);
 // --- Helpers de chemin /u/{uid}/...
@@ -13,11 +13,11 @@ import {
   collection, doc, setDoc, getDoc, getDocs, addDoc, query, where, orderBy, updateDoc, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-export const col   = (db, uid, name)       => collection(db, "u", uid, name);
-export const docIn = (db, uid, name, id)   => doc(db, "u", uid, name, id);
+export const now = () => new Date().toISOString();
+export const col = (db, uid, sub) => collection(db, "u", uid, sub);
+export const docIn = (db, uid, sub, id) => doc(db, "u", uid, sub, id);
 
 // Timestamp lisible (les graphs lisent une chaîne)
-export const now = () => new Date().toISOString();
 export const todayKey = (d = new Date()) => d.toISOString().slice(0,10); // YYYY-MM-DD
 
 export const PRIORITIES = ["high","medium","low"];
@@ -67,73 +67,73 @@ export function newUid() {
   return Math.random().toString(36).substring(2, 10);
 }
 
-// --- Algo : due & spaced repetition ---
-export function isDueToday(consigne, srState, date = new Date()){
-  const day = date.getDay(); // 0 Sun .. 6 Sat
-  if (consigne.frequency?.type === "daysOfWeek"){
-    const arr = consigne.frequency.days || [];
-    if (!arr.includes(day)) return false;
-  }
-  if (!consigne.spacedRepetitionEnabled) return true;
-  if (consigne.mode === "daily"){
-    if (!srState || !srState.cooldownUntil) return true;
-    const today = todayKey(date);
-    return srState.cooldownUntil < today;
-  } else if (consigne.mode === "practice"){
-    if (!srState) return true;
-    return (srState.cooldownSessions || 0) <= 0;
-  }
-  return true;
+// Etat SR stocké dans /u/{uid}/sr/{consigneId}  (ou goalId)
+export async function readSRState(db, uid, itemId, key = "default") {
+  const snap = await getDoc(docIn(db, uid, "sr", `${key}:${itemId}`));
+  return snap.exists() ? snap.data() : null;
+}
+export async function upsertSRState(db, uid, itemId, key, state) {
+  await setDoc(docIn(db, uid, "sr", `${key}:${itemId}`), state, { merge: true });
 }
 
-export function nextCooldownAfterAnswer(consigne, srState, answerKind){
-  const pts = (consigne.type === "likert6") ? LIKERT_POINTS[answerKind] ?? 0
-              : (consigne.type === "num") ? (Number(answerKind) >= 8 ? 1 : Number(answerKind) >= 6 ? 0.5 : 0)
-              : (consigne.type === "short" || consigne.type === "long") ? 1 : 0;
-  const positive = pts > 0;
-  let score = (srState?.score || 0);
-  if (!positive){
-    score = 0;
-    return consigne.mode === "daily"
-      ? { score, cooldownUntil: null }
-      : { score, cooldownSessions: 0 };
-  }
-  score = Number((score + pts).toFixed(2));
-  const hideUnits = Math.floor(score);
-  if (consigne.mode === "daily"){
-    if (hideUnits <= 0){
-      return { score, cooldownUntil: null };
-    } else {
-      const base = new Date();
-      base.setDate(base.getDate() + hideUnits);
-      return { score, cooldownUntil: todayKey(base) };
-    }
+// score pour likert -> 0 / 0.5 / 1
+export function likertScore(v) {
+  return ({ yes: 1, rather_yes: 0.5, medium: 0, rather_no: 0, no: 0, no_answer: 0 })[v] ?? 0;
+}
+
+// calcule la prochaine “masque” (journalier=jours, pratique=sessions)
+export function nextCooldownAfterAnswer(meta, prevState, value) {
+  // meta.mode === "daily" | "practice", meta.type (likert6/num/short/long)
+  let inc = 0;
+  if (meta.type === "likert6") inc = likertScore(value);
+  else if (meta.type === "num") inc = Number(value) >= 7 ? 1 : (Number(value) >= 5 ? 0.5 : 0); // simple
+  else inc = 1; // texte => on considère “ok”
+
+  let streak = (prevState?.streak || 0);
+  streak = inc > 0 ? (streak + inc) : 0;
+
+  if (meta.mode === "daily") {
+    const days = Math.floor(streak); // masque N jours
+    const until = new Date();
+    until.setDate(until.getDate() + days);
+    return { streak, hideUntil: until.toISOString() };
   } else {
-    return { score, cooldownSessions: hideUnits };
+    const steps = Math.floor(streak); // masque N sessions
+    const nextAllowedIndex = (prevState?.nextAllowedIndex || 0) + steps;
+    return { streak, nextAllowedIndex };
   }
 }
 
-// --- SR state dans /users/{uid}/srStates ---
-export async function upsertSRState(db, uid, consigneId, mode, patch){
-  log("upsertSRState:start", { uid, consigneId, mode, patch });
-  const id = `${consigneId}_${mode}`;
-  const ref = docIn(db, uid, "srStates", id);
-  const prev = await getDoc(ref);
-  const base = prev.exists() ? prev.data() : { ownerUid: uid, consigneId, mode, score: 0 };
-  await setDoc(ref, { ...base, ...patch, updatedAt: now(), ownerUid: uid }, { merge: true });
-  const stored = (await getDoc(ref)).data();
-  log("upsertSRState:done", { uid, consigneId, mode, stored });
-  return stored;
+// answers: [{ consigne, value, sessionId? }]
+export async function saveResponses(db, uid, mode, answers) {
+  const batch = [];
+  for (const a of answers) {
+    const payload = {
+      ownerUid: uid,
+      mode,
+      consigneId: a.consigne.id,
+      value: a.value,
+      type: a.consigne.type,
+      createdAt: now(),
+      sessionId: a.sessionId || null,
+      category: a.consigne.category || "Général",
+    };
+    // SR
+    const prev = await readSRState(db, uid, a.consigne.id, "consigne");
+    const upd = nextCooldownAfterAnswer({ mode, type: a.consigne.type }, prev, a.value);
+    await upsertSRState(db, uid, a.consigne.id, "consigne", upd);
+
+    // write
+    batch.push(addDoc(col(db, uid, "responses"), payload));
+  }
+  await Promise.all(batch);
 }
 
-export async function readSRState(db, uid, consigneId, mode){
-  log("readSRState:start", { uid, consigneId, mode });
-  const id = `${consigneId}_${mode}`;
-  const ref = docIn(db, uid, "srStates", id);
-  const s = await getDoc(ref);
-  const data = s.exists() ? s.data() : null;
-  log("readSRState:done", { uid, consigneId, mode, found: !!data });
-  return data;
+// list consignes par mode
+export async function listConsignesByMode(db, uid, mode) {
+  const qy = query(col(db, uid, "consignes"), where("mode", "==", mode), where("active", "==", true));
+  const ss = await getDocs(qy);
+  return ss.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
 // --- Nouvelles collections /u/{uid}/... ---
@@ -191,26 +191,3 @@ export async function fetchHistory(db, uid, count = 200) {
   return data;
 }
 
-export async function startNewPracticeSession(db, uid) {
-  log("startNewPracticeSession:start", { uid });
-  // Decrement cooldownSessions for all practice SR states > 0
-  const qy = query(
-    col(db, uid, "srStates"),
-    where("mode", "==", "practice"),
-    where("cooldownSessions", ">", 0)
-  );
-  const ss = await getDocs(qy);
-  for (const d of ss.docs) {
-    const ref = doc(db, d.ref.path);
-    const v = d.data().cooldownSessions || 0;
-    await updateDoc(ref, { cooldownSessions: Math.max(0, v - 1), updatedAt: now() });
-    log("startNewPracticeSession:decrement", { uid, consigneId: d.data().consigneId, previous: v });
-  }
-
-  // Create a session doc
-  const sessionRef = await addDoc(col(db, uid, "sessions"), {
-    ownerUid: uid,
-    startedAt: now()
-  });
-  log("startNewPracticeSession:sessionCreated", { uid, sessionId: sessionRef.id });
-}
