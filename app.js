@@ -47,6 +47,26 @@ function routeTo(hash) {
   window.location.hash = target;
   render();
 }
+window.routeTo = routeTo;
+
+function setActiveNav(sectionKey) {
+  const map = {
+    daily: "#/daily",
+    practice: "#/practice",
+    goals: "#/goals",
+    admin: "#/admin"
+  };
+  const activeTarget = map[sectionKey] || "#/daily";
+  $$("button[data-route]").forEach((btn) => {
+    const target = btn.getAttribute("data-route");
+    const isActive = target === activeTarget;
+    btn.classList.toggle("bg-sky-600", isActive);
+    btn.classList.toggle("border-sky-500", isActive);
+    btn.classList.toggle("text-white", isActive);
+    btn.classList.toggle("bg-white/5", !isActive);
+    btn.classList.toggle("border-white/10", !isActive);
+  });
+}
 
 function parseHash(hashValue) {
   const hash = hashValue || "#/daily";
@@ -254,7 +274,6 @@ export function renderAdmin(db) {
       displayName: name,
       createdAt: new Date().toISOString()
     });
-    if (LOG) console.info("Nouvel utilisateur créé:", uid);
     log("admin:newUser:created", { uid });
     loadUsers(db);
   });
@@ -333,7 +352,10 @@ function render() {
   // Query params (toujours depuis l'URL complète)
   const qp = new URLSearchParams((h.split("?")[1] || ""));
 
-  switch (section === "u" ? sub : section) {
+  const currentSection = section === "u" ? sub : section;
+  setActiveNav(currentSection);
+
+  switch (currentSection) {
     case "dashboard":
     case "daily":
       return Modes.renderDaily(ctx, root, { day: qp.get("day") });

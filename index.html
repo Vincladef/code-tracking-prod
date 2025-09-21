@@ -3,125 +3,74 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Habitudes & Pratique</title>
-  <link rel="icon" type="image/svg+xml"
-        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
+  <title>Habitudes &amp; Pratique</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    :root{
-      /* Pastel theme */
-      --bg:#f6f7fb; --ink:#111827; --muted:#6b7280;
-      --card:#ffffff; --ring:#e5e7eb; --shadow:0 10px 30px rgba(0,0,0,.06);
-      --primary:#93c5fd;    /* bleu doux — Journalier */
-      --secondary:#86efac;  /* vert doux — Pratique */
-      --violet:#c7b5ff;     /* violet doux — Objectifs */
-      --danger:#fca5a5; --warning:#fde68a; --ok:#86efac;
-
-      color-scheme: light;
+    body { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    input, textarea, select {
+      background: rgba(255,255,255,.05);
+      border: 1px solid rgba(255,255,255,.1);
+      color: #e5e7eb;
     }
-    html,body{height:100%}
-    body{
-      margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Helvetica, Arial, sans-serif;
-      background: var(--bg); color: var(--ink);
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: rgba(125,211,252,.6);
+      box-shadow: 0 0 0 2px rgba(56,189,248,.2);
     }
-
-    /* Layout */
-    header{ position:sticky; top:0; z-index:20; backdrop-filter: blur(6px); background:rgba(246,247,251,.75); border-bottom:1px solid var(--ring) }
-    .wrap{ max-width:1100px; margin:0 auto; padding:12px 16px }
-    .tabs{ display:flex; gap:8px; flex-wrap:wrap }
-    .tab{ padding:10px 14px; border:1px solid var(--ring); border-radius:999px; background:#fff; box-shadow:var(--shadow); cursor:pointer; font-weight:500 }
-    .tab:hover{ transform: translateY(-1px) }
-    .tab.primary{ background:linear-gradient(0deg,#fff, #eef6ff) }
-    main{ max-width:1100px; margin:16px auto; padding:0 16px }
-    footer{ color:var(--muted); font-size:12px; padding:24px 0 40px; text-align:center }
-
-    /* Primitives */
-    .card{ background:var(--card); border:1px solid var(--ring); border-radius:16px; box-shadow:var(--shadow); padding:16px }
-    .input, select, textarea{ width:100%; border:1px solid var(--ring); background:#fff; border-radius:12px; padding:10px 12px; outline:none }
-    textarea{ min-height:90px }
-    .btn{ display:inline-flex; align-items:center; gap:8px; border:1px solid var(--ring); background:#fff; border-radius:12px; padding:10px 14px; cursor:pointer; box-shadow:var(--shadow) }
-    .btn:hover{ transform: translateY(-1px) }
-    .btn.primary{ background:linear-gradient(0deg,#fff,#e7f1ff); border-color:#cfe3ff }
-    .btn.success{ background:linear-gradient(0deg,#fff,#e9fbf1); border-color:#c9f7dc }
-    .btn.ghost{ background:transparent }
-    .btn.small{ padding:8px 10px; font-size:12px }
-    .row{ display:grid; gap:12px }
-    .row.cols-2{ grid-template-columns: repeat(2,minmax(0,1fr)) }
-    .row.cols-3{ grid-template-columns: repeat(3,minmax(0,1fr)) }
-    @media (max-width:900px){ .row.cols-2,.row.cols-3{ grid-template-columns: 1fr } }
-
-    .section{ margin:12px 0 }
-    .section-title{ display:flex; justify-content:space-between; align-items:center; margin:6px 0 10px }
-
-    .chip{ padding:6px 10px; border:1px solid var(--ring); border-radius:999px; background:#fff; font-size:12px; cursor:pointer }
-    .chip.active{ background:var(--primary) }
-
-    .pill{ font-size:12px; border:1px solid var(--ring); border-radius:999px; padding:2px 8px; color:#374151 }
-
-    /* Modal */
-    .modal-backdrop{ position:fixed; inset:0; background:rgba(15,23,42,.28); backdrop-filter: blur(2px); display:flex; align-items:center; justify-content:center; z-index:50 }
-    .modal{ width:min(680px,92vw); background:#fff; border:1px solid var(--ring); border-radius:18px; box-shadow: var(--shadow); padding:16px }
-    .modal h3{ margin:0 0 8px 0 }
-    .modal .row{ margin-top:8px }
-
-    /* History colors (Likert / num) */
-    .dot{ width:10px; height:10px; border-radius:999px; display:inline-block; margin-right:6px }
-    .v-yes{ background: #34d399 } .v-ry{ background:#86efac } .v-med{ background:#fbbf24 }
-    .v-rn{ background:#fca5a5 } .v-no{ background:#ef4444 } .v-na{ background:#9ca3af }
-
-    /* hide admin sidebar container (kept for app.js) */
-    #sidebar{ display:none }
+    .card {
+      background: rgba(15,23,42,.55);
+      border: 1px solid rgba(148,163,184,.2);
+      border-radius: 14px;
+      backdrop-filter: blur(6px);
+    }
+    #sidebar { display: none; }
   </style>
 </head>
-<body>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex min-h-screen flex-col">
+    <header class="border-b border-white/10 bg-slate-900/80 backdrop-blur">
+      <div class="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-4">
+        <h1 class="text-xl font-semibold">Habitudes &amp; Pratique</h1>
+        <nav class="flex flex-wrap items-center gap-2">
+          <button class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10" data-route="#/daily">Journalier</button>
+          <button class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10" data-route="#/practice">Pratique</button>
+          <button class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10" data-route="#/goals">Objectifs</button>
+          <button class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10" data-route="#/admin">Admin</button>
+        </nav>
+      </div>
+    </header>
 
-<header>
-  <div class="wrap">
-    <div class="section-title">
-      <h1 style="margin:0;font-weight:700">Habitudes & Pratique</h1>
-      <nav class="tabs">
-        <button class="tab" data-route="#/daily">Journalier</button>
-        <button class="tab" data-route="#/practice">Pratique</button>
-        <button class="tab" data-route="#/goals">Objectifs</button>
-        <button class="tab" data-route="#/admin">Admin</button>
-      </nav>
-    </div>
+    <main class="flex-1">
+      <div class="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-6">
+        <aside id="sidebar"></aside>
+        <div id="view-root" class="card p-4">Chargement…</div>
+      </div>
+    </main>
+
+    <footer class="border-t border-white/10 py-6 text-center text-sm text-slate-400">
+      &copy; Habitudes &amp; Pratique
+    </footer>
   </div>
-</header>
 
-<main>
-  <!-- petit conteneur pour satisfaire app.js (mais masqué) -->
-  <aside id="sidebar" style="display:none">
-    <div id="profile-box"></div>
-    <div id="category-box"></div>
-  </aside>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { startRouter } from "./app.js";
 
-  <section id="view">
-    <div id="view-root" class="card">Chargement…</div>
-  </section>
-</main>
-
-<footer>©</footer>
-
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import { startRouter } from "./app.js";
-
-  const cfg = {
-    apiKey: "AIzaSyAQcvZ9a2j4MHF04RjMHIey0R_iwnjZf4o",
-    authDomain: "tracking-d-habitudes.firebaseapp.com",
-    projectId: "tracking-d-habitudes",
-    storageBucket: "tracking-d-habitudes.firebasestorage.app",
-    messagingSenderId: "739389871966",
-    appId: "1:739389871966:web:684e26dbdfb0c0a69221cf",
-    measurementId: "G-ZPHWB5DKWF"
-  };
-  const app = initializeApp(cfg);
-  const db = getFirestore(app);
-  startRouter(app, db);
-</script>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    const cfg = {
+      apiKey: "AIzaSyAQcvZ9a2j4MHF04RjMHIey0R_iwnjZf4o",
+      authDomain: "tracking-d-habitudes.firebaseapp.com",
+      projectId: "tracking-d-habitudes",
+      storageBucket: "tracking-d-habitudes.firebasestorage.app",
+      messagingSenderId: "739389871966",
+      appId: "1:739389871966:web:684e26dbdfb0c0a69221cf",
+      measurementId: "G-ZPHWB5DKWF"
+    };
+    const app = initializeApp(cfg);
+    const db = getFirestore(app);
+    startRouter(app, db);
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </body>
 </html>
