@@ -1,288 +1,404 @@
-import {
-  addDoc, getDoc, getDocs, doc, query, where, orderBy
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import * as Schema from "./schema.js";
-import { col, docIn } from "./schema.js";
 
-function $(s){ return document.querySelector(s); }
-function el(tag, attrs={}, children=[]){
-  const n = document.createElement(tag);
-  for (const [k,v] of Object.entries(attrs)){
-    if (k==="class") n.className = v;
-    else if (k==="onclick") n.onclick = v;
-    else n.setAttribute(k,v);
-  }
-  (Array.isArray(children)?children:[children]).forEach(c => n.append(c?.nodeType?c:document.createTextNode(c)));
-  return n;
+export async function renderDaily(ctx, root, opts = {}) {
+  const uid = ctx.user.uid;
+  const rawDay = (opts.day || new URLSearchParams(location.hash.split("?")[1] || "").get("day") || new Date().toLocaleDateString("fr-FR", { weekday: "short" }).slice(0, 3)).toLowerCase();
+  const frDays = ["lun","mar","mer","jeu","ven","sam","dim"];
+  const fromIso = { mon: "lun", tue: "mar", wed: "mer", thu: "jeu", fri: "ven", sat: "sam", sun: "dim" };
+  const day = frDays.includes(rawDay) ? rawDay : (fromIso[rawDay] || "lun");
+
+  let consignes = await Schema.fetchConsignes(ctx.db, uid, "daily");
+  const mapDay = { lun: "mon", mar: "tue", mer: "wed", jeu: "thu", ven: "fri", sam: "sat", dim: "sun" };
+  const iso = mapDay[day] || day;
+  consignes = consignes.filter(c => !c.days || c.days.length === 0 || c.days.includes(iso));
+
+  root.innerHTML = `
+    <div class="grid gap-3">
+      <div class="flex gap-2 flex-wrap">
+        ${["lun","mar","mer","jeu","ven","sam","dim"].map(d => {
+          const active = d === day ? "bg-sky-600 text-white" : "bg-gray-800 text-gray-200";
+          const h = (location.hash.match(/^#\/u\/([^/]+)/)) ? `#/u/${ctx.user.uid}/daily?day=${d}` : `#/daily?day=${d}`;
+          return `<a href="${h}" class="px-3 py-1 rounded-lg border border-gray-600 text-sm ${active}">${d.toUpperCase()}</a>`;
+        }).join("")}
+      </div>
+
+      <form id="daily-form" class="grid gap-3">
+        ${consignes.map(c => consigneField(c)).join("")}
+        <div class="flex gap-2">
+          <button class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white" type="submit">Enregistrer</button>
+          <button type="button" id="btn-add-consigne" class="px-4 py-2 rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700">+ Nouvelle consigne</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.getElementById("btn-add-consigne").onclick = () => openConsigneForm(ctx, "daily");
+
+  document.getElementById("daily-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const answers = readFormAnswers(consignes, e.target);
+    if (!answers.length) return;
+    await Schema.saveResponses(ctx.db, uid, "daily", answers);
+    toast("Réponses enregistrées");
+    e.target.querySelectorAll(".js-hist[data-loaded='1']").forEach(el => el.dataset.loaded = "0");
+  });
+
+  root.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-history]");
+    if (!btn) return;
+    const id = btn.dataset.history;
+    const c = consignes.find(x => x.id === id);
+    const panel = root.querySelector(`#hist-${id}`);
+    if (!c || !panel) return;
+    const loaded = panel.dataset.loaded === "1";
+    panel.classList.toggle("hidden");
+    if (loaded) return;
+    panel.dataset.loaded = "1";
+    await renderHistoryForConsigne(ctx, c, panel);
+  });
 }
 
-// ---------- Formulaires d’édition de consigne ----------
-export function openConsigneForm(ctx, defaults={}){
-  const root = $("#view-root");
-  const isEdit = !!defaults.id;
-  root.innerHTML = "";
+export async function renderPractice(ctx, root, opts = {}) {
+  const uid = ctx.user.uid;
+  const consignes = await Schema.fetchConsignes(ctx.db, uid, "practice");
 
-  const modes = [["daily","Journalier"], ["practice","Pratique"]];
-  const types = [["likert6","Likert (6)"],["num","Échelle 1-10"],["short","Texte court"],["long","Texte long"]];
-  const priorities = [["high","Haute"],["medium","Moyenne"],["low","Basse"]];
+  root.innerHTML = `
+    <div class="grid gap-3">
+      <form id="practice-form" class="grid gap-3">
+        ${consignes.map(c => consigneField(c)).join("")}
+        <div class="flex gap-2">
+          <button class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white" type="submit">Enregistrer</button>
+          <button type="button" id="btn-add-consigne" class="px-4 py-2 rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700">+ Nouvelle consigne</button>
+        </div>
+      </form>
+      <div id="session-actions" class="hidden">
+        <button id="btn-new-iter" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white">Nouvelle itération</button>
+      </div>
+    </div>
+  `;
 
-  root.append(
-    el("div",{class:"grid"},
-      [
-        el("h2",{} , (isEdit?"Modifier":"Ajouter")+" une consigne"),
-        el("div",{class:"grid cols-2"}, [
-          el("div",{class:"field"},[ el("label",{},"Texte"), el("textarea",{id:"c-text",placeholder:"Votre consigne (obligatoire)"},[]) ]),
-          el("div",{class:"field"},[ el("label",{},"Catégorie"), el("input",{id:"c-cat",placeholder:"Ex. Santé, Concentration…"}) ]),
-          el("div",{class:"field"},[
-            el("label",{},"Mode"),
-            (()=>{ const s=el("select",{id:"c-mode"}); modes.forEach(([v,l])=>s.append(el("option",{value:v},l))); return s; })()
-          ]),
-          el("div",{class:"field"},[
-            el("label",{},"Type de réponse"),
-            (()=>{ const s=el("select",{id:"c-type"}); types.forEach(([v,l])=>s.append(el("option",{value:v},l))); return s; })()
-          ]),
-          el("div",{class:"field"},[
-            el("label",{},"Priorité"),
-            (()=>{ const s=el("select",{id:"c-prio"}); priorities.forEach(([v,l])=>s.append(el("option",{value:v},l))); return s; })()
-          ]),
-          el("div",{class:"field"},[
-            el("label",{},"Répétition espacée"),
-            (()=>{ const s=el("select",{id:"c-sr"}); s.append(el("option",{value:"1"},"Activée")); s.append(el("option",{value:"0"},"Désactivée")); return s; })()
-          ]),
-          el("div",{class:"field"},[
-            el("label",{},"Fréquence (journalier)"),
-            (()=>{ const w=el("div",{class:"flex"});
-              ["lun","mar","mer","jeu","ven","sam","dim"].forEach(d=> w.append(el("label",{class:"pill"},
-                [el("input",{type:"checkbox","data-day":d,style:"margin-right:6px"}), d.toUpperCase()])));
-              return w;
-            })()
-          ])
-        ]),
-        el("div",{class:"flex"},[
-          el("button",{class:"btn primary", onclick: save}, "Enregistrer"),
-          el("button",{class:"btn", onclick: ()=>location.hash="#/daily"},"Annuler")
-        ])
-      ])
-  );
+  document.getElementById("btn-add-consigne").onclick = () => openConsigneForm(ctx, "practice");
 
-  // set defaults if any
-  $("#c-text").value = defaults.text || "";
-  $("#c-cat").value = defaults.category || "";
-  $("#c-mode").value = defaults.mode || "daily";
-  $("#c-type").value = defaults.type || "likert6";
-  $("#c-prio").value = defaults.priority || "medium";
-  $("#c-sr").value = defaults.spacedRepetitionEnabled ? "1":"0";
-  if (defaults.days?.length){
+  document.getElementById("practice-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const answers = readFormAnswers(consignes, e.target);
+    if (!answers.length) return;
+    await Schema.saveResponses(ctx.db, uid, "practice", answers);
+    toast("Session enregistrée");
+    document.getElementById("session-actions").classList.remove("hidden");
+  });
+
+  document.getElementById("session-actions").addEventListener("click", e => {
+    if (e.target.id !== "btn-new-iter") return;
+    const form = document.getElementById("practice-form");
+    form.reset();
+    document.getElementById("session-actions").classList.add("hidden");
+  });
+
+  root.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-history]");
+    if (!btn) return;
+    const id = btn.dataset.history;
+    const c = consignes.find(x => x.id === id);
+    const panel = root.querySelector(`#hist-${id}`);
+    if (!c || !panel) return;
+    const loaded = panel.dataset.loaded === "1";
+    panel.classList.toggle("hidden");
+    if (loaded) return;
+    panel.dataset.loaded = "1";
+    await renderHistoryForConsigne(ctx, c, panel);
+  });
+}
+
+export async function renderHistory(ctx, root) {
+  const rows = await Schema.fetchHistory(ctx.db, ctx.user.uid, 100);
+  const items = rows.map(r => {
+    const d = new Date(r.createdAt);
+    let badge = "";
+    if (r.type === "likert6") {
+      const color = { no: "bg-red-600", rather_no: "bg-orange-600", medium: "bg-gray-600", rather_yes: "bg-emerald-600", yes: "bg-emerald-700", no_answer: "bg-slate-600" }[r.value] || "bg-slate-600";
+      badge = `<span class=\"px-2 py-0.5 rounded text-xs text-white ${color}\">${r.value}</span>`;
+    } else if (r.type === "num") {
+      badge = `<span class=\"px-2 py-0.5 rounded text-xs bg-sky-700 text-white\">${r.value}</span>`;
+    } else if (r.value) {
+      badge = `<span class=\"text-xs text-gray-300\">${escapeHtml(String(r.value)).slice(0, 60)}</span>`;
+    }
+    return `<div class=\"p-3 rounded-xl border border-gray-700 bg-gray-900 flex justify-between items-center\">
+      <div>
+        <div class=\"font-medium\">${escapeHtml(r.consigneId || "(consigne)")}</div>
+        <div class=\"text-xs text-gray-400\">${r.mode || "daily"} · ${d.toLocaleString()}</div>
+      </div>
+      <div>${badge}</div>
+    </div>`;
+  }).join("");
+
+  root.innerHTML = `
+    <div class="grid gap-3">
+      <h2 class="text-lg font-semibold">Historique</h2>
+      <div class="grid gap-2">
+        ${items || `<div class='text-gray-400 text-sm'>Aucune réponse enregistrée.</div>`}
+      </div>
+    </div>
+  `;
+}
+
+export function openConsigneForm(ctx, modeOrDefaults = {}) {
+  let defaults = {};
+  let initialMode = "daily";
+  if (typeof modeOrDefaults === "string") {
+    initialMode = modeOrDefaults;
+  } else if (modeOrDefaults && typeof modeOrDefaults === "object") {
+    defaults = { ...modeOrDefaults };
+    if (defaults.mode) initialMode = defaults.mode;
+  }
+
+  const dlg = document.createElement("dialog");
+  dlg.className = "rounded-2xl bg-gray-900 border border-gray-700 p-0 text-gray-100";
+  dlg.innerHTML = `
+    <form method="dialog" class="grid gap-3 p-4 w-[min(92vw,520px)]">
+      <h3 class="text-lg font-semibold">${defaults.id ? "Modifier" : "Nouvelle"} consigne</h3>
+
+      <label class="grid gap-1">
+        <span class="text-sm text-gray-400">Texte</span>
+        <textarea name="text" rows="3" placeholder="Décris ta consigne" required></textarea>
+      </label>
+
+      <label class="grid gap-1">
+        <span class="text-sm text-gray-400">Catégorie</span>
+        <input name="category" placeholder="Ex. Energie" />
+      </label>
+
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="grid gap-1">
+          <span class="text-sm text-gray-400">Mode</span>
+          <select name="mode">
+            <option value="daily">Journalier</option>
+            <option value="practice">Pratique</option>
+          </select>
+        </label>
+        <label class="grid gap-1">
+          <span class="text-sm text-gray-400">Type de réponse</span>
+          <select name="type">
+            <option value="likert6">Likert (6)</option>
+            <option value="num">Nombre (1-10)</option>
+            <option value="short">Texte court</option>
+            <option value="long">Texte long</option>
+          </select>
+        </label>
+        <label class="grid gap-1">
+          <span class="text-sm text-gray-400">Priorité</span>
+          <select name="priority">
+            <option value="high">Haute</option>
+            <option value="medium">Moyenne</option>
+            <option value="low">Basse</option>
+          </select>
+        </label>
+        <label class="grid gap-1">
+          <span class="text-sm text-gray-400">Répétition espacée</span>
+          <select name="sr">
+            <option value="1">Activée</option>
+            <option value="0">Désactivée</option>
+          </select>
+        </label>
+      </div>
+
+      <div id="freq-block" class="grid gap-2">
+        <label class="grid gap-1">
+          <span class="text-sm text-gray-400">Fréquence</span>
+          <select name="frequency">
+            <option value="daily">Quotidienne</option>
+            <option value="weekly">Hebdomadaire</option>
+            <option value="custom">Personnalisée</option>
+          </select>
+        </label>
+        <div class="grid gap-2">
+          <span class="text-sm text-gray-400">Jours concernés</span>
+          <div class="flex flex-wrap gap-2">
+            ${[
+              ["mon", "Lun"],
+              ["tue", "Mar"],
+              ["wed", "Mer"],
+              ["thu", "Jeu"],
+              ["fri", "Ven"],
+              ["sat", "Sam"],
+              ["sun", "Dim"],
+            ].map(([value, label]) => `
+              <label class="flex items-center gap-1 text-sm">
+                <input type="checkbox" data-day="${value}">
+                <span>${label}</span>
+              </label>
+            `).join("")}
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-2 justify-end mt-2">
+        <button value="close" class="px-3 py-1 rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700">Annuler</button>
+        <button id="consigne-save" class="px-3 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white">Enregistrer</button>
+      </div>
+    </form>
+  `;
+  document.body.appendChild(dlg);
+  dlg.showModal();
+
+  const form = dlg.querySelector("form");
+  const modeSel = form.querySelector('[name="mode"]');
+  const freqBlock = form.querySelector('#freq-block');
+  const freqSel = form.querySelector('[name="frequency"]');
+  modeSel.value = initialMode;
+
+  form.querySelector('[name="text"]').value = defaults.text || "";
+  form.querySelector('[name="category"]').value = defaults.category || "";
+  form.querySelector('[name="type"]').value = defaults.type || "likert6";
+  form.querySelector('[name="priority"]').value = defaults.priority || "medium";
+  form.querySelector('[name="sr"]').value = defaults.spacedRepetitionEnabled ? "1" : "0";
+  if (defaults.frequency && freqSel) freqSel.value = defaults.frequency;
+  if (defaults.days?.length) {
     defaults.days.forEach(d => {
-      const cb = document.querySelector(`input[data-day="${d}"]`);
+      const cb = form.querySelector(`input[data-day="${d}"]`);
       if (cb) cb.checked = true;
     });
   }
 
-  async function save(){
-    const days = Array.from(document.querySelectorAll('input[data-day]:checked')).map(i=>i.getAttribute("data-day"));
+  function toggleFreq() {
+    freqBlock.style.display = (modeSel.value === "practice") ? "none" : "";
+  }
+  modeSel.addEventListener("change", toggleFreq);
+  toggleFreq();
+
+  form.querySelector('#consigne-save').addEventListener('click', async (e) => {
+    e.preventDefault();
     const payload = {
       ownerUid: ctx.user.uid,
-      text: $("#c-text").value.trim(),
-      category: $("#c-cat").value.trim() || "Général",
-      mode: $("#c-mode").value,
-      type: $("#c-type").value,
-      priority: $("#c-prio").value,
-      spacedRepetitionEnabled: $("#c-sr").value==="1",
-      days,
-      active: true,
-      createdAt: Schema.now(),
+      text: form.querySelector('[name="text"]').value.trim(),
+      category: form.querySelector('[name="category"]').value.trim() || "Général",
+      mode: modeSel.value,
+      type: form.querySelector('[name="type"]').value,
+      priority: form.querySelector('[name="priority"]').value,
+      spacedRepetitionEnabled: form.querySelector('[name="sr"]').value === "1",
+      active: defaults.active ?? true,
     };
-    if (!payload.text) { alert("Le texte est obligatoire"); return; }
-    await addDoc(col(ctx.db, ctx.user.uid, "consignes"), payload);
-    location.hash = `#/u/${ctx.user.uid}/${payload.mode}`;
-  }
-}
+    if (!payload.text) return;
 
-// ---------- Widgets de réponse ----------
-function inputFor(consigne){
-  // retourne { node, getValue() }
-  if (consigne.type === "likert6"){
-    const wrap = el("div",{class:"flex"});
-    const options = [["no_answer","NR"],["no","Non"],["rather_no","Plutôt non"],["medium","Moyen"],["rather_yes","Plutôt oui"],["yes","Oui"]];
-    let current = "no_answer";
-    options.forEach(([v,l])=>{
-      const b = el("button",{class:"btn small",onclick: ()=>{ current=v; Array.from(wrap.children).forEach(ch=>ch.classList.remove("primary")); b.classList.add("primary"); }}, l);
-      wrap.append(b);
-    });
-    return { node: wrap, getValue:()=>current };
-  }
-  if (consigne.type === "num"){
-    const r = el("input",{type:"range",min:"1",max:"10",value:"5",style:"width:220px"});
-    const out = el("span",{class:"pill"},"5");
-    r.oninput = ()=> out.textContent = r.value;
-    return { node: el("div",{class:"flex"},[r,out]), getValue:()=>Number(r.value) };
-  }
-  if (consigne.type === "short"){
-    const i = el("input",{maxlength:"200",placeholder:"Votre réponse (≤200c)"});
-    return { node: i, getValue:()=>i.value.trim() };
-  }
-  const t = el("textarea",{placeholder:"Votre réponse"});
-  return { node: t, getValue:()=>t.value.trim() };
-}
-
-// ---------- JOURNALIER ----------
-export async function renderDaily(ctx, root, opts={}){
-  const dayParam = (opts.day || currentDayKey()); // 'lun'...'dim'
-  root.innerHTML = "";
-
-  // header
-  const days = ["lun","mar","mer","jeu","ven","sam","dim"];
-  const dayNav = el("div",{class:"flex"});
-  days.forEach(d=>{
-    const b = el("button",{class:`btn small ${d===dayParam?"primary":""}`, onclick:()=> {
-      location.hash = `#/u/${ctx.user.uid}/daily?day=${d}`;
-    }}, d.toUpperCase());
-    dayNav.append(b);
-  });
-
-  // CTA ajouter une consigne
-  const addBtn = el("button",{class:"btn small right", onclick:()=>openConsigneForm(ctx,{mode:"daily"})},"+ Ajouter une consigne");
-
-  root.append(el("div",{class:"section-title"},[ el("h2",{},"Journalier"), el("div",{class:"right"},[addBtn]) ]));
-  root.append(dayNav);
-
-  // fetch consignes visibles pour ce jour
-  let consignes = await Schema.listConsignesByMode(ctx.db, ctx.user.uid, "daily");
-  consignes = await filterByDayAndSR(ctx, consignes, dayParam, "daily");
-
-  if (!consignes.length){
-    root.append(el("div",{class:"card muted"},"Aucune consigne pour ce jour."));
-    return;
-  }
-
-  // form unique
-  const form = el("form",{id:"daily-form", onsubmit: onSubmit});
-  const controls = [];
-  consignes.forEach(c=>{
-    const ctrl = inputFor(c);
-    controls.push({ consigne:c, getValue: ctrl.getValue });
-    form.append(el("div",{class:"card"},[
-      el("div",{class:"flex"}, el("div",{style:"font-weight:600"}, c.text), el("span",{class:`badge ${c.priority}`}, c.priority)),
-      el("div",{class:"muted"}, c.category || "—"),
-      ctrl.node
-    ]));
-  });
-  form.append(el("div",{class:"flex"}, el("button",{class:"btn primary", type:"submit"},"Valider toutes les réponses")));
-  root.append(form);
-
-  async function onSubmit(e){
-    e.preventDefault();
-    const answers = controls.map(x => ({ consigne:x.consigne, value:x.getValue() }));
-    await Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers);
-    // recharger (SR peut masquer)
-    location.hash = `#/u/${ctx.user.uid}/daily?day=${dayParam}`;
-  }
-}
-
-// ---------- PRATIQUE ----------
-export async function renderPractice(ctx, root){
-  root.innerHTML = "";
-  root.append(el("div",{class:"section-title"},[
-    el("h2",{},"Pratique délibérée"),
-    el("button",{class:"btn small right", onclick:()=>openConsigneForm(ctx,{mode:"practice"})},"+ Ajouter une consigne")
-  ]));
-
-  let consignes = await Schema.listConsignesByMode(ctx.db, ctx.user.uid, "practice");
-  consignes = await filterBySRForPractice(ctx, consignes);
-
-  if (!consignes.length){
-    root.append(el("div",{class:"card muted"},"Aucune consigne de pratique disponible pour cette itération."));
-    return;
-  }
-
-  // form unique pour une itération
-  const sessionId = `s-${Date.now()}`;
-  const form = el("form",{id:"practice-form", onsubmit: onSubmit});
-  const controls = [];
-  consignes.forEach(c=>{
-    const ctrl = inputFor(c);
-    controls.push({ consigne:c, getValue: ctrl.getValue, node: ctrl.node });
-    form.append(el("div",{class:"card"},[
-      el("div",{class:"flex"}, el("div",{style:"font-weight:600"}, c.text), el("span",{class:`badge ${c.priority}`}, c.priority)),
-      el("div",{class:"muted"}, c.category || "—"),
-      ctrl.node,
-      // mini-historique (dernieres 3)
-      el("div",{class:"muted",style:"font-size:12px;margin-top:6px"}, "Historique (3 derniers) — "),
-      el("div",{id:`hist-${c.id}`,class:"muted",style:"font-size:12px"},"Chargement…")
-    ]));
-    loadMiniHistory(ctx, c.id);
-  });
-  form.append(el("div",{class:"flex"}, el("button",{class:"btn primary", type:"submit"},"Valider cette itération")));
-  root.append(form);
-
-  async function onSubmit(e){
-    e.preventDefault();
-    const answers = controls.map(x => ({ consigne:x.consigne, value:x.getValue(), sessionId }));
-    await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answers);
-    // nouvelle itération: on vide les contrôles & recharge SR
-    renderPractice(ctx, root);
-  }
-}
-
-// ---------- HISTORIQUE (simple) ----------
-export async function renderHistory(ctx, root){
-  root.innerHTML = "";
-  root.append(el("h2",{},"Historique"));
-  const qy = query(col(ctx.db, ctx.user.uid, "responses"), orderBy("createdAt","desc"));
-  const ss = await getDocs(qy);
-  const list = el("div",{class:"list"});
-  ss.forEach(d=>{
-    const r = d.data();
-    list.append(el("div",{class:"card"},[
-      el("div",{style:"font-weight:600"}, `${r.category} • ${r.mode}`),
-      el("div",{}, `${r.createdAt} — ${r.consigneId} → ${typeof r.value==="object"?JSON.stringify(r.value):r.value}`)
-    ]));
-  });
-  root.append(list);
-}
-
-// ---------- helpers ----------
-async function filterByDayAndSR(ctx, consignes, dayKey, mode){
-  // dayKey dans c.days OU c.days vide => visible
-  const today = new Date();
-  const nowIso = today.toISOString();
-
-  const out = [];
-  for (const c of consignes){
-    if (c.days?.length && !c.days.includes(dayKey)) continue;
-    const sr = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "consigne");
-    if (mode==="daily" && sr?.hideUntil && sr.hideUntil > nowIso) continue;
-    out.push(c);
-  }
-  return out;
-}
-async function filterBySRForPractice(ctx, consignes){
-  const out = [];
-  for (const c of consignes){
-    const sr = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "consigne");
-    if (sr?.nextAllowedIndex && sr.nextAllowedIndex > 0){
-      // on décrémente à l’affichage: quand l’utilisateur voit la session, on considère l’étape franchie
-      await Schema.upsertSRState(ctx.db, ctx.user.uid, c.id, "consigne", { nextAllowedIndex: sr.nextAllowedIndex - 1, streak: sr.streak||0 });
-      continue;
+    if (payload.mode !== "practice") {
+      const days = Array.from(form.querySelectorAll('input[data-day]:checked')).map(i => i.getAttribute('data-day'));
+      payload.days = days;
+      if (freqSel) payload.frequency = freqSel.value;
     }
-    out.push(c);
+
+    if (defaults.id) {
+      await Schema.updateConsigne(ctx.db, ctx.user.uid, defaults.id, payload);
+    } else {
+      await Schema.addConsigne(ctx.db, ctx.user.uid, payload);
+    }
+
+    toast("Consigne enregistrée");
+    dlg.close();
+    window.dispatchEvent(new Event("hashchange"));
+  });
+
+  dlg.addEventListener("close", () => dlg.remove());
+}
+
+function consigneField(c) {
+  return `
+    <div class="p-3 rounded-xl border border-gray-700 bg-gray-900">
+      <div class="flex justify-between items-center mb-2">
+        <div class="font-medium">${escapeHtml(c.text || c.title || "(sans libellé)")}</div>
+        <button type="button" data-history="${c.id}" class="text-sm text-sky-400 hover:underline">Historique</button>
+      </div>
+      ${inputForConsigne(c)}
+      <div id="hist-${c.id}" class="js-hist hidden mt-3" data-loaded="0"></div>
+    </div>
+  `;
+}
+
+function inputForConsigne(c) {
+  const name = `c_${c.id}`;
+  if (c.type === "short")
+    return `<input name="${name}" class="w-full" placeholder="Réponse (200 caractères max)" maxlength="200">`;
+  if (c.type === "long")
+    return `<textarea name="${name}" class="w-full" placeholder="Réponse"></textarea>`;
+  if (c.type === "num")
+    return `
+      <div class="grid gap-1">
+        <input type="range" min="1" max="10" value="${c.default || 5}" name="${name}" oninput="this.nextElementSibling.value=this.value">
+        <output class="text-sm">${c.default || 5}</output>
+      </div>`;
+  const choices = [
+    ["no_answer", "—"], ["no", "Non"], ["rather_no", "Plutôt non"],
+    ["medium", "Moyen"], ["rather_yes", "Plutôt oui"], ["yes", "Oui"]
+  ];
+  return `
+    <div class="flex flex-wrap gap-2">
+      ${choices.map(([v,l]) => `
+        <label class="flex items-center gap-1 text-sm">
+          <input type="radio" name="${name}" value="${v}">
+          <span>${l}</span>
+        </label>`).join("")}
+    </div>`;
+}
+
+function readFormAnswers(consignes, formEl) {
+  const data = new FormData(formEl);
+  const answers = [];
+  for (const c of consignes) {
+    const v = data.get(`c_${c.id}`);
+    if (v === null || v === "") continue;
+    answers.push({ consigne: c, value: v });
   }
-  return out;
+  return answers;
 }
-async function loadMiniHistory(ctx, consigneId){
-  const qy = query(col(ctx.db, ctx.user.uid, "responses"),
-    where("consigneId","==",consigneId), orderBy("createdAt","desc"));
-  const ss = await getDocs(qy);
-  const top3 = ss.docs.slice(0,3).map(d => d.data());
-  const div = document.getElementById(`hist-${consigneId}`);
-  if (!div) return;
-  if (!top3.length){ div.textContent = "—"; return; }
-  div.textContent = top3.map(r => `${r.createdAt.slice(0,16).replace("T"," ")}: ${typeof r.value==="object"?JSON.stringify(r.value):r.value}`).join(" · ");
+
+function escapeHtml(s = '') {
+  return s.replace(/[&<>\"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
 }
-function currentDayKey(){
-  // 1(lun)..7(dim) -> ['dim','lun','mar','mer','jeu','ven','sam'] si localisation FR
-  const map = ["dim","lun","mar","mer","jeu","ven","sam"];
-  const d = (new Date()).getDay(); // 0=dim
-  return map[d];
+
+function toast(msg) {
+  const t = document.createElement("div");
+  t.textContent = msg;
+  t.className = "fixed left-1/2 -translate-x-1/2 bottom-6 px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-gray-100 shadow";
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 1600);
+}
+
+async function renderHistoryForConsigne(ctx, consigne, panel) {
+  const rows = await Schema.fetchResponsesForConsigne(ctx.db, ctx.user.uid, consigne.id, 50);
+  const list = rows.map(r => {
+    const d = new Date(r.createdAt);
+    let badge = "";
+    if (r.type === "likert6") {
+      const color = { no: "bg-red-600", rather_no: "bg-orange-600", medium: "bg-gray-600", rather_yes: "bg-emerald-600", yes: "bg-emerald-700", no_answer: "bg-slate-600" }[r.value] || "bg-slate-600";
+      badge = `<span class=\"px-2 py-0.5 rounded text-xs text-white ${color}\">${r.value}</span>`;
+    } else if (r.type === "num") {
+      badge = `<span class=\"px-2 py-0.5 rounded text-xs bg-sky-700 text-white\">${r.value}</span>`;
+    }
+    return `<div class=\"flex justify-between text-sm border-b border-gray-700 py-1\">
+      <span>${d.toLocaleString()}</span>
+      <span>${badge}</span>
+    </div>`;
+  }).join("");
+
+  panel.innerHTML = `<div class="grid gap-2">
+    <div class="p-2 rounded-lg bg-gray-800 border border-gray-700 max-h-52 overflow-auto">${list || "<span class='text-sm text-gray-400'>Aucun historique.</span>"}</div>
+    <canvas id="chart-${consigne.id}" height="120"></canvas>
+  </div>`;
+
+  const points = rows
+    .map(r => Schema.valueToNumericPoint(r.type, r.value))
+    .filter(v => v !== null)
+    .reverse();
+  if (!points.length) return;
+
+  const labels = rows.map(r => new Date(r.createdAt).toLocaleDateString()).reverse();
+  const ctx2d = panel.querySelector(`#chart-${consigne.id}`).getContext("2d");
+  new Chart(ctx2d, {
+    type: "line",
+    data: { labels, datasets: [{ data: points }] },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, suggestedMax: (consigne.type === "num" ? 10 : 1) } }
+    }
+  });
 }

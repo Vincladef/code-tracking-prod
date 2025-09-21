@@ -8,7 +8,8 @@ import * as Goals from "./goals.js";
 
 // --- logger ---
 const L = Schema.D;
-const log = (...args) => console.debug("[app]", ...args);
+// coupe les logs si D.on === false
+const log = (...args) => { if (Schema.D.on) console.debug("[app]", ...args); };
 function logStep(step, data) {
   L.group(step);
   if (data) L.info(data);
@@ -253,7 +254,7 @@ export function renderAdmin(db) {
       displayName: name,
       createdAt: new Date().toISOString()
     });
-    console.info("Nouvel utilisateur créé:", uid);
+    if (Schema.D.on) console.info("Nouvel utilisateur créé:", uid);
     log("admin:newUser:created", { uid });
     loadUsers(db);
   });
