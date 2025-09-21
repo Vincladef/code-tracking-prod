@@ -1,11 +1,11 @@
 // --- DEBUG LOGGER (utilisé par index.html et app.js)
 export const D = {
-  on: false,                      // <- laisse false en prod
-  group: (..._a) => {},
-  groupEnd: (..._a) => {},
-  info: (..._a) => {},
-  warn: (..._a) => {},
-  error: (...a) => console.error(...a),
+  on: false,
+  group: (...a)=>{ if (false) console.group(...a); },
+  groupEnd: ()=>{ if (false) console.groupEnd(); },
+  info: (...a)=>{ if (false) console.info(...a); },
+  warn: (...a)=>{ if (false) console.warn(...a); },
+  error: (...a)=> console.error(...a),
 };
 const log = (...args) => console.debug("[schema]", ...args);
 // --- Helpers de chemin /u/{uid}/...
