@@ -7,9 +7,9 @@ import * as Modes from "./modes.js";
 import * as Goals from "./goals.js";
 
 // --- logger ---
+const LOG = false;
 const L = Schema.D;
-// coupe les logs si D.on === false
-const log = (...args) => { if (Schema.D.on) console.debug("[app]", ...args); };
+const log = (...args) => { if (LOG) console.debug("[app]", ...args); };
 function logStep(step, data) {
   L.group(step);
   if (data) L.info(data);
@@ -254,7 +254,7 @@ export function renderAdmin(db) {
       displayName: name,
       createdAt: new Date().toISOString()
     });
-    if (Schema.D.on) console.info("Nouvel utilisateur créé:", uid);
+    if (LOG) console.info("Nouvel utilisateur créé:", uid);
     log("admin:newUser:created", { uid });
     loadUsers(db);
   });
