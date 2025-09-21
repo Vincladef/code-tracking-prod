@@ -14,7 +14,7 @@ function el(tag, attrs={}, children=[]){
   return n;
 }
 
-export function openGoalForm(ctx, goal=null){
+export function openGoalForm(ctx, goal=null, defaults={}){
   const root = $("#view-root");
   const isEdit = !!goal;
   root.innerHTML = `
@@ -71,6 +71,15 @@ export function openGoalForm(ctx, goal=null){
     $("#g-priority").value = goal.priority || "medium";
     $("#g-links").value = (goal.linkedConsigneIds||[]).join(",");
     $("#g-sr").value = goal.spacedRepetitionEnabled ? "1":"0";
+  } else {
+    if (defaults.title) $("#g-title").value = defaults.title;
+    if (defaults.category) $("#g-cat").value = defaults.category;
+    if (defaults.temporalUnit) $("#g-temp").value = defaults.temporalUnit;
+    if (defaults.type) $("#g-type").value = defaults.type;
+    if (defaults.priority) $("#g-priority").value = defaults.priority;
+    if (typeof defaults.spacedRepetitionEnabled === "boolean"){
+      $("#g-sr").value = defaults.spacedRepetitionEnabled ? "1" : "0";
+    }
   }
   $("#g-cancel").onclick = ()=> renderGoals(ctx, $("#view-root"));
   $("#g-save").onclick = async ()=>{
@@ -98,23 +107,41 @@ export function openGoalForm(ctx, goal=null){
 }
 
 export async function renderGoals(ctx, root){
-  window.__ctx = ctx;
   root.innerHTML = "";
-  root.append(el("h2",{},"Objectifs"));
+  const header = el("div",{class:"flex flex-wrap items-center justify-between gap-3 mb-4"});
+  header.append(el("h2",{class:"text-xl font-semibold"},"Objectifs"));
+  const addBtn = el("button",{
+    type:"button",
+    class:"px-3 py-1 rounded-xl border border-sky-600 bg-sky-600/80 hover:bg-sky-600 text-white text-sm"
+  },"+ Nouvel objectif");
+  addBtn.onclick = ()=> openGoalForm(ctx);
+  addBtn.id = "btn-add-goal";
+  header.append(addBtn);
+  root.append(header);
+
   const qy = query(col(ctx.db, ctx.user.uid, "goals"), orderBy("createdAt","desc"));
   const ss = await getDocs(qy);
   const byT = { weekly:[], monthly:[], yearly:[] };
   for (const d of ss.docs){ const g = { id:d.id, ...d.data() }; (byT[g.temporalUnit]||byT.weekly).push(g); }
-  const wrap = el("div",{class:"grid"});
-  wrap.append(section("Hebdomadaires", byT.weekly));
-  wrap.append(section("Mensuels", byT.monthly));
-  wrap.append(section("Annuels", byT.yearly));
+  const wrap = el("div",{class:"grid gap-6"});
+  wrap.append(section(ctx, "Hebdomadaires", byT.weekly, "weekly"));
+  wrap.append(section(ctx, "Mensuels", byT.monthly, "monthly"));
+  wrap.append(section(ctx, "Annuels", byT.yearly, "yearly"));
   root.append(wrap);
 }
 
-function section(title, items){
-  const s = el("div",{class:"grid"});
-  s.append(el("h3",{}, title));
+function section(ctx, title, items, temporalUnit){
+  const s = el("div",{class:"grid gap-2"});
+  const head = el("div",{class:"flex flex-wrap items-center justify-between gap-2"});
+  head.append(el("h3",{class:"text-lg font-semibold"}, title));
+  const add = el("button",{
+    type:"button",
+    class:"px-2.5 py-1 rounded-xl border border-sky-600 bg-sky-600/60 hover:bg-sky-600 text-white text-xs md:text-sm"
+  },"+ Ajouter");
+  add.onclick = ()=> openGoalForm(ctx, null, { temporalUnit });
+  head.append(add);
+  s.append(head);
+
   const grid = el("div",{class:"grid cols-3"});
   if (!items.length){ grid.append(el("div",{class:"muted"},"—")); s.append(grid); return s; }
   for (const g of items){
@@ -122,8 +149,8 @@ function section(title, items){
     card.append(el("div",{class:"flex"}, el("div",{style:"font-weight:600"}, g.title), el("span",{class:"badge "+g.priority}, g.priority)));
     card.append(el("div",{class:"muted"}, `${g.category} • ${g.temporalUnit}`));
     const btns = el("div",{class:"flex"});
-    btns.append(el("button",{class:"btn small", onclick:()=>openGoalForm(window.__ctx, g)},"Modifier"));
-    btns.append(el("button",{class:"btn small", onclick:()=>openGoalTracker(window.__ctx, g)},"Suivi"));
+    btns.append(el("button",{class:"btn small", onclick:()=>openGoalForm(ctx, g)},"Modifier"));
+    btns.append(el("button",{class:"btn small", onclick:()=>openGoalTracker(ctx, g)},"Suivi"));
     card.append(btns);
     grid.append(card);
   }
