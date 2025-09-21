@@ -8,6 +8,7 @@ import * as Goals from "./goals.js";
 
 // --- logger ---
 const L = Schema.D;
+const log = (...args) => console.debug("[app]", ...args);
 function logStep(step, data) {
   L.group(step);
   if (data) L.info(data);
@@ -40,22 +41,36 @@ function routeTo(hash) {
   const base = m ? `#/u/${m[1]}/` : "#/";
   const target = m ? base + hash.replace(/^#\//, "") : hash;
 
+  log("routeTo", { from: location.hash || null, requested: hash, target });
   ctx.route = target;
   window.location.hash = target;
   render();
 }
 
+function parseHash(hashValue) {
+  const hash = hashValue || "#/daily";
+  const normalized = hash.replace(/^#/, "");
+  const [pathPartRaw, searchPart = ""] = normalized.split("?");
+  const pathPart = pathPartRaw.replace(/^\/+/, "");
+  const segments = pathPart ? pathPart.split("/") : [];
+  const qp = new URLSearchParams(searchPart);
+  return { hash, segments, search: searchPart, qp };
+}
+
 async function loadCategories() {
   // Categories are per user, default fallback if empty
+  log("categories:load:start", { uid: ctx.user?.uid });
   const uid = ctx.user.uid;
   const cats = await Schema.fetchCategories(ctx.db, uid);
   ctx.categories = cats;
+  log("categories:load:done", { count: cats.length });
   renderSidebar();
 }
 
 function renderSidebar() {
   const box = $("#profile-box");
   if (!box) return;
+  log("sidebar:render", { profile: ctx.profile, categories: ctx.categories?.length });
   const link = `${location.origin}${location.pathname}#/u/${ctx.user.uid}`;
   box.innerHTML = `
     <div><strong>${ctx.profile.displayName || "Utilisateur"}</strong></div>
@@ -74,37 +89,51 @@ function renderSidebar() {
 
 function bindNav() {
   // Navigation haut (Daily, Practice, etc.)
+  log("nav:bind:start");
   $$("button[data-route]").forEach(btn => {
-    btn.onclick = () => routeTo(btn.getAttribute("data-route"));
+    const target = btn.getAttribute("data-route");
+    log("nav:bind:button", { target });
+    btn.onclick = () => routeTo(target);
   });
 
   // Boutons spécifiques (seulement si présents dans le DOM)
   const btnSession = $("#btn-new-session");
-  if (btnSession) btnSession.onclick = () => routeTo("#/practice?new=1");
+  if (btnSession) {
+    log("nav:bind:newSessionButton");
+    btnSession.onclick = () => routeTo("#/practice?new=1");
+  }
 
   const btnConsigne = $("#btn-add-consigne");
-  if (btnConsigne) btnConsigne.onclick = () => Modes.openConsigneForm(ctx);
+  if (btnConsigne) {
+    log("nav:bind:addConsigne");
+    btnConsigne.onclick = () => Modes.openConsigneForm(ctx);
+  }
 
   const btnGoal = $("#btn-add-goal");
-  if (btnGoal) btnGoal.onclick = () => Goals.openGoalForm(ctx);
+  if (btnGoal) {
+    log("nav:bind:addGoal");
+    btnGoal.onclick = () => Goals.openGoalForm(ctx);
+  }
 }
 
 // --- Router global (admin <-> user) ---
 function handleRoute() {
-  const h = location.hash || "#/admin";
-  if (h.startsWith("#/u/")) {
-    const tokens = h.split("/"); // ["#/u", "{uid}", "{section?}"]
-    const uid = tokens[2];
-    const section = tokens[3]; // "daily", "goals", etc.
+  const parsed = parseHash(location.hash || "#/admin");
+  log("handleRoute", parsed);
+  if (parsed.segments[0] === "u") {
+    const uid = parsed.segments[1];
+    const section = parsed.segments[2];
 
     if (!uid) {
+      log("handleRoute:missingUid");
       location.hash = "#/admin";
       return;
     }
 
-    // if we just have #/u/{uid}, normalize to #/u/{uid}/daily
     if (!section) {
-      location.replace(`#/u/${uid}/daily`);
+      const target = `#/u/${uid}/daily`;
+      log("handleRoute:normalize", { target });
+      location.replace(target);
       return;
     }
 
@@ -122,22 +151,32 @@ function handleRoute() {
 
 export function startRouter(app, db) {
   // We keep app/db in the context for the screens
+  log("router:start", { hash: location.hash });
   ctx.app = app;
   ctx.db = db;
   handleRoute(); // initial render
-  window.addEventListener("hashchange", handleRoute); // navigation
+  window.addEventListener("hashchange", () => {
+    log("router:hashchange", { hash: location.hash });
+    handleRoute();
+  }); // navigation
 }
 
 // Local ensureProfile function
 async function ensureProfile(db, uid) {
+  log("profile:ensure:start", { uid });
   const ref = doc(db, "u", uid);
   const snap = await getDoc(ref);
-  if (snap.exists()) return snap.data();
+  if (snap.exists()) {
+    const data = snap.data();
+    log("profile:ensure:existing", { uid });
+    return data;
+  }
   const newProfile = {
     displayName: "Nouvel utilisateur",
     createdAt: new Date().toISOString()
   };
   await setDoc(ref, newProfile);
+  log("profile:ensure:created", { uid });
   return newProfile;
 }
 
@@ -147,8 +186,10 @@ export async function initApp({ app, db, user }) {
   if (sidebar) sidebar.style.display = "";
 
   L.group("app.init", user?.uid);
+  log("app:init:start", { uid: user?.uid });
   if (!user || !user.uid) {
     L.error("No UID in context");
+    log("app:init:error", { reason: "missing uid" });
     L.groupEnd();
     return;
   }
@@ -159,6 +200,7 @@ export async function initApp({ app, db, user }) {
   const profile = await ensureProfile(db, user.uid);
   ctx.profile = profile;
   L.info("Profile loaded:", profile);
+  log("app:init:profile", { profile });
 
   // Display profile in the sidebar
   const box = document.getElementById("profile-box");
@@ -168,11 +210,14 @@ export async function initApp({ app, db, user }) {
   bindNav();
 
   ctx.route = location.hash || "#/daily";
+  log("app:init:route", { route: ctx.route });
   window.addEventListener("hashchange", () => {
     ctx.route = location.hash || "#/daily";
+    log("app:init:hashchange", { route: ctx.route });
     render();
   });
   render();
+  log("app:init:rendered");
   L.groupEnd();
 }
 
@@ -187,6 +232,7 @@ export function renderAdmin(db) {
   if (sidebar) sidebar.style.display = "none";
 
   const root = document.getElementById("view-root");
+  log("admin:render");
   root.innerHTML = `
     <div class="grid" style="gap:12px">
       <h2>Admin — Utilisateurs</h2>
@@ -202,12 +248,14 @@ export function renderAdmin(db) {
     e.preventDefault();
     const name = document.getElementById("new-user-name").value.trim();
     if (!name) return;
+    log("admin:newUser:submit", { name });
     const uid = newUid();
     await setDoc(doc(db, "u", uid), {
       displayName: name,
       createdAt: new Date().toISOString()
     });
     console.info("Nouvel utilisateur créé:", uid);
+    log("admin:newUser:created", { uid });
     loadUsers(db);
   });
 
@@ -217,6 +265,7 @@ export function renderAdmin(db) {
 async function loadUsers(db) {
   const list = document.getElementById("user-list");
   list.innerHTML = "<div class='muted'>Chargement…</div>";
+  log("admin:users:load:start");
   const ss = await getDocs(collection(db, "u"));
   const items = [];
   ss.forEach(d => {
@@ -236,6 +285,7 @@ async function loadUsers(db) {
     `);
   });
   list.innerHTML = items.join("") || "<div class='muted'>Aucun utilisateur</div>";
+  log("admin:users:load:done", { count: items.length });
 
   // Add a delegate for the click
   list.addEventListener("click", (e) => {
@@ -246,6 +296,7 @@ async function loadUsers(db) {
       e.preventDefault();
       location.hash = `#/u/${a.dataset.uid}`;
       // force the route without waiting for the event (useful on some browsers)
+      log("admin:users:navigate", { uid: a.dataset.uid });
       handleRoute();
     }
   });
@@ -265,36 +316,39 @@ function render() {
   const root = document.getElementById("view-root");
   if (!root) return;
 
-  // tokens: ["u", "{uid}", "daily?new=1"] OR ["daily?..."]
-  const tokens = (ctx.route || location.hash || "#/daily")
-    .replace(/^#\//, "")
-    .split("/");
-
-  let section = tokens[0];
-  let sub = null;
+  const parsed = parseHash(ctx.route || location.hash || "#/daily");
+  log("render:start", parsed);
+  let section = parsed.segments[0] || "daily";
   if (section === "u") {
-    // Nested user routes
-    sub = tokens[2] || "daily"; // default screen for a user
-    ctx.user = { uid: tokens[1] }; // new: preserve the user UID
+    const uid = parsed.segments[1];
+    const nested = parsed.segments[2] || "daily";
+    if (uid) {
+      ctx.user = { uid };
+    }
+    section = nested;
   }
 
-  const qp = new URLSearchParams((ctx.route || "").split("?")[1] || "");
-
-  switch (section === "u" ? sub : section) {
+  switch (section) {
     case "dashboard":
     case "daily":
+      log("render:daily", { section });
       return Modes.renderDaily(ctx, root);
     case "practice":
+      log("render:practice", { search: parsed.search });
       return Modes.renderPractice(ctx, root, {
-        newSession: qp.get("new") === "1"
+        newSession: parsed.qp.get("new") === "1"
       });
     case "history":
+      log("render:history");
       return Modes.renderHistory(ctx, root);
     case "goals":
+      log("render:goals");
       return Goals.renderGoals(ctx, root);
     case "admin":
+      log("render:admin");
       return renderAdmin(ctx.db);
     default:
+      log("render:unknown", { section });
       root.innerHTML = "<div class='card'>Page inconnue.</div>";
   }
 }

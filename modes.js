@@ -8,6 +8,7 @@ import { col, docIn, now } from "./schema.js";
 
 // ---------- helpers DOM ----------
 const $ = s => document.querySelector(s);
+const log = (...args) => console.debug("[modes]", ...args);
 const el = (t, a={}, c=[])=>{
   const n = document.createElement(t);
   Object.entries(a).forEach(([k,v])=>{
@@ -55,6 +56,7 @@ function dueOnDay(consigne, dowIdx){
 
 // ---------- data ----------
 async function fetchConsignes(ctx, mode){
+  log("consignes:fetch:start", { mode, uid: ctx.user?.uid });
   const qy = query(
     col(ctx.db, ctx.user.uid, "consignes"),
     where("active","==", true),
@@ -63,21 +65,27 @@ async function fetchConsignes(ctx, mode){
     orderBy("createdAt","desc")
   );
   const ss = await getDocs(qy);
-  return ss.docs.map(d=>({id:d.id, ...d.data()}));
+  const data = ss.docs.map(d=>({id:d.id, ...d.data()}));
+  log("consignes:fetch:done", { mode, count: data.length });
+  return data;
 }
 async function saveConsigne(ctx, id, payload){
+  log("consigne:save", { id, payload });
   if (id){ await updateDoc(docIn(ctx.db, ctx.user.uid, "consignes", id), payload); return id; }
   const ref = await addDoc(col(ctx.db, ctx.user.uid, "consignes"), payload);
   return ref.id;
 }
 async function softDeleteConsigne(ctx, id){
+  log("consigne:delete", { id });
   await updateDoc(docIn(ctx.db, ctx.user.uid, "consignes", id), { active:false, deletedAt: now() });
 }
 async function saveResponse(ctx, c, value){
-  await addDoc(col(ctx.db, ctx.user.uid, "responses"), {
+  log("response:save:start", { consigneId: c.id, mode: c.mode, type: c.type, value });
+  const docRef = await addDoc(col(ctx.db, ctx.user.uid, "responses"), {
     ownerUid: ctx.user.uid, consigneId: c.id, value,
     type: c.type, mode: c.mode, createdAt: now()
   });
+  log("response:save:stored", { responseId: docRef.id, consigneId: c.id });
   if (c.srEnabled && canUseSR()){
     const prev = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, c.mode);
     const positive = c.type==="likert6" ? value
@@ -85,7 +93,23 @@ async function saveResponse(ctx, c, value){
                    : "yes";
     const next = Schema.nextCooldownAfterAnswer(c, prev, positive);
     await Schema.upsertSRState(ctx.db, ctx.user.uid, c.id, c.mode, next);
+    log("response:save:srUpdated", { consigneId: c.id, state: next });
   }
+  return { id: docRef.id };
+}
+
+async function fetchConsigneHistory(ctx, consigneId, limitCount = 5) {
+  log("history:fetch:start", { consigneId, limit: limitCount });
+  const qy = query(
+    col(ctx.db, ctx.user.uid, "responses"),
+    where("consigneId", "==", consigneId),
+    orderBy("createdAt", "desc"),
+    limit(limitCount)
+  );
+  const snap = await getDocs(qy);
+  const items = snap.docs.map(d => d.data());
+  log("history:fetch:done", { consigneId, count: items.length });
+  return items;
 }
 
 // ---------- UI de base ----------
@@ -210,6 +234,7 @@ function dayPickCheckboxes(selected){
 
 // ---------- cartes consignes ----------
 function ConsigneCard(ctx, c, onAnswered){
+  log("consigne:card:init", { consigneId: c.id, mode: c.mode, type: c.type });
   const card = Card([]);
   card.classList.add("space-y-2");
 
@@ -220,28 +245,75 @@ function ConsigneCard(ctx, c, onAnswered){
   card.append(top);
   card.append(el("div",{class:"text-sm text-gray-400"}, c.category || "Général"));
 
-  // contrôles
+  const feedback = el("div",{class:"text-xs text-red-400 hidden"}, "");
+
+  const historyList = el("div",{class:"space-y-1 text-xs text-gray-300"});
+  const historyWrapper = el("div",{class:"mt-3 space-y-1"},[
+    el("div",{class:"text-xs uppercase tracking-wider text-gray-400"},"Historique récent"),
+    historyList
+  ]);
+
+  async function refreshHistory(){
+    log("consigne:card:history", { consigneId: c.id });
+    historyList.innerHTML = "";
+    historyList.append(el("div",{class:"text-xs text-gray-500"},"Chargement…"));
+    try {
+      const items = await fetchConsigneHistory(ctx, c.id, 5);
+      historyList.innerHTML = "";
+      if (!items.length){
+        historyList.append(el("div",{class:"text-xs text-gray-500"},"Aucune réponse enregistrée."));
+        return;
+      }
+      items.forEach(r => {
+        historyList.append(el("div",{class:"flex justify-between gap-2"},[
+          el("span",{class:"text-[10px] uppercase tracking-wide text-gray-500"}, formatTimestamp(r.createdAt)),
+          el("span",{class:"text-xs text-gray-200"}, formatValue(r.type || c.type, r.value))
+        ]));
+      });
+    } catch (err) {
+      console.error("[modes] consigne history", c.id, err);
+      historyList.innerHTML = "";
+      historyList.append(el("div",{class:"text-xs text-red-400"},"Erreur de chargement de l’historique."));
+    }
+  }
+
+  async function handleAnswer(value){
+    log("consigne:card:answer", { consigneId: c.id, value });
+    feedback.classList.add("hidden");
+    try {
+      await saveResponse(ctx,c,value);
+      await refreshHistory();
+      onAnswered?.(c);
+    } catch (err) {
+      console.error("[modes] consigne answer", c.id, err);
+      feedback.textContent = "Erreur lors de l’enregistrement. Voir console.";
+      feedback.classList.remove("hidden");
+    }
+  }
+
   const controls = el("div",{class:"flex flex-wrap gap-2"});
   if (c.type==="likert6"){
     LIKERT6.forEach(([v,l])=>{
-      controls.append(Btn(l,"", async()=>{ await saveResponse(ctx,c,v); onAnswered?.(); }));
+      controls.append(Btn(l,"", async()=> handleAnswer(v)));
     });
   } else if (c.type==="num"){
     const range = el("input",{type:"range", min:"1", max:"10", value:"5", class:"w-52"});
     const out = el("span",{class:"px-2 py-0.5 rounded-xl border border-gray-600"}, "5");
     range.oninput = ()=> out.textContent = range.value;
-    const ok = Btn("Valider","", async()=>{ await saveResponse(ctx,c,Number(range.value)); onAnswered?.(); });
+    const ok = Btn("Valider","", async()=> handleAnswer(Number(range.value)));
     controls.append(range,out,ok);
   } else if (c.type==="short"){
     const inp = el("input",{class:"bg-gray-900 border border-gray-700 rounded-xl px-3 py-2", placeholder:"Réponse ≤ 200 c.", maxLength:"200"});
-    const ok = Btn("Valider","", async()=>{ await saveResponse(ctx,c, inp.value.trim()); onAnswered?.(); });
+    const ok = Btn("Valider","", async()=> handleAnswer(inp.value.trim()));
     controls.append(inp, ok);
   } else {
     const inp = el("textarea",{class:"bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 w-full", placeholder:"Votre réponse"});
-    const ok = Btn("Valider","", async()=>{ await saveResponse(ctx,c, inp.value.trim()); onAnswered?.(); });
+    const ok = Btn("Valider","", async()=> handleAnswer(inp.value.trim()));
     controls.append(inp, ok);
   }
   card.append(controls);
+  card.append(feedback);
+  card.append(historyWrapper);
 
   const actions = el("div",{class:"flex gap-2 pt-1"},[
     Btn("Modifier","", ()=>openConsigneForm(ctx,c)),
@@ -251,13 +323,17 @@ function ConsigneCard(ctx, c, onAnswered){
   ]);
   card.append(actions);
 
+  refreshHistory();
   return card;
 }
 
 // ---------- pickers ----------
 function DayPicker(selectedDow){
   const w=el("div",{class:"flex flex-wrap gap-2 mb-4"});
-  const go=(i)=>{ location.hash = withinUser(`#/daily?dow=${i}`); };
+  const go=(i)=>{
+    log("daily:dayPicker:navigate", { dow: i });
+    location.hash = withinUser(`#/daily?dow=${i}`);
+  };
   for (let i=1;i<=6;i++){
     w.append(dayBtn(i, selectedDow===i, DOW[i], ()=>go(i)));
   }
@@ -275,6 +351,7 @@ export async function renderDaily(ctx, root){
 
   const params = new URLSearchParams((location.hash.split("?")[1])||"");
   const dow = params.has("dow") ? Number(params.get("dow")) : todayDow();
+  log("daily:render", { dow, hash: location.hash });
 
   root.append(DayPicker(dow));
 
@@ -288,6 +365,8 @@ export async function renderDaily(ctx, root){
     }
     ready.push(c);
   }
+
+  log("daily:ready", { total: all.length, ready: ready.length });
 
   if (!ready.length){
     root.append(Card(el("div",{},"Rien à faire pour ce jour 🎉")));
@@ -305,10 +384,27 @@ export async function renderDaily(ctx, root){
   }
 }
 
-export async function renderPractice(ctx, root){
+export async function renderPractice(ctx, root, options = {}){
+  const newSession = Boolean(options?.newSession);
+  log("practice:render", { newSession, hash: location.hash });
   root.innerHTML="";
   root.append(el("h2",{class:"text-xl font-semibold mb-3"}, "Pratique délibérée"));
-  root.append(el("div",{class:"mb-3"}, Btn("+ Ajouter une consigne","border-sky-600 bg-sky-600/80 hover:bg-sky-600 text-white", ()=>openConsigneForm(ctx))));
+  root.append(el("div",{class:"mb-3"}, Btn("+ Ajouter une consigne","border-sky-600 bg-sky-600/80 hover:bg-sky-600 text-white",()=>openConsigneForm(ctx))));
+
+  if (newSession) {
+    try {
+      await Schema.startNewPracticeSession(ctx.db, ctx.user.uid);
+      log("practice:session:new", { uid: ctx.user.uid });
+    } catch (err) {
+      console.error("[modes] practice session", err);
+      root.append(Card(el("div",{class:"text-red-400"},"Impossible de démarrer une nouvelle session.")));
+    }
+    const normalized = withinUser("#/practice");
+    if (location.hash !== normalized) {
+      log("practice:session:normalize", { target: normalized });
+      location.replace(normalized);
+    }
+  }
 
   const all = await fetchConsignes(ctx,"practice");
   const ready=[];
@@ -319,6 +415,7 @@ export async function renderPractice(ctx, root){
     }
     ready.push(c);
   }
+  log("practice:ready", { total: all.length, ready: ready.length });
   if (!ready.length){ root.append(Card("Aucune consigne pour cette session.")); return; }
 
   for (const p of PRIORITIES){
@@ -327,25 +424,41 @@ export async function renderPractice(ctx, root){
     root.append(el("h3",{class:"mt-4 mb-2 text-lg font-semibold"},
       p==="high"?"Priorité haute":p==="medium"?"Priorité moyenne":"Priorité basse"));
     const grid = el("div",{class:"grid gap-3 md:grid-cols-2"});
-    inP.forEach(c=> grid.append(ConsigneCard(ctx,c, ()=>renderPractice(ctx,root))));
+    inP.forEach(c=> {
+      const card = ConsigneCard(ctx,c, ()=>{
+        const target = withinUser("#/practice?new=1");
+        log("practice:answered", { consigneId: c.id, target });
+        if (location.hash === target){
+          renderPractice(ctx, root, { newSession: true });
+        } else {
+          location.hash = target;
+        }
+      });
+      grid.append(card);
+    });
     root.append(grid);
   }
 }
-
 export async function renderHistory(ctx, root){
   root.innerHTML="";
   root.append(el("h2",{class:"text-xl font-semibold mb-3"}, "Historique"));
   const list = el("div",{class:"grid gap-3"});
   root.append(list);
+  log("history:render", { limit: 50 });
 
   const qy = query(col(ctx.db, ctx.user.uid, "responses"), orderBy("createdAt","desc"), limit(50));
   const ss = await getDocs(qy);
-  if (ss.empty){ list.append(Card("Aucune réponse.")); return; }
+  if (ss.empty){
+    log("history:render:empty");
+    list.append(Card("Aucune réponse."));
+    return;
+  }
 
   for (const d of ss.docs){
     const r = d.data();
     const cSnap = await getDoc(docIn(ctx.db, ctx.user.uid, "consignes", r.consigneId));
     const c = cSnap.exists()? cSnap.data() : { text:`(consigne ${r.consigneId})` };
+    log("history:render:item", { consigneId: r.consigneId, mode: r.mode });
     const row = Card([
       el("div",{class:"font-semibold mb-1"}, c.text),
       el("div",{class:"text-sm text-gray-400 mb-1"}, `${MODE_LABEL[r.mode]||r.mode} • ${r.createdAt}`),
@@ -357,4 +470,16 @@ export async function renderHistory(ctx, root){
 function formatValue(type,v){
   if (type==="likert6"){ const f=LIKERT6.find(([k])=>k===v); return f?f[1]:v; }
   return String(v);
+}
+
+function formatTimestamp(ts){
+  if (!ts) return "—";
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return ts;
+  return date.toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }

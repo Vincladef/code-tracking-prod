@@ -7,6 +7,7 @@ export const D = {
   group: (...a) => D.on && console.group(...a),
   groupEnd:     () => D.on && console.groupEnd(),
 };
+const log = (...args) => console.debug("[schema]", ...args);
 // --- Helpers de chemin /u/{uid}/...
 import {
   collection, doc, setDoc, getDoc, getDocs, addDoc, query, where, orderBy, updateDoc, limit
@@ -35,22 +36,30 @@ export const LIKERT_POINTS = {
 
 // --- Catégories & Users ---
 export async function fetchCategories(db, uid){
+  log("fetchCategories:start", { uid });
   const qy = query(col(db, uid, "categories"), orderBy("name"));
   const ss = await getDocs(qy);
-  return ss.docs.map(d => ({ id: d.id, ...d.data() }));
+  const data = ss.docs.map(d => ({ id: d.id, ...d.data() }));
+  log("fetchCategories:done", { uid, count: data.length });
+  return data;
 }
 
 export async function ensureCategory(db, uid, name, mode){
+  log("ensureCategory:start", { uid, name, mode });
   const qy = query(col(db, uid, "categories"),
     where("name","==",name), where("mode","==",mode), limit(1));
   const snap = await getDocs(qy);
   if (!snap.empty) {
-    return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    const existing = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    log("ensureCategory:hit", { uid, id: existing.id });
+    return existing;
   }
   const ref = await addDoc(col(db, uid, "categories"), {
     ownerUid: uid, name, mode, createdAt: now()
   });
-  return { id: ref.id, ownerUid: uid, name, mode };
+  const created = { id: ref.id, ownerUid: uid, name, mode };
+  log("ensureCategory:created", { uid, id: created.id });
+  return created;
 }
 
 // Fonction pour l'admin, utilise la collection racine "users"
@@ -106,23 +115,30 @@ export function nextCooldownAfterAnswer(consigne, srState, answerKind){
 
 // --- SR state dans /users/{uid}/srStates ---
 export async function upsertSRState(db, uid, consigneId, mode, patch){
+  log("upsertSRState:start", { uid, consigneId, mode, patch });
   const id = `${consigneId}_${mode}`;
   const ref = docIn(db, uid, "srStates", id);
   const prev = await getDoc(ref);
   const base = prev.exists() ? prev.data() : { ownerUid: uid, consigneId, mode, score: 0 };
   await setDoc(ref, { ...base, ...patch, updatedAt: now(), ownerUid: uid }, { merge: true });
-  return (await getDoc(ref)).data();
+  const stored = (await getDoc(ref)).data();
+  log("upsertSRState:done", { uid, consigneId, mode, stored });
+  return stored;
 }
 
 export async function readSRState(db, uid, consigneId, mode){
+  log("readSRState:start", { uid, consigneId, mode });
   const id = `${consigneId}_${mode}`;
   const ref = docIn(db, uid, "srStates", id);
   const s = await getDoc(ref);
-  return s.exists() ? s.data() : null;
+  const data = s.exists() ? s.data() : null;
+  log("readSRState:done", { uid, consigneId, mode, found: !!data });
+  return data;
 }
 
 // --- Nouvelles collections /u/{uid}/... ---
 export async function fetchConsignes(db, uid, mode) {
+  log("fetchConsignes:start", { uid, mode });
   const qy = query(
     col(db, uid, "consignes"),
     where("mode", "==", mode),
@@ -130,20 +146,27 @@ export async function fetchConsignes(db, uid, mode) {
     orderBy("priority")
   );
   const ss = await getDocs(qy);
-  return ss.docs.map(d => ({ id: d.id, ...d.data() }));
+  const data = ss.docs.map(d => ({ id: d.id, ...d.data() }));
+  log("fetchConsignes:done", { uid, mode, count: data.length });
+  return data;
 }
 
 export async function addConsigne(db, uid, payload) {
+  log("addConsigne:start", { uid, payload });
   const ref = await addDoc(col(db, uid, "consignes"), { ...payload, createdAt: now() });
+  log("addConsigne:done", { uid, id: ref.id });
   return ref;
 }
 
 export async function updateConsigne(db, uid, id, payload) {
+  log("updateConsigne:start", { uid, id, payload });
   const ref = docIn(db, uid, "consignes", id);
   await updateDoc(ref, { ...payload, updatedAt: now() });
+  log("updateConsigne:done", { uid, id });
 }
 
 export async function saveResponse(db, uid, consigne, value) {
+  log("saveResponse:start", { uid, consigneId: consigne.id, mode: consigne.mode, value });
   const payload = {
     ownerUid: uid,
     consigneId: consigne.id,
@@ -152,19 +175,24 @@ export async function saveResponse(db, uid, consigne, value) {
     createdAt: now(),
   };
   const ref = await addDoc(col(db, uid, "responses"), payload);
+  log("saveResponse:done", { uid, responseId: ref.id, consigneId: consigne.id });
 }
 
 export async function fetchHistory(db, uid, count = 200) {
+  log("fetchHistory:start", { uid, count });
   const qy = query(
     col(db, uid, "responses"),
     orderBy("createdAt", "desc"),
     limit(count)
   );
   const ss = await getDocs(qy);
-  return ss.docs.map(d => d.data());
+  const data = ss.docs.map(d => d.data());
+  log("fetchHistory:done", { uid, count: data.length });
+  return data;
 }
 
 export async function startNewPracticeSession(db, uid) {
+  log("startNewPracticeSession:start", { uid });
   // Decrement cooldownSessions for all practice SR states > 0
   const qy = query(
     col(db, uid, "srStates"),
@@ -176,6 +204,7 @@ export async function startNewPracticeSession(db, uid) {
     const ref = doc(db, d.ref.path);
     const v = d.data().cooldownSessions || 0;
     await updateDoc(ref, { cooldownSessions: Math.max(0, v - 1), updatedAt: now() });
+    log("startNewPracticeSession:decrement", { uid, consigneId: d.data().consigneId, previous: v });
   }
 
   // Create a session doc
@@ -183,4 +212,5 @@ export async function startNewPracticeSession(db, uid) {
     ownerUid: uid,
     startedAt: now()
   });
+  log("startNewPracticeSession:sessionCreated", { uid, sessionId: sessionRef.id });
 }
