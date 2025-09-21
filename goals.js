@@ -14,8 +14,11 @@ function escapeHtml(str) {
 
 function modal(html) {
   const wrap = document.createElement("div");
-  wrap.className = "fixed inset-0 z-50 grid place-items-center bg-black/60";
-  wrap.innerHTML = `<div class="w-[min(640px,92vw)] rounded-2xl bg-[#0f172a] border border-[#1f2a44] p-4 shadow-xl">${html}</div>`;
+  wrap.className = "fixed inset-0 z-50 grid place-items-center bg-black/40 p-4";
+  wrap.innerHTML = `
+    <div class="w-[min(640px,92vw)] rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl">
+      ${html}
+    </div>`;
   wrap.addEventListener("click", (e) => {
     if (e.target === wrap) wrap.remove();
   });
@@ -34,13 +37,13 @@ function periodLabel(value) {
 }
 
 export async function renderGoals(ctx, root) {
-  root.innerHTML = `<div class="card p-4 grid gap-4">
-    <div class="flex items-center justify-between">
+  root.innerHTML = `<section class="card p-4 space-y-4">
+    <div class="flex items-center justify-between gap-3">
       <h2 class="text-xl font-semibold">Objectifs</h2>
-      <button class="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500" id="new-goal">+ Nouvel objectif</button>
+      <button class="btn btn-primary" id="new-goal">+ Nouvel objectif</button>
     </div>
     <div class="grid gap-3" id="goals-list"></div>
-  </div>`;
+  </section>`;
 
   $("#new-goal", root).onclick = () => openGoalForm(ctx);
 
@@ -49,7 +52,7 @@ export async function renderGoals(ctx, root) {
   const list = $("#goals-list", root);
 
   if (ss.empty) {
-    list.innerHTML = `<div class="rounded-xl border border-white/10 bg-white/5 p-3 text-sm opacity-70">Aucun objectif pour le moment.</div>`;
+    list.innerHTML = `<div class="rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]">Aucun objectif pour le moment.</div>`;
     return;
   }
 
@@ -57,14 +60,14 @@ export async function renderGoals(ctx, root) {
   ss.forEach((docSnap) => {
     const goal = { id: docSnap.id, ...docSnap.data() };
     const card = document.createElement("div");
-    card.className = "rounded-xl border border-white/10 bg-white/5 p-3 flex flex-col gap-2";
+    card.className = "card p-3 flex flex-col gap-3";
     card.innerHTML = `
       <div class="flex items-start justify-between gap-3">
         <div>
           <div class="font-semibold">${escapeHtml(goal.title)}</div>
-          <div class="text-sm opacity-70">${periodLabel(goal.period)}</div>
+          <div class="text-sm text-[var(--muted)]">${periodLabel(goal.period)}</div>
         </div>
-        <button class="text-sm px-2 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10" data-action="edit">Modifier</button>
+        <button class="btn btn-ghost text-sm" data-action="edit">Modifier</button>
       </div>
     `;
     card.querySelector('[data-action="edit"]').onclick = () => openGoalForm(ctx, goal);
@@ -75,22 +78,22 @@ export async function renderGoals(ctx, root) {
 export async function openGoalForm(ctx, goal = null) {
   const html = `
     <h3 class="text-lg font-semibold mb-2">${goal ? "Modifier" : "Nouvel"} objectif</h3>
-    <form class="grid gap-3" id="goal-form">
+    <form class="grid gap-4" id="goal-form">
       <label class="grid gap-1">
-        <span class="text-sm">Titre</span>
-        <input name="title" required class="rounded-lg bg-white/5 border border-white/10 px-3 py-2" value="${escapeHtml(goal?.title || "")}">
+        <span class="text-sm text-[var(--muted)]">Titre</span>
+        <input name="title" required class="w-full" value="${escapeHtml(goal?.title || "")}">
       </label>
       <label class="grid gap-1">
-        <span class="text-sm">Périodicité</span>
-        <select name="period" class="rounded-lg bg-white/5 border border-white/10 px-3 py-2">
+        <span class="text-sm text-[var(--muted)]">Périodicité</span>
+        <select name="period" class="w-full">
           <option value="weekly" ${goal?.period === "weekly" ? "selected" : ""}>Hebdomadaire</option>
           <option value="monthly" ${goal?.period === "monthly" ? "selected" : ""}>Mensuel</option>
           <option value="yearly" ${goal?.period === "yearly" ? "selected" : ""}>Annuel</option>
         </select>
       </label>
-      <div class="flex justify-end gap-2">
-        <button type="button" class="px-3 py-2 rounded-lg bg-white/5 border border-white/10" id="cancel">Annuler</button>
-        <button type="submit" class="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500">Enregistrer</button>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" class="btn btn-ghost" id="cancel">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
       </div>
     </form>`;
   const m = modal(html);
