@@ -31,6 +31,24 @@ export function bindDb(db) {
   boundDb = db;
 }
 
+let _adminCache = null;
+
+export async function isAdmin(db, uid) {
+  if (!uid) return false;
+  const targetDb = db || boundDb;
+  if (!targetDb) return false;
+  if (_adminCache?.uid === uid) return _adminCache.value;
+  try {
+    const snap = await getDoc(doc(targetDb, "admins", uid));
+    const val = snap.exists();
+    _adminCache = { uid, value: val };
+    return val;
+  } catch (e) {
+    console.warn("isAdmin() failed", e);
+    return false;
+  }
+}
+
 export const now = () => new Date().toISOString();
 export const col = (db, uid, sub) => collection(db, "u", uid, sub);
 export const docIn = (db, uid, sub, id) => doc(db, "u", uid, sub, id);
