@@ -2,6 +2,7 @@
 import {
   getFirestore, doc, setDoc, getDoc, collection, query, where, orderBy, limit, getDocs, collectionGroup
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getMessaging, getToken, onMessage, isSupported
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
@@ -170,8 +171,24 @@ function bindNav() {
   }
 }
 
+async function enforceAdminView() {
+  const auth = ctx.app ? getAuth(ctx.app) : getAuth();
+  const currentUid = auth?.currentUser?.uid;
+  const isAdmin = await Schema.isAdmin(ctx.db, currentUid);
+  if (!isAdmin) {
+    console.info("[Admin] accès refusé (non admin) → redirige vers /daily");
+    const target = currentUid ? `#/u/${currentUid}/daily` : "#/daily";
+    if (location.hash !== target) {
+      location.hash = target;
+    }
+    return false;
+  }
+  renderAdmin(ctx.db);
+  return true;
+}
+
 // --- Router global (admin <-> user) ---
-function handleRoute() {
+async function handleRoute() {
   const parsed = parseHash(location.hash || "#/admin");
   log("handleRoute", parsed);
   if (parsed.segments[0] === "u") {
@@ -199,7 +216,7 @@ function handleRoute() {
       }
     });
   } else {
-    renderAdmin(ctx.db);
+    await enforceAdminView();
   }
 }
 
@@ -454,7 +471,8 @@ function render() {
     case "goals":
       return Goals.renderGoals(ctx, root);
     case "admin":
-      return renderAdmin(ctx.db);
+      enforceAdminView();
+      return;
     default:
       root.innerHTML = "<div class='card'>Page inconnue.</div>";
   }

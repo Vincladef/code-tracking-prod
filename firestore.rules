@@ -3,30 +3,47 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function isAdmin() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
     match /u/{uid} {
       // Accès au document profil de l'utilisateur
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if isOwner(uid) || isAdmin();
 
       match /pushTokens/{token} {
-        allow read: if request.auth != null && request.auth.uid == uid;
-        allow write: if request.auth != null && request.auth.uid == uid;
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if isOwner(uid) || isAdmin();
       }
 
       match /objectifs/{objectifId} {
-        allow read: if request.auth != null && request.auth.uid == uid;
-        allow write: if request.auth != null && request.auth.uid == uid;
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if isOwner(uid) || isAdmin();
       }
 
       match /consignes/{cid} {
-        allow read: if request.auth != null && request.auth.uid == uid;
-        allow write: if request.auth != null && request.auth.uid == uid;
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if isOwner(uid) || isAdmin();
         // (pas de restriction spécifique : le champ objectiveId est librement éditable par l’owner)
       }
 
       // Autres sous-collections de l'utilisateur (categories, responses, etc.)
       match /{document=**} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, write: if isOwner(uid) || isAdmin();
       }
+    }
+
+    // Table "admins": un doc par admin, id = uid
+    match /admins/{adminUid} {
+      // Lisible par son propriétaire (admin) pour auto-vérification
+      allow read: if request.auth != null && request.auth.uid == adminUid;
+      // Écrit via console Firebase uniquement (pas par le client)
+      allow write: if false;
     }
 
     // Bloquer tout le reste
