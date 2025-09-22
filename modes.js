@@ -123,10 +123,30 @@ function inputForType(consigne) {
       <script>(()=>{const r=document.currentScript.previousElementSibling.previousElementSibling;const o=document.currentScript.previousElementSibling;if(r){r.addEventListener('input',()=>{o.textContent=r.value;});}})();</script>
     `;
   }
+  if (consigne.type === "likert5") {
+    // 0 1 2 3 4
+    const items = [0, 1, 2, 3, 4];
+    return `
+      <div class="flex flex-wrap gap-4">
+        ${items.map((v) => `
+          <label class="inline-flex items-center gap-2">
+            <input type="radio" name="likert5:${consigne.id}" value="${v}">
+            <span>${v}</span>
+          </label>`).join("")}
+      </div>
+    `;
+  }
+  if (consigne.type === "yesno") {
+    return `
+      <div class="flex flex-wrap gap-4">
+        <label class="inline-flex items-center gap-2"><input type="radio" name="yesno:${consigne.id}" value="yes"><span>Oui</span></label>
+        <label class="inline-flex items-center gap-2"><input type="radio" name="yesno:${consigne.id}" value="no"><span>Non</span></label>
+      </div>
+    `;
+  }
   if (consigne.type === "likert6") {
-    // Échelle d’incertitude
     const items = [
-      ["no_answer", "Pas de réponse"],
+      ["no_answer", "—"],
       ["no", "Non"],
       ["rather_no", "Plutôt non"],
       ["medium", "Neutre"],
@@ -158,6 +178,12 @@ function collectAnswers(form, consignes) {
     } else if (consigne.type === "num") {
       const val = form.querySelector(`[name="num:${consigne.id}"]`)?.value;
       if (val) answers.push({ consigne, value: Number(val) });
+    } else if (consigne.type === "likert5") {
+      const val = form.querySelector(`[name="likert5:${consigne.id}"]:checked`)?.value;
+      if (val !== undefined) answers.push({ consigne, value: Number(val) });
+    } else if (consigne.type === "yesno") {
+      const val = form.querySelector(`[name="yesno:${consigne.id}"]:checked`)?.value;
+      if (val) answers.push({ consigne, value: val });
     } else {
       const val = form.querySelector(`[name="likert6:${consigne.id}"]:checked`)?.value;
       if (val) answers.push({ consigne, value: val });
@@ -183,12 +209,12 @@ export async function openConsigneForm(ctx, consigne = null) {
       <label class="grid gap-1">
         <span class="text-sm text-[var(--muted)]">Type de réponse</span>
         <select name="type" class="w-full">
-          <option value="short" ${consigne?.type === "short" ? "selected" : ""}>Texte court</option>
-          <option value="long" ${consigne?.type === "long" ? "selected" : ""}>Texte long</option>
-          <option value="likert6" ${consigne?.type === "likert6" ? "selected" : ""}>
-            Échelle d’incertitude (Pas de réponse → Oui)
-          </option>
-          <option value="num" ${consigne?.type === "num" ? "selected" : ""}>Échelle numérique (1–10)</option>
+          <option value="likert5" ${!consigne || consigne?.type === "likert5" ? "selected" : ""}>Échelle de Likert (0–4)</option>
+          <option value="yesno"   ${consigne?.type === "yesno"   ? "selected" : ""}>Oui / Non</option>
+          <option value="short"   ${consigne?.type === "short"   ? "selected" : ""}>Texte court</option>
+          <option value="long"    ${consigne?.type === "long"    ? "selected" : ""}>Texte long</option>
+          <option value="likert6" ${consigne?.type === "likert6" ? "selected" : ""}>Échelle d’incertitude (— → Oui)</option>
+          <option value="num"     ${consigne?.type === "num"     ? "selected" : ""}>Échelle numérique (1–10)</option>
         </select>
       </label>
 
@@ -208,23 +234,26 @@ export async function openConsigneForm(ctx, consigne = null) {
         <span>Activer la répétition espacée</span>
       </label>
 
-      ${mode === "daily"
-        ? `
+      ${mode === "daily" ? `
       <fieldset class="grid gap-2">
         <legend class="text-sm text-[var(--muted)]">Fréquence (jours)</legend>
-        <div class="flex flex-wrap gap-2">
-          ${["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"]
-            .map((day) => {
-              const selected = consigne?.days?.includes(day);
-              return `<label class="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-sm">
-              <input type="checkbox" name="days" value="${day}" ${selected ? "checked" : ""}>
-              <span>${day}</span>
-            </label>`;
-            })
-            .join("")}
+
+        <label class="inline-flex items-center gap-2 mb-1">
+          <input type="checkbox" id="daily-all" ${(!consigne || !consigne.days || !consigne.days.length) ? "checked" : ""}>
+          <span>Quotidien</span>
+        </label>
+
+        <div class="flex flex-wrap gap-2" id="daily-days">
+          ${["LUN","MAR","MER","JEU","VEN","SAM","DIM"].map((day) => {
+            const selected = Array.isArray(consigne?.days) && consigne.days.includes(day);
+            return `<label class="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-sm">
+        <input type="checkbox" name="days" value="${day}" ${selected ? "checked" : ""}>
+        <span>${day}</span>
+      </label>`;
+          }).join("")}
         </div>
-      </fieldset>`
-        : ""}
+      </fieldset>
+      ` : ""}
 
       <div class="flex justify-end gap-2 pt-2">
         <button type="button" class="btn btn-ghost" id="cancel">Annuler</button>
@@ -233,6 +262,16 @@ export async function openConsigneForm(ctx, consigne = null) {
     </form>
   `;
   const m = modal(html);
+  const dailyAll = m.querySelector("#daily-all");
+  const daysBox  = m.querySelector("#daily-days");
+  if (dailyAll && daysBox) {
+    const setAll = (on) => {
+      daysBox.querySelectorAll('input[name="days"]').forEach(cb => { cb.checked = on; });
+    };
+    // init : si "Quotidien" coché mais anciens jours présents → coche tout
+    if (dailyAll.checked) setAll(true);
+    dailyAll.addEventListener("change", () => setAll(dailyAll.checked));
+  }
   L.groupEnd();
   $("#cancel", m).onclick = () => m.remove();
 
@@ -260,7 +299,8 @@ export async function openConsigneForm(ctx, consigne = null) {
         active: true
       };
       if (mode === "daily") {
-        payload.days = $$("input[name=days]:checked", m).map((input) => input.value);
+        const isAll = m.querySelector("#daily-all")?.checked;
+        payload.days = isAll ? [] : $$("input[name=days]:checked", m).map((input) => input.value);
       }
       L.info("payload", payload);
 
@@ -283,6 +323,13 @@ function dotColor(type, v){
   if (type === "likert6") {
     const map = { yes:"ok", rather_yes:"ok", medium:"mid", rather_no:"ko", no:"ko", no_answer:"na" };
     return map[v] || "na";
+  }
+  if (type === "likert5") {
+    const n = Number(v);
+    return n >= 3 ? "ok" : n === 2 ? "mid" : "ko";
+  }
+  if (type === "yesno") {
+    return v === "yes" ? "ok" : "ko";
   }
   if (type === "num") {
     const n = Number(v) || 0;
@@ -330,7 +377,7 @@ export async function openHistory(ctx, consigne) {
     })
     .join("");
 
-  const canGraph = consigne.type === "likert6" || consigne.type === "num";
+  const canGraph = ["likert6", "likert5", "num", "yesno"].includes(consigne.type);
   const html = `
     <div class="flex items-start justify-between gap-4 mb-4">
       <div>
@@ -362,7 +409,12 @@ export async function openHistory(ctx, consigne) {
           datasets: [
             {
               label: 'Valeur',
-              data: data.map((r) => (consigne.type === 'likert6' ? likertToNum(r.value) : Number(r.value || 0))),
+              data: data.map((r) => {
+                if (consigne.type === 'likert6') return likertToNum(r.value);
+                if (consigne.type === 'likert5') return Number(r.value || 0);
+                if (consigne.type === 'yesno')   return r.value === 'yes' ? 1 : 0;
+                return Number(r.value || 0);
+              }),
               tension: 0.25,
               fill: false,
               borderColor: accent,
@@ -382,7 +434,7 @@ export async function openHistory(ctx, consigne) {
             },
             y: {
               beginAtZero: true,
-              max: consigne.type === 'likert6' ? 5 : 10,
+              max: consigne.type === 'likert6' ? 5 : consigne.type === 'likert5' ? 4 : consigne.type === 'yesno' ? 1 : 10,
               ticks: { color: '#64748B' },
               grid: { color: '#E2E8F0' }
             }
@@ -397,6 +449,8 @@ export async function openHistory(ctx, consigne) {
   L.groupEnd();
 
   function formatValue(type, v) {
+    if (type === 'yesno') return v === 'yes' ? 'Oui' : 'Non';
+    if (type === 'likert5') return String(v ?? '—');
     if (type === 'likert6') {
       return (
         {
@@ -559,13 +613,14 @@ export async function renderDaily(ctx, root, opts = {}) {
 
   const card = document.createElement("section");
   card.className = "card p-4 space-y-4";
-  const buttons = jours
-    .map(
-      (day) => `
-        <button class="px-3 py-1 text-sm rounded-lg border ${day === currentDay ? "bg-[var(--accent-50)] border-[var(--accent-400)] font-medium" : "bg-white border-gray-200"}" data-day="${day}">${day}</button>
-      `
-    )
-    .join("");
+  const today = jours[todayIdx];
+  const buttons = jours.map((day) => `
+    <button class="day-btn px-3 py-1 text-sm rounded-lg border ${day === currentDay
+      ? "bg-[var(--accent-50)] border-[var(--accent-400)] font-medium"
+      : "bg-white border-gray-200"}"
+      data-day="${day}"
+      data-today="${day === today ? "1" : "0"}">${day}</button>
+  `).join("");
   card.innerHTML = `
     <div class="flex flex-wrap items-center gap-2">
       <div class="flex flex-wrap gap-2" data-day-buttons>${buttons}</div>
@@ -586,41 +641,49 @@ export async function renderDaily(ctx, root, opts = {}) {
   const consignes = all.filter((c) => !c.days?.length || c.days.includes(currentDay));
   L.info("screen.daily.consignes", consignes.length);
 
-  const byPriority = { 1: [], 2: [], 3: [] };
-  for (const consigne of consignes) {
-    const key = Number(consigne.priority) || 2;
-    (byPriority[key] ?? byPriority[2]).push(consigne);
+  // Regrouper par catégorie, puis trier par priorité
+  const catGroups = {};
+  for (const c of consignes) {
+    const cat = c.category || "Général";
+    (catGroups[cat] ??= []).push(c);
   }
+  Object.values(catGroups).forEach((list) => list.sort((a, b) => (a.priority || 2) - (b.priority || 2)));
+
+  const prioChip = (p) => {
+    const cls = p === 1 ? "prio-chip prio-high" : p === 2 ? "prio-chip prio-medium" : "prio-chip prio-low";
+    const lbl = p === 1 ? "Haute" : p === 2 ? "Moyenne" : "Basse";
+    return `<span class="${cls}" title="Priorité ${lbl}">${lbl}</span>`;
+  };
 
   const form = document.createElement("form");
-  form.className = "grid gap-4";
+  form.className = "grid gap-6";
   card.appendChild(form);
 
-  const renderGroup = (list, collapsed, title) => {
-    if (!list.length) return;
-    const catGroups = {};
-    list.forEach((item) => {
-      const cat = item.category || "Général";
-      (catGroups[cat] ??= []).push(item);
-    });
-
-    const content = document.createElement("div");
-    content.className = "space-y-4";
-
+  if (!consignes.length) {
+    const empty = document.createElement("div");
+    empty.className = "rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]";
+    empty.innerText = "Aucune consigne pour ce jour.";
+    form.appendChild(empty);
+  } else {
     Object.entries(catGroups).forEach(([cat, items]) => {
-      const wrap = document.createElement("div");
-      wrap.className = "space-y-3";
-      wrap.innerHTML = `<div class="text-sm font-medium text-[var(--muted)] uppercase tracking-wide">${escapeHtml(cat)}</div>`;
+      const section = document.createElement("section");
+      section.className = "card p-4 space-y-4";
+      section.innerHTML = `<div class="flex items-center justify-between">
+        <h4 class="text-lg font-semibold">${escapeHtml(cat)}</h4>
+      </div>`;
       const stack = document.createElement("div");
       stack.className = "space-y-3";
-      wrap.appendChild(stack);
+      section.appendChild(stack);
 
       items.forEach((item) => {
         const itemCard = document.createElement("div");
         itemCard.className = "card p-3 space-y-3";
         itemCard.innerHTML = `
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="font-semibold">${escapeHtml(item.text)}</div>
+            <div class="flex items-center gap-2">
+              <div class="font-semibold">${escapeHtml(item.text)}</div>
+              ${prioChip(Number(item.priority) || 2)}
+            </div>
             ${consigneActions()}
           </div>
           ${inputForType(item)}
@@ -630,21 +693,10 @@ export async function renderDaily(ctx, root, opts = {}) {
         const bH = itemCard.querySelector(".js-histo");
         const bE = itemCard.querySelector(".js-edit");
         const bD = itemCard.querySelector(".js-del");
-        bH.onclick = (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          Schema.D.info("ui.history.click", item.id);
-          openHistory(ctx, item);
-        };
-        bE.onclick = (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          Schema.D.info("ui.editConsigne.click", item.id);
-          openConsigneForm(ctx, item);
-        };
+        bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item); };
+        bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
         bD.onclick = async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
+          e.preventDefault(); e.stopPropagation();
           if (confirm("Supprimer cette consigne ? (historique conservé)")) {
             Schema.D.info("ui.deleteConsigne.confirm", item.id);
             await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, item.id);
@@ -653,36 +705,8 @@ export async function renderDaily(ctx, root, opts = {}) {
         };
       });
 
-      content.appendChild(wrap);
-    });
-
-    if (collapsed) {
-      const details = document.createElement("details");
-      details.className = "card overflow-hidden";
-      details.innerHTML = `<summary class="cursor-pointer list-none px-4 py-3 font-semibold flex items-center justify-between gap-2">${title} (${list.length})<span class="text-sm text-[var(--muted)]">Afficher</span></summary>`;
-      const inner = document.createElement("div");
-      inner.className = "border-t border-gray-200 p-4 space-y-4";
-      inner.appendChild(content);
-      details.appendChild(inner);
-      form.appendChild(details);
-    } else {
-      const section = document.createElement("section");
-      section.className = "space-y-4";
-      section.innerHTML = `<div class="flex items-center justify-between"><h4 class="text-lg font-semibold">${title}</h4></div>`;
-      section.appendChild(content);
       form.appendChild(section);
-    }
-  };
-
-  renderGroup(byPriority[1], false, "Priorité haute");
-  renderGroup(byPriority[2], false, "Priorité moyenne");
-  renderGroup(byPriority[3], true, "Priorité basse");
-
-  if (!consignes.length) {
-    const empty = document.createElement("div");
-    empty.className = "rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]";
-    empty.innerText = "Aucune consigne pour ce jour.";
-    form.appendChild(empty);
+    });
   }
 
   const actions = document.createElement("div");

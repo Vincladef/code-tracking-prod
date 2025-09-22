@@ -72,6 +72,22 @@
     /* utilitaire pour masquer la scrollbar (déjà utilisé ci-dessus) */
     .no-scrollbar::-webkit-scrollbar{ display:none; }
     .no-scrollbar{ -ms-overflow-style:none; scrollbar-width:none; }
+
+    /* Boutons de jours (Journalier) */
+    .day-btn[data-today="1"] {
+      /* léger surlignage si ce n'est pas le jour sélectionné */
+      box-shadow: inset 0 0 0 2px var(--accent-200);
+    }
+
+    /* Pastilles de priorité */
+    .prio-chip {
+      display:inline-flex; align-items:center; gap:.4rem;
+      padding:.15rem .5rem; border-radius:999px;
+      font-size:.75rem; border:1px solid transparent;
+    }
+    .prio-high   { background:#FEE2E2; border-color:#FCA5A5; color:#B91C1C; } /* rouge doux */
+    .prio-medium { background:#FEF3C7; border-color:#FCD34D; color:#92400E; } /* ambre doux */
+    .prio-low    { background:#E0F2FE; border-color:#BAE6FD; color:#075985; } /* bleu doux */
   </style>
 </head>
 <body class="min-h-screen">
