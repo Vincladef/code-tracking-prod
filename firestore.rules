@@ -11,11 +11,13 @@ service cloud.firestore {
 
     match /u/{uid} {
       match /{document=**} {
+        // l’owner OU un admin
         allow read, write: if isOwner(uid) || isAdmin();
       }
     }
 
     match /admins/{adminUid} {
+      // petite collection d'admins
       allow read: if isAdmin();
       allow write: if false;
     }

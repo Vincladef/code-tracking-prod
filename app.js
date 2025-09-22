@@ -34,6 +34,16 @@ export const ctx = {
 async function refreshUserBadge(uid) {
   const el = document.querySelector("[data-username]");
   if (!el) return;
+  const currentHash = ctx.route || location.hash || "#/admin";
+  const { segments } = parseHash(currentHash);
+  const routeKey = segments[0] || "admin";
+  const isAdminRoute = routeKey === "admin";
+
+  if (isAdminRoute) {
+    el.textContent = "Admin";
+    return;
+  }
+
   if (!uid) {
     el.textContent = "Utilisateur";
     return;
@@ -515,8 +525,13 @@ async function loadUsers(db) {
       list.dataset.bound = "1";
     }
   } catch (error) {
-    console.error("admin:users:load:error", error);
-    list.innerHTML = "<div class='text-sm text-red-600'>Accès refusé ou indisponible.</div>";
+    console.warn("admin:users:load:error", error);
+    list.innerHTML = [
+      "<div class='space-y-2 text-sm text-red-600'>",
+      "  <div>Accès refusé. Ajoute ton UID dans <code>/admins/{uid}</code> depuis la console Firebase.</div>",
+      "  <div class='text-xs text-[var(--muted)]'>Authentication → Users pour récupérer l’UID actuel.</div>",
+      "</div>"
+    ].join("");
   }
 }
 

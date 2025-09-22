@@ -50,6 +50,9 @@
     .tab{ border:1px solid #E5E7EB; background:#fff; border-radius:999px; padding:.5rem .875rem; font-size:.9rem; display:inline-flex; gap:.5rem; align-items:center; white-space:nowrap; flex:0 0 auto; }
     .tab[aria-current="page"]{ background:var(--accent-50); border-color:var(--accent-400); color:#0B4B66; }
 
+    /* cache le bouton Admin partout */
+    [data-nav="admin"] { display: none !important; }
+
     /* Boutons */
     .btn{ border-radius:.75rem; padding:.625rem 1rem; font-weight:600; }
     .btn-primary{ background:var(--accent-600); color:#fff; }
@@ -130,7 +133,7 @@
           </span>
         </h1>
         <nav class="tabs w-full sm:w-auto overflow-x-auto no-scrollbar">
-          <button class="tab" data-route="#/admin"><span>🛠️</span><span>Admin</span></button>
+          <button class="tab" data-route="#/admin" data-nav="admin"><span>🛠️</span><span>Admin</span></button>
           <button class="tab" data-route="#/daily"><span>📅</span><span>Journalier</span></button>
           <button class="tab" data-route="#/practice"><span>⚡</span><span>Pratique</span></button>
           <button class="tab" data-route="#/goals"><span>🎯</span><span>Objectifs</span></button>
