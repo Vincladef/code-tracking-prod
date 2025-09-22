@@ -25,6 +25,12 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+let boundDb = null;
+
+export function bindDb(db) {
+  boundDb = db;
+}
+
 export const now = () => new Date().toISOString();
 export const col = (db, uid, sub) => collection(db, "u", uid, sub);
 export const docIn = (db, uid, sub, id) => doc(db, "u", uid, sub, id);
@@ -117,6 +123,22 @@ function hydrateConsigne(doc) {
 }
 
 // --- Catégories & Users ---
+export async function getUserName(uid) {
+  if (!uid) return "Utilisateur";
+  if (!boundDb) {
+    console.warn("getUserName error:", new Error("Firestore not initialized"));
+    return "Utilisateur";
+  }
+  try {
+    const snap = await getDoc(doc(boundDb, "u", uid));
+    const d = snap.exists() ? (snap.data() || {}) : {};
+    return d.name || d.displayName || d.slug || "Utilisateur";
+  } catch (e) {
+    console.warn("getUserName error:", e);
+    return "Utilisateur";
+  }
+}
+
 export async function fetchCategories(db, uid){
   const qy = query(col(db, uid, "categories"), orderBy("name"));
   const ss = await getDocs(qy);

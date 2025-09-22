@@ -143,16 +143,20 @@ jobs:
                 continue;
               }
 
+              const profSnap = await db.doc(`u/${uid}`).get();
+              const prof = profSnap.exists ? (profSnap.data() || {}) : {};
+              const userName = prof.name || prof.displayName || prof.slug || "toi";
+
               const message = {
                 tokens,
                 notification: {
-                  title: "Rappel du jour 👋",
-                  body: `Tu as ${count} consigne${count>1?"s":""} à remplir aujourd’hui.`
+                  title: `Rappel du jour — ${userName}`,
+                  body: `${userName}, tu as ${count} consigne${count>1?"s":""} à remplir aujourd’hui.`
                 },
                 webpush: {
                   fcmOptions: { link: "https://vincladef.github.io/code-tracking-prod/#/daily" }
                 },
-                data: { count: String(count), day: ctx.dayLabel }
+                data: { user: String(userName), count: String(count), day: ctx.dayLabel }
               };
 
               const res = await messaging.sendEachForMulticast(message);
