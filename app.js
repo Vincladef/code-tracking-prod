@@ -2,6 +2,9 @@
 import {
   getFirestore, doc, setDoc, getDoc, collection, query, where, orderBy, limit, getDocs, collectionGroup
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {
+  getMessaging, getToken, onMessage, isSupported
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 import * as Schema from "./schema.js";
 import * as Modes from "./modes.js";
 import * as Goals from "./goals.js";
@@ -215,6 +218,43 @@ async function ensureProfile(db, uid) {
   return newProfile;
 }
 
+async function ensurePushSubscription(ctx) {
+  if (!(await isSupported?.())) { console.info("[push] non supporté"); return; }
+  if (!("Notification" in window) || !("serviceWorker" in navigator)) return;
+
+  // 1) Permission
+  let perm = Notification.permission;
+  if (perm === "default") perm = await Notification.requestPermission();
+  if (perm !== "granted") { console.info("[push] permission refusée"); return; }
+
+  // 2) Enregistrer le SW *avec un chemin relatif fiable sur GitHub Pages*
+  const swUrl = new URL("sw.js", import.meta.url); // => /<repo>/sw.js
+  const reg = await navigator.serviceWorker.register(swUrl.href, { scope: "./" });
+  console.info("[push] SW OK", reg.scope);
+
+  // 3) Token FCM avec TA clé VAPID publique
+  const messaging = getMessaging(ctx.app);
+  const token = await getToken(messaging, {
+    vapidKey: "BMKhViKlpYs9dtqHYQYIU9rmTJQA3rPUP2h5Mg1YlA6lUs4uHk74F8rT9y8hT1U2N4M-UUE7-YvbAjYfTpjA1nM",
+    serviceWorkerRegistration: reg
+  });
+  if (!token) { console.warn("[push] pas de token"); return; }
+  console.info("[push] token", token);
+
+  // 4) Enregistrer le token côté Firestore
+  await Schema.savePushToken(ctx.db, ctx.user.uid, token);
+
+  // 5) Réception en foreground
+  onMessage(messaging, (payload) => {
+    try {
+      new Notification(payload.notification?.title || "Rappel", {
+        body: payload.notification?.body || "Tu as des consignes à remplir aujourd’hui.",
+        icon: "/icon.png"
+      });
+    } catch {}
+  });
+}
+
 export async function initApp({ app, db, user }) {
   // Show the sidebar in user mode
   const sidebar = document.getElementById("sidebar");
@@ -251,6 +291,8 @@ export async function initApp({ app, db, user }) {
     render();
   });
   render();
+  // 👉 Inscription (silencieuse si refus/unsupported)
+  ensurePushSubscription(ctx).catch(console.error);
   log("app:init:rendered");
   L.groupEnd();
 }

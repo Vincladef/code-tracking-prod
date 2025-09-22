@@ -1,0 +1,14 @@
+name: Daily Reminder Notifications
+
+on:
+  schedule:
+    - cron: "0 7 * * *"   # 07:00 UTC = 09:00 Paris
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Firebase HTTPS Function
+        run: |
+          curl -sS "https://us-central1-tracking-d-habitudes.cloudfunctions.net/sendDailyReminders"

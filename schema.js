@@ -158,6 +158,26 @@ export async function upsertSRState(db, uid, itemId, key, state) {
   await setDoc(docIn(db, uid, "sr", `${key}:${itemId}`), state, { merge: true });
 }
 
+// --- Push tokens (stockés sous /u/{uid}/pushTokens/{token}) ---
+export async function savePushToken(db, uid, token, extra = {}) {
+  await setDoc(docIn(db, uid, "pushTokens", token), {
+    token,
+    ua: navigator.userAgent || "",
+    platform: navigator.platform || "",
+    enabled: true,
+    ...extra,
+    updatedAt: serverTimestamp(),
+    createdAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+export async function disablePushToken(db, uid, token) {
+  await setDoc(docIn(db, uid, "pushTokens", token), {
+    enabled: false,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
 // score pour likert -> 0 / 0.5 / 1
 export function likertScore(v) {
   return ({ yes: 1, rather_yes: 0.5, medium: 0, rather_no: 0, no: 0, no_answer: 0 })[v] ?? 0;

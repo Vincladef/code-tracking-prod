@@ -5,6 +5,11 @@ service cloud.firestore {
 
     // Tout l'espace d'un utilisateur accessible publiquement via son UID
     // Exemple : /u/abc123/profile, /u/abc123/goals/..., etc.
+    match /u/{uid}/pushTokens/{token} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
     match /u/{uid}/{document=**} {
       allow read, write: if true;
     }
