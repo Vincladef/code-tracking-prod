@@ -45,8 +45,9 @@
     input:focus, textarea:focus, select:focus{ outline:none; border-color:var(--ring); box-shadow:0 0 0 3px var(--accent-50); }
 
     /* Onglets (pills) + état actif coloré */
-    .tabs{ display:flex; gap:.5rem; align-items:center; }
-    .tab{ border:1px solid #E5E7EB; background:#fff; border-radius:999px; padding:.5rem .875rem; font-size:.9rem; display:inline-flex; gap:.5rem; align-items:center; }
+    .tabs{ display:flex; gap:.5rem; align-items:center; overflow-x:auto; flex-wrap:nowrap; -webkit-overflow-scrolling:touch; }
+    .tabs::-webkit-scrollbar{ display:none; }
+    .tab{ border:1px solid #E5E7EB; background:#fff; border-radius:999px; padding:.5rem .875rem; font-size:.9rem; display:inline-flex; gap:.5rem; align-items:center; white-space:nowrap; flex:0 0 auto; }
     .tab[aria-current="page"]{ background:var(--accent-50); border-color:var(--accent-400); color:#0B4B66; }
 
     /* Boutons */
@@ -62,14 +63,24 @@
 
     /* Sidebar cachée par défaut (mode admin != user) */
     #sidebar{ display:none; }
+
+    /* Titre un peu plus petit sur mobile */
+    @media (max-width: 640px){
+      header h1{ font-size:1rem; }
+    }
+
+    /* utilitaire pour masquer la scrollbar (déjà utilisé ci-dessus) */
+    .no-scrollbar::-webkit-scrollbar{ display:none; }
+    .no-scrollbar{ -ms-overflow-style:none; scrollbar-width:none; }
   </style>
 </head>
 <body class="min-h-screen">
   <div class="flex min-h-screen flex-col">
     <header class="border-b border-gray-200 bg-white">
-      <div class="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-4">
-        <h1 class="text-xl font-semibold">Habitudes &amp; Pratique</h1>
-        <nav class="tabs">
+      <div class="mx-auto w-full max-w-5xl px-4 py-4
+            flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 class="text-lg sm:text-xl font-semibold">Habitudes &amp; Pratique</h1>
+        <nav class="tabs w-full sm:w-auto overflow-x-auto no-scrollbar">
           <button class="tab" data-route="#/daily"><span>📅</span><span>Journalier</span></button>
           <button class="tab" data-route="#/practice"><span>⚡</span><span>Pratique</span></button>
           <button class="tab" data-route="#/goals"><span>🎯</span><span>Objectifs</span></button>

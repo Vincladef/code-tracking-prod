@@ -37,6 +37,15 @@ function routeTo(hash) {
   // hash like "#/daily", "#/practice?new=1", etc.
   if (!hash) hash = "#/daily";
 
+  // Si l'argument est déjà une URL utilisateur complète, on la prend telle quelle
+  if (/^#\/u\/[^/]+\//.test(hash)) {
+    log("routeTo", { from: location.hash || null, requested: hash, target: hash });
+    ctx.route = hash;
+    window.location.hash = hash;
+    render();
+    return;
+  }
+
   // If we are currently on a user URL, prefix all routes with /u/{uid}/...
   const m = (location.hash || "").match(/^#\/u\/([^/]+)/);
   const base = m ? `#/u/${m[1]}/` : "#/";
@@ -66,6 +75,11 @@ function setActiveNav(sectionKey) {
     const isActive = target === activeTarget;
     btn.setAttribute("aria-current", isActive ? "page" : "false");
   });
+
+  // Cacher Admin si on navigue dans /u/{uid}/...
+  const isUserURL = /^#\/u\/[^/]+/.test(location.hash || ctx.route);
+  const adminBtn = document.querySelector('button[data-route="#/admin"]');
+  if (adminBtn) adminBtn.style.display = isUserURL ? "none" : "";
 }
 
 function parseHash(hashValue) {
