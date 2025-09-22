@@ -221,6 +221,22 @@ export async function openConsigneForm(ctx, consigne = null) {
   L.group("ui.consigneForm.open", { mode, consigneId: consigne?.id || null });
   const catUI = await categorySelect(ctx, mode, consigne?.category || null);
   const priority = Number(consigne?.priority ?? 2);
+  const monthKey = Schema.monthKeyFromDate(new Date());
+  let objectifs = [];
+  try {
+    objectifs = await Schema.listObjectivesByMonth(ctx.db, ctx.user.uid, monthKey);
+  } catch (err) {
+    L.warn("ui.consigneForm.objectifs.error", err);
+  }
+  const currentObjId = consigne?.objectiveId || "";
+  const objectifsOptions = objectifs
+    .map((o) => {
+      const badge = o.type === "hebdo" ? `S${o.weekOfMonth || "?"}` : (o.type === "annuel" ? "Annuel" : "Mois");
+      const subtitle = o.monthKey || monthKey;
+      const label = `${badge} — ${subtitle}`;
+      return `<option value="${escapeHtml(o.id)}" ${o.id === currentObjId ? "selected" : ""}>${escapeHtml(o.titre || "Objectif")} — ${escapeHtml(label)}</option>`;
+    })
+    .join("");
   const html = `
     <h3 class="text-lg font-semibold mb-2">${consigne ? "Modifier" : "Nouvelle"} consigne</h3>
     <form class="grid gap-4" id="consigne-form">
@@ -242,6 +258,14 @@ export async function openConsigneForm(ctx, consigne = null) {
       </label>
 
       ${catUI}
+
+      <div class="grid gap-1">
+        <span class="text-sm text-[var(--muted)]">📌 Associer à un objectif</span>
+        <select id="objective-select" class="w-full">
+          <option value="">Aucun</option>
+          ${objectifsOptions}
+        </select>
+      </div>
 
       <label class="grid gap-1">
         <span class="text-sm text-[var(--muted)]">Priorité</span>
@@ -327,10 +351,17 @@ export async function openConsigneForm(ctx, consigne = null) {
       }
       L.info("payload", payload);
 
+      const selectedObjective = m.querySelector("#objective-select")?.value || "";
+      let consigneId = consigne?.id || null;
       if (consigne) {
         await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, payload);
+        consigneId = consigne.id;
       } else {
-        await Schema.addConsigne(ctx.db, ctx.user.uid, payload);
+        const ref = await Schema.addConsigne(ctx.db, ctx.user.uid, payload);
+        consigneId = ref?.id || consigneId;
+      }
+      if (consigneId) {
+        await Schema.linkConsigneToObjective(ctx.db, ctx.user.uid, consigneId, selectedObjective || null);
       }
       m.remove();
       const root = document.getElementById("view-root");
