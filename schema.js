@@ -377,3 +377,67 @@ export function valueToNumericPoint(type, value) {
   return null; // pour short/long -> pas de graph
 }
 
+// --- utilitaires temps ---
+export function monthKeyFromDate(d) {
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return "";
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function weekOfMonthFromDate(d) {
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return 1;
+  const first = new Date(dt.getFullYear(), dt.getMonth(), 1);
+  const offset = dt.getDate() + first.getDay();
+  return Math.max(1, Math.ceil(offset / 7));
+}
+
+// --- Objectifs CRUD ---
+export async function listObjectivesByMonth(db, uid, monthKey) {
+  const q = query(collection(db, "u", uid, "objectifs"), where("monthKey", "==", monthKey));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function getObjective(db, uid, objectifId) {
+  const ref = doc(db, "u", uid, "objectifs", objectifId);
+  const snap = await getDoc(ref);
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+export async function upsertObjective(db, uid, data, objectifId = null) {
+  const start = data?.startDate ? new Date(data.startDate) : new Date();
+  const monthKey = data?.monthKey || monthKeyFromDate(start);
+  const week = data?.type === "hebdo"
+    ? (data?.weekOfMonth || weekOfMonthFromDate(start))
+    : null;
+
+  const payload = {
+    titre: data?.titre || "Objectif",
+    description: data?.description || "",
+    type: data?.type || "mensuel",
+    startDate: data?.startDate || `${monthKey}-01`,
+    endDate: data?.endDate || `${monthKey}-28`,
+    monthKey,
+    status: data?.status || "en_cours",
+    ...(week ? { weekOfMonth: week } : {}),
+  };
+
+  if (objectifId) {
+    await setDoc(doc(db, "u", uid, "objectifs", objectifId), payload, { merge: true });
+    return objectifId;
+  }
+  const ref = await addDoc(collection(db, "u", uid, "objectifs"), payload);
+  return ref.id;
+}
+
+// --- Lier / délier une consigne ---
+export async function linkConsigneToObjective(db, uid, consigneId, objectifId) {
+  if (!consigneId) return;
+  await setDoc(
+    doc(db, "u", uid, "consignes", consigneId),
+    { objectiveId: objectifId || null },
+    { merge: true },
+  );
+}
+

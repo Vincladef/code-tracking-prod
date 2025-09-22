@@ -90,6 +90,31 @@
     .prio-low    { background:#E0F2FE; border-color:#BAE6FD; color:#075985; } /* bleu doux */
 
     .btn-saved{ background:#22C55E; } /* vert doux rapide pour le flash */
+
+    /* Objectifs */
+    .goal-shell{ padding:1.25rem 1.5rem; display:flex; flex-direction:column; gap:1rem; }
+    .goal-top{ display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+    .goal-nav{ display:flex; align-items:center; gap:.75rem; }
+    .goal-month{ font-weight:600; font-size:1.1rem; }
+    .goal-section{ display:flex; flex-direction:column; gap:.5rem; margin-top:.25rem; }
+    .goal-section-title{ font-weight:600; color:var(--muted); }
+    .goal-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(220px,1fr)); gap:.75rem; }
+    .goal-card{ padding:.9rem; transition:transform .15s ease, box-shadow .15s ease; cursor:pointer; }
+    .goal-card:hover{ transform:translateY(-2px); box-shadow:0 12px 24px rgba(148,163,184,.25); }
+    .goal-card-title{ font-weight:600; }
+    .goal-card-sub{ color:var(--muted); font-size:.85rem; margin-top:.15rem; }
+    .goal-card-status{ color:#0f172a; font-size:.85rem; margin-top:.4rem; font-weight:500; }
+    .goal-empty{ padding:1rem; border-radius:.75rem; background:var(--accent-50); }
+    .goal-modal{ position:fixed; inset:0; background:rgba(15,23,42,.18); display:grid; place-items:center; padding:1rem; z-index:50; }
+    .goal-modal-card{ background:#fff; border-radius:1rem; padding:1.25rem 1.5rem; box-shadow:0 24px 48px rgba(15,23,42,.16); width:min(720px,95vw); max-height:90vh; overflow:auto; }
+    .goal-modal-header{ display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
+    .goal-modal-title{ font-weight:700; font-size:1.1rem; }
+    .goal-form{ display:grid; gap:1rem; margin-top:1rem; }
+    .goal-field{ display:grid; gap:.4rem; }
+    .goal-label{ font-size:.85rem; color:var(--muted); }
+    .goal-input{ width:100%; }
+    .goal-actions{ display:flex; justify-content:flex-end; gap:.5rem; }
+    .goal-list{ margin-top:.5rem; padding-left:1.25rem; display:grid; gap:.35rem; list-style:disc; }
   </style>
 </head>
 <body class="min-h-screen">
