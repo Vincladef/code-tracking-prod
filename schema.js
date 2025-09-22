@@ -1,5 +1,13 @@
-// --- DEBUG LOGGER (utilisé par index.html et app.js)
-export const D = { on: false, info(){}, group(){}, groupEnd(){}, error(){} };
+// --- DEBUG LOGGER ---
+export const D = {
+  on: true, // << mets false pour couper
+  info: (...a) => D.on && console.info("[HP]", ...a),
+  debug: (...a) => D.on && console.debug("[HP]", ...a),
+  warn: (...a) => D.on && console.warn("[HP]", ...a),
+  error: (...a) => D.on && console.error("[HP]", ...a),
+  group: (label, ...a) => D.on && console.groupCollapsed(`📘 ${label}`, ...a),
+  groupEnd: () => D.on && console.groupEnd(),
+};
 const log = () => {};
 // --- Helpers de chemin /u/{uid}/...
 import {
@@ -95,11 +103,13 @@ export async function fetchCategories(db, uid){
 }
 
 export async function ensureCategory(db, uid, name, mode){
+  D.info("data.ensureCategory", { uid, name, mode });
   const qy = query(col(db, uid, "categories"),
     where("name","==",name), where("mode","==",mode), limit(1));
   const snap = await getDocs(qy);
   if (!snap.empty) {
     const existing = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    D.info("data.ensureCategory.ok", existing);
     return existing;
   }
   const ref = await addDoc(col(db, uid, "categories"), {
@@ -109,6 +119,7 @@ export async function ensureCategory(db, uid, name, mode){
     createdAt: serverTimestamp()
   });
   const created = { id: ref.id, ownerUid: uid, name, mode };
+  D.info("data.ensureCategory.ok", created);
   return created;
 }
 
