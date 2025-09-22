@@ -2,7 +2,7 @@ name: Daily Reminder Notifications
 
 on:
   schedule:
-    - cron: "0 7 * * *"   # 07:00 UTC = 09:00 Paris
+    - cron: "0 7 * * *"  # 07:00 UTC = 09:00 Europe/Paris
   workflow_dispatch:
 
 jobs:
@@ -11,4 +11,4 @@ jobs:
     steps:
       - name: Call Firebase HTTPS Function
         run: |
-          curl -sS "https://us-central1-tracking-d-habitudes.cloudfunctions.net/sendDailyReminders"
+          curl -sS "https://europe-west1-tracking-d-habitudes.cloudfunctions.net/sendDailyReminders"
