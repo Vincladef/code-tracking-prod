@@ -64,6 +64,11 @@ function pill(text) {
   return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full border text-sm" style="border-color:var(--accent-200); background:var(--accent-50); color:#334155;">${escapeHtml(text)}</span>`;
 }
 
+function srBadge(c){
+  return c?.srEnabled === false ? "" :
+    `<span class="px-2 py-0.5 rounded-full border text-xs text-[var(--muted)]">⏳ SR</span>`;
+}
+
 function smallBtn(label, cls = "") {
   return `<button type="button" class="btn btn-ghost text-sm ${cls}">${label}</button>`;
 }
@@ -72,6 +77,18 @@ function navigate(hash) {
   const fn = window.routeTo;
   if (typeof fn === "function") fn(hash);
   else window.location.hash = hash;
+}
+
+function showToast(msg){
+  const el = document.createElement("div");
+  el.className = "fixed top-4 right-4 z-50 card px-3 py-2 text-sm shadow-lg";
+  el.style.transition = "opacity .25s ease, transform .25s ease";
+  el.style.opacity = "0";
+  el.style.transform = "translateY(6px)";
+  el.textContent = msg;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => { el.style.opacity = "1"; el.style.transform = "translateY(0)"; });
+  setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; setTimeout(()=>el.remove(), 250); }, 1200);
 }
 
 function toAppPath(h) {
@@ -146,7 +163,7 @@ function inputForType(consigne) {
   }
   if (consigne.type === "likert6") {
     const items = [
-      ["no_answer", "—"],
+      ["no_answer", "Pas de réponse"],
       ["no", "Non"],
       ["rather_no", "Plutôt non"],
       ["medium", "Neutre"],
@@ -209,11 +226,10 @@ export async function openConsigneForm(ctx, consigne = null) {
       <label class="grid gap-1">
         <span class="text-sm text-[var(--muted)]">Type de réponse</span>
         <select name="type" class="w-full">
-          <option value="likert5" ${!consigne || consigne?.type === "likert5" ? "selected" : ""}>Échelle de Likert (0–4)</option>
+          <option value="likert6" ${!consigne || consigne?.type === "likert6" ? "selected" : ""}>Échelle de Likert (0–4)</option>
           <option value="yesno"   ${consigne?.type === "yesno"   ? "selected" : ""}>Oui / Non</option>
           <option value="short"   ${consigne?.type === "short"   ? "selected" : ""}>Texte court</option>
           <option value="long"    ${consigne?.type === "long"    ? "selected" : ""}>Texte long</option>
-          <option value="likert6" ${consigne?.type === "likert6" ? "selected" : ""}>Échelle d’incertitude (— → Oui)</option>
           <option value="num"     ${consigne?.type === "num"     ? "selected" : ""}>Échelle numérique (1–10)</option>
         </select>
       </label>
@@ -434,7 +450,7 @@ export async function openHistory(ctx, consigne) {
             },
             y: {
               beginAtZero: true,
-              max: consigne.type === 'likert6' ? 5 : consigne.type === 'likert5' ? 4 : consigne.type === 'yesno' ? 1 : 10,
+              max: consigne.type === 'likert6' ? 4 : consigne.type === 'likert5' ? 4 : consigne.type === 'yesno' ? 1 : 10,
               ticks: { color: '#64748B' },
               grid: { color: '#E2E8F0' }
             }
@@ -459,7 +475,7 @@ export async function openHistory(ctx, consigne) {
           medium: 'Neutre',
           rather_yes: 'Plutôt oui',
           yes: 'Oui',
-          no_answer: '—'
+          no_answer: 'Pas de réponse'
         }[v] || v || '—'
       );
     }
@@ -528,11 +544,24 @@ export async function renderPractice(ctx, root, _opts = {}) {
   const consignes = all.filter((c) => !currentCat || c.category === currentCat);
   L.info("screen.practice.consignes", consignes.length);
 
+  const sessionIndex = await Schema.countPracticeSessions(ctx.db, ctx.user.uid);
+  const visible = [];
+  const hidden = [];
+  await Promise.all(consignes.map(async (c) => {
+    if (c.srEnabled === false) { visible.push(c); return; }
+    const st = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "consigne");
+    if (!st || st.nextAllowedIndex === undefined || st.nextAllowedIndex <= sessionIndex) {
+      visible.push(c);
+    } else {
+      hidden.push({ c, remaining: st.nextAllowedIndex - sessionIndex });
+    }
+  }));
+
   const form = card.querySelector("#practice-form");
-  if (!consignes.length) {
-    form.innerHTML = `<div class="rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]">Aucune consigne pour cette catégorie.</div>`;
+  if (!visible.length) {
+    form.innerHTML = `<div class="rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]">Aucune consigne visible pour cette itération.</div>`;
   } else {
-    for (const consigne of consignes) {
+    for (const consigne of visible) {
       const consigneCard = document.createElement("div");
       consigneCard.className = "card p-3 space-y-3";
       consigneCard.innerHTML = `
@@ -540,6 +569,7 @@ export async function renderPractice(ctx, root, _opts = {}) {
           <div class="flex flex-wrap items-center gap-2">
             <h4 class="font-semibold">${escapeHtml(consigne.text)}</h4>
             ${pill(consigne.category || "Général")}
+            ${srBadge(consigne)}
           </div>
           ${consigneActions()}
         </div>
@@ -574,27 +604,74 @@ export async function renderPractice(ctx, root, _opts = {}) {
     }
   }
 
-  card.querySelector("#save").onclick = async (e) => {
+  if (hidden.length) {
+    const box = document.createElement("div");
+    box.className = "card p-3 space-y-2";
+    box.innerHTML = `<div class="font-medium">Masquées par répétition espacée (${hidden.length})</div>
+  <ul class="text-sm text-[var(--muted)] list-disc pl-5">
+    ${hidden.map(h => `<li><span class="font-medium text-slate-600">${escapeHtml(h.c.text)}</span> — revient dans ${h.remaining} itération(s)</li>`).join("")}
+  </ul>`;
+    container.appendChild(box);
+  }
+
+  const saveBtn = card.querySelector("#save");
+  saveBtn.onclick = async (e) => {
     e.preventDefault();
-    const answers = collectAnswers(form, consignes);
+    const answers = collectAnswers(form, visible);
     if (!answers.length) {
       alert("Aucune réponse");
       return;
     }
-    await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answers);
-    if (typeof Schema.startNewPracticeSession === "function") {
-      try {
-        await Schema.startNewPracticeSession(ctx.db, ctx.user.uid);
-      } catch (_) {}
+
+    answers.forEach((ans) => { ans.sessionIndex = sessionIndex; });
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Enregistrement…";
+
+    try {
+      await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answers);
+      try { await Schema.startNewPracticeSession(ctx.db, ctx.user.uid); } catch (_) {}
+
+      $$("input[type=text],textarea", form).forEach((input) => (input.value = ""));
+      $$("input[type=range]", form).forEach((input) => {
+        input.value = 5;
+        input.dispatchEvent(new Event("input"));
+      });
+      $$("input[type=radio]", form).forEach((input) => (input.checked = false));
+
+      showToast("Itération enregistrée");
+      saveBtn.classList.add("btn-saved");
+      saveBtn.textContent = "✓ Enregistré";
+      setTimeout(() => {
+        saveBtn.classList.remove("btn-saved");
+        saveBtn.textContent = "Enregistrer";
+        saveBtn.disabled = false;
+      }, 900);
+
+      renderPractice(ctx, root);
+    } catch (err) {
+      console.error(err);
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Enregistrer";
     }
-    $$("input[type=text],textarea", form).forEach((input) => (input.value = ""));
-    $$("input[type=range]", form).forEach((input) => {
-      input.value = 5;
-      input.dispatchEvent(new Event("input"));
-    });
-    $$("input[type=radio]", form).forEach((input) => (input.checked = false));
   };
   L.groupEnd();
+}
+
+const DOW = ["DIM","LUN","MAR","MER","JEU","VEN","SAM"];
+function dateForDayFromToday(label){
+  const target = DOW.indexOf(label);
+  const today = new Date(); today.setHours(0,0,0,0);
+  if (target < 0) return today;
+  const cur = today.getDay(); // 0..6 (DIM=0)
+  const delta = (target - cur + 7) % 7;
+  const d = new Date(today);
+  d.setDate(d.getDate() + delta);
+  return d;
+}
+function daysBetween(a,b){
+  const ms = (b.setHours(0,0,0,0), a.setHours(0,0,0,0), (b-a));
+  return Math.max(0, Math.round(ms/86400000));
 }
 
 export async function renderDaily(ctx, root, opts = {}) {
@@ -641,9 +718,22 @@ export async function renderDaily(ctx, root, opts = {}) {
   const consignes = all.filter((c) => !c.days?.length || c.days.includes(currentDay));
   L.info("screen.daily.consignes", consignes.length);
 
+  const selectedDate = dateForDayFromToday(currentDay);
+  const visible = [];
+  const hidden = [];
+  await Promise.all(consignes.map(async (c) => {
+    if (c.srEnabled === false) { visible.push(c); return; }
+    const st = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "consigne");
+    const nextISO = st?.nextVisibleOn || st?.hideUntil;
+    if (!nextISO) { visible.push(c); return; }
+    const next = new Date(nextISO);
+    if (next <= selectedDate) visible.push(c);
+    else hidden.push({ c, daysLeft: daysBetween(new Date(), next), when: next });
+  }));
+
   // Regrouper par catégorie, puis trier par priorité
   const catGroups = {};
-  for (const c of consignes) {
+  for (const c of visible) {
     const cat = c.category || "Général";
     (catGroups[cat] ??= []).push(c);
   }
@@ -659,10 +749,10 @@ export async function renderDaily(ctx, root, opts = {}) {
   form.className = "grid gap-6";
   card.appendChild(form);
 
-  if (!consignes.length) {
+  if (!visible.length) {
     const empty = document.createElement("div");
     empty.className = "rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]";
-    empty.innerText = "Aucune consigne pour ce jour.";
+    empty.innerText = "Aucune consigne visible pour ce jour.";
     form.appendChild(empty);
   } else {
     Object.entries(catGroups).forEach(([cat, items]) => {
@@ -683,6 +773,7 @@ export async function renderDaily(ctx, root, opts = {}) {
             <div class="flex items-center gap-2">
               <div class="font-semibold">${escapeHtml(item.text)}</div>
               ${prioChip(Number(item.priority) || 2)}
+              ${srBadge(item)}
             </div>
             ${consigneActions()}
           </div>
@@ -709,6 +800,16 @@ export async function renderDaily(ctx, root, opts = {}) {
     });
   }
 
+  if (hidden.length) {
+    const box = document.createElement("div");
+    box.className = "card p-3 space-y-2";
+    box.innerHTML = `<div class="font-medium">Masquées par répétition espacée (${hidden.length})</div>
+  <ul class="text-sm text-[var(--muted)] list-disc pl-5">
+    ${hidden.map(h => `<li><span class="font-medium text-slate-600">${escapeHtml(h.c.text)}</span> — revient dans ${h.daysLeft} jour(s) (le ${h.when.toLocaleDateString()})</li>`).join("")}
+  </ul>`;
+    container.appendChild(box);
+  }
+
   const actions = document.createElement("div");
   actions.className = "flex justify-end";
   actions.innerHTML = `<button type="submit" class="btn btn-primary">Enregistrer</button>`;
@@ -716,7 +817,7 @@ export async function renderDaily(ctx, root, opts = {}) {
 
   form.onsubmit = async (e) => {
     e.preventDefault();
-    const answers = collectAnswers(form, consignes);
+    const answers = collectAnswers(form, visible);
     if (!answers.length) {
       alert("Aucune réponse");
       return;

@@ -84,6 +84,27 @@ function normalizeDays(days) {
     .filter(Boolean);
 }
 
+const DOW_LABELS = ["DIM","LUN","MAR","MER","JEU","VEN","SAM"];
+
+function nextVisibleDateFrom(start, days, skips){
+  const normalized = normalizeDays(days);
+  const everyDay = !normalized.length;
+  const from = new Date(start); from.setHours(0,0,0,0);
+  let d = new Date(from);
+
+  let passed = 0;
+  while (true){
+    d.setDate(d.getDate() + 1);
+    const label = DOW_LABELS[d.getDay()];
+    const eligible = everyDay || normalized.includes(label);
+    if (eligible){
+      if (passed >= skips) break;
+      passed++;
+    }
+  }
+  return d.toISOString();
+}
+
 function hydrateConsigne(doc) {
   const data = doc.data();
   return {
@@ -144,25 +165,26 @@ export function likertScore(v) {
 
 // calcule la prochaine “masque” (journalier=jours, pratique=sessions)
 export function nextCooldownAfterAnswer(meta, prevState, value) {
-  // meta.mode === "daily" | "practice", meta.type (likert6/num/short/long)
+  // inc: yes = 1 ; rather_yes = 0.5 ; autres = 0 (strict)
   let inc = 0;
   if (meta.type === "likert6") inc = likertScore(value);
   else if (meta.type === "likert5") inc = Number(value) >= 3 ? 1 : (Number(value) === 2 ? 0.5 : 0);
-  else if (meta.type === "yesno")   inc = (value === "yes") ? 1 : 0;
-  else if (meta.type === "num")     inc = Number(value) >= 7 ? 1 : (Number(value) >= 5 ? 0.5 : 0); // simple
-  else inc = 1; // texte => on considère “ok”
+  else if (meta.type === "yesno") inc = (value === "yes") ? 1 : 0;
+  else if (meta.type === "num") inc = Number(value) >= 7 ? 1 : (Number(value) >= 5 ? 0.5 : 0);
+  else inc = 1; // short/long : ok
 
   let streak = (prevState?.streak || 0);
   streak = inc > 0 ? (streak + inc) : 0;
 
   if (meta.mode === "daily") {
-    const days = Math.floor(streak); // masque N jours
-    const until = new Date();
-    until.setDate(until.getDate() + days);
-    return { streak, hideUntil: until.toISOString() };
+    const steps = Math.floor(streak); // nb d'occurrences à SAUTER
+    const nextVisibleOn = nextVisibleDateFrom(new Date(), meta.days || [], steps);
+    return { streak, nextVisibleOn };
   } else {
-    const steps = Math.floor(streak); // masque N sessions
-    const nextAllowedIndex = (prevState?.nextAllowedIndex || 0) + steps;
+    const steps = Math.floor(streak); // nb d'itérations à SAUTER
+    const base = meta.sessionIndex != null ? (meta.sessionIndex + 1) : (prevState?.nextAllowedIndex || 0);
+    const prevAllowed = prevState?.nextAllowedIndex || 0;
+    const nextAllowedIndex = Math.max(prevAllowed, base) + steps;
     return { streak, nextAllowedIndex };
   }
 }
@@ -184,7 +206,11 @@ export async function saveResponses(db, uid, mode, answers) {
     // SR (seulement si activée sur la consigne)
     if (a.consigne?.srEnabled !== false) {
       const prev = await readSRState(db, uid, a.consigne.id, "consigne");
-      const upd = nextCooldownAfterAnswer({ mode, type: a.consigne.type }, prev, a.value);
+      const upd = nextCooldownAfterAnswer(
+        { mode, type: a.consigne.type, days: a.consigne.days || [], sessionIndex: a.sessionIndex },
+        prev,
+        a.value
+      );
       await upsertSRState(db, uid, a.consigne.id, "consigne", upd);
     }
 
@@ -192,6 +218,11 @@ export async function saveResponses(db, uid, mode, answers) {
     batch.push(addDoc(col(db, uid, "responses"), payload));
   }
   await Promise.all(batch);
+}
+
+export async function countPracticeSessions(db, uid){
+  const ss = await getDocs(col(db, uid, "sessions"));
+  return ss.size;
 }
 
 export async function startNewPracticeSession(db, uid) {
