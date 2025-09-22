@@ -1,14 +1,171 @@
-name: Daily Reminder Notifications
+name: Daily Reminder Notifications (no Blaze)
 
 on:
   schedule:
-    - cron: "0 7 * * *"  # 07:00 UTC = 09:00 Europe/Paris
-  workflow_dispatch:
+    - cron: "0 7 * * *"   # 07:00 UTC = 09:00 Paris, tous les jours
+  workflow_dispatch:       # permet aussi de lancer à la main
 
 jobs:
-  trigger:
+  notify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Call Firebase HTTPS Function
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Admin SDK
         run: |
-          curl -sS "https://europe-west1-tracking-d-habitudes.cloudfunctions.net/sendDailyReminders"
+          npm -y init >/dev/null 2>&1 || true
+          npm install firebase-admin@^12
+
+      - name: Send daily reminders (Firestore + FCM)
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          node - <<'NODE'
+          const admin = require("firebase-admin");
+
+          // ---- init Admin SDK avec le secret GitHub ----
+          const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+          admin.initializeApp({ credential: admin.credential.cert(sa) });
+          const db = admin.firestore();
+          const messaging = admin.messaging();
+
+          // ---- helpers date/jour & SR (même logique que ton app) ----
+          const DAY_NORMALIZE = { dim:"DIM", lun:"LUN", mar:"MAR", mer:"MER", jeu:"JEU", ven:"VEN", sam:"SAM" };
+          const DAY_LABELS = ["DIM","LUN","MAR","MER","JEU","VEN","SAM"];
+
+          function normalizeDay(v){
+            if(!v) return null;
+            const key = String(v).trim().toLowerCase().replace(/\.$/,'');
+            const short = key.slice(0,3);
+            return DAY_NORMALIZE[short] || null;
+          }
+          function toDate(v){
+            if(!v) return null;
+            if(v instanceof Date) return v;
+            if(typeof v.toDate === "function"){ try { return v.toDate(); } catch(e){} }
+            if(typeof v === "number" || typeof v === "string"){
+              const d = new Date(v); if(!Number.isNaN(d.getTime())) return d;
+            }
+            return null;
+          }
+          function parisContext(now=new Date()){
+            const parisNow = new Date(now.toLocaleString("en-US", { timeZone:"Europe/Paris", hour12:false }));
+            const offset = parisNow.getTime() - now.getTime();
+            const dayLabel = DAY_LABELS[parisNow.getDay()];
+            const midnightLocal = new Date(parisNow); midnightLocal.setHours(0,0,0,0);
+            const selectedDate = new Date(midnightLocal.getTime() - offset);
+            return { dayLabel, selectedDate, dateIso: selectedDate.toISOString().slice(0,10) };
+          }
+
+          function isInvalidToken(code){
+            return code === "messaging/registration-token-not-registered" ||
+                   code === "messaging/invalid-registration-token";
+          }
+          async function disableToken(uid, token){
+            try{
+              await db.doc(`u/${uid}/pushTokens/${token}`).set(
+                { enabled:false, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+                { merge:true }
+              );
+            }catch(e){ console.error("disableToken", uid, token, e.message); }
+          }
+
+          async function collectTokensByUid(){
+            const snap = await db.collectionGroup("pushTokens").get();
+            const map = new Map();
+            for(const doc of snap.docs){
+              const data = doc.data() || {};
+              if (data.enabled === false) continue;
+              const token = data.token || doc.id;
+              if (!token) continue;
+              const parent = doc.ref.parent && doc.ref.parent.parent;
+              const uid = parent && parent.id;
+              if (!uid) continue;
+              if (!map.has(uid)) map.set(uid, new Set());
+              map.get(uid).add(token);
+            }
+            return map;
+          }
+
+          async function countVisibleDaily(uid, ctx){
+            const consSnap = await db.collection("u").doc(uid).collection("consignes")
+              .where("mode","==","daily").get();
+            if (consSnap.empty) return 0;
+
+            const consignes = consSnap.docs
+              .map(d => ({ id: d.id, data: d.data() || {} }))
+              .filter(x => x.data.active !== false);
+            if (!consignes.length) return 0;
+
+            const needsSr = consignes.some(x => x.data.srEnabled !== false);
+            const sr = new Map();
+            if (needsSr){
+              const srSnap = await db.collection("u").doc(uid).collection("sr").get();
+              for(const d of srSnap.docs){
+                if (!d.id.startsWith("consigne:")) continue;
+                sr.set(d.id.slice("consigne:".length), d.data() || {});
+              }
+            }
+
+            let visible = 0;
+            for (const item of consignes){
+              const { id, data } = item;
+              const days = Array.isArray(data.days) ? data.days.map(normalizeDay).filter(Boolean) : [];
+              if (days.length && !days.includes(ctx.dayLabel)) continue;
+
+              if (data.srEnabled === false){ visible++; continue; }
+              const s = sr.get(id);
+              if (!s){ visible++; continue; }
+              const nextDate = toDate(s.nextVisibleOn || s.hideUntil);
+              if (!nextDate || nextDate <= ctx.selectedDate) visible++;
+            }
+            return visible;
+          }
+
+          async function main(){
+            const ctx = parisContext();
+            console.log("context", ctx);
+            const tokensByUid = await collectTokensByUid();
+
+            let totalSent = 0;
+            for (const [uid, tokSet] of tokensByUid.entries()){
+              const tokens = Array.from(tokSet);
+              const count = await countVisibleDaily(uid, ctx);
+              if (count < 1) {
+                console.log(`skip uid=${uid} (0 visible)`);
+                continue;
+              }
+
+              const message = {
+                tokens,
+                notification: {
+                  title: "Rappel du jour 👋",
+                  body: `Tu as ${count} consigne${count>1?"s":""} à remplir aujourd’hui.`
+                },
+                webpush: {
+                  fcmOptions: { link: "https://vincladef.github.io/code-tracking-prod/#/daily" }
+                },
+                data: { count: String(count), day: ctx.dayLabel }
+              };
+
+              const res = await messaging.sendEachForMulticast(message);
+              totalSent += res.successCount;
+              res.responses.forEach((r, i) => {
+                if (!r.success && isInvalidToken(r.error && r.error.code)) {
+                  disableToken(uid, tokens[i]);
+                }
+              });
+              console.log(`uid=${uid} -> sent=${res.successCount}, failed=${res.failureCount}`);
+            }
+            console.log("done: sent", totalSent);
+          }
+
+          main().catch(e => { console.error("fatal", e); process.exit(1); });
+          NODE
