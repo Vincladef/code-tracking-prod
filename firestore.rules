@@ -1,15 +1,22 @@
-// Firestore rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
     match /u/{uid} {
       match /{document=**} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, write: if isOwner(uid) || isAdmin();
       }
     }
 
     match /admins/{adminUid} {
-      allow read: if false;
+      allow read: if isAdmin();
       allow write: if false;
     }
   }

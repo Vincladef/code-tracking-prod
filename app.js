@@ -11,7 +11,6 @@ import * as Modes from "./modes.js";
 import * as Goals from "./goals.js";
 
 // --- feature flags & logger ---
-const ENABLE_ADMIN = false;
 const DEBUG = false;
 const LOG = DEBUG;
 const L = Schema.D;
@@ -29,7 +28,7 @@ export const ctx = {
   user: null, // { uid } passed by index.html
   profile: null, // profile doc
   categories: [],
-  route: "#/daily",
+  route: "#/admin",
 };
 
 async function refreshUserBadge(uid) {
@@ -94,7 +93,7 @@ async function ensureSignedIn() {
 
 function routeTo(hash) {
   // hash like "#/daily", "#/practice?new=1", etc.
-  if (!hash) hash = "#/daily";
+  if (!hash) hash = "#/admin";
 
   // Si l'argument est déjà une URL utilisateur complète, on la prend telle quelle
   if (/^#\/u\/[^/]+\//.test(hash)) {
@@ -108,7 +107,8 @@ function routeTo(hash) {
   // If we are currently on a user URL, prefix all routes with /u/{uid}/...
   const m = (location.hash || "").match(/^#\/u\/([^/]+)/);
   const base = m ? `#/u/${m[1]}/` : "#/";
-  const target = m ? base + hash.replace(/^#\//, "") : hash;
+  const stayInUserSpace = m && !hash.startsWith("#/admin") && !hash.startsWith("#/u/");
+  const target = stayInUserSpace ? base + hash.replace(/^#\//, "") : hash;
 
   log("routeTo", { from: location.hash || null, requested: hash, target });
   ctx.route = target;
@@ -117,17 +117,24 @@ function routeTo(hash) {
 }
 window.routeTo = routeTo;
 
+function routeToDefault() {
+  if (location.hash !== "#/admin") {
+    location.hash = "#/admin";
+  } else {
+    handleRoute();
+  }
+}
+
 function setActiveNav(sectionKey) {
+  const alias = sectionKey === "dashboard" ? "daily" : sectionKey;
   const map = {
+    admin: "#/admin",
     daily: "#/daily",
     practice: "#/practice",
     goals: "#/goals",
   };
-  if (ENABLE_ADMIN) {
-    map.admin = "#/admin";
-  }
-  const activeTarget = map[sectionKey] || "#/daily";
-  const accentSection = map[sectionKey] ? sectionKey : "daily";
+  const activeTarget = map[alias] || "#/admin";
+  const accentSection = map[alias] ? alias : "daily";
 
   document.body.setAttribute("data-section", accentSection);
 
@@ -136,20 +143,10 @@ function setActiveNav(sectionKey) {
     const isActive = target === activeTarget;
     btn.setAttribute("aria-current", isActive ? "page" : "false");
   });
-
-  const adminBtn = document.querySelector('button[data-route="#/admin"]');
-  if (adminBtn) {
-    if (!ENABLE_ADMIN) {
-      adminBtn.style.display = "none";
-    } else {
-      const isUserURL = /^#\/u\/[^/]+/.test(location.hash || ctx.route);
-      adminBtn.style.display = isUserURL ? "none" : "";
-    }
-  }
 }
 
 function parseHash(hashValue) {
-  const hash = hashValue || "#/daily";
+  const hash = hashValue || "#/admin";
   const normalized = hash.replace(/^#/, "");
   const [pathPartRaw, searchPart = ""] = normalized.split("?");
   const pathPart = pathPartRaw.replace(/^\/+/, "");
@@ -217,33 +214,13 @@ function bindNav() {
   }
 }
 
-async function enforceAdminView() {
-  if (!ENABLE_ADMIN) return false;
-
-  const auth = getAuthInstance();
-  const currentUid = auth?.currentUser?.uid;
-  const isAdmin = await Schema.isAdmin(ctx.db, currentUid);
-  if (!isAdmin) {
-    const target = currentUid ? `#/u/${currentUid}/daily` : "#/daily";
-    if (location.hash !== target) {
-      location.hash = target;
-    }
-    return false;
-  }
-  renderAdmin(ctx.db);
-  return true;
-}
-
-function redirectToDefaultSection(searchPart = "") {
-  const fallback = `#/daily${searchPart ? `?${searchPart}` : ""}`;
-  if (location.hash !== fallback) {
-    location.replace(fallback);
-  }
+function redirectToDefaultSection() {
+  routeToDefault();
 }
 
 async function ensureOwnRoute(parsed) {
   let desired = parsed.segments[0] || "daily";
-  if (!desired || desired === "admin") desired = "daily";
+  if (!desired) desired = "daily";
   const searchPart = parsed.search ? `?${parsed.search}` : "";
 
   let user;
@@ -254,7 +231,7 @@ async function ensureOwnRoute(parsed) {
   }
 
   if (!user || !user.uid) {
-    redirectToDefaultSection(parsed.search);
+    redirectToDefaultSection();
     return;
   }
 
@@ -272,19 +249,20 @@ async function ensureOwnRoute(parsed) {
 
 // --- Router global (admin <-> user) ---
 async function handleRoute() {
-  const defaultRoute = ENABLE_ADMIN ? "#/admin" : "#/daily";
-  const parsed = parseHash(location.hash || defaultRoute);
+  const currentHash = location.hash || "#/admin";
+  const parsed = parseHash(currentHash);
+  ctx.route = currentHash;
   log("handleRoute", parsed);
 
-  const routeName = parsed.segments[0] || "daily";
-
-  if (routeName === "admin" && !ENABLE_ADMIN) {
-    redirectToDefaultSection(parsed.search);
-    return;
-  }
+  const routeName = parsed.segments[0] || "admin";
 
   if (routeName === "admin") {
-    await enforceAdminView();
+    try {
+      await ensureSignedIn();
+    } catch (error) {
+      if (DEBUG) console.warn("[Auth] anonymous sign-in failed", error);
+    }
+    render();
     return;
   }
 
@@ -293,7 +271,7 @@ async function handleRoute() {
     const section = parsed.segments[2];
 
     if (!uid) {
-      redirectToDefaultSection(parsed.search);
+      redirectToDefaultSection();
       return;
     }
 
@@ -327,7 +305,12 @@ export function startRouter(app, db) {
   ctx.app = app;
   ctx.db = db;
   if (typeof Schema.bindDb === "function") Schema.bindDb(db);
-  handleRoute(); // initial render
+  bindNav();
+  if (!location.hash || location.hash === "#") {
+    routeToDefault();
+  } else {
+    handleRoute(); // initial render
+  }
   window.addEventListener("hashchange", () => {
     log("router:hashchange", { hash: location.hash });
     handleRoute();
@@ -420,10 +403,10 @@ export async function initApp({ app, db, user }) {
   await loadCategories();
   bindNav();
 
-  ctx.route = location.hash || "#/daily";
+  ctx.route = location.hash || "#/admin";
   log("app:init:route", { route: ctx.route });
   window.addEventListener("hashchange", () => {
-    ctx.route = location.hash || "#/daily";
+    ctx.route = location.hash || "#/admin";
     log("app:init:hashchange", { route: ctx.route });
     render();
   });
@@ -462,64 +445,79 @@ export function renderAdmin(db) {
     </div>
   `;
 
-  document.getElementById("new-user-form").addEventListener("submit", async(e) => {
-    e.preventDefault();
-    const name = document.getElementById("new-user-name").value.trim();
-    if (!name) return;
-    log("admin:newUser:submit", { name });
-    const uid = newUid();
-    await setDoc(doc(db, "u", uid), {
-      displayName: name,
-      createdAt: new Date().toISOString()
+  const form = document.getElementById("new-user-form");
+  if (form) {
+    form.addEventListener("submit", async(e) => {
+      e.preventDefault();
+      const input = document.getElementById("new-user-name");
+      const name = input?.value?.trim();
+      if (!name) return;
+      log("admin:newUser:submit", { name });
+      const uid = newUid();
+      try {
+        await setDoc(doc(db, "u", uid), {
+          displayName: name,
+          createdAt: new Date().toISOString()
+        });
+        if (input) input.value = "";
+        log("admin:newUser:created", { uid });
+        loadUsers(db);
+      } catch (error) {
+        console.error("admin:newUser:error", error);
+        alert("Création impossible (accès refusé ?)");
+      }
     });
-    log("admin:newUser:created", { uid });
-    loadUsers(db);
-  });
+  }
 
   loadUsers(db);
 }
 
 async function loadUsers(db) {
   const list = document.getElementById("user-list");
+  if (!list) return;
   list.innerHTML = "<div class='text-sm text-[var(--muted)]'>Chargement…</div>";
   log("admin:users:load:start");
-  const ss = await getDocs(collection(db, "u"));
-  const items = [];
-  ss.forEach(d => {
-    const data = d.data();
-    const uid = d.id;
-    // Correction ici : le lien pointe directement vers le tableau de bord de l'utilisateur
-    const link = `${location.origin}${location.pathname}#/u/${uid}/daily`;
-    items.push(`
-      <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3">
-        <div>
-          <div class="font-medium">${data.displayName || "(sans nom)"}</div>
-          <div class="text-sm text-[var(--muted)]">UID: ${uid}</div>
+  try {
+    const ss = await getDocs(collection(db, "u"));
+    const items = [];
+    ss.forEach(d => {
+      const data = d.data();
+      const uid = d.id;
+      const link = `${location.origin}${location.pathname}#/u/${uid}/daily`;
+      items.push(`
+        <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3">
+          <div>
+            <div class="font-medium">${data.displayName || "(sans nom)"}</div>
+            <div class="text-sm text-[var(--muted)]">UID: ${uid}</div>
+          </div>
+          <a class="btn btn-ghost text-sm"
+             href="${link}"
+             target="_blank"
+             rel="noopener noreferrer"
+             data-uid="${uid}">Ouvrir</a>
         </div>
-        <a class="btn btn-ghost text-sm"
-           href="${link}"
-           target="_blank"
-           rel="noopener noreferrer"
-           data-uid="${uid}">Ouvrir</a>
-      </div>
-    `);
-  });
-  list.innerHTML = items.join("") || "<div class='text-sm text-[var(--muted)]'>Aucun utilisateur</div>";
-  log("admin:users:load:done", { count: items.length });
+      `);
+    });
+    list.innerHTML = items.join("") || "<div class='text-sm text-[var(--muted)]'>Aucun utilisateur</div>";
+    log("admin:users:load:done", { count: items.length });
 
-  // Add a delegate for the click
-  list.addEventListener("click", (e) => {
-    const a = e.target.closest("a[data-uid]");
-    if (!a) return;
-    // If it's not opening in a new tab, we route locally
-    if (!a.target || a.target === "_self") {
-      e.preventDefault();
-      location.hash = `#/u/${a.dataset.uid}`;
-      // force the route without waiting for the event (useful on some browsers)
-      log("admin:users:navigate", { uid: a.dataset.uid });
-      handleRoute();
+    if (!list.dataset.bound) {
+      list.addEventListener("click", (e) => {
+        const a = e.target.closest("a[data-uid]");
+        if (!a) return;
+        if (!a.target || a.target === "_self") {
+          e.preventDefault();
+          location.hash = `#/u/${a.dataset.uid}`;
+          log("admin:users:navigate", { uid: a.dataset.uid });
+          handleRoute();
+        }
+      });
+      list.dataset.bound = "1";
     }
-  });
+  } catch (error) {
+    console.error("admin:users:load:error", error);
+    list.innerHTML = "<div class='text-sm text-red-600'>Accès refusé ou indisponible.</div>";
+  }
 }
 
 function renderUser(db, uid) {
@@ -541,7 +539,7 @@ function render() {
   root.offsetHeight;
   root.classList.add("route-enter");
 
-  const h = ctx.route || location.hash || "#/daily";
+  const h = ctx.route || location.hash || "#/admin";
   const tokens = h.replace(/^#\//, "").split("/"); // ["u","{uid}","daily?day=mon"] ou ["daily?..."]
 
   let section = tokens[0];
@@ -553,6 +551,8 @@ function render() {
     // IMPORTANT: enlever la query de 'sub'
     sub = sub.split("?")[0];
     ctx.user = { uid };
+  } else {
+    ctx.user = null;
   }
 
   // Query params (toujours depuis l'URL complète)
@@ -562,6 +562,8 @@ function render() {
   setActiveNav(currentSection);
 
   switch (currentSection) {
+    case "admin":
+      return renderAdmin(ctx.db);
     case "dashboard":
     case "daily":
       return Modes.renderDaily(ctx, root, { day: qp.get("day") });
