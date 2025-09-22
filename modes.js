@@ -153,15 +153,16 @@ function inputForType(consigne) {
     `;
   }
   if (consigne.type === "likert6") {
+    // Ordre désiré : Oui → Plutôt oui → Neutre → Plutôt non → Non → Pas de réponse
     return `
       <select name="likert6:${consigne.id}" class="w-full">
         <option value="">— choisir —</option>
-        <option value="no_answer">Pas de réponse</option>
-        <option value="no">Non</option>
-        <option value="rather_no">Plutôt non</option>
-        <option value="medium">Neutre</option>
-        <option value="rather_yes">Plutôt oui</option>
         <option value="yes">Oui</option>
+        <option value="rather_yes">Plutôt oui</option>
+        <option value="medium">Neutre</option>
+        <option value="rather_no">Plutôt non</option>
+        <option value="no">Non</option>
+        <option value="no_answer">Pas de réponse</option>
       </select>
     `;
   }
