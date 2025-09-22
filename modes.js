@@ -67,12 +67,18 @@ function pill(text) {
 function srBadge(c){
   const enabled = c?.srEnabled !== false;
   const title = enabled ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
+  const cls = enabled ? "" : "opacity-50";
   return `<button type="button"
-            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs text-[var(--muted)] js-sr-toggle"
+            class="inline-flex items-center px-2 py-0.5 rounded-full border text-xs text-[var(--muted)] js-sr-toggle ${cls}"
             data-id="${c.id}" data-enabled="${enabled ? 1 : 0}"
-            aria-pressed="${enabled}" title="${title}">
-            ⏳ ${enabled ? "Répétition espacée" : "Répétition espacée (off)"}
-          </button>`;
+            aria-pressed="${enabled}" title="${title}">⏳</button>`;
+}
+
+function prioChip(p) {
+  const n = Number(p)||2;
+  const cls = n===1 ? "prio-chip prio-high" : n===2 ? "prio-chip prio-medium" : "prio-chip prio-low";
+  const lbl = n===1 ? "Haute" : n===2 ? "Moyenne" : "Basse";
+  return `<span class="${cls}" title="Priorité ${lbl}">${lbl}</span>`;
 }
 
 function smallBtn(label, cls = "") {
@@ -247,7 +253,7 @@ export async function openConsigneForm(ctx, consigne = null) {
 
       <label class="inline-flex items-center gap-2">
         <input type="checkbox" name="srEnabled" ${consigne?.srEnabled !== false ? "checked" : ""}>
-        <span>Activer la répétition espacée</span>
+        <span>⏳ Activer la répétition espacée</span>
       </label>
 
       ${mode === "daily" ? `
@@ -414,7 +420,23 @@ export async function openHistory(ctx, consigne) {
     if (canvas) {
       const ctx2 = canvas.getContext('2d');
       const data = rows.slice().reverse();
-      const accent = (getComputedStyle(document.body).getPropertyValue('--accent-600') || '#60BFFD').trim();
+      const values = data.map((r) => {
+        if (consigne.type === 'likert6') return likertToNum(r.value);
+        if (consigne.type === 'likert5') return Number(r.value || 0);
+        if (consigne.type === 'yesno')   return r.value === 'yes' ? 1 : 0;
+        return Number(r.value || 0);
+      });
+      const mean = values.length ? values.reduce((a,b)=>a+b,0) / values.length : 0;
+
+      let color = '#60BFFD';
+      if (consigne.type === 'likert6' || consigne.type === 'likert5'){
+        color = mean < 1.5 ? '#DC2626' : (mean < 2.5 ? '#EAB308' : '#16A34A');
+      } else if (consigne.type === 'yesno'){
+        color = mean < 0.33 ? '#DC2626' : (mean < 0.66 ? '#EAB308' : '#16A34A');
+      } else {
+        color = mean < 4 ? '#DC2626' : (mean < 7 ? '#EAB308' : '#16A34A');
+      }
+
       new Chart(ctx2, {
         type: 'line',
         data: {
@@ -425,16 +447,11 @@ export async function openHistory(ctx, consigne) {
           datasets: [
             {
               label: 'Valeur',
-              data: data.map((r) => {
-                if (consigne.type === 'likert6') return likertToNum(r.value);
-                if (consigne.type === 'likert5') return Number(r.value || 0);
-                if (consigne.type === 'yesno')   return r.value === 'yes' ? 1 : 0;
-                return Number(r.value || 0);
-              }),
+              data: values,
               tension: 0.25,
               fill: false,
-              borderColor: accent,
-              backgroundColor: accent,
+              borderColor: color,
+              backgroundColor: color,
               pointRadius: 3,
               pointHoverRadius: 4
             }
@@ -575,54 +592,62 @@ export async function renderPractice(ctx, root, _opts = {}) {
   if (!visible.length) {
     form.innerHTML = `<div class="rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]">Aucune consigne visible pour cette itération.</div>`;
   } else {
-    for (const consigne of visible) {
-      const consigneCard = document.createElement("div");
-      consigneCard.className = "card p-3 space-y-3";
-      consigneCard.innerHTML = `
+    form.innerHTML = "";
+
+    const highs = visible.filter(c => (c.priority||2) <= 2);
+    const lows  = visible.filter(c => (c.priority||2) >= 3);
+
+    const makeItem = (c) => {
+      const el = document.createElement("div");
+      el.className = "card p-3 space-y-3";
+      el.innerHTML = `
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex flex-wrap items-center gap-2">
-            <h4 class="font-semibold">${escapeHtml(consigne.text)}</h4>
-            ${pill(consigne.category || "Général")}
-            ${srBadge(consigne)}
+            <h4 class="font-semibold">${escapeHtml(c.text)}</h4>
+            ${pill(c.category || "Général")}
+            ${prioChip(Number(c.priority)||2)}
+            ${srBadge(c)}
           </div>
           ${consigneActions()}
         </div>
-        ${inputForType(consigne)}
+        ${inputForType(c)}
       `;
-      form.appendChild(consigneCard);
-
-      const bH = consigneCard.querySelector(".js-histo");
-      const bE = consigneCard.querySelector(".js-edit");
-      const bD = consigneCard.querySelector(".js-del");
-      bH.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        Schema.D.info("ui.history.click", consigne.id);
-        openHistory(ctx, consigne);
-      };
-      bE.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        Schema.D.info("ui.editConsigne.click", consigne.id);
-        openConsigneForm(ctx, consigne);
-      };
+      const bH = el.querySelector(".js-histo");
+      const bE = el.querySelector(".js-edit");
+      const bD = el.querySelector(".js-del");
+      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c); };
+      bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
       bD.onclick = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         if (confirm("Supprimer cette consigne ? (historique conservé)")) {
-          Schema.D.info("ui.deleteConsigne.confirm", consigne.id);
-          await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, consigne.id);
+          Schema.D.info("ui.deleteConsigne.confirm", c.id);
+          await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, c.id);
           renderPractice(ctx, root);
         }
       };
-      const srT = consigneCard.querySelector(".js-sr-toggle");
+      const srT = el.querySelector(".js-sr-toggle");
       if (srT) srT.onclick = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         const on = srT.getAttribute("data-enabled") === "1";
-        await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, { srEnabled: !on });
-        renderPractice(ctx, root);
+        await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { srEnabled: !on });
+        srT.setAttribute("data-enabled", on ? "0" : "1");
+        srT.setAttribute("aria-pressed", (!on).toString());
+        srT.title = (!on) ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
+        srT.classList.toggle("opacity-50", on);
       };
+      return el;
+    };
+
+    highs.forEach(c => form.appendChild(makeItem(c)));
+
+    if (lows.length){
+      const det = document.createElement("details");
+      det.className = "rounded-xl border border-gray-200 bg-white";
+      det.innerHTML = `<summary class="px-3 py-2 cursor-pointer select-none">Priorité basse (${lows.length})</summary>`;
+      const box = document.createElement("div"); box.className = "p-3 space-y-3";
+      lows.forEach(c => box.appendChild(makeItem(c)));
+      det.appendChild(box);
+      form.appendChild(det);
     }
   }
 
@@ -780,12 +805,6 @@ export async function renderDaily(ctx, root, opts = {}) {
   }
   Object.values(catGroups).forEach((list) => list.sort((a, b) => (a.priority || 2) - (b.priority || 2)));
 
-  const prioChip = (p) => {
-    const cls = p === 1 ? "prio-chip prio-high" : p === 2 ? "prio-chip prio-medium" : "prio-chip prio-low";
-    const lbl = p === 1 ? "Haute" : p === 2 ? "Moyenne" : "Basse";
-    return `<span class="${cls}" title="Priorité ${lbl}">${lbl}</span>`;
-  };
-
   const renderItemCard = (item) => {
     const itemCard = document.createElement("div");
     itemCard.className = "card p-3 space-y-3";
@@ -820,7 +839,10 @@ export async function renderDaily(ctx, root, opts = {}) {
       e.stopPropagation();
       const on = srT.getAttribute("data-enabled") === "1";
       await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { srEnabled: !on });
-      renderDaily(ctx, root, { day: currentDay });
+      srT.setAttribute("data-enabled", on ? "0" : "1");
+      srT.setAttribute("aria-pressed", (!on).toString());
+      srT.title = (!on) ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
+      srT.classList.toggle("opacity-50", on);
     };
 
     return itemCard;
