@@ -34,8 +34,7 @@ export const ctx = {
 async function refreshUserBadge(uid) {
   const el = document.querySelector("[data-username]");
   if (!el) return;
-  const currentHash = ctx.route || location.hash || "#/admin";
-  const { segments } = parseHash(currentHash);
+  const { segments } = parseHash(ctx.route || location.hash || "#/admin");
   const routeKey = segments[0] || "admin";
   const isAdminRoute = routeKey === "admin";
 
@@ -474,7 +473,7 @@ export function renderAdmin(db) {
         loadUsers(db);
       } catch (error) {
         console.error("admin:newUser:error", error);
-        alert("Création impossible (accès refusé ?)");
+        alert("Création impossible. Réessaie plus tard.");
       }
     });
   }
@@ -526,12 +525,7 @@ async function loadUsers(db) {
     }
   } catch (error) {
     console.warn("admin:users:load:error", error);
-    list.innerHTML = [
-      "<div class='space-y-2 text-sm text-red-600'>",
-      "  <div>Accès refusé. Ajoute ton UID dans <code>/admins/{uid}</code> depuis la console Firebase.</div>",
-      "  <div class='text-xs text-[var(--muted)]'>Authentication → Users pour récupérer l’UID actuel.</div>",
-      "</div>"
-    ].join("");
+    list.innerHTML = "<div class='text-sm text-red-600'>Impossible de charger les utilisateurs.</div>";
   }
 }
 
