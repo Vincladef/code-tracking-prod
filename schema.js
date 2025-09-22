@@ -34,7 +34,7 @@ export const todayKey = (d = new Date()) => d.toISOString().slice(0,10); // YYYY
 
 export const PRIORITIES = ["high","medium","low"];
 export const MODES = ["daily","practice"];
-export const TYPES = ["short","long","likert6","num"];
+export const TYPES = ["short","long","likert6","likert5","yesno","num"];
 
 export const LIKERT = ["no_answer","no","rather_no","medium","rather_yes","yes"];
 export const LIKERT_POINTS = {
@@ -147,7 +147,9 @@ export function nextCooldownAfterAnswer(meta, prevState, value) {
   // meta.mode === "daily" | "practice", meta.type (likert6/num/short/long)
   let inc = 0;
   if (meta.type === "likert6") inc = likertScore(value);
-  else if (meta.type === "num") inc = Number(value) >= 7 ? 1 : (Number(value) >= 5 ? 0.5 : 0); // simple
+  else if (meta.type === "likert5") inc = Number(value) >= 3 ? 1 : (Number(value) === 2 ? 0.5 : 0);
+  else if (meta.type === "yesno")   inc = (value === "yes") ? 1 : 0;
+  else if (meta.type === "num")     inc = Number(value) >= 7 ? 1 : (Number(value) >= 5 ? 0.5 : 0); // simple
   else inc = 1; // texte => on considère “ok”
 
   let streak = (prevState?.streak || 0);
@@ -287,6 +289,8 @@ export async function fetchResponsesForConsigne(db, uid, consigneId, limitCount 
 
 export function valueToNumericPoint(type, value) {
   if (type === "likert6") return LIKERT_POINTS[value] ?? 0;
+  if (type === "likert5") return Number(value) || 0;  // 0..4
+  if (type === "yesno")   return value === "yes" ? 1 : 0;
   if (type === "num") return Number(value) || 0;
   return null; // pour short/long -> pas de graph
 }
