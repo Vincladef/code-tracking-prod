@@ -1,8 +1,8 @@
 // app.js — bootstrapping, routing, context, nav
 import {
-  getFirestore, doc, setDoc, getDoc, collection, query, where, orderBy, limit, getDocs, collectionGroup
+  getFirestore, doc, setDoc, getDoc, collection, query, where, orderBy, limit, getDocs
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getMessaging, getToken, onMessage, isSupported
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
@@ -10,9 +10,12 @@ import * as Schema from "./schema.js";
 import * as Modes from "./modes.js";
 import * as Goals from "./goals.js";
 
-// --- logger ---
-const LOG = false;
+// --- feature flags & logger ---
+const ENABLE_ADMIN = false;
+const DEBUG = false;
+const LOG = DEBUG;
 const L = Schema.D;
+L.on = DEBUG;
 const log = (...args) => { if (LOG) console.debug("[app]", ...args); };
 function logStep(step, data) {
   L.group(step);
@@ -53,6 +56,42 @@ function $$(sel) {
   return Array.from(document.querySelectorAll(sel));
 }
 
+function getAuthInstance() {
+  return ctx.app ? getAuth(ctx.app) : getAuth();
+}
+
+let authInitPromise = null;
+let signInPromise = null;
+
+async function ensureSignedIn() {
+  const auth = getAuthInstance();
+  if (auth.currentUser) return auth.currentUser;
+
+  if (!authInitPromise) {
+    authInitPromise = new Promise((resolve) => {
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        unsubscribe();
+        resolve(user);
+      });
+    }).finally(() => {
+      authInitPromise = null;
+    });
+  }
+
+  const existing = await authInitPromise;
+  if (existing) return existing;
+
+  if (!signInPromise) {
+    signInPromise = signInAnonymously(auth)
+      .then((cred) => cred.user)
+      .finally(() => {
+        signInPromise = null;
+      });
+  }
+
+  return signInPromise;
+}
+
 function routeTo(hash) {
   // hash like "#/daily", "#/practice?new=1", etc.
   if (!hash) hash = "#/daily";
@@ -83,8 +122,10 @@ function setActiveNav(sectionKey) {
     daily: "#/daily",
     practice: "#/practice",
     goals: "#/goals",
-    admin: "#/admin"
   };
+  if (ENABLE_ADMIN) {
+    map.admin = "#/admin";
+  }
   const activeTarget = map[sectionKey] || "#/daily";
   const accentSection = map[sectionKey] ? sectionKey : "daily";
 
@@ -96,10 +137,15 @@ function setActiveNav(sectionKey) {
     btn.setAttribute("aria-current", isActive ? "page" : "false");
   });
 
-  // Cacher Admin si on navigue dans /u/{uid}/...
-  const isUserURL = /^#\/u\/[^/]+/.test(location.hash || ctx.route);
   const adminBtn = document.querySelector('button[data-route="#/admin"]');
-  if (adminBtn) adminBtn.style.display = isUserURL ? "none" : "";
+  if (adminBtn) {
+    if (!ENABLE_ADMIN) {
+      adminBtn.style.display = "none";
+    } else {
+      const isUserURL = /^#\/u\/[^/]+/.test(location.hash || ctx.route);
+      adminBtn.style.display = isUserURL ? "none" : "";
+    }
+  }
 }
 
 function parseHash(hashValue) {
@@ -172,11 +218,12 @@ function bindNav() {
 }
 
 async function enforceAdminView() {
-  const auth = ctx.app ? getAuth(ctx.app) : getAuth();
+  if (!ENABLE_ADMIN) return false;
+
+  const auth = getAuthInstance();
   const currentUid = auth?.currentUser?.uid;
   const isAdmin = await Schema.isAdmin(ctx.db, currentUid);
   if (!isAdmin) {
-    console.info("[Admin] accès refusé (non admin) → redirige vers /daily");
     const target = currentUid ? `#/u/${currentUid}/daily` : "#/daily";
     if (location.hash !== target) {
       location.hash = target;
@@ -187,37 +234,91 @@ async function enforceAdminView() {
   return true;
 }
 
+function redirectToDefaultSection(searchPart = "") {
+  const fallback = `#/daily${searchPart ? `?${searchPart}` : ""}`;
+  if (location.hash !== fallback) {
+    location.replace(fallback);
+  }
+}
+
+async function ensureOwnRoute(parsed) {
+  let desired = parsed.segments[0] || "daily";
+  if (!desired || desired === "admin") desired = "daily";
+  const searchPart = parsed.search ? `?${parsed.search}` : "";
+
+  let user;
+  try {
+    user = await ensureSignedIn();
+  } catch (error) {
+    if (DEBUG) console.warn("[Auth] anonymous sign-in failed", error);
+  }
+
+  if (!user || !user.uid) {
+    redirectToDefaultSection(parsed.search);
+    return;
+  }
+
+  const target = `#/u/${user.uid}/${desired}${searchPart}`;
+  if (location.hash !== target) {
+    location.replace(target);
+  } else if (!ctx.user || ctx.user.uid !== user.uid) {
+    await initApp({
+      app: ctx.app,
+      db: ctx.db,
+      user: { uid: user.uid }
+    });
+  }
+}
+
 // --- Router global (admin <-> user) ---
 async function handleRoute() {
-  const parsed = parseHash(location.hash || "#/admin");
+  const defaultRoute = ENABLE_ADMIN ? "#/admin" : "#/daily";
+  const parsed = parseHash(location.hash || defaultRoute);
   log("handleRoute", parsed);
-  if (parsed.segments[0] === "u") {
+
+  const routeName = parsed.segments[0] || "daily";
+
+  if (routeName === "admin" && !ENABLE_ADMIN) {
+    redirectToDefaultSection(parsed.search);
+    return;
+  }
+
+  if (routeName === "admin") {
+    await enforceAdminView();
+    return;
+  }
+
+  if (routeName === "u") {
     const uid = parsed.segments[1];
     const section = parsed.segments[2];
 
     if (!uid) {
-      log("handleRoute:missingUid");
-      location.hash = "#/admin";
+      redirectToDefaultSection(parsed.search);
       return;
     }
 
     if (!section) {
-      const target = `#/u/${uid}/daily`;
-      log("handleRoute:normalize", { target });
+      const searchPart = parsed.search ? `?${parsed.search}` : "";
+      const target = `#/u/${uid}/daily${searchPart}`;
       location.replace(target);
       return;
     }
 
-    initApp({
+    if (ctx.user?.uid === uid) {
+      return;
+    }
+
+    await initApp({
       app: ctx.app,
       db: ctx.db,
       user: {
         uid
       }
     });
-  } else {
-    await enforceAdminView();
+    return;
   }
+
+  await ensureOwnRoute(parsed);
 }
 
 export function startRouter(app, db) {
@@ -470,9 +571,6 @@ function render() {
       return Modes.renderHistory(ctx, root);
     case "goals":
       return Goals.renderGoals(ctx, root);
-    case "admin":
-      enforceAdminView();
-      return;
     default:
       root.innerHTML = "<div class='card'>Page inconnue.</div>";
   }

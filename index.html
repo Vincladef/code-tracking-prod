@@ -115,6 +115,9 @@
     .goal-input{ width:100%; }
     .goal-actions{ display:flex; justify-content:flex-end; gap:.5rem; }
     .goal-list{ margin-top:.5rem; padding-left:1.25rem; display:grid; gap:.35rem; list-style:disc; }
+
+    /* Masque l'onglet Admin s'il restait dans le DOM */
+    button[data-route="#/admin"] { display: none !important; }
   </style>
 </head>
 <body class="min-h-screen">
