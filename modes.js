@@ -72,6 +72,10 @@ function navigate(hash) {
   else window.location.hash = hash;
 }
 
+function toAppPath(h) {
+  return h.replace(/^#\/u\/[^/]+\//, "#/");
+}
+
 async function categorySelect(ctx, mode, currentName = "") {
   const cats = await Schema.fetchCategories(ctx.db, ctx.user.uid);
   const names = cats.filter(c => c.mode === mode).map(c => c.name);
@@ -299,9 +303,13 @@ export async function openHistory(ctx, consigne) {
       const formatted = formatValue(consigne.type, r.value);
       const status = dotColor(consigne.type, r.value);
       return `
-    <li class="flex items-center justify-between gap-3 py-2">
-      <span class="text-sm text-[var(--muted)]">${escapeHtml(date)}</span>
-      <span class="flex items-center gap-2 text-sm font-medium">${dotHTML(status)} <span>${escapeHtml(formatted)}</span></span>
+    <li class="py-2">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-3">
+        <span class="text-xs sm:text-sm text-[var(--muted)]">${escapeHtml(date)}</span>
+        <span class="flex items-center gap-2 text-sm font-medium break-words">
+          ${dotHTML(status)} <span>${escapeHtml(formatted)}</span>
+        </span>
+      </div>
     </li>
   `;
     })
@@ -437,7 +445,7 @@ export async function renderPractice(ctx, root, _opts = {}) {
   selector.onchange = (e) => {
     const value = e.target.value;
     const base = currentHash.split("?")[0];
-    navigate(`${base}?cat=${encodeURIComponent(value)}`);
+    navigate(`${toAppPath(base)}?cat=${encodeURIComponent(value)}`);
   };
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
 
@@ -529,7 +537,7 @@ export async function renderDaily(ctx, root, opts = {}) {
   card.querySelectorAll("[data-day]").forEach((btn) => {
     btn.onclick = () => {
       const base = currentHash.split("?")[0];
-      navigate(`${base}?day=${btn.dataset.day}`);
+      navigate(`${toAppPath(base)}?day=${btn.dataset.day}`);
     };
   });
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
