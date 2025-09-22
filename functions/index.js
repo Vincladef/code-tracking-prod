@@ -166,11 +166,8 @@ async function countVisibleConsignes(uid, context) {
 async function sendReminder(uid, tokens, visibleCount, context) {
   if (!tokens.length) return { successCount: 0, failureCount: 0, responses: [] };
 
-  const title = "Rappel quotidien";
-  const body =
-    visibleCount > 1
-      ? `Tu as ${visibleCount} consignes à remplir aujourd’hui.`
-      : `Tu as ${visibleCount} consigne à remplir aujourd’hui.`;
+  const title = "Rappel du jour 👋";
+  const body = `Tu as ${visibleCount} consigne(s) à remplir aujourd’hui.`;
 
   const message = {
     tokens,
