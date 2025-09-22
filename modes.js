@@ -2,6 +2,8 @@
 import { collection, query, where, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import * as Schema from "./schema.js";
 
+const L = Schema.D;
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -63,7 +65,7 @@ function pill(text) {
 }
 
 function smallBtn(label, cls = "") {
-  return `<button class="btn btn-ghost text-sm ${cls}">${label}</button>`;
+  return `<button type="button" class="btn btn-ghost text-sm ${cls}">${label}</button>`;
 }
 
 function navigate(hash) {
@@ -166,6 +168,7 @@ function collectAnswers(form, consignes) {
 
 export async function openConsigneForm(ctx, consigne = null) {
   const mode = consigne?.mode || (ctx.route.includes("/practice") ? "practice" : "daily");
+  L.group("ui.consigneForm.open", { mode, consigneId: consigne?.id || null });
   const catUI = await categorySelect(ctx, mode, consigne?.category || null);
   const priority = Number(consigne?.priority ?? 2);
   const html = `
@@ -230,39 +233,49 @@ export async function openConsigneForm(ctx, consigne = null) {
     </form>
   `;
   const m = modal(html);
+  L.groupEnd();
   $("#cancel", m).onclick = () => m.remove();
 
   $("#consigne-form", m).onsubmit = async (e) => {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const cat = (fd.get("categoryInput") || "").trim();
-    if (!cat) return alert("Choisis (ou saisis) une catégorie.");
+    L.group("ui.consigneForm.submit");
+    try {
+      const fd = new FormData(e.currentTarget);
+      const cat = (fd.get("categoryInput") || "").trim();
+      if (!cat) {
+        alert("Choisis (ou saisis) une catégorie.");
+        return;
+      }
 
-    await Schema.ensureCategory(ctx.db, ctx.user.uid, cat, mode);
+      await Schema.ensureCategory(ctx.db, ctx.user.uid, cat, mode);
 
-    const payload = {
-      ownerUid: ctx.user.uid,
-      mode,
-      text: fd.get("text").trim(),
-      type: fd.get("type"),
-      category: cat,
-      priority: Number(fd.get("priority") || 2),
-      srEnabled: fd.get("srEnabled") !== null,
-      active: true
-    };
-    if (mode === "daily") {
-      payload.days = $$("input[name=days]:checked", m).map((input) => input.value);
+      const payload = {
+        ownerUid: ctx.user.uid,
+        mode,
+        text: fd.get("text").trim(),
+        type: fd.get("type"),
+        category: cat,
+        priority: Number(fd.get("priority") || 2),
+        srEnabled: fd.get("srEnabled") !== null,
+        active: true
+      };
+      if (mode === "daily") {
+        payload.days = $$("input[name=days]:checked", m).map((input) => input.value);
+      }
+      L.info("payload", payload);
+
+      if (consigne) {
+        await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, payload);
+      } else {
+        await Schema.addConsigne(ctx.db, ctx.user.uid, payload);
+      }
+      m.remove();
+      const root = document.getElementById("view-root");
+      if (mode === "practice") renderPractice(ctx, root);
+      else renderDaily(ctx, root);
+    } finally {
+      L.groupEnd();
     }
-
-    if (consigne) {
-      await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, payload);
-    } else {
-      await Schema.addConsigne(ctx.db, ctx.user.uid, payload);
-    }
-    m.remove();
-    const root = document.getElementById("view-root");
-    if (mode === "practice") renderPractice(ctx, root);
-    else renderDaily(ctx, root);
   };
 }
 
@@ -287,6 +300,7 @@ function dotHTML(kind){
 }
 
 export async function openHistory(ctx, consigne) {
+  L.group("ui.history.open", { consigneId: consigne.id, type: consigne.type });
   const qy = query(
     collection(ctx.db, `u/${ctx.user.uid}/responses`),
     where("consigneId", "==", consigne.id),
@@ -294,6 +308,7 @@ export async function openHistory(ctx, consigne) {
     limit(60)
   );
   const ss = await getDocs(qy);
+  L.info("ui.history.rows", ss.size);
   const rows = ss.docs.map((d) => ({ id: d.id, ...d.data() }));
 
   const list = rows
@@ -331,6 +346,7 @@ export async function openHistory(ctx, consigne) {
   panel.querySelector('[data-close]')?.addEventListener('click', () => panel.remove());
 
   if (canGraph && window.Chart) {
+    L.info("ui.history.chart", { points: rows.length });
     const canvas = panel.querySelector('#histoChart');
     if (canvas) {
       const ctx2 = canvas.getContext('2d');
@@ -374,7 +390,11 @@ export async function openHistory(ctx, consigne) {
         }
       });
     }
+  } else {
+    L.info("ui.history.chart.skip", { canGraph, hasChart: !!window.Chart });
   }
+
+  L.groupEnd();
 
   function formatValue(type, v) {
     if (type === 'likert6') {
@@ -406,6 +426,7 @@ export async function openHistory(ctx, consigne) {
 }
 
 export async function renderPractice(ctx, root, _opts = {}) {
+  L.group("screen.practice.render", { hash: ctx.route });
   root.innerHTML = "";
   const container = document.createElement("div");
   container.className = "space-y-4";
@@ -451,6 +472,7 @@ export async function renderPractice(ctx, root, _opts = {}) {
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "practice");
   const consignes = all.filter((c) => !currentCat || c.category === currentCat);
+  L.info("screen.practice.consignes", consignes.length);
 
   const form = card.querySelector("#practice-form");
   if (!consignes.length) {
@@ -471,10 +493,26 @@ export async function renderPractice(ctx, root, _opts = {}) {
       `;
       form.appendChild(consigneCard);
 
-      consigneCard.querySelector(".js-histo").onclick = () => openHistory(ctx, consigne);
-      consigneCard.querySelector(".js-edit").onclick = () => openConsigneForm(ctx, consigne);
-      consigneCard.querySelector(".js-del").onclick = async () => {
+      const bH = consigneCard.querySelector(".js-histo");
+      const bE = consigneCard.querySelector(".js-edit");
+      const bD = consigneCard.querySelector(".js-del");
+      bH.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        Schema.D.info("ui.history.click", consigne.id);
+        openHistory(ctx, consigne);
+      };
+      bE.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        Schema.D.info("ui.editConsigne.click", consigne.id);
+        openConsigneForm(ctx, consigne);
+      };
+      bD.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         if (confirm("Supprimer cette consigne ? (historique conservé)")) {
+          Schema.D.info("ui.deleteConsigne.confirm", consigne.id);
           await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, consigne.id);
           renderPractice(ctx, root);
         }
@@ -502,6 +540,7 @@ export async function renderPractice(ctx, root, _opts = {}) {
     });
     $$("input[type=radio]", form).forEach((input) => (input.checked = false));
   };
+  L.groupEnd();
 }
 
 export async function renderDaily(ctx, root, opts = {}) {
@@ -516,6 +555,7 @@ export async function renderDaily(ctx, root, opts = {}) {
   const todayIdx = (new Date().getDay() + 6) % 7;
   const requested = normalizeDay(opts.day) || normalizeDay(qp.get("day"));
   const currentDay = requested || jours[todayIdx];
+  L.group("screen.daily.render", { hash: ctx.route, day: currentDay });
 
   const card = document.createElement("section");
   card.className = "card p-4 space-y-4";
@@ -544,6 +584,7 @@ export async function renderDaily(ctx, root, opts = {}) {
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
   const consignes = all.filter((c) => !c.days?.length || c.days.includes(currentDay));
+  L.info("screen.daily.consignes", consignes.length);
 
   const byPriority = { 1: [], 2: [], 3: [] };
   for (const consigne of consignes) {
@@ -586,10 +627,26 @@ export async function renderDaily(ctx, root, opts = {}) {
         `;
         stack.appendChild(itemCard);
 
-        itemCard.querySelector(".js-histo").onclick = () => openHistory(ctx, item);
-        itemCard.querySelector(".js-edit").onclick = () => openConsigneForm(ctx, item);
-        itemCard.querySelector(".js-del").onclick = async () => {
+        const bH = itemCard.querySelector(".js-histo");
+        const bE = itemCard.querySelector(".js-edit");
+        const bD = itemCard.querySelector(".js-del");
+        bH.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          Schema.D.info("ui.history.click", item.id);
+          openHistory(ctx, item);
+        };
+        bE.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          Schema.D.info("ui.editConsigne.click", item.id);
+          openConsigneForm(ctx, item);
+        };
+        bD.onclick = async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
           if (confirm("Supprimer cette consigne ? (historique conservé)")) {
+            Schema.D.info("ui.deleteConsigne.confirm", item.id);
             await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, item.id);
             renderDaily(ctx, root, { day: currentDay });
           }
@@ -648,6 +705,8 @@ export async function renderDaily(ctx, root, opts = {}) {
     });
     $$("input[type=radio]", form).forEach((input) => (input.checked = false));
   };
+
+  L.groupEnd();
 }
 
 export function renderHistory() {}
