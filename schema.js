@@ -162,12 +162,12 @@ export async function upsertSRState(db, uid, itemId, key, state) {
 export async function savePushToken(db, uid, token, extra = {}) {
   await setDoc(docIn(db, uid, "pushTokens", token), {
     token,
+    enabled: true,
     ua: navigator.userAgent || "",
     platform: navigator.platform || "",
-    enabled: true,
-    ...extra,
     updatedAt: serverTimestamp(),
     createdAt: serverTimestamp(),
+    ...extra
   }, { merge: true });
 }
 

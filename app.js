@@ -247,8 +247,8 @@ async function ensurePushSubscription(ctx) {
   // 5) Réception en foreground
   onMessage(messaging, (payload) => {
     try {
-      new Notification(payload.notification?.title || "Rappel", {
-        body: payload.notification?.body || "Tu as des consignes à remplir aujourd’hui.",
+      new Notification(payload?.notification?.title || "Rappel", {
+        body: payload?.notification?.body || "Tu as des consignes à remplir aujourd’hui.",
         icon: "/icon.png"
       });
     } catch {}
@@ -290,7 +290,7 @@ export async function initApp({ app, db, user }) {
     log("app:init:hashchange", { route: ctx.route });
     render();
   });
-  render();
+  await render();
   // 👉 Inscription (silencieuse si refus/unsupported)
   ensurePushSubscription(ctx).catch(console.error);
   log("app:init:rendered");
