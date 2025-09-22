@@ -165,14 +165,15 @@ export function likertScore(v) {
 
 // calcule la prochaine “masque” (journalier=jours, pratique=sessions)
 export function nextCooldownAfterAnswer(meta, prevState, value) {
-  // inc: yes = 1 ; rather_yes = 0.5 ; autres = 0 (strict)
+  // strict : yes=1 ; rather_yes=0.5 ; neutre/plutôt_non/non/no_answer = 0 (reset)
   let inc = 0;
   if (meta.type === "likert6") inc = likertScore(value);
   else if (meta.type === "likert5") inc = Number(value) >= 3 ? 1 : (Number(value) === 2 ? 0.5 : 0);
   else if (meta.type === "yesno") inc = (value === "yes") ? 1 : 0;
   else if (meta.type === "num") inc = Number(value) >= 7 ? 1 : (Number(value) >= 5 ? 0.5 : 0);
-  else inc = 1; // short/long : ok
+  else inc = 1;
 
+  // streak strict
   let streak = (prevState?.streak || 0);
   streak = inc > 0 ? (streak + inc) : 0;
 
@@ -182,11 +183,19 @@ export function nextCooldownAfterAnswer(meta, prevState, value) {
     return { streak, nextVisibleOn };
   } else {
     const steps = Math.floor(streak); // nb d'itérations à SAUTER
-    const base = meta.sessionIndex != null ? (meta.sessionIndex + 1) : (prevState?.nextAllowedIndex || 0);
-    const prevAllowed = prevState?.nextAllowedIndex || 0;
-    const nextAllowedIndex = Math.max(prevAllowed, base) + steps;
+    const base  = (meta.sessionIndex ?? 0) + 1; // prochaine itération immédiate
+    const nextAllowedIndex = base + steps;      // base + nb à sauter
     return { streak, nextAllowedIndex };
   }
+}
+
+export async function resetSRForConsigne(db, uid, consigneId) {
+  const today = new Date().toISOString();
+  await upsertSRState(db, uid, consigneId, "consigne", {
+    streak: 0,
+    nextAllowedIndex: 0,
+    nextVisibleOn: today
+  });
 }
 
 // answers: [{ consigne, value, sessionId? }]

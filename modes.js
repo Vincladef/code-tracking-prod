@@ -65,8 +65,14 @@ function pill(text) {
 }
 
 function srBadge(c){
-  return c?.srEnabled === false ? "" :
-    `<span class="px-2 py-0.5 rounded-full border text-xs text-[var(--muted)]">⏳ SR</span>`;
+  const enabled = c?.srEnabled !== false;
+  const title = enabled ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
+  return `<button type="button"
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs text-[var(--muted)] js-sr-toggle"
+            data-id="${c.id}" data-enabled="${enabled ? 1 : 0}"
+            aria-pressed="${enabled}" title="${title}">
+            ⏳ ${enabled ? "Répétition espacée" : "Répétition espacée (off)"}
+          </button>`;
 }
 
 function smallBtn(label, cls = "") {
@@ -140,44 +146,38 @@ function inputForType(consigne) {
       <script>(()=>{const r=document.currentScript.previousElementSibling.previousElementSibling;const o=document.currentScript.previousElementSibling;if(r){r.addEventListener('input',()=>{o.textContent=r.value;});}})();</script>
     `;
   }
-  if (consigne.type === "likert5") {
-    // 0 1 2 3 4
-    const items = [0, 1, 2, 3, 4];
+  if (consigne.type === "likert6") {
     return `
-      <div class="flex flex-wrap gap-4">
-        ${items.map((v) => `
-          <label class="inline-flex items-center gap-2">
-            <input type="radio" name="likert5:${consigne.id}" value="${v}">
-            <span>${v}</span>
-          </label>`).join("")}
-      </div>
+      <select name="likert6:${consigne.id}" class="w-full">
+        <option value="">— choisir —</option>
+        <option value="no_answer">Pas de réponse</option>
+        <option value="no">Non</option>
+        <option value="rather_no">Plutôt non</option>
+        <option value="medium">Neutre</option>
+        <option value="rather_yes">Plutôt oui</option>
+        <option value="yes">Oui</option>
+      </select>
+    `;
+  }
+  if (consigne.type === "likert5") {
+    return `
+      <select name="likert5:${consigne.id}" class="w-full">
+        <option value="">— choisir —</option>
+        <option value="0">0</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+      </select>
     `;
   }
   if (consigne.type === "yesno") {
     return `
-      <div class="flex flex-wrap gap-4">
-        <label class="inline-flex items-center gap-2"><input type="radio" name="yesno:${consigne.id}" value="yes"><span>Oui</span></label>
-        <label class="inline-flex items-center gap-2"><input type="radio" name="yesno:${consigne.id}" value="no"><span>Non</span></label>
-      </div>
-    `;
-  }
-  if (consigne.type === "likert6") {
-    const items = [
-      ["no_answer", "Pas de réponse"],
-      ["no", "Non"],
-      ["rather_no", "Plutôt non"],
-      ["medium", "Neutre"],
-      ["rather_yes", "Plutôt oui"],
-      ["yes", "Oui"],
-    ];
-    return `
-      <div class="flex flex-wrap gap-4">
-        ${items.map(([value, label]) => `
-          <label class="inline-flex items-center gap-2">
-            <input type="radio" name="likert6:${consigne.id}" value="${value}">
-            <span>${label}</span>
-          </label>`).join("")}
-      </div>
+      <select name="yesno:${consigne.id}" class="w-full">
+        <option value="">— choisir —</option>
+        <option value="yes">Oui</option>
+        <option value="no">Non</option>
+      </select>
     `;
   }
   return "";
@@ -196,13 +196,13 @@ function collectAnswers(form, consignes) {
       const val = form.querySelector(`[name="num:${consigne.id}"]`)?.value;
       if (val) answers.push({ consigne, value: Number(val) });
     } else if (consigne.type === "likert5") {
-      const val = form.querySelector(`[name="likert5:${consigne.id}"]:checked`)?.value;
-      if (val !== undefined) answers.push({ consigne, value: Number(val) });
+      const val = form.querySelector(`[name="likert5:${consigne.id}"]`)?.value;
+      if (val !== "" && val != null) answers.push({ consigne, value: Number(val) });
     } else if (consigne.type === "yesno") {
-      const val = form.querySelector(`[name="yesno:${consigne.id}"]:checked`)?.value;
+      const val = form.querySelector(`[name="yesno:${consigne.id}"]`)?.value;
       if (val) answers.push({ consigne, value: val });
-    } else {
-      const val = form.querySelector(`[name="likert6:${consigne.id}"]:checked`)?.value;
+    } else if (consigne.type === "likert6") {
+      const val = form.querySelector(`[name="likert6:${consigne.id}"]`)?.value;
       if (val) answers.push({ consigne, value: val });
     }
   }
@@ -503,17 +503,28 @@ export async function renderPractice(ctx, root, _opts = {}) {
   root.appendChild(container);
 
   const currentHash = ctx.route || window.location.hash || "#/practice";
-  const qp = new URLSearchParams(currentHash.split("?")[1] || "");
-  const currentCat = qp.get("cat") || "";
-
   const cats = (await Schema.fetchCategories(ctx.db, ctx.user.uid)).filter((c) => c.mode === "practice");
-  const catOptions = [
-    `<option value="">Toutes les catégories</option>`,
-    ...cats.map(
+  const qp  = new URLSearchParams(currentHash.split("?")[1] || "");
+  let currentCat = qp.get("cat") || (cats[0]?.name || "");
+
+  if (!currentCat && cats.length) {
+    const base = (ctx.route || "#/practice").split("?")[0];
+    navigate(`${toAppPath(base)}?cat=${encodeURIComponent(cats[0].name)}`);
+    return;
+  }
+
+  if (currentCat && cats.length && !cats.some((c) => c.name === currentCat)) {
+    const base = (ctx.route || "#/practice").split("?")[0];
+    navigate(`${toAppPath(base)}?cat=${encodeURIComponent(cats[0].name)}`);
+    return;
+  }
+
+  const catOptions = cats
+    .map(
       (c) =>
         `<option value="${escapeHtml(c.name)}" ${c.name === currentCat ? "selected" : ""}>${escapeHtml(c.name)}</option>`
     )
-  ].join("");
+    .join("");
 
   const card = document.createElement("section");
   card.className = "card p-4 space-y-4";
@@ -533,15 +544,18 @@ export async function renderPractice(ctx, root, _opts = {}) {
   container.appendChild(card);
 
   const selector = card.querySelector("#practice-cat");
-  selector.onchange = (e) => {
-    const value = e.target.value;
-    const base = currentHash.split("?")[0];
-    navigate(`${toAppPath(base)}?cat=${encodeURIComponent(value)}`);
-  };
+  if (selector) {
+    selector.disabled = !cats.length;
+    selector.onchange = (e) => {
+      const value = e.target.value;
+      const base = currentHash.split("?")[0];
+      navigate(`${toAppPath(base)}?cat=${encodeURIComponent(value)}`);
+    };
+  }
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "practice");
-  const consignes = all.filter((c) => !currentCat || c.category === currentCat);
+  const consignes = all.filter((c) => (c.category || "") === currentCat);
   L.info("screen.practice.consignes", consignes.length);
 
   const sessionIndex = await Schema.countPracticeSessions(ctx.db, ctx.user.uid);
@@ -601,6 +615,14 @@ export async function renderPractice(ctx, root, _opts = {}) {
           renderPractice(ctx, root);
         }
       };
+      const srT = consigneCard.querySelector(".js-sr-toggle");
+      if (srT) srT.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const on = srT.getAttribute("data-enabled") === "1";
+        await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, { srEnabled: !on });
+        renderPractice(ctx, root);
+      };
     }
   }
 
@@ -608,38 +630,57 @@ export async function renderPractice(ctx, root, _opts = {}) {
     const box = document.createElement("div");
     box.className = "card p-3 space-y-2";
     box.innerHTML = `<div class="font-medium">Masquées par répétition espacée (${hidden.length})</div>
-  <ul class="text-sm text-[var(--muted)] list-disc pl-5">
-    ${hidden.map(h => `<li><span class="font-medium text-slate-600">${escapeHtml(h.c.text)}</span> — revient dans ${h.remaining} itération(s)</li>`).join("")}
+  <ul class="text-sm text-[var(--muted)] space-y-1">
+    ${hidden.map(h => `
+      <li class="flex items-center justify-between gap-2">
+        <span><span class="font-medium text-slate-600">${escapeHtml(h.c.text)}</span> — revient dans ${h.remaining} itération(s)</span>
+        <span class="flex items-center gap-1">
+          <button type="button" class="btn btn-ghost text-xs js-histo-hidden" data-id="${h.c.id}">Historique</button>
+          <button type="button" class="btn btn-ghost text-xs js-reset-sr" data-id="${h.c.id}">Réinitialiser</button>
+        </span>
+      </li>`).join("")}
   </ul>`;
     container.appendChild(box);
+
+    box.addEventListener("click", async (e) => {
+      const id = e.target?.dataset?.id;
+      if (!id) return;
+      if (e.target.classList.contains("js-histo-hidden")) {
+        const c = hidden.find((x) => x.c.id === id)?.c;
+        if (c) openHistory(ctx, c);
+      } else if (e.target.classList.contains("js-reset-sr")) {
+        await Schema.resetSRForConsigne(ctx.db, ctx.user.uid, id);
+        renderPractice(ctx, root);
+      }
+    });
   }
 
   const saveBtn = card.querySelector("#save");
   saveBtn.onclick = async (e) => {
     e.preventDefault();
     const answers = collectAnswers(form, visible);
-    if (!answers.length) {
-      alert("Aucune réponse");
-      return;
-    }
-
     answers.forEach((ans) => { ans.sessionIndex = sessionIndex; });
 
     saveBtn.disabled = true;
     saveBtn.textContent = "Enregistrement…";
 
     try {
-      await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answers);
-      try { await Schema.startNewPracticeSession(ctx.db, ctx.user.uid); } catch (_) {}
+      if (answers.length) {
+        await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answers);
+      }
+      await Schema.startNewPracticeSession(ctx.db, ctx.user.uid);
 
       $$("input[type=text],textarea", form).forEach((input) => (input.value = ""));
       $$("input[type=range]", form).forEach((input) => {
         input.value = 5;
         input.dispatchEvent(new Event("input"));
       });
+      $$("select", form).forEach((input) => {
+        input.selectedIndex = 0;
+      });
       $$("input[type=radio]", form).forEach((input) => (input.checked = false));
 
-      showToast("Itération enregistrée");
+      showToast(answers.length ? "Itération enregistrée" : "Itération passée");
       saveBtn.classList.add("btn-saved");
       saveBtn.textContent = "✓ Enregistré";
       setTimeout(() => {
@@ -745,6 +786,46 @@ export async function renderDaily(ctx, root, opts = {}) {
     return `<span class="${cls}" title="Priorité ${lbl}">${lbl}</span>`;
   };
 
+  const renderItemCard = (item) => {
+    const itemCard = document.createElement("div");
+    itemCard.className = "card p-3 space-y-3";
+    itemCard.innerHTML = `
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <div class="font-semibold">${escapeHtml(item.text)}</div>
+          ${prioChip(Number(item.priority) || 2)}
+          ${srBadge(item)}
+        </div>
+        ${consigneActions()}
+      </div>
+      ${inputForType(item)}
+    `;
+
+    const bH = itemCard.querySelector(".js-histo");
+    const bE = itemCard.querySelector(".js-edit");
+    const bD = itemCard.querySelector(".js-del");
+    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item); };
+    bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
+    bD.onclick = async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (confirm("Supprimer cette consigne ? (historique conservé)")) {
+        Schema.D.info("ui.deleteConsigne.confirm", item.id);
+        await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, item.id);
+        renderDaily(ctx, root, { day: currentDay });
+      }
+    };
+    const srT = itemCard.querySelector(".js-sr-toggle");
+    if (srT) srT.onclick = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const on = srT.getAttribute("data-enabled") === "1";
+      await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { srEnabled: !on });
+      renderDaily(ctx, root, { day: currentDay });
+    };
+
+    return itemCard;
+  };
+
   const form = document.createElement("form");
   form.className = "grid gap-6";
   card.appendChild(form);
@@ -765,36 +846,21 @@ export async function renderDaily(ctx, root, opts = {}) {
       stack.className = "space-y-3";
       section.appendChild(stack);
 
-      items.forEach((item) => {
-        const itemCard = document.createElement("div");
-        itemCard.className = "card p-3 space-y-3";
-        itemCard.innerHTML = `
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="flex items-center gap-2">
-              <div class="font-semibold">${escapeHtml(item.text)}</div>
-              ${prioChip(Number(item.priority) || 2)}
-              ${srBadge(item)}
-            </div>
-            ${consigneActions()}
-          </div>
-          ${inputForType(item)}
-        `;
-        stack.appendChild(itemCard);
+      const highs = items.filter((i) => (i.priority || 2) <= 2);
+      const lows = items.filter((i) => (i.priority || 2) >= 3);
 
-        const bH = itemCard.querySelector(".js-histo");
-        const bE = itemCard.querySelector(".js-edit");
-        const bD = itemCard.querySelector(".js-del");
-        bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item); };
-        bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
-        bD.onclick = async (e) => {
-          e.preventDefault(); e.stopPropagation();
-          if (confirm("Supprimer cette consigne ? (historique conservé)")) {
-            Schema.D.info("ui.deleteConsigne.confirm", item.id);
-            await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, item.id);
-            renderDaily(ctx, root, { day: currentDay });
-          }
-        };
-      });
+      highs.forEach((item) => stack.appendChild(renderItemCard(item)));
+
+      if (lows.length) {
+        const det = document.createElement("details");
+        det.className = "rounded-xl border border-gray-200 bg-white";
+        det.innerHTML = `<summary class="px-3 py-2 cursor-pointer select-none">Priorité basse (${lows.length})</summary>`;
+        const box = document.createElement("div");
+        box.className = "p-3 space-y-3";
+        lows.forEach((item) => box.appendChild(renderItemCard(item)));
+        det.appendChild(box);
+        stack.appendChild(det);
+      }
 
       form.appendChild(section);
     });
@@ -804,10 +870,29 @@ export async function renderDaily(ctx, root, opts = {}) {
     const box = document.createElement("div");
     box.className = "card p-3 space-y-2";
     box.innerHTML = `<div class="font-medium">Masquées par répétition espacée (${hidden.length})</div>
-  <ul class="text-sm text-[var(--muted)] list-disc pl-5">
-    ${hidden.map(h => `<li><span class="font-medium text-slate-600">${escapeHtml(h.c.text)}</span> — revient dans ${h.daysLeft} jour(s) (le ${h.when.toLocaleDateString()})</li>`).join("")}
+  <ul class="text-sm text-[var(--muted)] space-y-1">
+    ${hidden.map(h => `
+      <li class="flex items-center justify-between gap-2">
+        <span><span class="font-medium text-slate-600">${escapeHtml(h.c.text)}</span> — revient dans ${h.daysLeft} jour(s) (le ${h.when.toLocaleDateString()})</span>
+        <span class="flex items-center gap-1">
+          <button type="button" class="btn btn-ghost text-xs js-histo-hidden" data-id="${h.c.id}">Historique</button>
+          <button type="button" class="btn btn-ghost text-xs js-reset-sr" data-id="${h.c.id}">Réinitialiser</button>
+        </span>
+      </li>`).join("")}
   </ul>`;
     container.appendChild(box);
+
+    box.addEventListener("click", async (e) => {
+      const id = e.target?.dataset?.id;
+      if (!id) return;
+      if (e.target.classList.contains("js-histo-hidden")) {
+        const c = hidden.find((x) => x.c.id === id)?.c;
+        if (c) openHistory(ctx, c);
+      } else if (e.target.classList.contains("js-reset-sr")) {
+        await Schema.resetSRForConsigne(ctx.db, ctx.user.uid, id);
+        renderDaily(ctx, root, { day: currentDay });
+      }
+    });
   }
 
   const actions = document.createElement("div");
@@ -827,6 +912,9 @@ export async function renderDaily(ctx, root, opts = {}) {
     $$("input[type=range]", form).forEach((input) => {
       input.value = 5;
       input.dispatchEvent(new Event("input"));
+    });
+    $$("select", form).forEach((input) => {
+      input.selectedIndex = 0;
     });
     $$("input[type=radio]", form).forEach((input) => (input.checked = false));
   };
