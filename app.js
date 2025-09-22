@@ -28,6 +28,22 @@ export const ctx = {
   route: "#/daily",
 };
 
+async function refreshUserBadge(uid) {
+  const el = document.querySelector("[data-username]");
+  if (!el) return;
+  if (!uid) {
+    el.textContent = "Utilisateur";
+    return;
+  }
+  el.textContent = "…";
+  try {
+    el.textContent = await Schema.getUserName(uid);
+  } catch (err) {
+    console.warn("refreshUserBadge", err);
+    el.textContent = "Utilisateur";
+  }
+}
+
 function $(sel) {
   return document.querySelector(sel);
 }
@@ -192,6 +208,7 @@ export function startRouter(app, db) {
   log("router:start", { hash: location.hash });
   ctx.app = app;
   ctx.db = db;
+  if (typeof Schema.bindDb === "function") Schema.bindDb(db);
   handleRoute(); // initial render
   window.addEventListener("hashchange", () => {
     log("router:hashchange", { hash: location.hash });
@@ -272,6 +289,8 @@ export async function initApp({ app, db, user }) {
   ctx.db = db;
   ctx.user = user;
 
+  await refreshUserBadge(user.uid);
+
   const profile = await ensureProfile(db, user.uid);
   ctx.profile = profile;
   log("app:init:profile", { profile });
@@ -306,6 +325,8 @@ export function renderAdmin(db) {
   // Hide the sidebar in admin mode
   const sidebar = document.getElementById("sidebar");
   if (sidebar) sidebar.style.display = "none";
+
+  refreshUserBadge(null);
 
   const root = document.getElementById("view-root");
   log("admin:render");
