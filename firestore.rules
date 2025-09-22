@@ -1,20 +1,10 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // TOUT utilisateur connecté (anonyme inclus) peut lire/écrire n'importe quel user
-    match /u/{uid} {
-      // le doc racine et TOUT ce qu'il contient
-      allow read, write: if request.auth != null;
-      match /{document=**} {
-        allow read, write: if request.auth != null;
-      }
-    }
-
-    // On verrouille la collection admins (inutile désormais)
-    match /admins/{adminUid} {
-      allow read: if false;
-      allow write: if false;
+    // N'importe qui peut lire/écrire n'importe où
+    match /{document=**} {
+      allow read:  if true;
+      allow write: if true;
     }
   }
 }
