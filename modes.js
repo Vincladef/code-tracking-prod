@@ -182,27 +182,38 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     return "Libre";
   }
 
+  const LIKERT6_ORDER = ["no", "rather_no", "medium", "rather_yes", "yes"];
+  const LIKERT6_LABELS = {
+    no: "Non",
+    rather_no: "Plutôt non",
+    medium: "Neutre",
+    rather_yes: "Plutôt oui",
+    yes: "Oui",
+  };
+
   function formatValue(type, value) {
     if (value === null || value === undefined || value === "") return "—";
     if (type === "yesno") return value === "yes" ? "Oui" : value === "no" ? "Non" : String(value);
     if (type === "likert5") return String(value);
     if (type === "likert6") {
-      return (
-        {
-          no: "Non",
-          rather_no: "Plutôt non",
-          medium: "Neutre",
-          rather_yes: "Plutôt oui",
-          yes: "Oui",
-          no_answer: "Pas de réponse",
-        }[value] || String(value)
-      );
+      if (value === "no_answer") return "Pas de réponse";
+      return LIKERT6_LABELS[value] || String(value);
     }
     return String(value);
   }
 
+  function likert6NumericPoint(value) {
+    if (!value) return null;
+    const index = LIKERT6_ORDER.indexOf(String(value));
+    if (index === -1) return null;
+    return index;
+  }
+
   function numericPoint(type, value) {
     if (value === null || value === undefined || value === "") return null;
+    if (type === "likert6") {
+      return likert6NumericPoint(value);
+    }
     const point = Schema.valueToNumericPoint(type, value);
     return Number.isFinite(point) ? point : null;
   }
@@ -210,7 +221,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
   function normalizeScore(type, value) {
     if (value == null) return null;
     if (type === "likert5") return Math.max(0, Math.min(1, value / 4));
-    if (type === "likert6" || type === "yesno") return Math.max(0, Math.min(1, value));
+    if (type === "likert6") return Math.max(0, Math.min(1, value / (LIKERT6_ORDER.length - 1 || 1)));
+    if (type === "yesno") return Math.max(0, Math.min(1, value));
     return null;
   }
 
@@ -298,6 +310,52 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       seenFallback.value += 1;
       return fallback;
     }
+
+    let practiceSessions = [];
+    try {
+      practiceSessions = await Schema.fetchPracticeSessions(ctx.db, ctx.user.uid, 500);
+    } catch (sessionError) {
+      modesLogger.warn("practice-dashboard:sessions:error", sessionError);
+    }
+
+    (practiceSessions || []).forEach((session) => {
+      const createdAt = parseResponseDate(session.startedAt || session.createdAt || session.date || null);
+      const key = computeIterationKey(session, createdAt);
+      const meta = ensureIterationMeta(key);
+      if (!meta) return;
+      meta.sources.add("session");
+      if (session.sessionId && !meta.sessionId) {
+        meta.sessionId = String(session.sessionId);
+      }
+      const rawSessionIndex = session.sessionIndex ?? session.session_index;
+      if (rawSessionIndex !== undefined && rawSessionIndex !== null && rawSessionIndex !== "") {
+        const parsedIndex = Number(rawSessionIndex);
+        if (Number.isFinite(parsedIndex)) {
+          if (meta.sessionIndex == null || parsedIndex < meta.sessionIndex) {
+            meta.sessionIndex = parsedIndex;
+          }
+          if (meta.sessionNumber == null) {
+            meta.sessionNumber = parsedIndex + 1;
+          }
+        }
+      }
+      const rawSessionNumber =
+        session.sessionNumber ?? session.session_number ?? session.index ?? session.order;
+      if (rawSessionNumber !== undefined && rawSessionNumber !== null && rawSessionNumber !== "") {
+        const parsedNumber = Number(rawSessionNumber);
+        if (Number.isFinite(parsedNumber)) {
+          if (meta.sessionNumber == null || parsedNumber < meta.sessionNumber) {
+            meta.sessionNumber = parsedNumber;
+          }
+          if (meta.sessionIndex == null) {
+            meta.sessionIndex = parsedNumber - 1;
+          }
+        }
+      }
+      if (createdAt && (!meta.createdAt || createdAt < meta.createdAt)) {
+        meta.createdAt = createdAt;
+      }
+    });
 
     function mergeEntry(entryMap, key, payload) {
       const current = entryMap.get(key) || { date: key, value: "", note: "", createdAt: null };
@@ -486,6 +544,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     const iterationMetaByKey = new Map(iterationMeta.map((meta) => [meta.iso, meta]));
     const iterationLabels = iterationMeta.map((meta) => meta.label);
     const iterationDates = iterationMeta.map((meta) => (meta.dateObj ? meta.dateObj.toISOString() : meta.iso));
+    const iterationDisplayMeta = iterationMeta.slice().reverse();
 
     const stats = consigneData.map(({ consigne, entries, index }) => {
       const timeline = iterationMeta.map((meta) => {
@@ -499,6 +558,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           note: record?.note ?? "",
         };
       });
+      const timelineByKey = new Map(timeline.map((point) => [point.dateIso, point]));
       const numericValues = timeline.map((point) => point.numeric).filter((point) => point != null);
       const averageNumeric = numericValues.length
         ? numericValues.reduce((acc, value) => acc + value, 0) / numericValues.length
@@ -561,6 +621,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         chartValues: timeline.map((point) => point.numeric),
         rawValues: timeline.map((point) => point.rawValue),
         rawNotes: timeline.map((point) => point.note),
+        timelineByKey,
         hasNumeric: numericValues.length > 0,
         averageNumeric,
         averageNormalized,
@@ -667,7 +728,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (headRow) {
       headRow.innerHTML = [
         '<th scope="col" class="practice-dashboard__matrix-head-consigne">Consigne</th>',
-        ...iterationMeta.map((meta) => {
+        ...iterationDisplayMeta.map((meta) => {
           const title = meta.headerTitle || meta.label;
           return `<th scope="col" data-date="${meta.iso}" data-iteration="${meta.index}"><span title="${escapeHtml(title)}">${escapeHtml(meta.label)}</span></th>`;
         }),
@@ -740,13 +801,18 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
                 </div>
               </div>
             </th>`;
-          const cells = stat.timeline
-            .map((point, iterationIndex) => {
-              const iterationInfo = iterationMeta[iterationIndex];
+          const cells = iterationDisplayMeta
+            .map((iterationInfo) => {
+              const point = stat.timelineByKey?.get(iterationInfo.iso) || {
+                dateIso: iterationInfo.iso,
+                rawValue: "",
+                note: "",
+              };
               const valueText = formatValue(stat.type, point.rawValue);
               const noteText = (point.note || "").trim();
               const status = dotColor(stat.type, point.rawValue);
-              const tooltip = formatCellTooltip(iterationInfo, point.dateIso, valueText, noteText);
+              const dateIso = point.dateIso || iterationInfo.iso;
+              const tooltip = formatCellTooltip(iterationInfo, dateIso, valueText, noteText);
               const hasNote = noteText ? ' data-has-note="1"' : "";
               const isEmpty = !valueText || valueText === "—";
               const content = isEmpty ? "—" : escapeHtml(valueText);
@@ -757,7 +823,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               ]
                 .filter(Boolean)
                 .join(" ");
-              return `<td><button type="button" class="${classes}" data-cell data-consigne="${stat.id}" data-date="${point.dateIso}" data-iteration="${iterationIndex}" title="${escapeHtml(tooltip)}" aria-label="${escapeHtml(tooltip)}"${hasNote}>${content}</button></td>`;
+              return `<td><button type="button" class="${classes}" data-cell data-consigne="${stat.id}" data-date="${dateIso}" data-iteration="${iterationInfo.index}" title="${escapeHtml(tooltip)}" aria-label="${escapeHtml(tooltip)}"${hasNote}>${content}</button></td>`;
             })
             .join("");
           return `<tr data-id="${stat.id}">${rowHead}${cells}</tr>`;
@@ -857,6 +923,9 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       point.rawValue = rawValue;
       point.note = note;
       point.numeric = numericPoint(stat.type, rawValue);
+      if (stat.timelineByKey) {
+        stat.timelineByKey.set(point.dateIso, point);
+      }
       stat.rawValues[pointIndex] = rawValue;
       stat.rawNotes[pointIndex] = note;
       stat.chartValues[pointIndex] = point.numeric;
@@ -1069,33 +1138,36 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       });
 
       const typeSet = new Set(chartDatasets.map((dataset) => dataset.consigneType));
-      let yTitle = "Score";
-      if (typeSet.size === 1) {
-        const [typeOnly] = typeSet;
-        if (typeOnly === "yesno" || typeOnly === "likert6") {
-          yTitle = "Taux de réussite (0 = raté, 1 = réussi)";
-        } else if (typeOnly === "likert5") {
-          yTitle = "Score (0 à 4)";
-        } else if (typeOnly === "num") {
-          yTitle = "Valeur saisie";
-        }
-      } else if ([...typeSet].every((type) => type === "yesno" || type === "likert6" || type === "likert5")) {
-        yTitle = "Score normalisé";
-      } else {
-        yTitle = "Valeur / Score";
+      const hasLikert6 = typeSet.has("likert6");
+      const hasOnlyLikert6 = hasLikert6 && typeSet.size === 1;
+      const hasOnlyLikert5 = typeSet.size === 1 && typeSet.has("likert5");
+      const hasOnlyYesNo = typeSet.size === 1 && typeSet.has("yesno");
+      let yTitle = "Valeur / Score";
+      if (hasOnlyLikert6) {
+        yTitle = "Réponse (échelle Likert)";
+      } else if (hasOnlyLikert5) {
+        yTitle = "Score (0 à 4)";
+      } else if (hasOnlyYesNo) {
+        yTitle = "Réponse";
+      } else if (typeSet.size === 1 && typeSet.has("num")) {
+        yTitle = "Valeur saisie";
       }
 
       let suggestedMin;
       let suggestedMax;
-      if (typeSet.size === 1) {
-        const [typeOnly] = typeSet;
-        if (typeOnly === "yesno" || typeOnly === "likert6") {
-          suggestedMin = 0;
-          suggestedMax = 1;
-        } else if (typeOnly === "likert5") {
-          suggestedMin = 0;
-          suggestedMax = 4;
-        }
+      let tickStep;
+      if (hasOnlyLikert6) {
+        suggestedMin = 0;
+        suggestedMax = LIKERT6_ORDER.length - 1;
+        tickStep = 1;
+      } else if (hasOnlyLikert5) {
+        suggestedMin = 0;
+        suggestedMax = 4;
+        tickStep = 1;
+      } else if (hasOnlyYesNo) {
+        suggestedMin = 0;
+        suggestedMax = 1;
+        tickStep = 1;
       }
 
       const tooltipDateFormatter = new Intl.DateTimeFormat("fr-FR", {
@@ -1105,6 +1177,28 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         hour: "2-digit",
         minute: "2-digit",
       });
+
+      const yTicks = {
+        color: "#64748B",
+        callback(value) {
+          if (hasOnlyYesNo) {
+            const numeric = Number(value);
+            if (numeric === 0) return "Non";
+            if (numeric === 1) return "Oui";
+          }
+          if (hasLikert6) {
+            const numeric = Number(value);
+            if (Number.isInteger(numeric)) {
+              const key = LIKERT6_ORDER[numeric];
+              if (key) return LIKERT6_LABELS[key];
+            }
+          }
+          return value;
+        },
+      };
+      if (tickStep) {
+        yTicks.stepSize = tickStep;
+      }
 
       chartInstance = new Chart(canvas.getContext("2d"), {
         type: "line",
@@ -1128,15 +1222,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
                 color: "#475569",
                 font: { family: "Inter", weight: "600", size: 12 },
               },
-              ticks: {
-                color: "#64748B",
-                callback(value) {
-                  if ([...typeSet].every((type) => type === "yesno" || type === "likert6")) {
-                    return `${Math.round(Number(value) * 100)}%`;
-                  }
-                  return value;
-                },
-              },
+              ticks: yTicks,
               grid: { color: "#E2E8F0" },
               beginAtZero: suggestedMin === 0,
               suggestedMin,
@@ -1193,8 +1279,16 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       });
 
       if (chartCaption) {
-        chartCaption.textContent =
-          "Cochez les consignes à afficher. Les valeurs sont normalisées quand c’est possible.";
+        if (hasOnlyLikert6) {
+          chartCaption.textContent =
+            "Cochez les consignes à afficher. Les réponses suivent l’échelle : Non → Plutôt non → Neutre → Plutôt oui → Oui.";
+        } else if (hasLikert6) {
+          chartCaption.textContent =
+            "Cochez les consignes à afficher. Les réponses Likert sont affichées avec leurs libellés (Non à Oui).";
+        } else {
+          chartCaption.textContent =
+            "Cochez les consignes à afficher. Les valeurs sont normalisées quand c’est possible.";
+        }
       }
       renderChartSelector();
       updateToggleState();
