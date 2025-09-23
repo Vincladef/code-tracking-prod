@@ -25,9 +25,10 @@
     return Schema.monthKeyFromDate(base);
   }
 
-  function typeLabel(goal) {
+  function typeLabel(goal, monthKey) {
     if (goal.type === "hebdo") {
-      return `Semaine ${goal.weekOfMonth || "?"}`;
+      const range = Schema.weekDateRange(monthKey || goal.monthKey, Number(goal.weekOfMonth || 1));
+      return range?.label || `Semaine ${goal.weekOfMonth || "?"}`;
     }
     if (goal.type === "mensuel") {
       return "Mensuel";
@@ -75,10 +76,12 @@
     const rendered = new Set();
     const months = [];
 
-    const createGoalRow = (goal) => {
+    const toneClasses = ["goal-row--positive", "goal-row--neutral", "goal-row--negative", "goal-row--none"];
+
+    const createGoalRow = (goal, subtitleOverride = null) => {
       const row = document.createElement("div");
       row.className = "goal-row";
-      const subtitle = typeLabel(goal);
+      const subtitle = subtitleOverride || typeLabel(goal, goal.monthKey);
       row.innerHTML = `
         <div class="goal-title">
           <div>${escapeHtml(goal.titre || "Objectif")}</div>
@@ -97,8 +100,27 @@
         </div>
       `;
       const select = row.querySelector("select");
+      const applyTone = (raw) => {
+        row.classList.remove(...toneClasses);
+        if (raw === "") return;
+        const value = Number(raw);
+        if (Number.isNaN(value)) return;
+        if (value >= 4) {
+          row.classList.add("goal-row--positive");
+        } else if (value === 3) {
+          row.classList.add("goal-row--neutral");
+        } else if (value === 0) {
+          row.classList.add("goal-row--none");
+        } else {
+          row.classList.add("goal-row--negative");
+        }
+      };
+
       select.addEventListener("change", async () => {
-        if (select.value === "") return;
+        if (select.value === "") {
+          row.classList.remove(...toneClasses);
+          return;
+        }
         const todayIso = new Date().toISOString().slice(0, 10);
         try {
           await Schema.saveObjectiveEntry(
@@ -108,14 +130,14 @@
             todayIso,
             Number(select.value || 0)
           );
-          row.style.outline = "2px solid #86efac";
-          setTimeout(() => { row.style.outline = "none"; }, 600);
+          applyTone(select.value);
         } catch (err) {
           goalsLogger.error("goals.quickEntry.error", err);
-          row.style.outline = "2px solid #fca5a5";
-          setTimeout(() => { row.style.outline = "none"; }, 800);
+          row.classList.add("goal-row--negative");
+          setTimeout(() => applyTone(select.value), 600);
         }
       });
+      applyTone(select.value || "");
       return row;
     };
 
@@ -128,29 +150,53 @@
       const box = document.createElement("section");
       box.className = "goal-month";
       box.dataset.month = monthKey;
-      const title = document.createElement("h3");
-      title.textContent = monthKey;
-      box.appendChild(title);
+      const monthDate = (() => {
+        const [y, m] = monthKey.split("-").map(Number);
+        return Number.isFinite(y) && Number.isFinite(m) ? new Date(y, (m || 1) - 1, 1) : new Date();
+      })();
+      const localeLabel = monthDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+      const label = localeLabel.charAt(0).toUpperCase() + localeLabel.slice(1);
+      const currentMonthKey = Schema.monthKeyFromDate(new Date());
+      if (monthKey === currentMonthKey) {
+        box.classList.add("goal-month--current");
+      }
+
+      const headerRow = document.createElement("div");
+      headerRow.className = "goal-month__header";
+      headerRow.innerHTML = `
+        <h3 class="goal-month__title">${escapeHtml(label)}</h3>
+        <button type="button" class="goal-month__add btn btn-ghost" data-add-month>＋ Ajouter un objectif</button>
+      `;
+      box.appendChild(headerRow);
+
+      headerRow.querySelector("[data-add-month]").addEventListener("click", () => {
+        openGoalForm(ctx, null, { type: "mensuel", monthKey });
+      });
 
       const weeks = Schema.weeksOf(monthKey);
       const containers = new Map();
-      weeks.forEach((week, idx) => {
+      const weekBlocks = [];
+      weeks.forEach((week) => {
         const weekBox = document.createElement("div");
         weekBox.className = "goal-week";
         weekBox.dataset.week = String(week);
-        const label = document.createElement("div");
-        label.className = "muted";
-        label.style.marginBottom = "6px";
-        label.textContent = `Semaine ${week}`;
+        const range = Schema.weekDateRange(monthKey, week);
+        const header = document.createElement("div");
+        header.className = "goal-week__header";
+        header.innerHTML = `
+          <div class="goal-week__label muted">${escapeHtml(range?.label || `Semaine ${week}`)}</div>
+          <button type="button" class="goal-week__add btn btn-ghost" data-week="${week}">＋ Ajouter</button>
+        `;
         const list = document.createElement("div");
         list.className = "goal-list";
-        weekBox.appendChild(label);
+        weekBox.appendChild(header);
         weekBox.appendChild(list);
         containers.set(week, list);
-        box.appendChild(weekBox);
-        if (idx === 0) {
-          weekBox.classList.add("first-week");
-        }
+        weekBlocks.push(weekBox);
+
+        header.querySelector("[data-week]").addEventListener("click", () => {
+          openGoalForm(ctx, null, { type: "hebdo", monthKey, weekOfMonth: week });
+        });
       });
 
       let goals = [];
@@ -163,21 +209,31 @@
       goals.sort((a, b) => (a.titre || "").localeCompare(b.titre || ""));
 
       let hasContent = false;
-      const firstWeek = weeks[0];
-
-      weeks.forEach((week) => {
-        const list = containers.get(week);
-        if (!list) return;
-        const items = goals.filter((goal) => {
-          if (goal.type === "hebdo") {
-            return Number(goal.weekOfMonth || 1) === week;
-          }
-          return week === firstWeek;
-        });
-        items.forEach((goal) => {
+      const monthlyGoals = goals.filter((goal) => goal.type !== "hebdo");
+      if (monthlyGoals.length) {
+        const monthlyBlock = document.createElement("div");
+        monthlyBlock.className = "goal-monthly";
+        monthlyBlock.innerHTML = `<div class="goal-monthly__title">Objectifs du mois</div>`;
+        const monthlyList = document.createElement("div");
+        monthlyList.className = "goal-list";
+        monthlyGoals.forEach((goal) => {
           hasContent = true;
-          list.appendChild(createGoalRow(goal));
+          monthlyList.appendChild(createGoalRow(goal, typeLabel(goal, monthKey)));
         });
+        monthlyBlock.appendChild(monthlyList);
+        box.appendChild(monthlyBlock);
+      }
+
+      weekBlocks.forEach((weekBox) => box.appendChild(weekBox));
+
+      const weeklyGoals = goals.filter((goal) => goal.type === "hebdo");
+      weeklyGoals.forEach((goal) => {
+        const weekNumber = Number(goal.weekOfMonth || 1);
+        const list = containers.get(weekNumber);
+        if (!list) return;
+        hasContent = true;
+        const range = Schema.weekDateRange(monthKey, weekNumber);
+        list.appendChild(createGoalRow(goal, range?.label || typeLabel(goal, monthKey)));
       });
 
       if (!hasContent) {
@@ -214,10 +270,24 @@
     observer.observe(bottomSentinel);
   }
 
-  function openGoalForm(ctx, goal = null) {
-    const monthKey = goal?.monthKey || Schema.monthKeyFromDate(new Date());
-    let weekOfMonth = Number(goal?.weekOfMonth || 1);
-    const typeInitial = goal?.type || "hebdo";
+  function openGoalForm(ctx, goal = null, initial = {}) {
+    const monthKey = goal?.monthKey || initial.monthKey || Schema.monthKeyFromDate(new Date());
+    let weekOfMonth = Number(goal?.weekOfMonth || initial.weekOfMonth || 1);
+    const typeInitial = goal?.type || initial.type || "hebdo";
+    const monthLabel = (() => {
+      const [y, m] = monthKey.split("-").map(Number);
+      if (!Number.isFinite(y) || !Number.isFinite(m)) return monthKey;
+      const date = new Date(y, (m || 1) - 1, 1);
+      const raw = date.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+      return raw.charAt(0).toUpperCase() + raw.slice(1);
+    })();
+    const weekChoices = Schema.weeksOf(monthKey);
+    if (!weekChoices.includes(weekOfMonth)) {
+      weekOfMonth = weekChoices[0] || 1;
+    }
+    const weekButtonsMarkup = weekChoices
+      .map((w) => `<button type="button" class="btn-ghost" data-w="${w}">S${w}</button>`)
+      .join("");
 
     const wrap = document.createElement("div");
     wrap.className = "goal-modal";
@@ -228,6 +298,10 @@
           <button class="btn-ghost" type="button" data-close>✕</button>
         </div>
         <form class="goal-form" id="goal-form">
+          <div class="goal-field">
+            <span class="goal-label">Mois concerné</span>
+            <div class="goal-month-pill">${escapeHtml(monthLabel)}</div>
+          </div>
           <label class="goal-field">
             <span class="goal-label">Titre</span>
             <input name="titre" required class="goal-input" value="${escapeHtml(goal?.titre || "")}" placeholder="Nom de l’objectif">
@@ -242,10 +316,7 @@
           <div class="goal-field" id="week-picker">
             <span class="goal-label">Semaine</span>
             <div class="week-picker">
-              <button type="button" class="btn-ghost" data-w="1">S1</button>
-              <button type="button" class="btn-ghost" data-w="2">S2</button>
-              <button type="button" class="btn-ghost" data-w="3">S3</button>
-              <button type="button" class="btn-ghost" data-w="4">S4</button>
+              ${weekButtonsMarkup || "<span class=\"text-xs text-[var(--muted)]\">Aucune semaine</span>"}
             </div>
           </div>
           <label class="goal-field">

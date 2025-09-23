@@ -241,79 +241,89 @@ function consigneActions() {
   `;
 }
 
-function inputForType(consigne) {
+function inputForType(consigne, initialValue = null) {
   if (consigne.type === "short") {
-    return `<input name="short:${consigne.id}" class="w-full" placeholder="Réponse">`;
+    const value = escapeHtml(initialValue ?? "");
+    return `<input name="short:${consigne.id}" class="w-full" placeholder="Réponse" value="${value}">`;
   }
   if (consigne.type === "long") {
-    return `<textarea name="long:${consigne.id}" rows="3" class="w-full" placeholder="Réponse"></textarea>`;
+    const value = escapeHtml(initialValue ?? "");
+    return `<textarea name="long:${consigne.id}" rows="3" class="w-full" placeholder="Réponse">${value}</textarea>`;
   }
   if (consigne.type === "num") {
+    const sliderValue = initialValue != null && initialValue !== ""
+      ? Number(initialValue)
+      : 5;
+    const safeValue = Number.isFinite(sliderValue) ? sliderValue : 5;
     return `
-      <input type="range" min="1" max="10" value="5" name="num:${consigne.id}" class="w-full">
-      <div class="text-sm opacity-70 mt-1" data-meter="num:${consigne.id}">5</div>
-      <script>(()=>{const r=document.currentScript.previousElementSibling.previousElementSibling;const o=document.currentScript.previousElementSibling;if(r){r.addEventListener('input',()=>{o.textContent=r.value;});}})();</script>
+      <input type="range" min="1" max="10" value="${safeValue}" name="num:${consigne.id}" class="w-full">
+      <div class="text-sm opacity-70 mt-1" data-meter="num:${consigne.id}">${safeValue}</div>
+      <script>(()=>{const slider=document.currentScript.previousElementSibling.previousElementSibling;const label=document.currentScript.previousElementSibling;const sync=()=>{if(label&&slider){label.textContent=slider.value;}};if(slider){sync();slider.addEventListener('input',sync);}})();</script>
     `;
   }
   if (consigne.type === "likert6") {
+    const current = (initialValue ?? "").toString();
     // Ordre désiré : Oui → Plutôt oui → Neutre → Plutôt non → Non → Pas de réponse
     return `
       <select name="likert6:${consigne.id}" class="w-full">
-        <option value="">— choisir —</option>
-        <option value="yes">Oui</option>
-        <option value="rather_yes">Plutôt oui</option>
-        <option value="medium">Neutre</option>
-        <option value="rather_no">Plutôt non</option>
-        <option value="no">Non</option>
-        <option value="no_answer">Pas de réponse</option>
+        <option value="" ${current === "" ? "selected" : ""}>— choisir —</option>
+        <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
+        <option value="rather_yes" ${current === "rather_yes" ? "selected" : ""}>Plutôt oui</option>
+        <option value="medium" ${current === "medium" ? "selected" : ""}>Neutre</option>
+        <option value="rather_no" ${current === "rather_no" ? "selected" : ""}>Plutôt non</option>
+        <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
+        <option value="no_answer" ${current === "no_answer" ? "selected" : ""}>Pas de réponse</option>
       </select>
     `;
   }
   if (consigne.type === "likert5") {
+    const current = initialValue != null ? String(initialValue) : "";
     return `
       <select name="likert5:${consigne.id}" class="w-full">
-        <option value="">— choisir —</option>
-        <option value="0">0</option>
-        <option value="1">1</option>
-        <option value="2">2</option>
-        <option value="3">3</option>
-        <option value="4">4</option>
+        <option value="" ${current === "" ? "selected" : ""}>— choisir —</option>
+        <option value="0" ${current === "0" ? "selected" : ""}>0</option>
+        <option value="1" ${current === "1" ? "selected" : ""}>1</option>
+        <option value="2" ${current === "2" ? "selected" : ""}>2</option>
+        <option value="3" ${current === "3" ? "selected" : ""}>3</option>
+        <option value="4" ${current === "4" ? "selected" : ""}>4</option>
       </select>
     `;
   }
   if (consigne.type === "yesno") {
+    const current = (initialValue ?? "").toString();
     return `
       <select name="yesno:${consigne.id}" class="w-full">
-        <option value="">— choisir —</option>
-        <option value="yes">Oui</option>
-        <option value="no">Non</option>
+        <option value="" ${current === "" ? "selected" : ""}>— choisir —</option>
+        <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
+        <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
       </select>
     `;
   }
   return "";
 }
 
-function collectAnswers(form, consignes) {
+function collectAnswers(form, consignes, options = {}) {
+  const dayKey = options.dayKey || null;
   const answers = [];
   for (const consigne of consignes) {
     if (consigne.type === "short") {
       const val = form.querySelector(`[name="short:${consigne.id}"]`)?.value?.trim();
-      if (val) answers.push({ consigne, value: val });
+      if (val) answers.push({ consigne, value: val, dayKey });
     } else if (consigne.type === "long") {
       const val = form.querySelector(`[name="long:${consigne.id}"]`)?.value?.trim();
-      if (val) answers.push({ consigne, value: val });
+      if (val) answers.push({ consigne, value: val, dayKey });
     } else if (consigne.type === "num") {
       const val = form.querySelector(`[name="num:${consigne.id}"]`)?.value;
-      if (val) answers.push({ consigne, value: Number(val) });
+      if (val) answers.push({ consigne, value: Number(val), dayKey });
     } else if (consigne.type === "likert5") {
       const val = form.querySelector(`[name="likert5:${consigne.id}"]`)?.value;
-      if (val !== "" && val != null) answers.push({ consigne, value: Number(val) });
+      if (val !== "" && val != null) answers.push({ consigne, value: Number(val), dayKey });
     } else if (consigne.type === "yesno") {
       const val = form.querySelector(`[name="yesno:${consigne.id}"]`)?.value;
-      if (val) answers.push({ consigne, value: val });
+      if (val) answers.push({ consigne, value: val, dayKey });
     } else if (consigne.type === "likert6") {
       const val = form.querySelector(`[name="likert6:${consigne.id}"]`)?.value;
-      if (val) answers.push({ consigne, value: val });
+      if (val) answers.push({ consigne, value: val, dayKey });
     }
   }
   return answers;
@@ -960,6 +970,8 @@ async function renderDaily(ctx, root, opts = {}) {
   modesLogger.info("screen.daily.consignes", consignes.length);
 
   const selectedDate = explicitDate ? new Date(explicitDate) : dateForDayFromToday(currentDay);
+  selectedDate.setHours(0, 0, 0, 0);
+  const dayKey = Schema.todayKey(selectedDate);
   const visible = [];
   const hidden = [];
   await Promise.all(consignes.map(async (c) => {
@@ -981,19 +993,22 @@ async function renderDaily(ctx, root, opts = {}) {
   }
   Object.values(catGroups).forEach((list) => list.sort((a, b) => (a.priority || 2) - (b.priority || 2)));
 
+  const previousAnswers = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
+
   const renderItemCard = (item) => {
+    const previous = previousAnswers?.get(item.id);
     const itemCard = document.createElement("div");
-    itemCard.className = "card p-3 space-y-3";
+    itemCard.className = "daily-consigne";
     itemCard.innerHTML = `
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
+      <div class="daily-consigne__top">
+        <div class="daily-consigne__title">
           <div class="font-semibold">${escapeHtml(item.text)}</div>
           ${prioChip(Number(item.priority) || 2)}
           ${srBadge(item)}
         </div>
         ${consigneActions()}
       </div>
-      ${inputForType(item)}
+      <div class="daily-consigne__field">${inputForType(item, previous?.value ?? null)}</div>
     `;
 
     const bH = itemCard.querySelector(".js-histo");
@@ -1036,12 +1051,14 @@ async function renderDaily(ctx, root, opts = {}) {
   } else {
     Object.entries(catGroups).forEach(([cat, items]) => {
       const section = document.createElement("section");
-      section.className = "card p-4 space-y-4";
-      section.innerHTML = `<div class="flex items-center justify-between">
-        <h4 class="text-lg font-semibold">${escapeHtml(cat)}</h4>
-      </div>`;
+      section.className = "daily-category";
+      section.innerHTML = `
+        <div class="daily-category__header">
+          <div class="daily-category__name">${escapeHtml(cat)}</div>
+          <span class="daily-category__count">${items.length} consigne${items.length > 1 ? "s" : ""}</span>
+        </div>`;
       const stack = document.createElement("div");
-      stack.className = "space-y-3";
+      stack.className = "daily-category__items";
       section.appendChild(stack);
 
       const highs = items.filter((i) => (i.priority || 2) <= 2);
@@ -1051,10 +1068,10 @@ async function renderDaily(ctx, root, opts = {}) {
 
       if (lows.length) {
         const det = document.createElement("details");
-        det.className = "rounded-xl border border-gray-200 bg-white";
-        det.innerHTML = `<summary class="px-3 py-2 cursor-pointer select-none">Priorité basse (${lows.length})</summary>`;
+        det.className = "daily-category__low";
+        det.innerHTML = `<summary class="daily-category__low-summary">Priorité basse (${lows.length})</summary>`;
         const box = document.createElement("div");
-        box.className = "p-3 space-y-3";
+        box.className = "daily-category__items daily-category__items--nested";
         lows.forEach((item) => box.appendChild(renderItemCard(item)));
         det.appendChild(box);
         stack.appendChild(det);
@@ -1100,21 +1117,14 @@ async function renderDaily(ctx, root, opts = {}) {
 
   form.onsubmit = async (e) => {
     e.preventDefault();
-    const answers = collectAnswers(form, visible);
+    const answers = collectAnswers(form, visible, { dayKey });
     if (!answers.length) {
       alert("Aucune réponse");
       return;
     }
     await Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers);
-    $$("input[type=text],textarea", form).forEach((input) => (input.value = ""));
-    $$("input[type=range]", form).forEach((input) => {
-      input.value = 5;
-      input.dispatchEvent(new Event("input"));
-    });
-    $$("select", form).forEach((input) => {
-      input.selectedIndex = 0;
-    });
-    $$("input[type=radio]", form).forEach((input) => (input.checked = false));
+    showToast("Journal enregistré");
+    renderDaily(ctx, root, { day: currentDay, dateIso: dayKey });
   };
 
   modesLogger.groupEnd();

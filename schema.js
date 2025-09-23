@@ -145,7 +145,16 @@ function buildUserDailyLink(uid, dateIso) {
 }
 
 // Timestamp lisible (les graphs lisent une chaîne)
-const todayKey = (d = new Date()) => d.toISOString().slice(0,10); // YYYY-MM-DD
+function dayKeyFromDate(dateInput = new Date()) {
+  const d = dateInput instanceof Date ? new Date(dateInput.getTime()) : new Date(dateInput);
+  if (Number.isNaN(d.getTime())) return "";
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+const todayKey = (d = new Date()) => dayKeyFromDate(d); // YYYY-MM-DD
 
 const PRIORITIES = ["high","medium","low"];
 const MODES = ["daily","practice"];
@@ -367,6 +376,9 @@ async function saveResponses(db, uid, mode, answers) {
       sessionId: a.sessionId || null,
       category: a.consigne.category || "Général",
     };
+    if (a.dayKey || mode === "daily") {
+      payload.dayKey = a.dayKey || todayKey();
+    }
     // SR (seulement si activée sur la consigne)
     if (a.consigne?.srEnabled !== false) {
       const prev = await readSRState(db, uid, a.consigne.id, "consigne");
@@ -458,8 +470,33 @@ async function saveResponse(db, uid, consigne, value) {
     value,
     createdAt: now(),
   };
+  if (consigne.mode === "daily") {
+    payload.dayKey = todayKey();
+  }
   const ref = await addDoc(col(db, uid, "responses"), payload);
   schemaLog("saveResponse:done", { uid, responseId: ref.id, consigneId: consigne.id });
+}
+
+async function fetchDailyResponses(db, uid, dayKey) {
+  if (!dayKey) return new Map();
+  const responses = new Map();
+  const qy = query(
+    col(db, uid, "responses"),
+    where("mode", "==", "daily"),
+    where("dayKey", "==", dayKey)
+  );
+  const snap = await getDocs(qy);
+  snap.docs.forEach((docSnap) => {
+    const data = docSnap.data();
+    if (!data?.consigneId) return;
+    const prev = responses.get(data.consigneId);
+    const prevAt = prev?.createdAt || "";
+    const currentAt = data?.createdAt || "";
+    if (!prev || prevAt < currentAt) {
+      responses.set(data.consigneId, { id: docSnap.id, ...data });
+    }
+  });
+  return responses;
 }
 
 async function fetchHistory(db, uid, count = 200) {
@@ -516,8 +553,16 @@ function monthKeyFromDate(d) {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function weeksOf(_monthKey) {
-  return [1, 2, 3, 4];
+function weeksOf(monthKey) {
+  const [yearStr, monthStr] = String(monthKey || "").split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  if (!year || !month) return [1, 2, 3, 4];
+  const firstDay = new Date(year, month - 1, 1);
+  const lastDay = new Date(year, month, 0);
+  const span = lastDay.getDate() + firstDay.getDay();
+  const count = Math.max(4, Math.ceil(span / 7));
+  return Array.from({ length: count }, (_, idx) => idx + 1);
 }
 
 function weekOfMonthFromDate(d) {
@@ -526,6 +571,32 @@ function weekOfMonthFromDate(d) {
   const first = new Date(dt.getFullYear(), dt.getMonth(), 1);
   const offset = dt.getDate() + first.getDay();
   return Math.max(1, Math.ceil(offset / 7));
+}
+
+function weekDateRange(monthKey, weekIndex) {
+  const [yearStr, monthStr] = String(monthKey || "").split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  if (!year || !month || !weekIndex) return null;
+  const first = new Date(year, month - 1, 1);
+  const totalDays = new Date(year, month, 0).getDate();
+  const firstWeekday = first.getDay();
+  const startDay = Math.max(1, (weekIndex - 1) * 7 - firstWeekday + 1);
+  const endDay = Math.min(totalDays, weekIndex * 7 - firstWeekday);
+  if (endDay < startDay) return null;
+  const start = new Date(year, month - 1, startDay);
+  const end = new Date(year, month - 1, endDay);
+  const startDayLabel = String(startDay).padStart(2, "0");
+  const endDayLabel = String(endDay).padStart(2, "0");
+  const startMonthName = start.toLocaleDateString("fr-FR", { month: "long" });
+  const endMonthName = end.toLocaleDateString("fr-FR", { month: "long" });
+  let label;
+  if (startMonthName === endMonthName) {
+    label = `Semaine du ${startDayLabel} au ${endDayLabel} ${endMonthName}`;
+  } else {
+    label = `Semaine du ${startDayLabel} ${startMonthName} au ${endDayLabel} ${endMonthName}`;
+  }
+  return { start, end, label };
 }
 
 // --- Objectifs CRUD ---
@@ -601,6 +672,7 @@ Object.assign(Schema, {
   docIn,
   buildUserDailyLink,
   todayKey,
+  dayKeyFromDate,
   PRIORITIES,
   MODES,
   TYPES,
@@ -629,12 +701,14 @@ Object.assign(Schema, {
   saveResponse,
   fetchHistory,
   fetchResponsesForConsigne,
+  fetchDailyResponses,
   valueToNumericPoint,
   listConsignesByCategory,
   loadConsigneHistory,
   monthKeyFromDate,
   weeksOf,
   weekOfMonthFromDate,
+  weekDateRange,
   listObjectivesByMonth,
   getObjective,
   upsertObjective,
