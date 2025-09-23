@@ -1,7 +1,7 @@
 // goals.js — Objectifs timeline
-import * as Schema from "./schema.js";
-
-const L = Schema.D;
+const Schema = window.Schema || {};
+const Goals = window.Goals = window.Goals || {};
+const L = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
 
 let lastMount = null;
 
@@ -30,7 +30,7 @@ function typeLabel(goal) {
   return goal.type || "Objectif";
 }
 
-export async function renderGoals(ctx, root) {
+async function renderGoals(ctx, root) {
   lastMount = root;
   root.innerHTML = "";
 
@@ -209,7 +209,7 @@ export async function renderGoals(ctx, root) {
   observer.observe(bottomSentinel);
 }
 
-export function openGoalForm(ctx, goal = null) {
+function openGoalForm(ctx, goal = null) {
   const monthKey = goal?.monthKey || Schema.monthKeyFromDate(new Date());
   let weekOfMonth = Number(goal?.weekOfMonth || 1);
   const typeInitial = goal?.type || "hebdo";
@@ -320,3 +320,6 @@ export function openGoalForm(ctx, goal = null) {
     }
   });
 }
+
+Goals.renderGoals = renderGoals;
+Goals.openGoalForm = openGoalForm;

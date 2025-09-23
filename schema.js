@@ -1,16 +1,76 @@
-// --- DEBUG LOGGER ---
-export const D = {
-  on: true, // << mets false pour couper
-  info: (...a) => D.on && console.info("[HP]", ...a),
-  debug: (...a) => D.on && console.debug("[HP]", ...a),
-  warn: (...a) => D.on && console.warn("[HP]", ...a),
-  error: (...a) => D.on && console.error("[HP]", ...a),
-  group: (label, ...a) => D.on && console.groupCollapsed(`📘 ${label}`, ...a),
-  groupEnd: () => D.on && console.groupEnd(),
-};
-const log = () => {};
-// --- Helpers de chemin /u/{uid}/...
-import {
+window.Schema = window.Schema || {};
+const Schema = window.Schema;
+
+const firebaseCompat = window.firebase || {};
+const firestoreCompat = firebaseCompat.firestore;
+
+function missingFirestoreWarning() {
+  console.warn("Firebase Firestore non disponible. Assure-toi de charger firebase-firestore-compat.js avant schema.js.");
+}
+
+function collectionFromCompat(db, ...segments) {
+  if (!db || typeof db.collection !== "function") {
+    throw new Error("Firestore n'est pas initialisé.");
+  }
+  if (!segments.length) {
+    throw new Error("Chemin de collection manquant.");
+  }
+  const path = segments.join("/");
+  return db.collection(path);
+}
+
+function docFromCompat(base, ...segments) {
+  if (base && typeof base.doc === "function" && !segments.length) {
+    return base.doc();
+  }
+  if (base && typeof base.doc === "function" && segments.length === 1) {
+    return base.doc(segments[0]);
+  }
+  if (!base || typeof base.doc !== "function") {
+    throw new Error("Firestore n'est pas initialisé.");
+  }
+  if (!segments.length) {
+    throw new Error("Chemin de document manquant.");
+  }
+  const path = segments.join("/");
+  return base.doc(path);
+}
+
+const firestoreAPI = firestoreCompat
+  ? {
+      getFirestore: (app) => firebaseCompat.firestore(app),
+      collection: collectionFromCompat,
+      doc: docFromCompat,
+      setDoc: (ref, data, options) => ref.set(data, options),
+      getDoc: (ref) => ref.get(),
+      getDocs: (qry) => qry.get(),
+      addDoc: (ref, data) => ref.add(data),
+      query: (base, ...constraints) => constraints.reduce((ref, fn) => (typeof fn === "function" ? fn(ref) : ref), base),
+      where: (field, op, value) => (ref) => ref.where(field, op, value),
+      orderBy: (field, direction) => (ref) => ref.orderBy(field, direction),
+      updateDoc: (ref, data) => ref.update(data),
+      limit: (count) => (ref) => ref.limit(count),
+      serverTimestamp: () => firebaseCompat.firestore.FieldValue.serverTimestamp(),
+    }
+  : {
+      getFirestore: () => missingFirestoreWarning(),
+      collection: () => missingFirestoreWarning(),
+      doc: () => missingFirestoreWarning(),
+      setDoc: () => missingFirestoreWarning(),
+      getDoc: () => missingFirestoreWarning(),
+      getDocs: () => missingFirestoreWarning(),
+      addDoc: () => missingFirestoreWarning(),
+      query: () => missingFirestoreWarning(),
+      where: () => missingFirestoreWarning(),
+      orderBy: () => missingFirestoreWarning(),
+      updateDoc: () => missingFirestoreWarning(),
+      limit: () => missingFirestoreWarning(),
+      serverTimestamp: () => missingFirestoreWarning(),
+    };
+
+Schema.firestore = Schema.firestore || firestoreAPI;
+
+const {
   collection,
   doc,
   setDoc,
@@ -22,18 +82,33 @@ import {
   orderBy,
   updateDoc,
   limit,
-  serverTimestamp
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  serverTimestamp,
+} = Schema.firestore;
+
+// --- DEBUG LOGGER ---
+const D = {
+  on: true, // << mets false pour couper
+  info: (...a) => D.on && console.info("[HP]", ...a),
+  debug: (...a) => D.on && console.debug("[HP]", ...a),
+  warn: (...a) => D.on && console.warn("[HP]", ...a),
+  error: (...a) => D.on && console.error("[HP]", ...a),
+  group: (label, ...a) => D.on && console.groupCollapsed(`📘 ${label}`, ...a),
+  groupEnd: () => D.on && console.groupEnd(),
+};
+Schema.D = Schema.D || D;
+const log = () => {};
+// --- Helpers de chemin /u/{uid}/...
 
 let boundDb = null;
 
-export function bindDb(db) {
+function bindDb(db) {
   boundDb = db;
 }
+Schema.bindDb = Schema.bindDb || bindDb;
 
 let _adminCache = null;
 
-export async function isAdmin(db, uid) {
+async function isAdmin(db, uid) {
   if (!uid) return false;
   const targetDb = db || boundDb;
   if (!targetDb) return false;
@@ -49,24 +124,24 @@ export async function isAdmin(db, uid) {
   }
 }
 
-export const now = () => new Date().toISOString();
-export const col = (db, uid, sub) => collection(db, "u", uid, sub);
-export const docIn = (db, uid, sub, id) => doc(db, "u", uid, sub, id);
+const now = () => new Date().toISOString();
+const col = (db, uid, sub) => collection(db, "u", uid, sub);
+const docIn = (db, uid, sub, id) => doc(db, "u", uid, sub, id);
 
-export function buildUserDailyLink(uid, dateIso) {
+function buildUserDailyLink(uid, dateIso) {
   const base = "https://vincladef.github.io/code-tracking-prod/";
   return `${base}#/daily?u=${encodeURIComponent(uid)}&d=${dateIso}`;
 }
 
 // Timestamp lisible (les graphs lisent une chaîne)
-export const todayKey = (d = new Date()) => d.toISOString().slice(0,10); // YYYY-MM-DD
+const todayKey = (d = new Date()) => d.toISOString().slice(0,10); // YYYY-MM-DD
 
-export const PRIORITIES = ["high","medium","low"];
-export const MODES = ["daily","practice"];
-export const TYPES = ["short","long","likert6","likert5","yesno","num"];
+const PRIORITIES = ["high","medium","low"];
+const MODES = ["daily","practice"];
+const TYPES = ["short","long","likert6","likert5","yesno","num"];
 
-export const LIKERT = ["no_answer","no","rather_no","medium","rather_yes","yes"];
-export const LIKERT_POINTS = {
+const LIKERT = ["no_answer","no","rather_no","medium","rather_yes","yes"];
+const LIKERT_POINTS = {
   no_answer: 0,
   no: 0,
   rather_no: 0,
@@ -146,7 +221,7 @@ function hydrateConsigne(doc) {
 }
 
 // --- Catégories & Users ---
-export async function getUserName(uid) {
+async function getUserName(uid) {
   if (!uid) return "Utilisateur";
   if (!boundDb) {
     console.warn("getUserName error:", new Error("Firestore not initialized"));
@@ -162,13 +237,13 @@ export async function getUserName(uid) {
   }
 }
 
-export async function fetchCategories(db, uid){
+async function fetchCategories(db, uid){
   const qy = query(col(db, uid, "categories"), orderBy("name"));
   const ss = await getDocs(qy);
   return ss.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
-export async function ensureCategory(db, uid, name, mode){
+async function ensureCategory(db, uid, name, mode){
   D.info("data.ensureCategory", { uid, name, mode });
   const qy = query(col(db, uid, "categories"),
     where("name","==",name), where("mode","==",mode), limit(1));
@@ -190,21 +265,21 @@ export async function ensureCategory(db, uid, name, mode){
 }
 
 // Fonction pour l'admin, utilise la collection racine "users"
-export function newUid() {
+function newUid() {
   return Math.random().toString(36).substring(2, 10);
 }
 
 // Etat SR stocké dans /u/{uid}/sr/{consigneId}  (ou goalId)
-export async function readSRState(db, uid, itemId, key = "default") {
+async function readSRState(db, uid, itemId, key = "default") {
   const snap = await getDoc(docIn(db, uid, "sr", `${key}:${itemId}`));
   return snap.exists() ? snap.data() : null;
 }
-export async function upsertSRState(db, uid, itemId, key, state) {
+async function upsertSRState(db, uid, itemId, key, state) {
   await setDoc(docIn(db, uid, "sr", `${key}:${itemId}`), state, { merge: true });
 }
 
 // --- Push tokens (stockés sous /u/{uid}/pushTokens/{token}) ---
-export async function savePushToken(db, uid, token, extra = {}) {
+async function savePushToken(db, uid, token, extra = {}) {
   await setDoc(docIn(db, uid, "pushTokens", token), {
     token,
     enabled: true,
@@ -216,7 +291,7 @@ export async function savePushToken(db, uid, token, extra = {}) {
   }, { merge: true });
 }
 
-export async function disablePushToken(db, uid, token) {
+async function disablePushToken(db, uid, token) {
   await setDoc(docIn(db, uid, "pushTokens", token), {
     enabled: false,
     updatedAt: serverTimestamp(),
@@ -224,12 +299,12 @@ export async function disablePushToken(db, uid, token) {
 }
 
 // score pour likert -> 0 / 0.5 / 1
-export function likertScore(v) {
+function likertScore(v) {
   return ({ yes: 1, rather_yes: 0.5, medium: 0, rather_no: 0, no: 0, no_answer: 0 })[v] ?? 0;
 }
 
 // calcule la prochaine “masque” (journalier=jours, pratique=sessions)
-export function nextCooldownAfterAnswer(meta, prevState, value) {
+function nextCooldownAfterAnswer(meta, prevState, value) {
   // strict : yes=1 ; rather_yes=0.5 ; neutre/plutôt_non/non/no_answer = 0 (reset)
   let inc = 0;
   if (meta.type === "likert6") inc = likertScore(value);
@@ -254,7 +329,7 @@ export function nextCooldownAfterAnswer(meta, prevState, value) {
   }
 }
 
-export async function resetSRForConsigne(db, uid, consigneId) {
+async function resetSRForConsigne(db, uid, consigneId) {
   const today = new Date().toISOString();
   await upsertSRState(db, uid, consigneId, "consigne", {
     streak: 0,
@@ -264,7 +339,7 @@ export async function resetSRForConsigne(db, uid, consigneId) {
 }
 
 // answers: [{ consigne, value, sessionId? }]
-export async function saveResponses(db, uid, mode, answers) {
+async function saveResponses(db, uid, mode, answers) {
   const batch = [];
   for (const a of answers) {
     const payload = {
@@ -294,12 +369,12 @@ export async function saveResponses(db, uid, mode, answers) {
   await Promise.all(batch);
 }
 
-export async function countPracticeSessions(db, uid){
+async function countPracticeSessions(db, uid){
   const ss = await getDocs(col(db, uid, "sessions"));
   return ss.size;
 }
 
-export async function startNewPracticeSession(db, uid) {
+async function startNewPracticeSession(db, uid) {
   await addDoc(col(db, uid, "sessions"), {
     ownerUid: uid,
     startedAt: serverTimestamp()
@@ -307,14 +382,14 @@ export async function startNewPracticeSession(db, uid) {
 }
 
 // list consignes par mode
-export async function listConsignesByMode(db, uid, mode) {
+async function listConsignesByMode(db, uid, mode) {
   const qy = query(col(db, uid, "consignes"), where("mode", "==", mode), where("active", "==", true));
   const ss = await getDocs(qy);
   return ss.docs.map((d) => hydrateConsigne(d));
 }
 
 // --- Nouvelles collections /u/{uid}/... ---
-export async function fetchConsignes(db, uid, mode) {
+async function fetchConsignes(db, uid, mode) {
   const qy = query(
     col(db, uid, "consignes"),
     where("mode", "==", mode),
@@ -325,7 +400,7 @@ export async function fetchConsignes(db, uid, mode) {
   return ss.docs.map((d) => hydrateConsigne(d));
 }
 
-export async function addConsigne(db, uid, payload) {
+async function addConsigne(db, uid, payload) {
   const ref = await addDoc(col(db, uid, "consignes"), {
     ...payload,
     srEnabled: payload.srEnabled !== false,
@@ -336,7 +411,7 @@ export async function addConsigne(db, uid, payload) {
   return ref;
 }
 
-export async function updateConsigne(db, uid, id, payload) {
+async function updateConsigne(db, uid, id, payload) {
   const ref = docIn(db, uid, "consignes", id);
   await updateDoc(ref, {
     ...payload,
@@ -347,11 +422,11 @@ export async function updateConsigne(db, uid, id, payload) {
   });
 }
 
-export async function updateConsigneOrder(db, uid, consigneId, order) {
+async function updateConsigneOrder(db, uid, consigneId, order) {
   await setDoc(doc(db, "u", uid, "consignes", consigneId), { order }, { merge: true });
 }
 
-export async function softDeleteConsigne(db, uid, id) {
+async function softDeleteConsigne(db, uid, id) {
   const ref = docIn(db, uid, "consignes", id);
   await updateDoc(ref, {
     active: false,
@@ -359,7 +434,7 @@ export async function softDeleteConsigne(db, uid, id) {
   });
 }
 
-export async function saveResponse(db, uid, consigne, value) {
+async function saveResponse(db, uid, consigne, value) {
   log("saveResponse:start", { uid, consigneId: consigne.id, mode: consigne.mode, value });
   const payload = {
     ownerUid: uid,
@@ -372,7 +447,7 @@ export async function saveResponse(db, uid, consigne, value) {
   log("saveResponse:done", { uid, responseId: ref.id, consigneId: consigne.id });
 }
 
-export async function fetchHistory(db, uid, count = 200) {
+async function fetchHistory(db, uid, count = 200) {
   log("fetchHistory:start", { uid, count });
   const qy = query(
     col(db, uid, "responses"),
@@ -385,7 +460,7 @@ export async function fetchHistory(db, uid, count = 200) {
   return data;
 }
 
-export async function fetchResponsesForConsigne(db, uid, consigneId, limitCount = 200) {
+async function fetchResponsesForConsigne(db, uid, consigneId, limitCount = 200) {
   const qy = query(
     col(db, uid, "responses"),
     where("consigneId","==", consigneId),
@@ -396,7 +471,7 @@ export async function fetchResponsesForConsigne(db, uid, consigneId, limitCount 
   return ss.docs.map(d => ({ id:d.id, ...d.data() }));
 }
 
-export function valueToNumericPoint(type, value) {
+function valueToNumericPoint(type, value) {
   if (type === "likert6") return LIKERT_POINTS[value] ?? 0;
   if (type === "likert5") return Number(value) || 0;  // 0..4
   if (type === "yesno")   return value === "yes" ? 1 : 0;
@@ -404,7 +479,7 @@ export function valueToNumericPoint(type, value) {
   return null; // pour short/long -> pas de graph
 }
 
-export async function listConsignesByCategory(db, uid, category) {
+async function listConsignesByCategory(db, uid, category) {
   const qy = query(
     collection(db, "u", uid, "consignes"),
     where("category", "==", category)
@@ -413,24 +488,24 @@ export async function listConsignesByCategory(db, uid, category) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-export async function loadConsigneHistory(db, uid, consigneId) {
+async function loadConsigneHistory(db, uid, consigneId) {
   const colRef = collection(db, "u", uid, "history", consigneId, "entries");
   const snap = await getDocs(colRef);
   return snap.docs.map((d) => ({ date: d.id, ...d.data() }));
 }
 
 // --- utilitaires temps ---
-export function monthKeyFromDate(d) {
+function monthKeyFromDate(d) {
   const dt = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(dt.getTime())) return "";
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
 }
 
-export function weeksOf(_monthKey) {
+function weeksOf(_monthKey) {
   return [1, 2, 3, 4];
 }
 
-export function weekOfMonthFromDate(d) {
+function weekOfMonthFromDate(d) {
   const dt = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(dt.getTime())) return 1;
   const first = new Date(dt.getFullYear(), dt.getMonth(), 1);
@@ -439,19 +514,19 @@ export function weekOfMonthFromDate(d) {
 }
 
 // --- Objectifs CRUD ---
-export async function listObjectivesByMonth(db, uid, monthKey) {
+async function listObjectivesByMonth(db, uid, monthKey) {
   const q = query(collection(db, "u", uid, "objectifs"), where("monthKey", "==", monthKey));
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-export async function getObjective(db, uid, objectifId) {
+async function getObjective(db, uid, objectifId) {
   const ref = doc(db, "u", uid, "objectifs", objectifId);
   const snap = await getDoc(ref);
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
-export async function upsertObjective(db, uid, data, objectifId = null) {
+async function upsertObjective(db, uid, data, objectifId = null) {
   const rawStart = data?.startDate ? new Date(data.startDate) : new Date();
   const monthKey = data?.monthKey || monthKeyFromDate(rawStart);
   const type = data?.type || "hebdo";
@@ -484,7 +559,7 @@ export async function upsertObjective(db, uid, data, objectifId = null) {
 }
 
 // --- Lier / délier une consigne ---
-export async function linkConsigneToObjective(db, uid, consigneId, objectifId) {
+async function linkConsigneToObjective(db, uid, consigneId, objectifId) {
   if (!consigneId) return;
   await setDoc(
     doc(db, "u", uid, "consignes", consigneId),
@@ -493,14 +568,63 @@ export async function linkConsigneToObjective(db, uid, consigneId, objectifId) {
   );
 }
 
-export async function saveObjectiveEntry(db, uid, objectifId, dateIso, value) {
+async function saveObjectiveEntry(db, uid, objectifId, dateIso, value) {
   const ref = doc(db, "u", uid, "objectiveEntries", objectifId, dateIso);
   await setDoc(ref, { v: value, at: serverTimestamp() }, { merge: true });
 }
 
-export async function loadObjectiveEntriesRange(db, uid, objectifId, _fromIso, _toIso) {
+async function loadObjectiveEntriesRange(db, uid, objectifId, _fromIso, _toIso) {
   const colRef = collection(db, "u", uid, "objectiveEntries", objectifId);
   const snap = await getDocs(colRef);
   return snap.docs.map((d) => ({ date: d.id, v: d.data().v }));
 }
+
+Object.assign(Schema, {
+  isAdmin,
+  now,
+  col,
+  docIn,
+  buildUserDailyLink,
+  todayKey,
+  PRIORITIES,
+  MODES,
+  TYPES,
+  LIKERT,
+  LIKERT_POINTS,
+  getUserName,
+  fetchCategories,
+  ensureCategory,
+  newUid,
+  readSRState,
+  upsertSRState,
+  savePushToken,
+  disablePushToken,
+  likertScore,
+  nextCooldownAfterAnswer,
+  resetSRForConsigne,
+  saveResponses,
+  countPracticeSessions,
+  startNewPracticeSession,
+  listConsignesByMode,
+  fetchConsignes,
+  addConsigne,
+  updateConsigne,
+  updateConsigneOrder,
+  softDeleteConsigne,
+  saveResponse,
+  fetchHistory,
+  fetchResponsesForConsigne,
+  valueToNumericPoint,
+  listConsignesByCategory,
+  loadConsigneHistory,
+  monthKeyFromDate,
+  weeksOf,
+  weekOfMonthFromDate,
+  listObjectivesByMonth,
+  getObjective,
+  upsertObjective,
+  linkConsigneToObjective,
+  saveObjectiveEntry,
+  loadObjectiveEntriesRange,
+});
 
