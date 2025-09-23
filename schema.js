@@ -45,6 +45,7 @@ window.firestoreAPI = window.firestoreAPI || (firestoreCompat
       getDoc: (ref) => ref.get(),
       getDocs: (qry) => qry.get(),
       addDoc: (ref, data) => ref.add(data),
+      deleteDoc: (ref) => ref.delete(),
       query: (base, ...constraints) =>
         constraints.reduce((ref, fn) => (typeof fn === "function" ? fn(ref) : ref), base),
       where: (field, op, value) => (ref) => ref.where(field, op, value),
@@ -61,6 +62,7 @@ window.firestoreAPI = window.firestoreAPI || (firestoreCompat
       getDoc: () => missingFirestoreWarning(),
       getDocs: () => missingFirestoreWarning(),
       addDoc: () => missingFirestoreWarning(),
+      deleteDoc: () => missingFirestoreWarning(),
       query: () => missingFirestoreWarning(),
       where: () => missingFirestoreWarning(),
       orderBy: () => missingFirestoreWarning(),
@@ -78,6 +80,7 @@ const {
   getDoc,
   getDocs,
   addDoc,
+  deleteDoc,
   query,
   where,
   orderBy,
@@ -553,14 +556,23 @@ function monthKeyFromDate(d) {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function normalizedWeekday(value) {
+  return ((value % 7) + 7) % 7;
+}
+
+function mondayIndexFromSundayIndex(value) {
+  return normalizedWeekday(value + 6);
+}
+
 function weeksOf(monthKey) {
   const [yearStr, monthStr] = String(monthKey || "").split("-");
   const year = Number(yearStr);
   const month = Number(monthStr);
   if (!year || !month) return [1, 2, 3, 4];
   const firstDay = new Date(year, month - 1, 1);
-  const lastDay = new Date(year, month, 0);
-  const span = lastDay.getDate() + firstDay.getDay();
+  const totalDays = new Date(year, month, 0).getDate();
+  const firstWeekday = mondayIndexFromSundayIndex(firstDay.getDay());
+  const span = totalDays + firstWeekday;
   const count = Math.max(4, Math.ceil(span / 7));
   return Array.from({ length: count }, (_, idx) => idx + 1);
 }
@@ -569,8 +581,9 @@ function weekOfMonthFromDate(d) {
   const dt = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(dt.getTime())) return 1;
   const first = new Date(dt.getFullYear(), dt.getMonth(), 1);
-  const offset = dt.getDate() + first.getDay();
-  return Math.max(1, Math.ceil(offset / 7));
+  const firstWeekday = mondayIndexFromSundayIndex(first.getDay());
+  const offset = dt.getDate() + firstWeekday - 1;
+  return Math.max(1, Math.floor(offset / 7) + 1);
 }
 
 function weekDateRange(monthKey, weekIndex) {
@@ -580,14 +593,15 @@ function weekDateRange(monthKey, weekIndex) {
   if (!year || !month || !weekIndex) return null;
   const first = new Date(year, month - 1, 1);
   const totalDays = new Date(year, month, 0).getDate();
-  const firstWeekday = first.getDay();
-  const startDay = Math.max(1, (weekIndex - 1) * 7 - firstWeekday + 1);
-  const endDay = Math.min(totalDays, weekIndex * 7 - firstWeekday);
-  if (endDay < startDay) return null;
-  const start = new Date(year, month - 1, startDay);
-  const end = new Date(year, month - 1, endDay);
-  const startDayLabel = String(startDay).padStart(2, "0");
-  const endDayLabel = String(endDay).padStart(2, "0");
+  const firstWeekday = mondayIndexFromSundayIndex(first.getDay());
+  const rawStartDay = 1 - firstWeekday + (weekIndex - 1) * 7;
+  if (rawStartDay > totalDays) return null;
+  const rawEndDay = rawStartDay + 6;
+  const clampedEndDay = Math.min(rawEndDay, totalDays);
+  const start = new Date(year, month - 1, rawStartDay);
+  const end = new Date(year, month - 1, clampedEndDay);
+  const startDayLabel = String(start.getDate()).padStart(2, "0");
+  const endDayLabel = String(end.getDate()).padStart(2, "0");
   const startMonthName = start.toLocaleDateString("fr-FR", { month: "long" });
   const endMonthName = end.toLocaleDateString("fr-FR", { month: "long" });
   let label;
@@ -716,4 +730,13 @@ Object.assign(Schema, {
   saveObjectiveEntry,
   loadObjectiveEntriesRange,
 });
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    monthKeyFromDate,
+    weeksOf,
+    weekOfMonthFromDate,
+    weekDateRange,
+  };
+}
 

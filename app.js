@@ -532,24 +532,48 @@
     if (!list) return;
     list.innerHTML = "<div class='text-sm text-[var(--muted)]'>Chargement…</div>";
     appLog("admin:users:load:start");
+    const escapeHtml = (value) =>
+      String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
     try {
       const ss = await appFirestore.getDocs(appFirestore.collection(db, "u"));
       const items = [];
       ss.forEach(d => {
         const data = d.data();
         const uid = d.id;
-        const link = `${location.origin}${location.pathname}#/u/${uid}/daily`;
+        const displayName = data.displayName || "(sans nom)";
+        const safeName = escapeHtml(displayName);
+        const safeUid = escapeHtml(uid);
+        const encodedUid = encodeURIComponent(uid);
+        const link = `${location.origin}${location.pathname}#/u/${encodedUid}/daily`;
         items.push(`
           <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3">
             <div>
-              <div class="font-medium">${data.displayName || "(sans nom)"}</div>
-              <div class="text-sm text-[var(--muted)]">UID: ${uid}</div>
+              <div class="font-medium">${safeName}</div>
+              <div class="text-sm text-[var(--muted)]">UID: ${safeUid}</div>
             </div>
-            <a class="btn btn-ghost text-sm"
-               href="${link}"
-               target="_blank"
-               rel="noopener noreferrer"
-               data-uid="${uid}">Ouvrir</a>
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <a class="btn btn-ghost text-sm"
+                 href="${link}"
+                 target="_blank"
+                 rel="noopener noreferrer"
+                 data-uid="${safeUid}"
+                 data-action="open">Ouvrir</a>
+              <button type="button"
+                      class="btn btn-ghost text-sm"
+                      data-uid="${safeUid}"
+                      data-name="${safeName}"
+                      data-action="rename">Renommer</button>
+              <button type="button"
+                      class="btn btn-ghost text-sm text-red-600"
+                      data-uid="${safeUid}"
+                      data-name="${safeName}"
+                      data-action="delete">Supprimer</button>
+            </div>
           </div>
         `);
       });
@@ -557,14 +581,60 @@
       appLog("admin:users:load:done", { count: items.length });
 
       if (!list.dataset.bound) {
-        list.addEventListener("click", (e) => {
-          const a = e.target.closest("a[data-uid]");
-          if (!a) return;
-          if (!a.target || a.target === "_self") {
-            e.preventDefault();
-            location.hash = `#/u/${a.dataset.uid}`;
-            appLog("admin:users:navigate", { uid: a.dataset.uid });
-            handleRoute();
+        list.addEventListener("click", async (e) => {
+          const actionTarget = e.target.closest("[data-uid]");
+          if (!actionTarget) return;
+          const { uid, action, name } = actionTarget.dataset;
+          if (!uid) return;
+          if ((action || actionTarget.tagName === "A") && (action || "open") === "open") {
+            if (!actionTarget.target || actionTarget.target === "_self") {
+              e.preventDefault();
+              location.hash = `#/u/${uid}`;
+              appLog("admin:users:navigate", { uid });
+              handleRoute();
+            }
+            return;
+          }
+
+          e.preventDefault();
+          if (action === "rename") {
+            const currentName = name || "";
+            const nextName = prompt("Nouveau nom de l’utilisateur :", currentName);
+            if (nextName === null) {
+              return;
+            }
+            const trimmed = nextName.trim();
+            if (!trimmed) {
+              alert("Le nom ne peut pas être vide.");
+              return;
+            }
+            if (trimmed === currentName.trim()) {
+              return;
+            }
+            try {
+              await appFirestore.updateDoc(appFirestore.doc(db, "u", uid), {
+                displayName: trimmed,
+              });
+              await loadUsers(db);
+            } catch (error) {
+              console.error("admin:users:rename:error", error);
+              alert("Impossible de renommer l’utilisateur.");
+            }
+            return;
+          }
+
+          if (action === "delete") {
+            const label = name || uid;
+            if (!confirm(`Supprimer l’utilisateur « ${label} » ? Cette action est irréversible.`)) {
+              return;
+            }
+            try {
+              await appFirestore.deleteDoc(appFirestore.doc(db, "u", uid));
+              await loadUsers(db);
+            } catch (error) {
+              console.error("admin:users:delete:error", error);
+              alert("Impossible de supprimer l’utilisateur.");
+            }
           }
         });
         list.dataset.bound = "1";
