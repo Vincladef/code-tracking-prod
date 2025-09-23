@@ -6,6 +6,9 @@
   }
   window.__APP_ROUTER_INITIALIZED__ = true;
   const appFirestore = Schema.firestore || window.firestoreAPI || {};
+  const snapshotExists =
+    Schema.snapshotExists ||
+    ((snap) => (typeof snap?.exists === "function" ? snap.exists() : !!snap?.exists));
 
   const firebaseCompatApp = window.firebase || {};
 
@@ -364,7 +367,7 @@
     appLog("profile:ensure:start", { uid });
     const ref = appFirestore.doc(db, "u", uid);
     const snap = await appFirestore.getDoc(ref);
-    if (snap.exists()) {
+    if (snapshotExists(snap)) {
       const data = snap.data();
       appLog("profile:ensure:existing", { uid });
       return data;
