@@ -664,8 +664,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       stat.chartDatasetIndex = null;
     });
 
-    const iterationLabels = iterationMeta.map((meta) => meta.label);
-
     if (headRow) {
       headRow.innerHTML = [
         '<th scope="col" class="practice-dashboard__matrix-head-consigne">Consigne</th>',
