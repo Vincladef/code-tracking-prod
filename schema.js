@@ -86,6 +86,16 @@ const {
   serverTimestamp,
 } = Schema.firestore;
 
+const snapshotExists =
+  Schema.snapshotExists ||
+  ((snap) => {
+    if (!snap) return false;
+    if (typeof snap.exists === "function") return snap.exists();
+    if (Object.prototype.hasOwnProperty.call(snap, "exists")) return !!snap.exists;
+    return false;
+  });
+Schema.snapshotExists = Schema.snapshotExists || snapshotExists;
+
 // --- DEBUG LOGGER ---
 const D = {
   on: true, // << mets false pour couper
@@ -116,7 +126,7 @@ async function isAdmin(db, uid) {
   if (_adminCache?.uid === uid) return _adminCache.value;
   try {
     const snap = await getDoc(doc(targetDb, "admins", uid));
-    const val = snap.exists();
+    const val = snapshotExists(snap);
     _adminCache = { uid, value: val };
     return val;
   } catch (e) {
@@ -234,7 +244,7 @@ async function getUserName(uid) {
   }
   try {
     const snap = await getDoc(doc(boundDb, "u", uid));
-    const d = snap.exists() ? (snap.data() || {}) : {};
+    const d = snapshotExists(snap) ? (snap.data() || {}) : {};
     return d.name || d.displayName || d.slug || "Utilisateur";
   } catch (e) {
     console.warn("getUserName error:", e);
@@ -277,7 +287,7 @@ function newUid() {
 // Etat SR stocké dans /u/{uid}/sr/{consigneId}  (ou goalId)
 async function readSRState(db, uid, itemId, key = "default") {
   const snap = await getDoc(docIn(db, uid, "sr", `${key}:${itemId}`));
-  return snap.exists() ? snap.data() : null;
+  return snapshotExists(snap) ? snap.data() : null;
 }
 async function upsertSRState(db, uid, itemId, key, state) {
   await setDoc(docIn(db, uid, "sr", `${key}:${itemId}`), state, { merge: true });
@@ -528,7 +538,7 @@ async function listObjectivesByMonth(db, uid, monthKey) {
 async function getObjective(db, uid, objectifId) {
   const ref = doc(db, "u", uid, "objectifs", objectifId);
   const snap = await getDoc(ref);
-  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  return snapshotExists(snap) ? { id: snap.id, ...snap.data() } : null;
 }
 
 async function upsertObjective(db, uid, data, objectifId = null) {
