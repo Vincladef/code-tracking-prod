@@ -244,7 +244,7 @@
     }
     const link = `${location.origin}${location.pathname}#/u/${ctx.user.uid}`;
     box.innerHTML = `
-      <div><strong>${ctx.profile.displayName || "Utilisateur"}</strong></div>
+      <div><strong>${ctx.profile.displayName || ctx.profile.name || "Utilisateur"}</strong></div>
       <div class="muted">UID : <code>${ctx.user.uid}</code></div>
       <div class="muted">Lien direct : <a class="link" href="${link}">${link}</a></div>
     `;
@@ -423,6 +423,7 @@
       return data;
     }
     const newProfile = {
+      name: "Nouvel utilisateur",
       displayName: "Nouvel utilisateur",
       createdAt: new Date().toISOString()
     };
@@ -564,6 +565,7 @@
         const uid = newUid();
         try {
           await appFirestore.setDoc(appFirestore.doc(db, "u", uid), {
+            name: name,
             displayName: name,
             createdAt: new Date().toISOString()
           });
@@ -598,7 +600,7 @@
       ss.forEach(d => {
         const data = d.data();
         const uid = d.id;
-        const displayName = data.displayName || "(sans nom)";
+        const displayName = data.displayName || data.name || "(sans nom)";
         const safeName = escapeHtml(displayName);
         const safeUid = escapeHtml(uid);
         const encodedUid = encodeURIComponent(uid);
@@ -668,6 +670,7 @@
             }
             try {
               await appFirestore.updateDoc(appFirestore.doc(db, "u", uid), {
+                name: trimmed,
                 displayName: trimmed,
               });
               await loadUsers(db);
