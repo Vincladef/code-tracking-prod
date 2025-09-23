@@ -3,7 +3,7 @@
 window.Modes = window.Modes || {};
 const modesFirestore = Schema.firestore || window.firestoreAPI || {};
 
-const L = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
+const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -321,7 +321,7 @@ function collectAnswers(form, consignes) {
 
 async function openConsigneForm(ctx, consigne = null) {
   const mode = consigne?.mode || (ctx.route.includes("/practice") ? "practice" : "daily");
-  L.group("ui.consigneForm.open", { mode, consigneId: consigne?.id || null });
+  modesLogger.group("ui.consigneForm.open", { mode, consigneId: consigne?.id || null });
   const catUI = await categorySelect(ctx, mode, consigne?.category || null);
   const priority = Number(consigne?.priority ?? 2);
   const monthKey = Schema.monthKeyFromDate(new Date());
@@ -329,7 +329,7 @@ async function openConsigneForm(ctx, consigne = null) {
   try {
     objectifs = await Schema.listObjectivesByMonth(ctx.db, ctx.user.uid, monthKey);
   } catch (err) {
-    L.warn("ui.consigneForm.objectifs.error", err);
+    modesLogger.warn("ui.consigneForm.objectifs.error", err);
   }
   const currentObjId = consigne?.objectiveId || "";
   const objectifsOptions = objectifs
@@ -422,12 +422,12 @@ async function openConsigneForm(ctx, consigne = null) {
     if (dailyAll.checked) setAll(true);
     dailyAll.addEventListener("change", () => setAll(dailyAll.checked));
   }
-  L.groupEnd();
+  modesLogger.groupEnd();
   $("#cancel", m).onclick = () => m.remove();
 
   $("#consigne-form", m).onsubmit = async (e) => {
     e.preventDefault();
-    L.group("ui.consigneForm.submit");
+    modesLogger.group("ui.consigneForm.submit");
     try {
       const fd = new FormData(e.currentTarget);
       const cat = (fd.get("categoryInput") || "").trim();
@@ -452,7 +452,7 @@ async function openConsigneForm(ctx, consigne = null) {
         const isAll = m.querySelector("#daily-all")?.checked;
         payload.days = isAll ? [] : $$("input[name=days]:checked", m).map((input) => input.value);
       }
-      L.info("payload", payload);
+      modesLogger.info("payload", payload);
 
       const selectedObjective = m.querySelector("#objective-select")?.value || "";
       let consigneId = consigne?.id || null;
@@ -471,7 +471,7 @@ async function openConsigneForm(ctx, consigne = null) {
       if (mode === "practice") renderPractice(ctx, root);
       else renderDaily(ctx, root);
     } finally {
-      L.groupEnd();
+      modesLogger.groupEnd();
     }
   };
 }
@@ -504,7 +504,7 @@ function dotHTML(kind){
 }
 
 async function openHistory(ctx, consigne) {
-  L.group("ui.history.open", { consigneId: consigne.id, type: consigne.type });
+  modesLogger.group("ui.history.open", { consigneId: consigne.id, type: consigne.type });
   const qy = modesFirestore.query(
     modesFirestore.collection(ctx.db, `u/${ctx.user.uid}/responses`),
     modesFirestore.where("consigneId", "==", consigne.id),
@@ -512,7 +512,7 @@ async function openHistory(ctx, consigne) {
     modesFirestore.limit(60)
   );
   const ss = await modesFirestore.getDocs(qy);
-  L.info("ui.history.rows", ss.size);
+  modesLogger.info("ui.history.rows", ss.size);
   const rows = ss.docs.map((d) => ({ id: d.id, ...d.data() }));
 
   const list = rows
@@ -550,7 +550,7 @@ async function openHistory(ctx, consigne) {
   panel.querySelector('[data-close]')?.addEventListener('click', () => panel.remove());
 
   if (canGraph && window.Chart) {
-    L.info("ui.history.chart", { points: rows.length });
+    modesLogger.info("ui.history.chart", { points: rows.length });
     const canvas = panel.querySelector('#histoChart');
     if (canvas) {
       const ctx2 = canvas.getContext('2d');
@@ -611,10 +611,10 @@ async function openHistory(ctx, consigne) {
       });
     }
   } else {
-    L.info("ui.history.chart.skip", { canGraph, hasChart: !!window.Chart });
+    modesLogger.info("ui.history.chart.skip", { canGraph, hasChart: !!window.Chart });
   }
 
-  L.groupEnd();
+  modesLogger.groupEnd();
 
   function formatValue(type, v) {
     if (type === 'yesno') return v === 'yes' ? 'Oui' : 'Non';
@@ -648,7 +648,7 @@ async function openHistory(ctx, consigne) {
 }
 
 async function renderPractice(ctx, root, _opts = {}) {
-  L.group("screen.practice.render", { hash: ctx.route });
+  modesLogger.group("screen.practice.render", { hash: ctx.route });
   root.innerHTML = "";
   const container = document.createElement("div");
   container.className = "space-y-4";
@@ -721,7 +721,7 @@ async function renderPractice(ctx, root, _opts = {}) {
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "practice");
   const consignes = all.filter((c) => (c.category || "") === currentCat);
-  L.info("screen.practice.consignes", consignes.length);
+  modesLogger.info("screen.practice.consignes", consignes.length);
 
   const orderSorted = consignes.slice().sort((a, b) => {
     const orderA = Number(a.order || 0);
@@ -876,7 +876,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       saveBtn.textContent = "Enregistrer";
     }
   };
-  L.groupEnd();
+  modesLogger.groupEnd();
 }
 
 const DOW = ["DIM","LUN","MAR","MER","JEU","VEN","SAM"];
@@ -917,7 +917,7 @@ async function renderDaily(ctx, root, opts = {}) {
   const isoDay = explicitDate ? DOW[explicitDate.getDay()] : null;
   const requested = normalizeDay(opts.day) || normalizeDay(qp.get("day")) || isoDay;
   const currentDay = requested || jours[todayIdx];
-  L.group("screen.daily.render", { hash: ctx.route, day: currentDay, date: explicitDate?.toISOString?.() });
+  modesLogger.group("screen.daily.render", { hash: ctx.route, day: currentDay, date: explicitDate?.toISOString?.() });
 
   const card = document.createElement("section");
   card.className = "card p-4 space-y-4";
@@ -957,7 +957,7 @@ async function renderDaily(ctx, root, opts = {}) {
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
   const consignes = all.filter((c) => !c.days?.length || c.days.includes(currentDay));
-  L.info("screen.daily.consignes", consignes.length);
+  modesLogger.info("screen.daily.consignes", consignes.length);
 
   const selectedDate = explicitDate ? new Date(explicitDate) : dateForDayFromToday(currentDay);
   const visible = [];
@@ -1117,7 +1117,7 @@ async function renderDaily(ctx, root, opts = {}) {
     $$("input[type=radio]", form).forEach((input) => (input.checked = false));
   };
 
-  L.groupEnd();
+  modesLogger.groupEnd();
 }
 
 function renderHistory() {}

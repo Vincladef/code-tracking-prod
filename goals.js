@@ -1,7 +1,7 @@
 // goals.js — Objectifs timeline
 /* global Schema, Goals */
 window.Goals = window.Goals || {};
-const L = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
+const goalsLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
 
 let lastMount = null;
 
@@ -106,7 +106,7 @@ async function renderGoals(ctx, root) {
         row.style.outline = "2px solid #86efac";
         setTimeout(() => { row.style.outline = "none"; }, 600);
       } catch (err) {
-        L.error("goals.quickEntry.error", err);
+        goalsLogger.error("goals.quickEntry.error", err);
         row.style.outline = "2px solid #fca5a5";
         setTimeout(() => { row.style.outline = "none"; }, 800);
       }
@@ -152,7 +152,7 @@ async function renderGoals(ctx, root) {
     try {
       goals = await Schema.listObjectivesByMonth(ctx.db, ctx.user.uid, monthKey);
     } catch (err) {
-      L.error("goals.month.load", err);
+      goalsLogger.error("goals.month.load", err);
     }
 
     goals.sort((a, b) => (a.titre || "").localeCompare(b.titre || ""));
@@ -315,7 +315,7 @@ function openGoalForm(ctx, goal = null) {
         renderGoals(ctx, lastMount);
       }
     } catch (err) {
-      L.error("goals.save.error", err);
+      goalsLogger.error("goals.save.error", err);
       alert("Impossible d'enregistrer l’objectif.");
     }
   });

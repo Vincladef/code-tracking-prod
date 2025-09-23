@@ -97,7 +97,7 @@ const D = {
   groupEnd: () => D.on && console.groupEnd(),
 };
 Schema.D = Schema.D || D;
-const log = () => {};
+const schemaLog = () => {};
 // --- Helpers de chemin /u/{uid}/...
 
 let boundDb = null;
@@ -440,7 +440,7 @@ async function softDeleteConsigne(db, uid, id) {
 }
 
 async function saveResponse(db, uid, consigne, value) {
-  log("saveResponse:start", { uid, consigneId: consigne.id, mode: consigne.mode, value });
+  schemaLog("saveResponse:start", { uid, consigneId: consigne.id, mode: consigne.mode, value });
   const payload = {
     ownerUid: uid,
     consigneId: consigne.id,
@@ -449,11 +449,11 @@ async function saveResponse(db, uid, consigne, value) {
     createdAt: now(),
   };
   const ref = await addDoc(col(db, uid, "responses"), payload);
-  log("saveResponse:done", { uid, responseId: ref.id, consigneId: consigne.id });
+  schemaLog("saveResponse:done", { uid, responseId: ref.id, consigneId: consigne.id });
 }
 
 async function fetchHistory(db, uid, count = 200) {
-  log("fetchHistory:start", { uid, count });
+  schemaLog("fetchHistory:start", { uid, count });
   const qy = query(
     col(db, uid, "responses"),
     orderBy("createdAt", "desc"),
@@ -461,7 +461,7 @@ async function fetchHistory(db, uid, count = 200) {
   );
   const ss = await getDocs(qy);
   const data = ss.docs.map(d => d.data());
-  log("fetchHistory:done", { uid, count: data.length });
+  schemaLog("fetchHistory:done", { uid, count: data.length });
   return data;
 }
 
