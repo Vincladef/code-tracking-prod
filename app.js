@@ -567,12 +567,14 @@
                       class="btn btn-ghost text-sm"
                       data-uid="${safeUid}"
                       data-name="${safeName}"
-                      data-action="rename">Renommer</button>
+                      data-action="rename"
+                      title="Renommer ${safeName}">✏️ Renommer</button>
               <button type="button"
                       class="btn btn-ghost text-sm text-red-600"
                       data-uid="${safeUid}"
                       data-name="${safeName}"
-                      data-action="delete">Supprimer</button>
+                      data-action="delete"
+                      title="Supprimer ${safeName}">🗑️ Supprimer</button>
             </div>
           </div>
         `);
