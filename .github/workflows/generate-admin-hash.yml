@@ -9,6 +9,8 @@ jobs:
   build-admin-hash:
     if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
     steps:
@@ -38,25 +40,28 @@ jobs:
             printf '%s\n' "})();"
           } > admin-config.js
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Commit admin hash update
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          node-version: '20'
+          commit_message: "chore: update admin hash"
+          file_pattern: admin-config.js
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build project
-        run: npm run build
+      - name: Préparer les fichiers statiques
+        run: |
+          rm -rf build
+          mkdir build
+          rsync -av \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            --exclude 'build/' \
+            --exclude 'functions/' \
+            --exclude 'tests/' \
+            --exclude 'firebase.json' \
+            --exclude 'firestore.rules' \
+            ./ build/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./build
-
-        - name: Commit admin hash update
-          uses: stefanzweifel/git-auto-commit-action@v5
-          with:
-            commit_message: "chore: update admin hash"
-            file_pattern: admin-config.js
