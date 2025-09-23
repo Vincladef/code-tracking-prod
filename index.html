@@ -76,10 +76,52 @@
     .no-scrollbar::-webkit-scrollbar{ display:none; }
     .no-scrollbar{ -ms-overflow-style:none; scrollbar-width:none; }
 
-    /* Boutons de jours (Journalier) */
-    .day-btn[data-today="1"] {
-      /* léger surlignage si ce n'est pas le jour sélectionné */
-      box-shadow: inset 0 0 0 2px var(--accent-200);
+    /* Journalier — navigation par jour */
+    .day-nav {
+      display:inline-flex;
+      align-items:center;
+      gap:.75rem;
+      padding:.35rem .75rem;
+      border:1px solid rgba(148,163,184,.35);
+      border-radius:999px;
+      background:#fff;
+    }
+    .day-nav-btn {
+      width:2rem;
+      height:2rem;
+      border-radius:999px;
+      border:1px solid transparent;
+      background:transparent;
+      color:var(--text);
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      font-size:1.1rem;
+      cursor:pointer;
+      transition:background .15s ease, border-color .15s ease;
+    }
+    .day-nav-btn:hover,
+    .day-nav-btn:focus-visible {
+      background:var(--accent-50);
+      border-color:var(--accent-200);
+      outline:none;
+    }
+    .day-nav-label {
+      font-weight:600;
+      font-size:.95rem;
+      text-transform:capitalize;
+      color:var(--text);
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      line-height:1.2;
+    }
+    .day-nav-today {
+      font-size:.7rem;
+      font-weight:500;
+      color:var(--muted);
+      letter-spacing:.03em;
+      text-transform:uppercase;
     }
 
     /* Journalier — catégories */

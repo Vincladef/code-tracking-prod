@@ -900,6 +900,15 @@ async function renderPractice(ctx, root, _opts = {}) {
 }
 
 const DOW = ["DIM","LUN","MAR","MER","JEU","VEN","SAM"];
+const DAILY_WEEKDAY_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
+const DAILY_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
+function formatDailyNavLabel(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const weekday = DAILY_WEEKDAY_FORMATTER.format(date) || "";
+  const digits = DAILY_DATE_FORMATTER.format(date) || "";
+  const capitalized = weekday ? `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}` : "";
+  return [capitalized, digits].filter(Boolean).join(" ");
+}
 function dateForDayFromToday(label){
   const target = DOW.indexOf(label);
   const today = new Date(); today.setHours(0,0,0,0);
@@ -939,30 +948,50 @@ async function renderDaily(ctx, root, opts = {}) {
   const currentDay = requested || jours[todayIdx];
   modesLogger.group("screen.daily.render", { hash: ctx.route, day: currentDay, date: explicitDate?.toISOString?.() });
 
+  const selectedDate = explicitDate ? new Date(explicitDate) : dateForDayFromToday(currentDay);
+  selectedDate.setHours(0, 0, 0, 0);
+  const selectedKey = Schema.dayKeyFromDate(selectedDate);
+  const navLabel = formatDailyNavLabel(selectedDate) || selectedKey;
+  const isTodaySelected = Schema.todayKey() === selectedKey;
+
   const card = document.createElement("section");
   card.className = "card p-4 space-y-4";
-  const today = jours[todayIdx];
-  const buttons = jours.map((day) => `
-    <button class="day-btn px-3 py-1 text-sm rounded-lg border ${day === currentDay
-      ? "bg-[var(--accent-50)] border-[var(--accent-400)] font-medium"
-      : "bg-white border-gray-200"}"
-      data-day="${day}"
-      data-today="${day === today ? "1" : "0"}">${day}</button>
-  `).join("");
   card.innerHTML = `
     <div class="flex flex-wrap items-center gap-2">
-      <div class="flex flex-wrap gap-2" data-day-buttons>${buttons}</div>
-      <div class="ml-auto">${smallBtn("+ Nouvelle consigne", "js-new")}</div>
+      <div class="day-nav" data-day-nav>
+        <button type="button" class="day-nav-btn" data-dir="prev" aria-label="Jour précédent">
+          <span aria-hidden="true">←</span>
+        </button>
+        <div class="day-nav-label">
+          <span>${escapeHtml(navLabel)}</span>
+          ${isTodaySelected ? '<span class="day-nav-today">Aujourd\u2019hui</span>' : ""}
+        </div>
+        <button type="button" class="day-nav-btn" data-dir="next" aria-label="Jour suivant">
+          <span aria-hidden="true">→</span>
+        </button>
+      </div>
+      <div class="ml-auto flex items-center gap-2">${smallBtn("+ Nouvelle consigne", "js-new")}</div>
     </div>
   `;
   container.appendChild(card);
 
-  card.querySelectorAll("[data-day]").forEach((btn) => {
-    btn.onclick = () => {
-      const base = currentHash.split("?")[0];
-      navigate(`${toAppPath(base)}?day=${btn.dataset.day}`);
+  const navContainer = card.querySelector("[data-day-nav]");
+  if (navContainer) {
+    const basePath = toAppPath((currentHash.split("?")[0]) || "#/daily");
+    const goTo = (delta) => {
+      const target = new Date(selectedDate);
+      target.setDate(target.getDate() + delta);
+      const params = new URLSearchParams(qp);
+      params.set("d", Schema.dayKeyFromDate(target));
+      params.delete("day");
+      const search = params.toString();
+      navigate(`${basePath}${search ? `?${search}` : ""}`);
     };
-  });
+    const prevBtn = navContainer.querySelector('[data-dir="prev"]');
+    const nextBtn = navContainer.querySelector('[data-dir="next"]');
+    if (prevBtn) prevBtn.onclick = () => goTo(-1);
+    if (nextBtn) nextBtn.onclick = () => goTo(1);
+  }
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
   const dashBtn = card.querySelector(".js-dashboard");
   if (dashBtn) {
@@ -979,9 +1008,7 @@ async function renderDaily(ctx, root, opts = {}) {
   const consignes = all.filter((c) => !c.days?.length || c.days.includes(currentDay));
   modesLogger.info("screen.daily.consignes", consignes.length);
 
-  const selectedDate = explicitDate ? new Date(explicitDate) : dateForDayFromToday(currentDay);
-  selectedDate.setHours(0, 0, 0, 0);
-  const dayKey = Schema.todayKey(selectedDate);
+  const dayKey = selectedKey;
   const visible = [];
   const hidden = [];
   await Promise.all(consignes.map(async (c) => {
