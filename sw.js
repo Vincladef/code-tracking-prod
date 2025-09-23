@@ -23,7 +23,9 @@ messaging.onBackgroundMessage(({ notification = {}, data = {} }) => {
 });
 
 self.addEventListener("notificationclick", (e) => {
+  const link = e.notification?.data?.link || e.notification?.data?.url || "/";
   e.notification.close();
-  const url = e.notification?.data?.link || "/";
-  e.waitUntil(clients.openWindow(url));
+  if (link) {
+    e.waitUntil(clients.openWindow(link));
+  }
 });

@@ -53,6 +53,11 @@ export const now = () => new Date().toISOString();
 export const col = (db, uid, sub) => collection(db, "u", uid, sub);
 export const docIn = (db, uid, sub, id) => doc(db, "u", uid, sub, id);
 
+export function buildUserDailyLink(uid, dateIso) {
+  const base = "https://vincladef.github.io/code-tracking-prod/";
+  return `${base}#/daily?u=${encodeURIComponent(uid)}&d=${dateIso}`;
+}
+
 // Timestamp lisible (les graphs lisent une chaîne)
 export const todayKey = (d = new Date()) => d.toISOString().slice(0,10); // YYYY-MM-DD
 
@@ -342,6 +347,10 @@ export async function updateConsigne(db, uid, id, payload) {
   });
 }
 
+export async function updateConsigneOrder(db, uid, consigneId, order) {
+  await setDoc(doc(db, "u", uid, "consignes", consigneId), { order }, { merge: true });
+}
+
 export async function softDeleteConsigne(db, uid, id) {
   const ref = docIn(db, uid, "consignes", id);
   await updateDoc(ref, {
@@ -395,11 +404,30 @@ export function valueToNumericPoint(type, value) {
   return null; // pour short/long -> pas de graph
 }
 
+export async function listConsignesByCategory(db, uid, category) {
+  const qy = query(
+    collection(db, "u", uid, "consignes"),
+    where("category", "==", category)
+  );
+  const snap = await getDocs(qy);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function loadConsigneHistory(db, uid, consigneId) {
+  const colRef = collection(db, "u", uid, "history", consigneId, "entries");
+  const snap = await getDocs(colRef);
+  return snap.docs.map((d) => ({ date: d.id, ...d.data() }));
+}
+
 // --- utilitaires temps ---
 export function monthKeyFromDate(d) {
   const dt = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(dt.getTime())) return "";
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function weeksOf(_monthKey) {
+  return [1, 2, 3, 4];
 }
 
 export function weekOfMonthFromDate(d) {
@@ -424,28 +452,34 @@ export async function getObjective(db, uid, objectifId) {
 }
 
 export async function upsertObjective(db, uid, data, objectifId = null) {
-  const start = data?.startDate ? new Date(data.startDate) : new Date();
-  const monthKey = data?.monthKey || monthKeyFromDate(start);
-  const week = data?.type === "hebdo"
-    ? (data?.weekOfMonth || weekOfMonthFromDate(start))
+  const rawStart = data?.startDate ? new Date(data.startDate) : new Date();
+  const monthKey = data?.monthKey || monthKeyFromDate(rawStart);
+  const type = data?.type || "hebdo";
+  const week = type === "hebdo"
+    ? Number(data?.weekOfMonth || weekOfMonthFromDate(rawStart) || 1)
     : null;
+
+  const ref = objectifId
+    ? doc(db, "u", uid, "objectifs", objectifId)
+    : doc(collection(db, "u", uid, "objectifs"));
 
   const payload = {
     titre: data?.titre || "Objectif",
-    description: data?.description || "",
-    type: data?.type || "mensuel",
-    startDate: data?.startDate || `${monthKey}-01`,
-    endDate: data?.endDate || `${monthKey}-28`,
+    type,
     monthKey,
-    status: data?.status || "en_cours",
-    ...(week ? { weekOfMonth: week } : {}),
+    weekOfMonth: type === "hebdo" ? week : null,
   };
 
-  if (objectifId) {
-    await setDoc(doc(db, "u", uid, "objectifs", objectifId), payload, { merge: true });
-    return objectifId;
+  if (!objectifId) {
+    payload.createdAt = serverTimestamp();
   }
-  const ref = await addDoc(collection(db, "u", uid, "objectifs"), payload);
+
+  if (data?.description !== undefined) payload.description = data.description;
+  if (data?.status !== undefined) payload.status = data.status;
+  if (data?.startDate !== undefined) payload.startDate = data.startDate;
+  if (data?.endDate !== undefined) payload.endDate = data.endDate;
+
+  await setDoc(ref, payload, { merge: true });
   return ref.id;
 }
 
@@ -457,5 +491,16 @@ export async function linkConsigneToObjective(db, uid, consigneId, objectifId) {
     { objectiveId: objectifId || null },
     { merge: true },
   );
+}
+
+export async function saveObjectiveEntry(db, uid, objectifId, dateIso, value) {
+  const ref = doc(db, "u", uid, "objectiveEntries", objectifId, dateIso);
+  await setDoc(ref, { v: value, at: serverTimestamp() }, { merge: true });
+}
+
+export async function loadObjectiveEntriesRange(db, uid, objectifId, _fromIso, _toIso) {
+  const colRef = collection(db, "u", uid, "objectiveEntries", objectifId);
+  const snap = await getDocs(colRef);
+  return snap.docs.map((d) => ({ date: d.id, v: d.data().v }));
 }
 

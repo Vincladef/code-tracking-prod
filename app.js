@@ -230,28 +230,38 @@ function redirectToDefaultSection() {
 async function ensureOwnRoute(parsed) {
   let desired = parsed.segments[0] || "daily";
   if (!desired) desired = "daily";
-  const searchPart = parsed.search ? `?${parsed.search}` : "";
 
-  let user;
+  const qp = parsed.qp || new URLSearchParams(parsed.search || "");
+  const requestedUid = qp.get("u");
+
+  let authUser;
   try {
-    user = await ensureSignedIn();
+    authUser = await ensureSignedIn();
   } catch (error) {
     if (DEBUG) console.warn("[Auth] anonymous sign-in failed", error);
   }
 
-  if (!user || !user.uid) {
+  const fallbackUid = authUser?.uid;
+  const targetUid = requestedUid || fallbackUid;
+
+  if (!targetUid) {
     redirectToDefaultSection();
     return;
   }
 
-  const target = `#/u/${user.uid}/${desired}${searchPart}`;
+  if (requestedUid) {
+    qp.delete("u");
+  }
+  const searchPart = qp.toString();
+  const target = `#/u/${targetUid}/${desired}${searchPart ? `?${searchPart}` : ""}`;
+
   if (location.hash !== target) {
     location.replace(target);
-  } else if (!ctx.user || ctx.user.uid !== user.uid) {
+  } else if (!ctx.user || ctx.user.uid !== targetUid) {
     await initApp({
       app: ctx.app,
       db: ctx.db,
-      user: { uid: user.uid }
+      user: { uid: targetUid }
     });
   }
 }
@@ -276,22 +286,34 @@ async function handleRoute() {
   }
 
   if (routeName === "u") {
+    const qp = parsed.qp || new URLSearchParams(parsed.search || "");
     const uid = parsed.segments[1];
-    const section = parsed.segments[2];
+    let section = parsed.segments[2];
+    const requestedUid = qp.get("u");
+    const targetUid = requestedUid || uid;
 
-    if (!uid) {
+    if (!targetUid) {
       redirectToDefaultSection();
       return;
     }
 
     if (!section) {
-      const searchPart = parsed.search ? `?${parsed.search}` : "";
-      const target = `#/u/${uid}/daily${searchPart}`;
+      if (requestedUid) qp.delete("u");
+      const searchPart = qp.toString();
+      const target = `#/u/${targetUid}/daily${searchPart ? `?${searchPart}` : ""}`;
       location.replace(target);
       return;
     }
 
-    if (ctx.user?.uid === uid) {
+    if (requestedUid && requestedUid !== uid) {
+      qp.delete("u");
+      const searchPart = qp.toString();
+      const target = `#/u/${targetUid}/${section}${searchPart ? `?${searchPart}` : ""}`;
+      location.replace(target);
+      return;
+    }
+
+    if (ctx.user?.uid === targetUid) {
       return;
     }
 
@@ -299,7 +321,7 @@ async function handleRoute() {
       app: ctx.app,
       db: ctx.db,
       user: {
-        uid
+        uid: targetUid
       }
     });
     return;
@@ -575,7 +597,7 @@ function render() {
       return renderAdmin(ctx.db);
     case "dashboard":
     case "daily":
-      return Modes.renderDaily(ctx, root, { day: qp.get("day") });
+      return Modes.renderDaily(ctx, root, { day: qp.get("day"), dateIso: qp.get("d") });
     case "practice":
       return Modes.renderPractice(ctx, root, { newSession: qp.get("new") === "1" });
     case "history":

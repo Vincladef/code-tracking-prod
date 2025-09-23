@@ -107,6 +107,106 @@ function toAppPath(h) {
   return h.replace(/^#\/u\/[^/]+\//, "#/");
 }
 
+async function openCategoryDashboard(ctx, category) {
+  if (!category) return;
+  try {
+    const consignes = await Schema.listConsignesByCategory(ctx.db, ctx.user.uid, category);
+    const today = new Date();
+    const days = Array.from({ length: 30 }, (_, idx) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() - idx);
+      return d.toISOString().slice(0, 10);
+    }).reverse();
+
+    const rows = [];
+    for (const consigne of consignes) {
+      const hist = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+      const map = new Map(hist.map((entry) => [entry.date, entry.v ?? entry.value ?? ""]));
+      rows.push({
+        name: consigne.text || consigne.titre || consigne.name || consigne.id,
+        values: days.map((d) => map.get(d) ?? ""),
+      });
+    }
+
+    const bodyRows = rows.length
+      ? rows
+          .map((row) => `
+            <tr>
+              <td>${escapeHtml(row.name)}</td>
+              ${row.values
+                .map((value) => `<td>${value === "" ? "" : escapeHtml(String(value))}</td>`)
+                .join("")}
+            </tr>
+          `)
+          .join("")
+      : `<tr><td colspan="${days.length + 1}" class="text-sm text-[var(--muted)]">Aucune donnée disponible.</td></tr>`;
+
+    const html = `
+      <div class="goal-modal-card" style="max-width:min(920px,95vw);">
+        <div class="goal-modal-header">
+          <div class="goal-modal-title">📊 ${escapeHtml(category)}</div>
+          <button class="btn-ghost" type="button" id="dashboard-close">✕</button>
+        </div>
+        <div class="history-scroll" style="margin-top:12px;">
+          <table class="history-table text-sm">
+            <thead>
+              <tr><th>Consigne</th>${days.map((d) => `<th>${escapeHtml(d.slice(5))}</th>`).join("")}</tr>
+            </thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+        </div>
+        <canvas id="catChart" height="200" style="margin-top:12px;"></canvas>
+      </div>
+    `;
+
+    const wrap = document.createElement("div");
+    wrap.className = "goal-modal";
+    wrap.innerHTML = html;
+    document.body.appendChild(wrap);
+
+    const close = () => wrap.remove();
+    wrap.addEventListener("click", (event) => {
+      if (event.target === wrap) close();
+    });
+    wrap.querySelector("#dashboard-close")?.addEventListener("click", close);
+
+    const canvas = wrap.querySelector("#catChart");
+    if (!rows.length) {
+      if (canvas) canvas.remove();
+      return;
+    }
+
+    if (canvas && window.Chart) {
+      const ctx2 = canvas.getContext("2d");
+      const datasets = rows.map((row) => ({
+        label: row.name,
+        data: row.values.map((value) => {
+          if (value === "") return null;
+          const num = Number(value);
+          return Number.isFinite(num) ? num : null;
+        }),
+        spanGaps: true,
+        tension: 0.25,
+        pointRadius: 2,
+      }));
+      new Chart(ctx2, {
+        type: "line",
+        data: { labels: days, datasets },
+        options: {
+          responsive: true,
+          interaction: { mode: "nearest", intersect: false },
+          scales: { y: { beginAtZero: true } },
+        },
+      });
+    } else if (!window.Chart) {
+      L.warn("practice.dashboard.chart.missing");
+    }
+  } catch (err) {
+    L.error("practice.dashboard.error", err);
+    alert("Impossible de charger le tableau de bord.");
+  }
+}
+
 async function categorySelect(ctx, mode, currentName = "") {
   const cats = await Schema.fetchCategories(ctx.db, ctx.user.uid);
   const names = cats.filter(c => c.mode === mode).map(c => c.name);
@@ -583,9 +683,12 @@ export async function renderPractice(ctx, root, _opts = {}) {
         <label class="text-sm text-[var(--muted)]" for="practice-cat">Catégorie</label>
         <select id="practice-cat" class="min-w-[160px]">${catOptions}</select>
       </div>
-      <div>${smallBtn("+ Nouvelle consigne", "js-new")}</div>
+      <div class="flex items-center gap-2">
+        ${smallBtn("📊 Tableau de bord", "js-dashboard")}
+        ${smallBtn("+ Nouvelle consigne", "js-new")}
+      </div>
     </div>
-    <form id="practice-form" class="grid gap-4"></form>
+    <form id="practice-form" class="grid gap-3"></form>
     <div class="flex justify-end">
       <button class="btn btn-primary" type="button" id="save">Enregistrer</button>
     </div>
@@ -602,23 +705,47 @@ export async function renderPractice(ctx, root, _opts = {}) {
     };
   }
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
+  const dashBtn = card.querySelector(".js-dashboard");
+  if (dashBtn) {
+    const hasCategory = Boolean(currentCat);
+    dashBtn.disabled = !hasCategory;
+    dashBtn.classList.toggle("opacity-50", !hasCategory);
+    dashBtn.onclick = () => {
+      if (!currentCat) return;
+      openCategoryDashboard(ctx, currentCat);
+    };
+  }
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "practice");
   const consignes = all.filter((c) => (c.category || "") === currentCat);
   L.info("screen.practice.consignes", consignes.length);
 
+  const orderSorted = consignes.slice().sort((a, b) => {
+    const orderA = Number(a.order || 0);
+    const orderB = Number(b.order || 0);
+    if (orderA !== orderB) return orderA - orderB;
+    const prioA = Number(a.priority || 0);
+    const prioB = Number(b.priority || 0);
+    if (prioA !== prioB) return prioA - prioB;
+    return (a.text || a.titre || "").localeCompare(b.text || b.titre || "");
+  });
+
   const sessionIndex = await Schema.countPracticeSessions(ctx.db, ctx.user.uid);
   const visible = [];
   const hidden = [];
-  await Promise.all(consignes.map(async (c) => {
-    if (c.srEnabled === false) { visible.push(c); return; }
+  for (const c of orderSorted) {
+    if (c.srEnabled === false) {
+      visible.push(c);
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop
     const st = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "consigne");
     if (!st || st.nextAllowedIndex === undefined || st.nextAllowedIndex <= sessionIndex) {
       visible.push(c);
     } else {
       hidden.push({ c, remaining: st.nextAllowedIndex - sessionIndex });
     }
-  }));
+  }
 
   const form = card.querySelector("#practice-form");
   if (!visible.length) {
@@ -626,12 +753,11 @@ export async function renderPractice(ctx, root, _opts = {}) {
   } else {
     form.innerHTML = "";
 
-    const highs = visible.filter(c => (c.priority||2) <= 2);
-    const lows  = visible.filter(c => (c.priority||2) >= 3);
-
     const makeItem = (c) => {
       const el = document.createElement("div");
-      el.className = "card p-3 space-y-3";
+      el.className = "consigne-card card p-3 space-y-3";
+      el.dataset.id = c.id;
+      el.setAttribute("draggable", "true");
       el.innerHTML = `
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex flex-wrap items-center gap-2">
@@ -670,18 +796,44 @@ export async function renderPractice(ctx, root, _opts = {}) {
       return el;
     };
 
-    highs.forEach(c => form.appendChild(makeItem(c)));
+    visible.forEach((c) => form.appendChild(makeItem(c)));
 
-    if (lows.length){
-      const det = document.createElement("details");
-      det.className = "rounded-xl border border-gray-200 bg-white";
-      det.innerHTML = `<summary class="px-3 py-2 cursor-pointer select-none">Priorité basse (${lows.length})</summary>`;
-      const box = document.createElement("div"); box.className = "p-3 space-y-3";
-      lows.forEach(c => box.appendChild(makeItem(c)));
-      det.appendChild(box);
-      form.appendChild(det);
-    }
-  }
+    let dragId = null;
+    form.addEventListener("dragstart", (event) => {
+      const cardEl = event.target.closest(".consigne-card");
+      if (!cardEl) return;
+      dragId = cardEl.dataset.id;
+      event.dataTransfer.effectAllowed = "move";
+    });
+    form.addEventListener("dragover", (event) => {
+      if (!dragId) return;
+      const over = event.target.closest(".consigne-card");
+      if (!over || over.dataset.id === dragId) return;
+      event.preventDefault();
+      const rect = over.getBoundingClientRect();
+      const before = (event.clientY - rect.top) < rect.height / 2;
+      const current = form.querySelector(`.consigne-card[data-id=\"${dragId}\"]`);
+      if (!current || !over.parentNode) return;
+      over.parentNode.insertBefore(current, before ? over : over.nextSibling);
+    });
+    form.addEventListener("drop", async (event) => {
+      if (!dragId) return;
+      event.preventDefault();
+      const cards = Array.from(form.querySelectorAll(".consigne-card"));
+      try {
+        await Promise.all(
+          cards.map((el, idx) =>
+            Schema.updateConsigneOrder(ctx.db, ctx.user.uid, el.dataset.id, (idx + 1) * 10)
+          )
+        );
+      } catch (err) {
+        L.error("practice.reorder.error", err);
+      }
+      dragId = null;
+    });
+    form.addEventListener("dragend", () => {
+      dragId = null;
+    });
 
   if (hidden.length) {
     const box = document.createElement("div");
@@ -782,9 +934,19 @@ export async function renderDaily(ctx, root, opts = {}) {
   const qp = new URLSearchParams(currentHash.split("?")[1] || "");
   const jours = ["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"];
   const todayIdx = (new Date().getDay() + 6) % 7;
-  const requested = normalizeDay(opts.day) || normalizeDay(qp.get("day"));
+  const dateIso = opts.dateIso || qp.get("d");
+  let explicitDate = null;
+  if (dateIso) {
+    const parsed = new Date(dateIso);
+    if (!Number.isNaN(parsed.getTime())) {
+      parsed.setHours(0, 0, 0, 0);
+      explicitDate = parsed;
+    }
+  }
+  const isoDay = explicitDate ? DOW[explicitDate.getDay()] : null;
+  const requested = normalizeDay(opts.day) || normalizeDay(qp.get("day")) || isoDay;
   const currentDay = requested || jours[todayIdx];
-  L.group("screen.daily.render", { hash: ctx.route, day: currentDay });
+  L.group("screen.daily.render", { hash: ctx.route, day: currentDay, date: explicitDate?.toISOString?.() });
 
   const card = document.createElement("section");
   card.className = "card p-4 space-y-4";
@@ -811,16 +973,27 @@ export async function renderDaily(ctx, root, opts = {}) {
     };
   });
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
+  const dashBtn = card.querySelector(".js-dashboard");
+  if (dashBtn) {
+    const hasCategory = Boolean(currentCat);
+    dashBtn.disabled = !hasCategory;
+    dashBtn.classList.toggle("opacity-50", !hasCategory);
+    dashBtn.onclick = () => {
+      if (!currentCat) return;
+      openCategoryDashboard(ctx, currentCat);
+    };
+  }
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
   const consignes = all.filter((c) => !c.days?.length || c.days.includes(currentDay));
   L.info("screen.daily.consignes", consignes.length);
 
-  const selectedDate = dateForDayFromToday(currentDay);
+  const selectedDate = explicitDate ? new Date(explicitDate) : dateForDayFromToday(currentDay);
   const visible = [];
   const hidden = [];
   await Promise.all(consignes.map(async (c) => {
     if (c.srEnabled === false) { visible.push(c); return; }
+    // eslint-disable-next-line no-await-in-loop
     const st = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "consigne");
     const nextISO = st?.nextVisibleOn || st?.hideUntil;
     if (!nextISO) { visible.push(c); return; }
