@@ -1,5 +1,5 @@
 // modes.js — Journalier / Pratique / Historique
-const Schema = window.Schema || {};
+/* global Schema */
 const Modes = window.Modes = window.Modes || {};
 const firestoreAPI = Schema.firestore || {};
 const { collection, query, where, orderBy, limit, getDocs } = firestoreAPI;
@@ -109,105 +109,107 @@ function toAppPath(h) {
   return h.replace(/^#\/u\/[^/]+\//, "#/");
 }
 
-async function openCategoryDashboard(ctx, category) {
-  if (!category) return;
+// --------- CAT DASHBOARD (modal) ---------
+window.openCategoryDashboard = async function openCategoryDashboard(ctx, category) {
   try {
     const consignes = await Schema.listConsignesByCategory(ctx.db, ctx.user.uid, category);
+
     const today = new Date();
-    const days = Array.from({ length: 30 }, (_, idx) => {
-      const d = new Date(today);
-      d.setDate(d.getDate() - idx);
-      return d.toISOString().slice(0, 10);
-    }).reverse();
+    const days = Array.from({length: 30}, (_,i) => {
+      const d = new Date(today); d.setDate(d.getDate()- (29-i));
+      return d.toISOString().slice(0,10);
+    });
 
     const rows = [];
-    for (const consigne of consignes) {
-      const hist = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
-      const map = new Map(hist.map((entry) => [entry.date, entry.v ?? entry.value ?? ""]));
-      rows.push({
-        name: consigne.text || consigne.titre || consigne.name || consigne.id,
-        values: days.map((d) => map.get(d) ?? ""),
-      });
+    for (const c of consignes) {
+      const hist = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, c.id);
+      const map = new Map(hist.map(h => [h.date, h.v ?? h.value ?? '']));
+      rows.push({ name: c.titre || c.name || c.id, values: days.map(d => map.get(d) ?? '') });
     }
 
-    const bodyRows = rows.length
-      ? rows
-          .map((row) => `
-            <tr>
-              <td>${escapeHtml(row.name)}</td>
-              ${row.values
-                .map((value) => `<td>${value === "" ? "" : escapeHtml(String(value))}</td>`)
-                .join("")}
-            </tr>
-          `)
-          .join("")
-      : `<tr><td colspan="${days.length + 1}" class="text-sm text-[var(--muted)]">Aucune donnée disponible.</td></tr>`;
-
+    const safeCategory = escapeHtml(category ?? "");
     const html = `
-      <div class="goal-modal-card" style="max-width:min(920px,95vw);">
-        <div class="goal-modal-header">
-          <div class="goal-modal-title">📊 ${escapeHtml(category)}</div>
-          <button class="btn-ghost" type="button" id="dashboard-close">✕</button>
+      <div class="goal-modal modal"><div class="goal-modal-card modal-card">
+        <div class="goal-modal-header modal-header">
+          <div class="goal-modal-title title">📊 ${safeCategory}</div>
+          <button id="x" class="btn-ghost">✕</button>
         </div>
-        <div class="history-scroll" style="margin-top:12px;">
-          <table class="history-table text-sm">
+        <div class="history-scroll">
+          <table class="history-table">
             <thead>
-              <tr><th>Consigne</th>${days.map((d) => `<th>${escapeHtml(d.slice(5))}</th>`).join("")}</tr>
+              <tr><th>Consigne</th>${days.map(d=>`<th>${escapeHtml(d.slice(5))}</th>`).join('')}</tr>
             </thead>
-            <tbody>${bodyRows}</tbody>
+            <tbody>
+              ${rows.map(r=>`<tr><td>${escapeHtml(r.name)}</td>${r.values.map(v=>`<td>${v===''? '' : escapeHtml(String(v))}</td>`).join('')}</tr>`).join('')}
+            </tbody>
           </table>
         </div>
-        <canvas id="catChart" height="200" style="margin-top:12px;"></canvas>
-      </div>
+        <canvas id="catChart" height="180" style="margin-top:12px;"></canvas>
+      </div></div>
     `;
+    const wrap = document.createElement('div'); wrap.innerHTML = html; document.body.appendChild(wrap);
+    wrap.querySelector('#x').onclick = () => wrap.remove();
 
-    const wrap = document.createElement("div");
-    wrap.className = "goal-modal";
-    wrap.innerHTML = html;
-    document.body.appendChild(wrap);
-
-    const close = () => wrap.remove();
-    wrap.addEventListener("click", (event) => {
-      if (event.target === wrap) close();
-    });
-    wrap.querySelector("#dashboard-close")?.addEventListener("click", close);
-
-    const canvas = wrap.querySelector("#catChart");
-    if (!rows.length) {
-      if (canvas) canvas.remove();
-      return;
-    }
-
-    if (canvas && window.Chart) {
-      const ctx2 = canvas.getContext("2d");
-      const datasets = rows.map((row) => ({
-        label: row.name,
-        data: row.values.map((value) => {
-          if (value === "") return null;
-          const num = Number(value);
-          return Number.isFinite(num) ? num : null;
-        }),
-        spanGaps: true,
-        tension: 0.25,
-        pointRadius: 2,
+    if (window.Chart) {
+      const datasets = rows.map(r => ({
+        label: r.name,
+        data: r.values.map(v => (v===''? null : Number(v))),
+        spanGaps: true
       }));
+      const ctx2 = wrap.querySelector('#catChart').getContext('2d');
       new Chart(ctx2, {
-        type: "line",
+        type: 'line',
         data: { labels: days, datasets },
-        options: {
-          responsive: true,
-          interaction: { mode: "nearest", intersect: false },
-          scales: { y: { beginAtZero: true } },
-        },
+        options: { responsive: true, interaction: { mode:'nearest', intersect:false } }
       });
-    } else if (!window.Chart) {
-      L.warn("practice.dashboard.chart.missing");
     }
-  } catch (err) {
-    L.error("practice.dashboard.error", err);
-    alert("Impossible de charger le tableau de bord.");
+  } catch (e) {
+    console.warn('openCategoryDashboard:error', e);
   }
-}
+};
+
+// --------- DRAG & DROP (ordre consignes) ---------
+window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx) {
+  let dragId = null;
+
+  container.addEventListener('dragstart', (e) => {
+    const el = e.target.closest('.consigne-card');
+    if (!el) return;
+    dragId = el.dataset.id;
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  container.addEventListener('dragover', (e) => {
+    if (!dragId) return;
+    e.preventDefault();
+    const over = e.target.closest('.consigne-card');
+    if (!over || over.dataset.id === dragId) return;
+    const rect = over.getBoundingClientRect();
+    const before = (e.clientY - rect.top) < rect.height / 2;
+    over.parentNode.insertBefore(
+      container.querySelector(`.consigne-card[data-id="${dragId}"]`),
+      before ? over : over.nextSibling
+    );
+  });
+
+  container.addEventListener('drop', async (e) => {
+    if (!dragId) return;
+    e.preventDefault();
+    const cards = [...container.querySelectorAll('.consigne-card')];
+    try {
+      await Promise.all(cards.map((el, idx) =>
+        Schema.updateConsigneOrder(ctx.db, ctx.user.uid, el.dataset.id, (idx+1)*10)
+      ));
+    } catch (err) {
+      console.warn('drag-drop:save-order:error', err);
+    }
+    dragId = null;
+  });
+
+  container.addEventListener('dragend', () => {
+    dragId = null;
+  });
+};
 
 async function categorySelect(ctx, mode, currentName = "") {
   const cats = await Schema.fetchCategories(ctx.db, ctx.user.uid);
@@ -714,7 +716,7 @@ async function renderPractice(ctx, root, _opts = {}) {
     dashBtn.classList.toggle("opacity-50", !hasCategory);
     dashBtn.onclick = () => {
       if (!currentCat) return;
-      openCategoryDashboard(ctx, currentCat);
+      window.openCategoryDashboard(ctx, currentCat);
     };
   }
 
@@ -800,42 +802,10 @@ async function renderPractice(ctx, root, _opts = {}) {
 
     visible.forEach((c) => form.appendChild(makeItem(c)));
 
-    let dragId = null;
-    form.addEventListener("dragstart", (event) => {
-      const cardEl = event.target.closest(".consigne-card");
-      if (!cardEl) return;
-      dragId = cardEl.dataset.id;
-      event.dataTransfer.effectAllowed = "move";
-    });
-    form.addEventListener("dragover", (event) => {
-      if (!dragId) return;
-      const over = event.target.closest(".consigne-card");
-      if (!over || over.dataset.id === dragId) return;
-      event.preventDefault();
-      const rect = over.getBoundingClientRect();
-      const before = (event.clientY - rect.top) < rect.height / 2;
-      const current = form.querySelector(`.consigne-card[data-id=\"${dragId}\"]`);
-      if (!current || !over.parentNode) return;
-      over.parentNode.insertBefore(current, before ? over : over.nextSibling);
-    });
-    form.addEventListener("drop", async (event) => {
-      if (!dragId) return;
-      event.preventDefault();
-      const cards = Array.from(form.querySelectorAll(".consigne-card"));
-      try {
-        await Promise.all(
-          cards.map((el, idx) =>
-            Schema.updateConsigneOrder(ctx.db, ctx.user.uid, el.dataset.id, (idx + 1) * 10)
-          )
-        );
-      } catch (err) {
-        L.error("practice.reorder.error", err);
-      }
-      dragId = null;
-    });
-    form.addEventListener("dragend", () => {
-      dragId = null;
-    });
+    if (typeof window.attachConsignesDragDrop === "function") {
+      window.attachConsignesDragDrop(form, ctx);
+    }
+  }
 
   if (hidden.length) {
     const box = document.createElement("div");
@@ -982,7 +952,7 @@ async function renderDaily(ctx, root, opts = {}) {
     dashBtn.classList.toggle("opacity-50", !hasCategory);
     dashBtn.onclick = () => {
       if (!currentCat) return;
-      openCategoryDashboard(ctx, currentCat);
+      window.openCategoryDashboard(ctx, currentCat);
     };
   }
 
@@ -1153,11 +1123,10 @@ async function renderDaily(ctx, root, opts = {}) {
 
 function renderHistory() {}
 
-Modes.openCategoryDashboard = openCategoryDashboard;
+Modes.openCategoryDashboard = window.openCategoryDashboard;
 Modes.openConsigneForm = openConsigneForm;
 Modes.openHistory = openHistory;
 Modes.renderPractice = renderPractice;
 Modes.renderDaily = renderDaily;
 Modes.renderHistory = renderHistory;
-
-window.openCategoryDashboard = openCategoryDashboard;
+Modes.attachConsignesDragDrop = window.attachConsignesDragDrop;

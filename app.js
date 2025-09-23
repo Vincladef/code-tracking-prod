@@ -1,5 +1,5 @@
 // app.js — bootstrapping, routing, context, nav
-const Schema = window.Schema || {};
+/* global Schema */
 const Modes = window.Modes || {};
 const Goals = window.Goals || {};
 
