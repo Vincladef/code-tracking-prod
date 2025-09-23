@@ -2,7 +2,7 @@
 /* global Schema, Modes, Goals */
 const appFirestore = Schema.firestore || window.firestoreAPI || {};
 
-const firebaseCompat = window.firebase || {};
+const firebaseCompatApp = window.firebase || {};
 
 // --- feature flags & logger ---
 const DEBUG = false;
@@ -67,12 +67,12 @@ function $$(sel) {
 }
 
 function getAuthInstance() {
-  if (!firebaseCompat || typeof firebaseCompat.auth !== "function") return null;
+  if (!firebaseCompatApp || typeof firebaseCompatApp.auth !== "function") return null;
   try {
-    return ctx.app ? firebaseCompat.auth(ctx.app) : firebaseCompat.auth();
+    return ctx.app ? firebaseCompatApp.auth(ctx.app) : firebaseCompatApp.auth();
   } catch (err) {
     console.warn("firebase.auth() fallback", err);
-    return firebaseCompat.auth();
+    return firebaseCompatApp.auth();
   }
 }
 
@@ -378,8 +378,8 @@ async function ensureProfile(db, uid) {
 }
 
 async function ensurePushSubscription(ctx) {
-  const messagingSupported = typeof firebaseCompat?.messaging?.isSupported === "function"
-    ? firebaseCompat.messaging.isSupported()
+  const messagingSupported = typeof firebaseCompatApp?.messaging?.isSupported === "function"
+    ? firebaseCompatApp.messaging.isSupported()
     : Promise.resolve(false);
   if (!(await messagingSupported)) { console.info("[push] non supporté"); return; }
   if (!("Notification" in window) || !("serviceWorker" in navigator)) return;
@@ -398,7 +398,7 @@ async function ensurePushSubscription(ctx) {
   // 3) Token FCM avec TA clé VAPID publique
   let messaging;
   try {
-    messaging = ctx.app ? firebaseCompat.messaging(ctx.app) : firebaseCompat.messaging();
+    messaging = ctx.app ? firebaseCompatApp.messaging(ctx.app) : firebaseCompatApp.messaging();
   } catch (err) {
     console.info("[push] messaging non disponible", err);
     return;

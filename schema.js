@@ -152,16 +152,20 @@ const LIKERT_POINTS = {
 };
 
 const PRIORITY_ALIAS = { high: 1, medium: 2, low: 3 };
-const DAY_ALIAS = {
+
+Schema.DAY_ALIAS = Schema.DAY_ALIAS || {
   mon: "LUN",
   tue: "MAR",
   wed: "MER",
   thu: "JEU",
   fri: "VEN",
   sat: "SAM",
-  sun: "DIM"
+  sun: "DIM",
 };
-const DAY_VALUES = new Set(["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"]);
+Schema.DAY_VALUES = Schema.DAY_VALUES || new Set(["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"]);
+
+const SCHEMA_DAY_ALIAS = Schema.DAY_ALIAS;
+const SCHEMA_DAY_VALUES = Schema.DAY_VALUES;
 
 function normalizePriority(value) {
   if (typeof value === "number" && value >= 1 && value <= 3) return value;
@@ -181,9 +185,9 @@ function normalizeDays(days) {
     .map((d) => {
       if (!d) return null;
       const lower = String(d).toLowerCase();
-      if (DAY_ALIAS[lower]) return DAY_ALIAS[lower];
+      if (SCHEMA_DAY_ALIAS[lower]) return SCHEMA_DAY_ALIAS[lower];
       const upper = lower.toUpperCase();
-      if (DAY_VALUES.has(upper)) return upper;
+      if (SCHEMA_DAY_VALUES.has(upper)) return upper;
       return null;
     })
     .filter(Boolean);
