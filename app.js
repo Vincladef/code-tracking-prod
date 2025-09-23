@@ -12,6 +12,30 @@
 
   const firebaseCompatApp = window.firebase || {};
   const BASE_TITLE = "Habitudes & Pratique";
+  const ADMIN_ACCESS_KEY = "hp::admin::authorized";
+  const ADMIN_LOGIN_PAGE = "admin.html";
+
+  function getAdminStorage() {
+    try {
+      return window.sessionStorage;
+    } catch (error) {
+      console.warn("[admin] sessionStorage inaccessible", error);
+      return null;
+    }
+  }
+
+  function hasAdminAccess() {
+    const storage = getAdminStorage();
+    return storage?.getItem(ADMIN_ACCESS_KEY) === "true";
+  }
+
+  function redirectToAdminLogin() {
+    const loginUrl = new URL(ADMIN_LOGIN_PAGE, window.location.href);
+    if (loginUrl.pathname === window.location.pathname && loginUrl.hash === window.location.hash) {
+      return;
+    }
+    window.location.href = loginUrl.toString();
+  }
 
   // --- feature flags & logger ---
   const DEBUG = true;
@@ -186,6 +210,11 @@
     // hash like "#/daily", "#/practice?new=1", etc.
     if (!hash) hash = "#/admin";
 
+    if (hash.startsWith("#/admin") && !hasAdminAccess()) {
+      redirectToAdminLogin();
+      return;
+    }
+
     // Si l'argument est déjà une URL utilisateur complète, on la prend telle quelle
     if (/^#\/u\/[^/]+\//.test(hash)) {
       appLog("routeTo", { from: location.hash || null, requested: hash, target: hash });
@@ -201,6 +230,11 @@
     const stayInUserSpace = m && !hash.startsWith("#/admin") && !hash.startsWith("#/u/");
     const target = stayInUserSpace ? base + hash.replace(/^#\//, "") : hash;
 
+    if (target.startsWith("#/admin") && !hasAdminAccess()) {
+      redirectToAdminLogin();
+      return;
+    }
+
     appLog("routeTo", { from: location.hash || null, requested: hash, target });
     ctx.route = target;
     window.location.hash = target;
@@ -209,8 +243,9 @@
   window.routeTo = routeTo;
 
   function routeToDefault() {
-    if (location.hash !== "#/admin") {
-      location.hash = "#/admin";
+    const defaultHash = hasAdminAccess() ? "#/admin" : "#/daily";
+    if (location.hash !== defaultHash) {
+      location.hash = defaultHash;
     } else {
       handleRoute();
     }
@@ -362,6 +397,10 @@
     const routeName = parsed.segments[0] || "admin";
 
     if (routeName === "admin") {
+      if (!hasAdminAccess()) {
+        redirectToAdminLogin();
+        return;
+      }
       try {
         await ensureSignedIn();
       } catch (error) {
@@ -800,6 +839,10 @@
 
     switch (currentSection) {
       case "admin":
+        if (!hasAdminAccess()) {
+          redirectToAdminLogin();
+          return;
+        }
         return renderAdmin(ctx.db);
       case "dashboard":
       case "daily":

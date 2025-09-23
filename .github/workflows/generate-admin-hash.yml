@@ -1,0 +1,40 @@
+name: Generate Admin Hash
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+
+jobs:
+  build-admin-hash:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    env:
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure admin password is provided
+        run: |
+          if [ -z "${ADMIN_PASSWORD}" ]; then
+            echo "ADMIN_PASSWORD secret is not configured" >&2
+            exit 1
+          fi
+
+      - name: Generate admin hash file
+        id: generate
+        run: |
+          set -euo pipefail
+          HASH=$(printf "%s" "${ADMIN_PASSWORD}" | sha256sum | cut -d' ' -f1)
+          cat <<EOT > admin-hash.js
+// Ce fichier est généré automatiquement par le workflow GitHub Actions "Generate Admin Hash".
+// Ne pas modifier à la main.
+export const ADMIN_HASH = "${HASH}";
+EOT
+
+      - name: Commit admin hash update
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update admin hash"
+          file_pattern: admin-hash.js
