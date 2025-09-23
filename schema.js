@@ -442,6 +442,34 @@ async function countPracticeSessions(db, uid){
   return ss.size;
 }
 
+async function fetchPracticeSessions(db, uid, limitCount = 500) {
+  if (!db || !uid) return [];
+  try {
+    const constraints = [col(db, uid, "sessions"), orderBy("startedAt", "asc")];
+    if (Number.isFinite(limitCount) && limitCount > 0) {
+      constraints.push(limit(limitCount));
+    }
+    const qy = query(...constraints);
+    const snap = await getDocs(qy);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (error) {
+    console.warn("fetchPracticeSessions:fallback", error);
+    const snap = await getDocs(col(db, uid, "sessions"));
+    const sessions = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    sessions.sort((a, b) => {
+      const aDate = a.startedAt?.toDate?.() ?? a.startedAt ?? a.createdAt ?? null;
+      const bDate = b.startedAt?.toDate?.() ?? b.startedAt ?? b.createdAt ?? null;
+      const aTime = aDate instanceof Date ? aDate.getTime() : new Date(aDate || 0).getTime();
+      const bTime = bDate instanceof Date ? bDate.getTime() : new Date(bDate || 0).getTime();
+      return aTime - bTime;
+    });
+    if (Number.isFinite(limitCount) && limitCount > 0) {
+      return sessions.slice(0, limitCount);
+    }
+    return sessions;
+  }
+}
+
 async function startNewPracticeSession(db, uid, extra = {}) {
   const payload = {
     ownerUid: uid,
@@ -825,6 +853,7 @@ Object.assign(Schema, {
   resetSRForConsigne,
   saveResponses,
   countPracticeSessions,
+  fetchPracticeSessions,
   startNewPracticeSession,
   listConsignesByMode,
   fetchConsignes,
