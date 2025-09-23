@@ -3,7 +3,16 @@
 <head>
   <script>
     // Redirection automatique vers l'espace administrateur lorsqu'on arrive sur l'URL racine
-    window.location.replace('admin.html');
+    (function redirectToAdminOnRoot() {
+      const { hash } = window.location;
+      const isRootHash = hash === "" || hash === "#" || hash === "#/";
+      if (!isRootHash) {
+        return;
+      }
+
+      const target = new URL("admin.html", window.location.href);
+      window.location.replace(target.toString());
+    })();
   </script>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
