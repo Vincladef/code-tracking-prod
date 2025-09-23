@@ -567,6 +567,23 @@ async function loadConsigneHistory(db, uid, consigneId) {
   return snap.docs.map((d) => ({ date: d.id, ...d.data() }));
 }
 
+async function saveHistoryEntry(db, uid, consigneId, dateIso, data = {}) {
+  if (!db || !uid || !consigneId || !dateIso) {
+    throw new Error("Paramètres manquants pour saveHistoryEntry");
+  }
+  const payload = { ...data, updatedAt: now() };
+  await setDoc(doc(db, "u", uid, "history", consigneId, "entries", dateIso), payload, {
+    merge: true,
+  });
+}
+
+async function deleteHistoryEntry(db, uid, consigneId, dateIso) {
+  if (!db || !uid || !consigneId || !dateIso) {
+    throw new Error("Paramètres manquants pour deleteHistoryEntry");
+  }
+  await deleteDoc(doc(db, "u", uid, "history", consigneId, "entries", dateIso));
+}
+
 // --- utilitaires temps ---
 function monthKeyFromDate(d) {
   const dt = d instanceof Date ? d : new Date(d);
@@ -797,6 +814,8 @@ Object.assign(Schema, {
   valueToNumericPoint,
   listConsignesByCategory,
   loadConsigneHistory,
+  saveHistoryEntry,
+  deleteHistoryEntry,
   monthKeyFromDate,
   weeksOf,
   weekOfMonthFromDate,

@@ -121,7 +121,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     "#8B5CF6",
   ];
   const priorityLabels = { 1: "Haute", 2: "Moyenne", 3: "Basse" };
-  const statusLabels = { ok: "Réussi", mid: "À surveiller", ko: "À retravailler", na: "—" };
 
   const percentFormatter = new Intl.NumberFormat("fr-FR", { style: "percent", maximumFractionDigits: 0 });
   const numberFormatter = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
@@ -299,6 +298,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           type: consigne.type || "short",
           typeLabel: typeLabel(consigne.type),
           timeline,
+          entries: entries.slice(),
           chartValues: timeline.map((point) => point.numeric),
           rawValues: timeline.map((point) => point.rawValue),
           rawNotes: timeline.map((point) => point.note),
@@ -324,112 +324,39 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           accentProgress,
           rowAccent,
           consigne,
-          averageForSort:
-            averageNormalized != null ? averageNormalized : averageNumeric != null ? averageNumeric : 0,
-          lastDateSort: lastDateIso ? toDate(lastDateIso).getTime() : 0,
-          nameSort: String(name || "").toLocaleLowerCase("fr-FR"),
         };
-        stat.searchHaystack = [
-          stat.nameSort,
-          (stat.priorityLabel || "").toLocaleLowerCase("fr-FR"),
-          stat.typeLabel.toLocaleLowerCase("fr-FR"),
-        ].join(" ");
         return stat;
       }),
     );
 
     const safeCategory = escapeHtml(category || "Pratique");
-    const summaryHtml = stats.length
-      ? stats
-          .map(
-            (stat) => `
-        <article class="practice-dashboard__summary-card" data-priority="${stat.priority}" style="--summary-border:${stat.accentBorder};--summary-bg:${stat.accentSoft};--summary-accent:${stat.accentStrong};--progress-color:${stat.accentProgress}">
-          <div class="practice-dashboard__summary-header">
-            <h3 class="practice-dashboard__summary-title">${escapeHtml(stat.name)}</h3>
-            <span class="practice-dashboard__badge practice-dashboard__badge--${stat.priority === 1 ? "high" : stat.priority === 2 ? "medium" : "low"}">${stat.priorityLabel}</span>
-          </div>
-          <p class="practice-dashboard__summary-metric">${escapeHtml(stat.averageDisplay)}</p>
-          <dl class="practice-dashboard__summary-meta">
-            <div>
-              <dt>Dernière activité</dt>
-              <dd>${escapeHtml(stat.lastDateFull)}</dd>
-            </div>
-            <div>
-              <dt>Dernière note</dt>
-              <dd>${escapeHtml(stat.lastFormatted)}</dd>
-            </div>
-          </dl>
-          ${
-            stat.averageNormalized != null
-              ? `<div class="practice-dashboard__progress" aria-hidden="true" style="--progress-color:${stat.accentProgress}"><div style="width:${Math.round(Math.max(0, Math.min(1, stat.averageNormalized)) * 100)}%;"></div></div>`
-              : ""
-          }
-        </article>`
-          )
-          .join("")
-      : '<div class="practice-dashboard__empty">Aucune consigne pour cette catégorie pour le moment.</div>';
-
-    const uniqueId = Date.now();
-    const searchId = `practice-search-${uniqueId}`;
-    const filterId = `practice-filter-${uniqueId}`;
-    const sortId = `practice-sort-${uniqueId}`;
 
     const html = `
       <div class="goal-modal modal practice-dashboard">
         <div class="goal-modal-card modal-card practice-dashboard__card">
           <div class="practice-dashboard__header">
-            <div>
-              <h2 class="practice-dashboard__title">Tableau de bord — ${safeCategory}</h2>
-              <p class="practice-dashboard__subtitle">Suivez la progression de vos consignes de pratique.</p>
+            <h2 class="practice-dashboard__title">${safeCategory}</h2>
+            <div class="practice-dashboard__header-actions">
+              <button type="button" class="practice-dashboard__toggle" data-toggle-view>Vue graphique</button>
+              <button type="button" class="practice-dashboard__close btn btn-ghost" data-close aria-label="Fermer">✕</button>
             </div>
-            <button type="button" class="practice-dashboard__close btn btn-ghost" data-close>✕</button>
           </div>
           <div class="practice-dashboard__body">
-            <section class="practice-dashboard__summary" data-summary>${summaryHtml}</section>
-            <div class="practice-dashboard__view-switch">
-              <button type="button" class="practice-dashboard__view-btn is-active" data-view-btn="table">Vue tableau</button>
-              <button type="button" class="practice-dashboard__view-btn" data-view-btn="chart">Vue graphique</button>
-            </div>
             <div class="practice-dashboard__view practice-dashboard__view--table is-active" data-view="table">
-              <div class="practice-dashboard__controls">
-                <div class="practice-dashboard__control">
-                  <label class="practice-dashboard__control-label" for="${searchId}">Recherche</label>
-                  <input type="search" id="${searchId}" data-search placeholder="Rechercher une consigne" />
-                </div>
-                <div class="practice-dashboard__control">
-                  <label class="practice-dashboard__control-label" for="${filterId}">Priorité</label>
-                  <select id="${filterId}" data-filter-priority>
-                    <option value="all">Toutes</option>
-                    <option value="1">Haute</option>
-                    <option value="2">Moyenne</option>
-                    <option value="3">Basse</option>
-                  </select>
-                </div>
-                <div class="practice-dashboard__control">
-                  <label class="practice-dashboard__control-label" for="${sortId}">Trier par</label>
-                  <select id="${sortId}" data-sort>
-                    <option value="recent">Dernière activité</option>
-                    <option value="score">Performance</option>
-                    <option value="alpha">Nom</option>
-                  </select>
-                </div>
-              </div>
               <div class="practice-dashboard__table-wrapper">
-                <table class="practice-dashboard__table">
+                <table class="practice-dashboard__matrix">
                   <thead>
-                    <tr>
-                      <th>Consigne</th>
-                      <th>Dernière activité</th>
-                      <th>Dernière note</th>
-                      <th>Commentaire</th>
-                      <th>Performance</th>
+                    <tr data-matrix-head>
+                      <th scope="col" class="practice-dashboard__matrix-head-consigne">Consigne</th>
                     </tr>
                   </thead>
                   <tbody data-table-body></tbody>
                 </table>
               </div>
+              <p class="practice-dashboard__hint">Cliquez sur une cellule pour ajouter ou modifier la note correspondante.</p>
             </div>
             <div class="practice-dashboard__view practice-dashboard__view--chart" data-view="chart">
+              <div class="practice-dashboard__chart-controls" data-chart-select></div>
               <div class="practice-dashboard__chart-card" data-chart-card>
                 <canvas id="practiceCatChart"></canvas>
               </div>
@@ -467,157 +394,406 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     overlay.querySelector("[data-close]")?.addEventListener("click", close);
 
     const tableBody = overlay.querySelector("[data-table-body]");
-    const searchInput = overlay.querySelector(`#${searchId}`);
-    const filterSelect = overlay.querySelector(`#${filterId}`);
-    const sortSelect = overlay.querySelector(`#${sortId}`);
-
-    const viewButtons = Array.from(overlay.querySelectorAll("[data-view-btn]"));
+    const headRow = overlay.querySelector("[data-matrix-head]");
+    const toggleButton = overlay.querySelector("[data-toggle-view]");
     const views = Array.from(overlay.querySelectorAll("[data-view]"));
+    const chartCard = overlay.querySelector("[data-chart-card]");
+    const chartCaption = overlay.querySelector("[data-chart-caption]");
+    const chartSelect = overlay.querySelector("[data-chart-select]");
+    const canvas = overlay.querySelector("#practiceCatChart");
+
+    stats.forEach((stat) => {
+      stat.chartDatasetIndex = null;
+    });
+
+    if (headRow) {
+      headRow.innerHTML = [
+        '<th scope="col" class="practice-dashboard__matrix-head-consigne">Consigne</th>',
+        ...daysIso.map((iso, index) => {
+          const dateObj = toDate(iso);
+          const label = axisLabels[index] || iso;
+          const fullLabel = dateObj ? fullDateFormatter.format(dateObj) : iso;
+          return `<th scope="col" data-date="${iso}"><span title="${escapeHtml(fullLabel)}">${escapeHtml(label)}</span></th>`;
+        }),
+      ].join("");
+    }
+
+    let currentView = "table";
 
     function setView(targetView) {
-      viewButtons.forEach((btn) => {
-        const isActive = btn.dataset.viewBtn === targetView;
-        btn.classList.toggle("is-active", isActive);
-      });
+      currentView = targetView;
       views.forEach((panel) => {
         panel.classList.toggle("is-active", panel.dataset.view === targetView);
       });
+      if (toggleButton) {
+        toggleButton.textContent = targetView === "table" ? "Vue graphique" : "Vue tableau";
+      }
     }
 
-    viewButtons.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        setView(btn.dataset.viewBtn || "table");
-      });
+    function updateToggleState() {
+      if (!toggleButton) return;
+      const hasChartData = Boolean(chartInstance && chartInstance.data.datasets.length);
+      toggleButton.disabled = !hasChartData;
+      toggleButton.classList.toggle("is-disabled", !hasChartData);
+      if (!hasChartData && currentView === "chart") {
+        setView("table");
+      }
+    }
+
+    toggleButton?.addEventListener("click", () => {
+      const nextView = currentView === "table" ? "chart" : "table";
+      setView(nextView);
     });
 
     setView("table");
+    updateToggleState();
 
-    function renderTable(list) {
+    function formatCellTooltip(dateIso, valueText, noteText) {
+      const dateObj = toDate(dateIso);
+      const fullLabel = dateObj ? fullDateFormatter.format(dateObj) : dateIso;
+      const parts = [fullLabel];
+      if (valueText && valueText !== "—") parts.push(`Valeur : ${valueText}`);
+      if (noteText) parts.push(noteText);
+      return parts.join(" • ");
+    }
+
+    function renderMatrix() {
       if (!tableBody) return;
-      if (!list.length) {
-        tableBody.innerHTML =
-          '<tr><td colspan="5" class="practice-dashboard__empty-row">Aucune consigne ne correspond à vos filtres.</td></tr>';
+      if (!stats.length) {
+        tableBody.innerHTML = `<tr><td colspan="${daysIso.length + 1}" class="practice-dashboard__empty-row">Aucune consigne pour cette catégorie pour le moment.</td></tr>`;
         return;
       }
-      tableBody.innerHTML = list
+      tableBody.innerHTML = stats
         .map((stat) => {
-          const statusLabel = statusLabels[stat.statusKind] || "—";
-          const statusValue =
-            stat.lastFormatted && stat.lastFormatted !== "—"
-              ? ` · ${escapeHtml(stat.lastFormatted)}`
-              : "";
-          const relative = stat.lastRelative
-            ? `<span class="practice-dashboard__date-sub">${escapeHtml(stat.lastRelative)}</span>`
-            : "";
-          const comment =
-            stat.commentDisplay && stat.commentDisplay !== "—"
-              ? escapeHtml(stat.commentDisplay)
-              : "—";
-          const normalized =
-            stat.averageNormalized != null ? Math.max(0, Math.min(1, stat.averageNormalized)) : null;
-          const progress =
-            normalized != null
-              ? `<div class="practice-dashboard__progress" style="--progress-color:${stat.accentProgress}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(normalized * 100)}"><div style="width:${Math.round(normalized * 100)}%;"></div></div>`
-              : "";
-          return `
-            <tr data-priority="${stat.priority}" style="--row-accent:${stat.rowAccent}">
-              <td>
-                <div class="practice-dashboard__consigne">
+          const rowHead = `
+            <th scope="row" class="practice-dashboard__matrix-consigne" style="--row-accent:${stat.rowAccent}">
+              <div class="practice-dashboard__row-head">
+                <span class="practice-dashboard__row-indicator" aria-hidden="true"></span>
+                <div class="practice-dashboard__row-info">
                   <span class="practice-dashboard__consigne-name">${escapeHtml(stat.name)}</span>
-                  <div class="practice-dashboard__consigne-meta">
-                    <span class="practice-dashboard__badge practice-dashboard__badge--${stat.priority === 1 ? "high" : stat.priority === 2 ? "medium" : "low"}">${stat.priorityLabel}</span>
-                    <span class="practice-dashboard__tag">${escapeHtml(stat.typeLabel)}</span>
-                  </div>
+                  <span class="practice-dashboard__row-meta">${escapeHtml(stat.priorityLabel)}</span>
                 </div>
-              </td>
-              <td>
-                <div class="practice-dashboard__date">
-                  <span>${escapeHtml(stat.lastDateShort)}</span>
-                  ${relative}
-                </div>
-              </td>
-              <td>
-                <div class="practice-dashboard__status">
-                  <span class="status-chip status-chip--${stat.statusKind}">${statusLabel}${statusValue}</span>
-                  <button type="button" class="practice-dashboard__history" data-action="history" data-id="${stat.id}">Historique</button>
-                </div>
-              </td>
-              <td><p class="practice-dashboard__comment">${comment}</p></td>
-              <td>
-                <div class="practice-dashboard__score" title="${escapeHtml(stat.averageTitle)}">
-                  <span>${escapeHtml(stat.averageDisplay)}</span>
-                  ${progress}
-                </div>
-              </td>
-            </tr>`;
+              </div>
+            </th>`;
+          const cells = stat.timeline
+            .map((point) => {
+              const valueText = formatValue(stat.type, point.rawValue);
+              const noteText = (point.note || "").trim();
+              const status = dotColor(stat.type, point.rawValue);
+              const tooltip = formatCellTooltip(point.dateIso, valueText, noteText);
+              const hasNote = noteText ? ' data-has-note="1"' : "";
+              const isEmpty = !valueText || valueText === "—";
+              const content = isEmpty ? "—" : escapeHtml(valueText);
+              const classes = [
+                "practice-dashboard__cell",
+                `practice-dashboard__cell--${status}`,
+                isEmpty ? "practice-dashboard__cell--empty" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              return `<td><button type="button" class="${classes}" data-cell data-consigne="${stat.id}" data-date="${point.dateIso}" title="${escapeHtml(tooltip)}" aria-label="${escapeHtml(tooltip)}"${hasNote}>${content}</button></td>`;
+            })
+            .join("");
+          return `<tr data-id="${stat.id}">${rowHead}${cells}</tr>`;
         })
         .join("");
     }
 
-    function applyFilters() {
-      let filtered = stats.slice();
-      const query = (searchInput?.value || "").trim().toLocaleLowerCase("fr-FR");
-      const prio = filterSelect?.value || "all";
-      const sortValue = sortSelect?.value || "recent";
-
-      if (prio !== "all") {
-        filtered = filtered.filter((stat) => String(stat.priority) === prio);
-      }
-      if (query) {
-        filtered = filtered.filter((stat) => stat.searchHaystack.includes(query));
-      }
-
-      if (sortValue === "alpha") {
-        filtered.sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
-      } else if (sortValue === "score") {
-        filtered.sort((a, b) => (b.averageForSort || 0) - (a.averageForSort || 0));
-      } else {
-        filtered.sort((a, b) => (b.lastDateSort || 0) - (a.lastDateSort || 0));
-      }
-
-      renderTable(filtered);
-    }
-
-    filterSelect?.addEventListener("change", applyFilters);
-    sortSelect?.addEventListener("change", applyFilters);
-    searchInput?.addEventListener("input", applyFilters);
+    renderMatrix();
 
     tableBody?.addEventListener("click", (event) => {
-      const target = event.target.closest("[data-action=\"history\"]");
+      const target = event.target.closest("[data-cell]");
       if (!target) return;
-      const id = target.getAttribute("data-id");
-      const stat = stats.find((item) => item.id === id);
-      if (stat?.consigne) openHistory(ctx, stat.consigne);
+      const consigneId = target.getAttribute("data-consigne");
+      const dateIso = target.getAttribute("data-date");
+      const stat = stats.find((item) => item.id === consigneId);
+      if (!stat) return;
+      const pointIndex = stat.timeline.findIndex((point) => point.dateIso === dateIso);
+      if (pointIndex === -1) return;
+      openCellEditor(stat, pointIndex);
     });
 
-    applyFilters();
+    function buildValueField(consigne, rawValue, fieldId) {
+      const type = consigne?.type || "short";
+      const value = rawValue ?? "";
+      if (type === "long") {
+        return `<textarea id="${fieldId}" name="value" rows="4" class="practice-editor__textarea" placeholder="Saisir une note">${escapeHtml(String(value))}</textarea>`;
+      }
+      if (type === "short") {
+        return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Saisir une note" value="${escapeHtml(String(value))}">`;
+      }
+      if (type === "num") {
+        const numValue = value === "" || value == null ? "" : Number(value);
+        const display = Number.isFinite(numValue) ? numValue : "";
+        return `<input id="${fieldId}" name="value" type="number" min="0" max="10" step="1" class="practice-editor__input" placeholder="0-10" value="${display === "" ? "" : escapeHtml(String(display))}">`;
+      }
+      if (type === "likert5") {
+        const current = value === "" || value == null ? "" : String(value);
+        return `<select id="${fieldId}" name="value" class="practice-editor__select">
+          <option value="" ${current === "" ? "selected" : ""}>—</option>
+          <option value="0" ${current === "0" ? "selected" : ""}>0</option>
+          <option value="1" ${current === "1" ? "selected" : ""}>1</option>
+          <option value="2" ${current === "2" ? "selected" : ""}>2</option>
+          <option value="3" ${current === "3" ? "selected" : ""}>3</option>
+          <option value="4" ${current === "4" ? "selected" : ""}>4</option>
+        </select>`;
+      }
+      if (type === "likert6") {
+        const current = value === "" || value == null ? "" : String(value);
+        return `<select id="${fieldId}" name="value" class="practice-editor__select">
+          <option value="" ${current === "" ? "selected" : ""}>—</option>
+          <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
+          <option value="rather_yes" ${current === "rather_yes" ? "selected" : ""}>Plutôt oui</option>
+          <option value="medium" ${current === "medium" ? "selected" : ""}>Neutre</option>
+          <option value="rather_no" ${current === "rather_no" ? "selected" : ""}>Plutôt non</option>
+          <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
+          <option value="no_answer" ${current === "no_answer" ? "selected" : ""}>Pas de réponse</option>
+        </select>`;
+      }
+      if (type === "yesno") {
+        const current = value === "" || value == null ? "" : String(value);
+        return `<select id="${fieldId}" name="value" class="practice-editor__select">
+          <option value="" ${current === "" ? "selected" : ""}>—</option>
+          <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
+          <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
+        </select>`;
+      }
+      return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Réponse" value="${escapeHtml(String(value))}">`;
+    }
 
-    const chartCard = overlay.querySelector("[data-chart-card]");
-    const chartCaption = overlay.querySelector("[data-chart-caption]");
-    const canvas = overlay.querySelector("#practiceCatChart");
+    function readValueFromForm(consigne, form) {
+      const field = form.elements.value;
+      if (!field) return "";
+      const type = consigne?.type || "short";
+      if (type === "long" || type === "short") {
+        return (field.value || "").trim();
+      }
+      if (type === "num") {
+        if (field.value === "" || field.value == null) return "";
+        const num = Number(field.value);
+        return Number.isFinite(num) ? num : "";
+      }
+      if (type === "likert5") {
+        if (field.value === "" || field.value == null) return "";
+        const num = Number(field.value);
+        return Number.isFinite(num) ? num : "";
+      }
+      if (type === "yesno" || type === "likert6") {
+        return field.value || "";
+      }
+      return (field.value || "").trim();
+    }
+
+    function updateStatAfterEdit(stat, pointIndex, newRawValue, newNote) {
+      const point = stat.timeline[pointIndex];
+      const rawValue = newRawValue === null || newRawValue === undefined ? "" : newRawValue;
+      const note = newNote ? newNote : "";
+      point.rawValue = rawValue;
+      point.note = note;
+      point.numeric = numericPoint(stat.type, rawValue);
+      stat.rawValues[pointIndex] = rawValue;
+      stat.rawNotes[pointIndex] = note;
+      stat.chartValues[pointIndex] = point.numeric;
+      const entryIndex = stat.entries.findIndex((entry) => entry.date === point.dateIso);
+      const isRawEmpty =
+        rawValue === "" ||
+        (typeof rawValue === "string" && rawValue.trim() === "");
+      if (isRawEmpty && !note) {
+        if (entryIndex !== -1) stat.entries.splice(entryIndex, 1);
+      } else if (entryIndex !== -1) {
+        stat.entries[entryIndex] = { date: point.dateIso, value: rawValue, note };
+      } else {
+        stat.entries.push({ date: point.dateIso, value: rawValue, note });
+        stat.entries.sort((a, b) => a.date.localeCompare(b.date));
+      }
+      stat.hasNumeric = stat.chartValues.some((value) => value != null);
+    }
+
+    function openCellEditor(stat, pointIndex) {
+      const point = stat.timeline[pointIndex];
+      const consigne = stat.consigne;
+      const valueId = `practice-editor-value-${stat.id}-${pointIndex}-${Date.now()}`;
+      const valueField = buildValueField(consigne, point.rawValue, valueId);
+      const noteValue = point.note || "";
+      const dateObj = toDate(point.dateIso);
+      const dateLabel = dateObj ? fullDateFormatter.format(dateObj) : point.dateIso;
+      const editorHtml = `
+        <form class="practice-editor">
+          <header class="practice-editor__header">
+            <h3 class="practice-editor__title">Modifier la note</h3>
+            <p class="practice-editor__subtitle">${escapeHtml(stat.name)}</p>
+          </header>
+          <div class="practice-editor__section">
+            <label class="practice-editor__label">Date</label>
+            <p class="practice-editor__value">${escapeHtml(dateLabel)}</p>
+          </div>
+          <div class="practice-editor__section">
+            <label class="practice-editor__label" for="${valueId}">Valeur</label>
+            ${valueField}
+          </div>
+          <div class="practice-editor__section">
+            <label class="practice-editor__label" for="${valueId}-note">Commentaire</label>
+            <textarea id="${valueId}-note" name="note" rows="3" class="practice-editor__textarea" placeholder="Ajouter un commentaire">${escapeHtml(noteValue)}</textarea>
+          </div>
+          <div class="practice-editor__actions">
+            <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
+            <button type="button" class="btn btn-danger" data-clear>Effacer</button>
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
+          </div>
+        </form>
+      `;
+      const panel = modal(editorHtml);
+      const form = panel.querySelector("form");
+      const cancelBtn = form.querySelector("[data-cancel]");
+      const clearBtn = form.querySelector("[data-clear]");
+      const submitBtn = form.querySelector('button[type="submit"]');
+      cancelBtn?.addEventListener("click", () => panel.remove());
+      if (clearBtn) {
+        const hasInitialData =
+          (point.rawValue !== "" && point.rawValue != null) || (point.note && point.note.trim());
+        if (!hasInitialData) {
+          clearBtn.disabled = true;
+        }
+        clearBtn.addEventListener("click", async (event) => {
+          event.preventDefault();
+          if (!confirm("Effacer la note pour cette date ?")) return;
+          clearBtn.disabled = true;
+          submitBtn.disabled = true;
+          try {
+            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, stat.id, point.dateIso);
+            updateStatAfterEdit(stat, pointIndex, "", "");
+            renderMatrix();
+            updateChartForStat(stat);
+            panel.remove();
+          } catch (err) {
+            console.error("practice-dashboard:clear-cell", err);
+            clearBtn.disabled = false;
+            submitBtn.disabled = false;
+          }
+        });
+      }
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (submitBtn.disabled) return;
+        submitBtn.disabled = true;
+        if (clearBtn) clearBtn.disabled = true;
+        try {
+          const rawValue = readValueFromForm(consigne, form);
+          const note = (form.elements.note?.value || "").trim();
+          const isRawEmpty = rawValue === "" || rawValue == null;
+          if (isRawEmpty && !note) {
+            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, stat.id, point.dateIso);
+            updateStatAfterEdit(stat, pointIndex, "", "");
+          } else {
+            await Schema.saveHistoryEntry(ctx.db, ctx.user.uid, stat.id, point.dateIso, {
+              value: rawValue,
+              note,
+            });
+            updateStatAfterEdit(stat, pointIndex, rawValue, note);
+          }
+          renderMatrix();
+          updateChartForStat(stat);
+          panel.remove();
+        } catch (err) {
+          console.error("practice-dashboard:save-cell", err);
+          submitBtn.disabled = false;
+          if (clearBtn) clearBtn.disabled = false;
+        }
+      });
+    }
+
+    function buildChartDataset(stat) {
+      const dataset = {
+        label: stat.name,
+        data: stat.timeline.map((point) => point.numeric),
+        rawValues: stat.timeline.map((point) => point.rawValue),
+        rawNotes: stat.timeline.map((point) => point.note),
+        consigneType: stat.type,
+        dates: daysIso,
+        borderColor: stat.accentStrong,
+        backgroundColor: withAlpha(stat.color, 0.16),
+        borderWidth: stat.priority === 1 ? 3 : 2,
+        pointRadius: stat.priority === 1 ? 4 : stat.priority === 2 ? 3 : 2,
+        pointHoverRadius: stat.priority === 1 ? 5 : stat.priority === 2 ? 4 : 3,
+        tension: 0.35,
+        spanGaps: true,
+      };
+      if (stat.priority === 3) {
+        dataset.borderDash = [6, 4];
+      }
+      return dataset;
+    }
+
+    function renderChartSelector() {
+      if (!chartSelect) return;
+      if (!chartInstance || !chartInstance.data.datasets.length) {
+        chartSelect.innerHTML = '<p class="practice-dashboard__chart-empty">Aucune consigne numérique à afficher pour le moment.</p>';
+        return;
+      }
+      chartSelect.innerHTML = stats
+        .filter((stat) => stat.chartDatasetIndex != null)
+        .map((stat) => {
+          const dataset = chartInstance.data.datasets[stat.chartDatasetIndex];
+          const checked = dataset ? !dataset.hidden : true;
+          return `<label class="practice-dashboard__chart-option"><input type="checkbox" value="${stat.id}" ${checked ? "checked" : ""}/> <span>${escapeHtml(stat.name)}</span></label>`;
+        })
+        .join("");
+    }
+
+    chartSelect?.addEventListener("change", (event) => {
+      const input = event.target;
+      if (!input || input.tagName !== "INPUT") return;
+      if (input.type !== "checkbox") return;
+      const stat = stats.find((item) => item.id === input.value);
+      if (!stat || stat.chartDatasetIndex == null || !chartInstance) return;
+      const dataset = chartInstance.data.datasets[stat.chartDatasetIndex];
+      if (!dataset) return;
+      dataset.hidden = !input.checked;
+      chartInstance.update();
+    });
+
+    function updateChartForStat(stat) {
+      if (!chartInstance) {
+        updateToggleState();
+        return;
+      }
+      const hasNumeric = stat.timeline.some((point) => point.numeric != null);
+      stat.hasNumeric = hasNumeric;
+      if (hasNumeric) {
+        if (stat.chartDatasetIndex == null) {
+          const dataset = buildChartDataset(stat);
+          stat.chartDatasetIndex = chartInstance.data.datasets.length;
+          chartInstance.data.datasets.push(dataset);
+        } else {
+          const dataset = chartInstance.data.datasets[stat.chartDatasetIndex];
+          if (dataset) {
+            dataset.data = stat.timeline.map((point) => point.numeric);
+            dataset.rawValues = stat.timeline.map((point) => point.rawValue);
+            dataset.rawNotes = stat.timeline.map((point) => point.note);
+          }
+        }
+      } else if (stat.chartDatasetIndex != null) {
+        chartInstance.data.datasets.splice(stat.chartDatasetIndex, 1);
+        stats.forEach((item) => {
+          if (item.chartDatasetIndex != null) {
+            if (item.id === stat.id) {
+              item.chartDatasetIndex = null;
+            } else if (item.chartDatasetIndex > stat.chartDatasetIndex) {
+              item.chartDatasetIndex -= 1;
+            }
+          }
+        });
+      }
+      chartInstance.update();
+      renderChartSelector();
+      updateToggleState();
+    }
 
     const chartStats = stats.filter((stat) => stat.hasNumeric);
     if (canvas && chartCard && window.Chart && chartStats.length) {
-      const chartDatasets = chartStats.map((stat) => {
-        const dataset = {
-          label: stat.name,
-          data: stat.chartValues,
-          rawValues: stat.rawValues,
-          rawNotes: stat.rawNotes,
-          consigneType: stat.type,
-          dates: daysIso,
-          borderColor: stat.accentStrong,
-          backgroundColor: withAlpha(stat.color, 0.16),
-          borderWidth: stat.priority === 1 ? 3 : 2,
-          pointRadius: stat.priority === 1 ? 4 : stat.priority === 2 ? 3 : 2,
-          pointHoverRadius: stat.priority === 1 ? 5 : stat.priority === 2 ? 4 : 3,
-          tension: 0.35,
-          spanGaps: true,
-        };
-        if (stat.priority === 3) {
-          dataset.borderDash = [6, 4];
-        }
-        return dataset;
+      const chartDatasets = chartStats.map((stat, index) => {
+        stat.chartDatasetIndex = index;
+        return buildChartDataset(stat);
       });
 
       const typeSet = new Set(chartDatasets.map((dataset) => dataset.consigneType));
@@ -734,8 +910,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
 
       if (chartCaption) {
         chartCaption.textContent =
-          "Cliquez sur la légende pour afficher ou masquer une consigne. Les valeurs sont normalisées quand c’est possible.";
+          "Cochez les consignes à afficher. Les valeurs sont normalisées quand c’est possible.";
       }
+      renderChartSelector();
+      updateToggleState();
     } else {
       if (chartCard) {
         chartCard.innerHTML =
@@ -744,6 +922,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       if (chartCaption) {
         chartCaption.textContent = "Ajoutez des réponses pour visualiser l’évolution dans le temps.";
       }
+      if (chartSelect) {
+        chartSelect.innerHTML = '<p class="practice-dashboard__chart-empty">Aucune consigne numérique à afficher pour le moment.</p>';
+      }
+      updateToggleState();
     }
   } catch (err) {
     console.warn("openCategoryDashboard:error", err);
