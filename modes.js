@@ -519,20 +519,31 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             dateObj = toDate(key);
           }
         }
-        const label = `Itération ${sessionNumber != null ? sessionNumber : idx + 1}`;
+        const displayIndex = idx + 1;
+        const label = `Itération ${displayIndex}`;
         let fullLabel = "";
         if (dateObj) {
           fullLabel = fullDateTimeFormatter.format(dateObj);
+        } else if (sessionNumber != null && sessionNumber !== displayIndex) {
+          fullLabel = `Session ${sessionNumber}`;
         } else if (sessionNumber != null) {
           fullLabel = label;
         } else {
           fullLabel = String(key);
         }
-        const headerTitle = fullLabel && fullLabel !== label ? `${label} — ${fullLabel}` : label;
+        const headerParts = [label];
+        if (Number.isFinite(sessionNumber) && sessionNumber !== displayIndex) {
+          headerParts.push(`Session ${sessionNumber}`);
+        }
+        if (fullLabel && fullLabel !== label) {
+          headerParts.push(fullLabel);
+        }
+        const headerTitle = headerParts.join(" — ");
         return {
           key,
           iso: key,
           index: idx,
+          displayIndex,
           label,
           fullLabel,
           headerTitle,
@@ -769,6 +780,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const parts = [];
       const iterationLabel = iterationInfo?.label;
       if (iterationLabel) parts.push(iterationLabel);
+      const actualNumber = iterationInfo?.sessionNumber;
+      const displayIndex = iterationInfo?.displayIndex;
+      if (Number.isFinite(actualNumber) && actualNumber !== displayIndex) {
+        parts.push(`Session ${actualNumber}`);
+      }
       const iso = iterationInfo?.iso || dateIso;
       const dateObj = iterationInfo?.dateObj || toDate(iso);
       const fullLabel = iterationInfo?.fullLabel || (dateObj ? fullDateTimeFormatter.format(dateObj) : iso);
@@ -1250,6 +1266,9 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
                   const info = iterationMeta[index];
                   if (info) {
                     const parts = [info.label];
+                    if (Number.isFinite(info.sessionNumber) && info.sessionNumber !== info.displayIndex) {
+                      parts.push(`Session ${info.sessionNumber}`);
+                    }
                     if (info.fullLabel && info.fullLabel !== info.label) {
                       parts.push(info.fullLabel);
                     }
