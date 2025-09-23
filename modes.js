@@ -234,7 +234,7 @@ async function categorySelect(ctx, mode, currentName = "") {
 
 function consigneActions() {
   return `
-    <div class="flex items-center gap-2">
+    <div class="daily-consigne__actions" role="group" aria-label="Actions">
       ${smallBtn("Historique", "js-histo")}
       ${smallBtn("Modifier", "js-edit")}
       ${smallBtn("Supprimer", "js-del text-red-600")}
@@ -1077,7 +1077,7 @@ async function renderDaily(ctx, root, opts = {}) {
   };
 
   const form = document.createElement("form");
-  form.className = "grid gap-6";
+  form.className = "grid gap-8";
   card.appendChild(form);
 
   if (!visible.length) {

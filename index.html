@@ -80,17 +80,21 @@
 
     /* Journalier — navigation par jour */
     .day-nav {
-      display:inline-flex;
+      display:flex;
       align-items:center;
-      gap:.75rem;
-      padding:.35rem .75rem;
+      justify-content:space-between;
+      gap:.5rem;
+      padding:.35rem .5rem;
       border:1px solid rgba(148,163,184,.35);
       border-radius:999px;
       background:#fff;
+      min-width:12.5rem;
+      width:clamp(12.5rem, 42vw, 16rem);
     }
     .day-nav-btn {
-      width:2rem;
-      height:2rem;
+      flex:0 0 auto;
+      width:2.25rem;
+      height:2.25rem;
       border-radius:999px;
       border:1px solid transparent;
       background:transparent;
@@ -109,6 +113,7 @@
       outline:none;
     }
     .day-nav-label {
+      flex:1 1 auto;
       font-weight:600;
       font-size:.95rem;
       text-transform:capitalize;
@@ -117,6 +122,10 @@
       flex-direction:column;
       align-items:center;
       line-height:1.2;
+      text-align:center;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
     }
     .day-nav-today {
       font-size:.7rem;
@@ -128,59 +137,53 @@
 
     /* Journalier — catégories */
     .daily-category {
-      position: relative;
+      position:relative;
       background:#fff;
-      border-radius:1.2rem;
-      border:1px solid rgba(148, 163, 184, .25);
-      padding:1.1rem 1.25rem 1.25rem;
-      box-shadow:0 10px 24px rgba(15,23,42,.08);
-      overflow:hidden;
-    }
-    .daily-category::before {
-      content:"";
-      position:absolute;
-      inset:0;
-      border-radius:inherit;
-      border-left:6px solid var(--accent-400);
-      pointer-events:none;
-      opacity:.25;
+      border-radius:1.25rem;
+      border:1px solid rgba(148,163,184,.2);
+      padding:1.5rem 1.75rem;
+      box-shadow:0 14px 32px rgba(15,23,42,.06);
     }
     .daily-category__header {
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap:.75rem;
-      margin-bottom:.9rem;
-      position:relative;
-      z-index:1;
+      gap:1rem;
+      padding-bottom:.9rem;
+      margin-bottom:1.1rem;
+      border-bottom:1px solid rgba(148,163,184,.25);
     }
     .daily-category__name {
       font-weight:700;
-      font-size:1.05rem;
+      font-size:1.15rem;
       text-transform:capitalize;
+      color:#0f172a;
+      display:flex;
+      align-items:center;
+      gap:.5rem;
+    }
+    .daily-category__name::before {
+      content:"";
+      width:.55rem;
+      height:.55rem;
+      border-radius:999px;
+      background:var(--accent-400);
     }
     .daily-category__count {
       font-size:.75rem;
+      font-weight:600;
       color:var(--muted);
-      background:var(--accent-50);
-      border:1px solid var(--accent-200);
-      border-radius:999px;
-      padding:.2rem .6rem;
+      padding:.2rem .4rem;
+      text-transform:uppercase;
+      letter-spacing:.08em;
     }
     .daily-category__items {
       display:grid;
-      gap:.8rem;
-      position:relative;
-      z-index:1;
+      gap:1.25rem;
     }
     .daily-category__low {
-      border-radius:1rem;
-      border:1px dashed rgba(148,163,184,.35);
-      background:rgba(241,245,249,.75);
-      padding:.75rem;
-    }
-    .daily-category__low[open] {
-      background:#fff;
+      margin-top:.25rem;
+      padding-top:1rem;
     }
     .daily-category__low-summary {
       list-style:none;
@@ -191,39 +194,73 @@
       display:flex;
       align-items:center;
       gap:.35rem;
+      padding-top:.75rem;
+      border-top:1px dashed rgba(148,163,184,.35);
     }
     .daily-category__low-summary::-webkit-details-marker {
       display:none;
     }
     .daily-category__items--nested {
-      margin-top:.65rem;
+      margin-top:.75rem;
       display:grid;
-      gap:.75rem;
+      gap:1.1rem;
     }
     .daily-consigne {
-      background:#fff;
-      border-radius:1rem;
-      border:1px solid rgba(148,163,184,.25);
-      box-shadow:0 8px 20px rgba(15,23,42,.06);
-      padding:.9rem 1rem;
+      background:transparent;
+      border-radius:0;
+      border:none;
+      box-shadow:none;
+      padding:0 0 1.2rem;
       display:grid;
       gap:.75rem;
+      border-bottom:1px solid rgba(148,163,184,.18);
     }
+    .daily-consigne:last-child { border-bottom:none; padding-bottom:0; }
     .daily-consigne__top {
       display:flex;
       flex-wrap:wrap;
-      align-items:flex-start;
+      align-items:center;
       justify-content:space-between;
-      gap:.75rem;
+      gap:1rem;
     }
     .daily-consigne__title {
       display:flex;
+      flex:1 1 auto;
       flex-wrap:wrap;
       align-items:center;
       gap:.5rem;
     }
     .daily-consigne__field {
       display:block;
+    }
+    .daily-consigne__actions {
+      display:flex;
+      flex:0 0 auto;
+      align-items:center;
+      gap:.25rem;
+      font-size:.78rem;
+    }
+    .daily-consigne__actions .btn {
+      padding:.25rem .6rem;
+      border:none;
+      background:transparent;
+      color:var(--muted);
+      font-size:.78rem;
+      font-weight:500;
+    }
+    .daily-consigne__actions .btn:hover,
+    .daily-consigne__actions .btn:focus-visible {
+      color:var(--text);
+      background:var(--accent-50);
+      border-radius:.5rem;
+    }
+    .daily-consigne__actions .text-red-600 {
+      color:#b91c1c;
+    }
+    .daily-consigne__actions .text-red-600:hover,
+    .daily-consigne__actions .text-red-600:focus-visible {
+      color:#991b1b;
+      background:#fee2e2;
     }
 
     /* Pastilles de priorité */

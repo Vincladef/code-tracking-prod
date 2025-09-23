@@ -84,12 +84,12 @@
         <div class="goal-quick">
           <select class="select-compact">
             <option value="">— choisir —</option>
-            <option value="0">Pas de réponse</option>
-            <option value="1">Non</option>
-            <option value="2">Plutôt non</option>
-            <option value="3">Neutre</option>
-            <option value="4">Plutôt oui</option>
             <option value="5">Oui</option>
+            <option value="4">Plutôt oui</option>
+            <option value="3">Neutre</option>
+            <option value="2">Plutôt non</option>
+            <option value="1">Non</option>
+            <option value="0">Pas de réponse</option>
           </select>
         </div>
       `;
