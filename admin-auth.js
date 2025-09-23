@@ -1,9 +1,10 @@
-import { ADMIN_HASH } from "./admin-hash.js";
+import { isAdminHashPlaceholder, resolveAdminHash } from "./admin-hash.js";
 
 const ADMIN_ACCESS_KEY = "hp::admin::authorized";
-const PLACEHOLDER_VALUE = "__ADMIN_HASH_PLACEHOLDER__";
 const STATUS_ELEMENT_ID = "admin-login-status";
 const MAX_ATTEMPTS = 3;
+const ADMIN_HASH_TIMEOUT_MS = 2000;
+const ADMIN_HASH_POLL_INTERVAL_MS = 50;
 
 function updateStatus(message) {
   const el = document.getElementById(STATUS_ELEMENT_ID);
@@ -53,7 +54,7 @@ async function sha256Hex(value) {
   return hashArray.map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function promptForPassword() {
+async function promptForPassword(expectedHash) {
   if (typeof crypto === "undefined" || !crypto?.subtle) {
     updateStatus("Impossible de vérifier le mot de passe sur ce navigateur.");
     alert("Votre navigateur ne supporte pas SHA-256. Accès refusé.");
@@ -69,7 +70,7 @@ async function promptForPassword() {
       return;
     }
     const hash = await sha256Hex(input);
-    if (hash === ADMIN_HASH) {
+    if (hash === expectedHash) {
       storeAdminAccess(true);
       updateStatus("Accès accordé. Redirection…");
       redirectToAdmin();
@@ -83,12 +84,23 @@ async function promptForPassword() {
   redirectToHome();
 }
 
-function isPlaceholderHash() {
-  return !ADMIN_HASH || ADMIN_HASH === PLACEHOLDER_VALUE;
+function sleep(delay) {
+  return new Promise((resolve) => setTimeout(resolve, delay));
 }
 
-(function start() {
-  if (isPlaceholderHash()) {
+async function waitForAdminHash(timeoutMs = ADMIN_HASH_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  let value = resolveAdminHash();
+  while (isAdminHashPlaceholder(value) && Date.now() < deadline) {
+    await sleep(ADMIN_HASH_POLL_INTERVAL_MS);
+    value = resolveAdminHash();
+  }
+  return value;
+}
+
+(async function start() {
+  const adminHash = await waitForAdminHash();
+  if (isAdminHashPlaceholder(adminHash)) {
     updateStatus("Hash administrateur non configuré.");
     alert("Le hash administrateur n'est pas configuré. Exécutez le workflow pour le générer.");
     redirectToHome();
@@ -105,7 +117,7 @@ function isPlaceholderHash() {
 
   storeAdminAccess(false);
   updateStatus("Vérification du mot de passe…");
-  promptForPassword().catch((error) => {
+  promptForPassword(adminHash).catch((error) => {
     console.error("[admin-auth] Erreur lors de la vérification", error);
     alert("Erreur lors de la vérification du mot de passe.");
     storeAdminAccess(false);

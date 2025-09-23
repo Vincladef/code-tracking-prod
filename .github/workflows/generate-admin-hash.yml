@@ -27,12 +27,16 @@ jobs:
         run: |
           set -euo pipefail
           HASH=$(printf "%s" "${ADMIN_PASSWORD}" | sha256sum | cut -d' ' -f1)
-          mkdir -p src
           {
             printf '%s\n' "// Ce fichier est généré automatiquement par le workflow GitHub Actions \"Generate Admin Hash\"."
             printf '%s\n' "// Ne pas modifier à la main."
-            printf '%s\n' "export const ADMIN_HASH = \"${HASH}\";"
-          } > src/admin-config.js
+            printf '%s\n' "(function applyAdminHash() {"
+            printf '%s\n' "  if (typeof window === \"undefined\") {"
+            printf '%s\n' "    return;"
+            printf '%s\n' "  }"
+            printf '%s\n' "  window.__HP_ADMIN_HASH__ = \"${HASH}\";"
+            printf '%s\n' "})();"
+          } > admin-config.js
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -51,8 +55,8 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./build
 
-      - name: Commit admin hash update
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "chore: update admin hash"
-          file_pattern: src/admin-config.js
+        - name: Commit admin hash update
+          uses: stefanzweifel/git-auto-commit-action@v5
+          with:
+            commit_message: "chore: update admin hash"
+            file_pattern: admin-config.js
