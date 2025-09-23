@@ -16,7 +16,7 @@ const DAY_NORMALIZE = {
   sam: "SAM",
 };
 
-const DAILY_LINK = "https://vincladef.github.io/code-tracking-prod/#/daily";
+const DAILY_BASE = "https://vincladef.github.io/code-tracking-prod/";
 const ICON_URL = "https://vincladef.github.io/code-tracking-prod/icon.png";
 const BADGE_URL = "https://vincladef.github.io/code-tracking-prod/badge.png";
 
@@ -169,16 +169,18 @@ async function sendReminder(uid, tokens, visibleCount, context) {
   const title = "Rappel du jour 👋";
   const body = `Tu as ${visibleCount} consigne(s) à remplir aujourd’hui.`;
 
+  const link = buildUserDailyLink(uid, context.dateIso);
+
   const message = {
     tokens,
     data: {
-      link: DAILY_LINK,
+      link,
       count: String(visibleCount),
       day: context.dayLabel,
     },
     notification: { title, body },
     webpush: {
-      fcmOptions: { link: DAILY_LINK },
+      fcmOptions: { link },
       notification: {
         title,
         body,
@@ -267,3 +269,7 @@ exports.sendDailyReminders = functions
       res.status(500).json({ ok: false, error: error.message });
     }
   });
+function buildUserDailyLink(uid, dateIso) {
+  return `${DAILY_BASE}#/daily?u=${encodeURIComponent(uid)}&d=${dateIso}`;
+}
+

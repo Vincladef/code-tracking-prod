@@ -95,19 +95,25 @@
     .btn-saved{ background:#22C55E; } /* vert doux rapide pour le flash */
 
     /* Objectifs */
-    .goal-shell{ padding:1.25rem 1.5rem; display:flex; flex-direction:column; gap:1rem; }
-    .goal-top{ display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
-    .goal-nav{ display:flex; align-items:center; gap:.75rem; }
-    .goal-month{ font-weight:600; font-size:1.1rem; }
-    .goal-section{ display:flex; flex-direction:column; gap:.5rem; margin-top:.25rem; }
-    .goal-section-title{ font-weight:600; color:var(--muted); }
-    .goal-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(220px,1fr)); gap:.75rem; }
-    .goal-card{ padding:.9rem; transition:transform .15s ease, box-shadow .15s ease; cursor:pointer; }
-    .goal-card:hover{ transform:translateY(-2px); box-shadow:0 12px 24px rgba(148,163,184,.25); }
-    .goal-card-title{ font-weight:600; }
-    .goal-card-sub{ color:var(--muted); font-size:.85rem; margin-top:.15rem; }
-    .goal-card-status{ color:#0f172a; font-size:.85rem; margin-top:.4rem; font-weight:500; }
+    .goal-header{ display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:12px; }
+    .goal-timeline{ display:grid; gap:12px; padding:8px 0; }
+    .goal-month{ background:#fff; border-radius:16px; box-shadow:0 2px 12px rgba(0,0,0,.08); padding:12px; }
+    .goal-month h3{ margin:0 0 8px; font-weight:700; font-size:1.05rem; }
+    .goal-week{ padding:8px 0; border-top:1px dashed #e5e7eb; }
+    .goal-week:first-of-type{ border-top:none; padding-top:0; }
+    .goal-week .muted{ font-size:.8rem; }
+    .goal-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px; border-radius:10px; transition:background .15s ease, outline .15s ease; }
+    .goal-row:hover{ background:#f8fafc; }
+    .goal-title{ font-weight:600; flex:1; }
+    .goal-quick{ min-width:140px; }
     .goal-empty{ padding:1rem; border-radius:.75rem; background:var(--accent-50); }
+    .select-compact{ font-size:.95rem; padding:4px 8px; border-radius:10px; border:1px solid #e5e7eb; background:#fff; }
+    .select-compact:focus{ outline:none; border-color:var(--accent-400); box-shadow:0 0 0 3px var(--accent-50); }
+    .week-picker{ display:flex; gap:.5rem; }
+    .week-picker button.is-active{ background:var(--accent-600); color:#fff; border-color:var(--accent-600); }
+
+    .history-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    .history-table{ min-width:720px; }
     .goal-modal{ position:fixed; inset:0; background:rgba(15,23,42,.18); display:grid; place-items:center; padding:1rem; z-index:50; }
     .goal-modal-card{ background:#fff; border-radius:1rem; padding:1.25rem 1.5rem; box-shadow:0 24px 48px rgba(15,23,42,.16); width:min(720px,95vw); max-height:90vh; overflow:auto; }
     .goal-modal-header{ display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
