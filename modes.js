@@ -1,8 +1,10 @@
 // modes.js — Journalier / Pratique / Historique
-import { collection, query, where, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import * as Schema from "./schema.js";
+const Schema = window.Schema || {};
+const Modes = window.Modes = window.Modes || {};
+const firestoreAPI = Schema.firestore || {};
+const { collection, query, where, orderBy, limit, getDocs } = firestoreAPI;
 
-const L = Schema.D;
+const L = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -316,7 +318,7 @@ function collectAnswers(form, consignes) {
   return answers;
 }
 
-export async function openConsigneForm(ctx, consigne = null) {
+async function openConsigneForm(ctx, consigne = null) {
   const mode = consigne?.mode || (ctx.route.includes("/practice") ? "practice" : "daily");
   L.group("ui.consigneForm.open", { mode, consigneId: consigne?.id || null });
   const catUI = await categorySelect(ctx, mode, consigne?.category || null);
@@ -500,7 +502,7 @@ function dotHTML(kind){
   return `<span style="display:inline-block;width:.6rem;height:.6rem;border-radius:999px;${style}"></span>`;
 }
 
-export async function openHistory(ctx, consigne) {
+async function openHistory(ctx, consigne) {
   L.group("ui.history.open", { consigneId: consigne.id, type: consigne.type });
   const qy = query(
     collection(ctx.db, `u/${ctx.user.uid}/responses`),
@@ -644,7 +646,7 @@ export async function openHistory(ctx, consigne) {
   }
 }
 
-export async function renderPractice(ctx, root, _opts = {}) {
+async function renderPractice(ctx, root, _opts = {}) {
   L.group("screen.practice.render", { hash: ctx.route });
   root.innerHTML = "";
   const container = document.createElement("div");
@@ -924,7 +926,7 @@ function daysBetween(a,b){
   return Math.max(0, Math.round(ms/86400000));
 }
 
-export async function renderDaily(ctx, root, opts = {}) {
+async function renderDaily(ctx, root, opts = {}) {
   root.innerHTML = "";
   const container = document.createElement("div");
   container.className = "space-y-4";
@@ -1149,4 +1151,13 @@ export async function renderDaily(ctx, root, opts = {}) {
   L.groupEnd();
 }
 
-export function renderHistory() {}
+function renderHistory() {}
+
+Modes.openCategoryDashboard = openCategoryDashboard;
+Modes.openConsigneForm = openConsigneForm;
+Modes.openHistory = openHistory;
+Modes.renderPractice = renderPractice;
+Modes.renderDaily = renderDaily;
+Modes.renderHistory = renderHistory;
+
+window.openCategoryDashboard = openCategoryDashboard;

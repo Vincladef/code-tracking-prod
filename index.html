@@ -159,23 +159,37 @@
     </footer>
   </div>
 
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-    import { startRouter } from "./app.js";
-
-    const cfg = {
-      apiKey: "AIzaSyAQcvZ9a2j4MHF04RjMHIey0R_iwnjZf4o",
-      authDomain: "tracking-d-habitudes.firebaseapp.com",
-      projectId: "tracking-d-habitudes",
-      storageBucket: "tracking-d-habitudes.firebasestorage.app",
-      messagingSenderId: "739389871966",
-      appId: "1:739389871966:web:684e26dbdfb0c0a69221cf",
-      measurementId: "G-ZPHWB5DKWF"
-    };
-    const app = initializeApp(cfg);
-    const db = getFirestore(app);
-    startRouter(app, db);
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+  <script src="schema.js"></script>
+  <script src="modes.js"></script>
+  <script src="goals.js"></script>
+  <script src="app.js"></script>
+  <script>
+    (function initApp() {
+      if (!window.firebase) {
+        console.error("Firebase non chargé");
+        return;
+      }
+      const cfg = {
+        apiKey: "AIzaSyAQcvZ9a2j4MHF04RjMHIey0R_iwnjZf4o",
+        authDomain: "tracking-d-habitudes.firebaseapp.com",
+        projectId: "tracking-d-habitudes",
+        storageBucket: "tracking-d-habitudes.firebasestorage.app",
+        messagingSenderId: "739389871966",
+        appId: "1:739389871966:web:684e26dbdfb0c0a69221cf",
+        measurementId: "G-ZPHWB5DKWF"
+      };
+      const app = firebase.initializeApp(cfg);
+      const db = firebase.firestore(app);
+      if (typeof startRouter === "function") {
+        startRouter(app, db);
+      } else {
+        console.error("startRouter indisponible");
+      }
+    })();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </body>

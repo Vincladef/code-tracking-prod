@@ -1,20 +1,26 @@
 // app.js — bootstrapping, routing, context, nav
-import {
-  getFirestore, doc, setDoc, getDoc, collection, query, where, orderBy, limit, getDocs
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {
-  getMessaging, getToken, onMessage, isSupported
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
-import * as Schema from "./schema.js";
-import * as Modes from "./modes.js";
-import * as Goals from "./goals.js";
+const Schema = window.Schema || {};
+const Modes = window.Modes || {};
+const Goals = window.Goals || {};
+
+const firestoreAPI = Schema.firestore || {};
+const { collection, query, where, orderBy, limit, getDocs, doc, setDoc, getDoc } = firestoreAPI;
+
+const firebaseCompat = window.firebase || {};
 
 // --- feature flags & logger ---
 const DEBUG = false;
 const LOG = DEBUG;
-const L = Schema.D;
-L.on = DEBUG;
+const L = Schema.D || {
+  on: false,
+  info: () => {},
+  debug: () => {},
+  warn: () => {},
+  error: () => {},
+  group: () => {},
+  groupEnd: () => {},
+};
+if (L) L.on = DEBUG;
 const log = (...args) => { if (LOG) console.debug("[app]", ...args); };
 function logStep(step, data) {
   L.group(step);
@@ -22,7 +28,7 @@ function logStep(step, data) {
   L.groupEnd();
 }
 
-export const ctx = {
+const ctx = {
   app: null,
   db: null,
   user: null, // { uid } passed by index.html
@@ -65,7 +71,13 @@ function $$(sel) {
 }
 
 function getAuthInstance() {
-  return ctx.app ? getAuth(ctx.app) : getAuth();
+  if (!firebaseCompat || typeof firebaseCompat.auth !== "function") return null;
+  try {
+    return ctx.app ? firebaseCompat.auth(ctx.app) : firebaseCompat.auth();
+  } catch (err) {
+    console.warn("firebase.auth() fallback", err);
+    return firebaseCompat.auth();
+  }
 }
 
 let authInitPromise = null;
@@ -73,11 +85,12 @@ let signInPromise = null;
 
 async function ensureSignedIn() {
   const auth = getAuthInstance();
+  if (!auth) return null;
   if (auth.currentUser) return auth.currentUser;
 
   if (!authInitPromise) {
     authInitPromise = new Promise((resolve) => {
-      const unsubscribe = onAuthStateChanged(auth, (user) => {
+      const unsubscribe = auth.onAuthStateChanged((user) => {
         unsubscribe();
         resolve(user);
       });
@@ -90,7 +103,8 @@ async function ensureSignedIn() {
   if (existing) return existing;
 
   if (!signInPromise) {
-    signInPromise = signInAnonymously(auth)
+    signInPromise = auth
+      .signInAnonymously()
       .then((cred) => cred.user)
       .finally(() => {
         signInPromise = null;
@@ -330,7 +344,7 @@ async function handleRoute() {
   await ensureOwnRoute(parsed);
 }
 
-export function startRouter(app, db) {
+function startRouter(app, db) {
   // We keep app/db in the context for the screens
   log("router:start", { hash: location.hash });
   ctx.app = app;
@@ -368,7 +382,10 @@ async function ensureProfile(db, uid) {
 }
 
 async function ensurePushSubscription(ctx) {
-  if (!(await isSupported?.())) { console.info("[push] non supporté"); return; }
+  const messagingSupported = typeof firebaseCompat?.messaging?.isSupported === "function"
+    ? firebaseCompat.messaging.isSupported()
+    : Promise.resolve(false);
+  if (!(await messagingSupported)) { console.info("[push] non supporté"); return; }
   if (!("Notification" in window) || !("serviceWorker" in navigator)) return;
 
   // 1) Permission
@@ -377,13 +394,20 @@ async function ensurePushSubscription(ctx) {
   if (perm !== "granted") { console.info("[push] permission refusée"); return; }
 
   // 2) Enregistrer le SW *avec un chemin relatif fiable sur GitHub Pages*
-  const swUrl = new URL("sw.js", import.meta.url); // => /<repo>/sw.js
+  const basePath = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, '')}`;
+  const swUrl = new URL("sw.js", basePath);
   const reg = await navigator.serviceWorker.register(swUrl.href, { scope: "./" });
   console.info("[push] SW OK", reg.scope);
 
   // 3) Token FCM avec TA clé VAPID publique
-  const messaging = getMessaging(ctx.app);
-  const token = await getToken(messaging, {
+  let messaging;
+  try {
+    messaging = ctx.app ? firebaseCompat.messaging(ctx.app) : firebaseCompat.messaging();
+  } catch (err) {
+    console.info("[push] messaging non disponible", err);
+    return;
+  }
+  const token = await messaging.getToken({
     vapidKey: "BMKhViKlpYs9dtqHYQYIU9rmTJQA3rPUP2h5Mg1YlA6lUs4uHk74F8rT9y8hT1U2N4M-UUE7-YvbAjYfTpjA1nM",
     serviceWorkerRegistration: reg
   });
@@ -394,7 +418,7 @@ async function ensurePushSubscription(ctx) {
   await Schema.savePushToken(ctx.db, ctx.user.uid, token);
 
   // 5) Réception en foreground
-  onMessage(messaging, (payload) => {
+  messaging.onMessage((payload) => {
     try {
       new Notification(payload?.notification?.title || "Rappel", {
         body: payload?.notification?.body || "Tu as des consignes à remplir aujourd’hui.",
@@ -404,7 +428,7 @@ async function ensurePushSubscription(ctx) {
   });
 }
 
-export async function initApp({ app, db, user }) {
+async function initApp({ app, db, user }) {
   // Show the sidebar in user mode
   const sidebar = document.getElementById("sidebar");
   if (sidebar) sidebar.style.display = "";
@@ -453,7 +477,7 @@ function newUid() {
   return "u-" + Math.random().toString(36).slice(2, 10);
 }
 
-export function renderAdmin(db) {
+function renderAdmin(db) {
   // Hide the sidebar in admin mode
   const sidebar = document.getElementById("sidebar");
   if (sidebar) sidebar.style.display = "none";
@@ -608,3 +632,8 @@ function render() {
       root.innerHTML = "<div class='card'>Page inconnue.</div>";
   }
 }
+
+window.AppCtx = ctx;
+window.startRouter = startRouter;
+window.initApp = initApp;
+window.renderAdmin = renderAdmin;
