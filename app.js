@@ -11,6 +11,7 @@
     ((snap) => (typeof snap?.exists === "function" ? snap.exists() : !!snap?.exists));
 
   const firebaseCompatApp = window.firebase || {};
+  const BASE_TITLE = "Habitudes & Pratique";
 
   // --- feature flags & logger ---
   const DEBUG = false;
@@ -41,28 +42,73 @@
     route: "#/admin",
   };
 
-  async function refreshUserBadge(uid) {
+  let profileUnsubscribe = null;
+
+  async function refreshUserBadge(uid, explicitName = null) {
     const el = document.querySelector("[data-username]");
     if (!el) return;
     const { segments } = parseHash(ctx.route || location.hash || "#/admin");
     const routeKey = segments[0] || "admin";
     const isAdminRoute = routeKey === "admin";
 
+    const applyBadge = (label, updateTitle = true) => {
+      el.textContent = label;
+      if (!updateTitle) return;
+      if (!label || label === "…") {
+        document.title = BASE_TITLE;
+        return;
+      }
+      document.title = `${BASE_TITLE} — ${label}`;
+    };
+
     if (isAdminRoute) {
-      el.textContent = "Admin";
+      applyBadge("Admin");
+      return;
+    }
+
+    if (explicitName != null) {
+      const safeName = explicitName || "Utilisateur";
+      applyBadge(safeName);
       return;
     }
 
     if (!uid) {
-      el.textContent = "Utilisateur";
+      applyBadge("Utilisateur");
       return;
     }
-    el.textContent = "…";
+    applyBadge("…", false);
     try {
-      el.textContent = await Schema.getUserName(uid);
+      const resolved = await Schema.getUserName(uid);
+      applyBadge(resolved || "Utilisateur");
     } catch (err) {
       console.warn("refreshUserBadge", err);
-      el.textContent = "Utilisateur";
+      applyBadge("Utilisateur");
+    }
+  }
+
+  function setupProfileWatcher(db, uid) {
+    if (typeof profileUnsubscribe === "function") {
+      try { profileUnsubscribe(); } catch (error) { console.warn("profile:watch:cleanup", error); }
+      profileUnsubscribe = null;
+    }
+    if (!db || !uid || typeof db.collection !== "function") return;
+    try {
+      const ref = db.collection("u").doc(uid);
+      if (!ref || typeof ref.onSnapshot !== "function") return;
+      profileUnsubscribe = ref.onSnapshot(
+        (snap) => {
+          if (!snapshotExists(snap)) return;
+          const data = snap.data() || {};
+          ctx.profile = { ...(ctx.profile || {}), ...data, uid };
+          renderSidebar();
+          refreshUserBadge(uid, data.displayName || data.name || data.slug || "Utilisateur");
+        },
+        (error) => {
+          console.warn("profile:watch:error", error);
+        }
+      );
+    } catch (error) {
+      console.warn("profile:watch:error", error);
     }
   }
 
@@ -192,6 +238,10 @@
     const box = queryOne("#profile-box");
     if (!box) return;
     appLog("sidebar:render", { profile: ctx.profile, categories: ctx.categories?.length });
+    if (!ctx.user?.uid) {
+      box.innerHTML = '<span class="muted">Aucun utilisateur sélectionné.</span>';
+      return;
+    }
     const link = `${location.origin}${location.pathname}#/u/${ctx.user.uid}`;
     box.innerHTML = `
       <div><strong>${ctx.profile.displayName || "Utilisateur"}</strong></div>
@@ -448,12 +498,11 @@
     await refreshUserBadge(user.uid);
 
     const profile = await ensureProfile(db, user.uid);
-    ctx.profile = profile;
+    ctx.profile = { uid: user.uid, ...profile };
     appLog("app:init:profile", { profile });
 
-    // Display profile in the sidebar
-    const box = document.getElementById("profile-box");
-    if (box) box.innerHTML = `<div><b>UID:</b> ${user.uid}<br><span class="muted">Profil chargé.</span></div>`;
+    renderSidebar();
+    setupProfileWatcher(ctx.db, user.uid);
 
     await loadCategories();
     bindNav();
@@ -482,6 +531,10 @@
     const sidebar = document.getElementById("sidebar");
     if (sidebar) sidebar.style.display = "none";
 
+    if (typeof profileUnsubscribe === "function") {
+      try { profileUnsubscribe(); } catch (error) { console.warn("profile:watch:cleanup", error); }
+      profileUnsubscribe = null;
+    }
     refreshUserBadge(null);
 
     const root = document.getElementById("view-root");

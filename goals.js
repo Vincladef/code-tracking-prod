@@ -53,7 +53,6 @@
     header.innerHTML = `
       <div>
         <h2 class="text-lg font-semibold">Objectifs</h2>
-        <p class="text-sm text-[var(--muted)]">Quatre semaines par mois, saisie rapide incluse.</p>
       </div>
       <button type="button" class="btn btn-primary" data-new-goal>＋ Nouvel objectif</button>
     `;
@@ -122,6 +121,7 @@
       };
 
       select.addEventListener("change", async () => {
+        select.dataset.userModified = "1";
         if (select.value === "") {
           row.classList.remove(...toneClasses);
           return;
@@ -143,6 +143,30 @@
         }
       });
       applyTone(select.value || "");
+
+      const hydrateSavedValue = async () => {
+        if (!ctx?.db || !ctx?.user?.uid) return;
+        try {
+          const entries = await Schema.loadObjectiveEntriesRange(ctx.db, ctx.user.uid, goal.id);
+          if (!Array.isArray(entries) || !entries.length) return;
+          const sorted = entries
+            .slice()
+            .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+          const latest = sorted[sorted.length - 1];
+          if (!latest || latest.v === undefined || latest.v === null) return;
+          if (select.dataset.userModified === "1") return;
+          const raw = String(latest.v);
+          if (select.value === raw) {
+            applyTone(raw);
+            return;
+          }
+          select.value = raw;
+          applyTone(raw);
+        } catch (error) {
+          goalsLogger.warn("goals.quickEntry.prefill", error);
+        }
+      };
+      hydrateSavedValue();
       return row;
     };
 
