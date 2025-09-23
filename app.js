@@ -1,6 +1,6 @@
 // app.js — bootstrapping, routing, context, nav
 /* global Schema, Modes, Goals */
-const { collection, query, where, orderBy, limit, getDocs, doc, setDoc, getDoc } = Schema.firestore || window.firestoreAPI || {};
+const appFirestore = Schema.firestore || window.firestoreAPI || {};
 
 const firebaseCompat = window.firebase || {};
 
@@ -361,8 +361,8 @@ function startRouter(app, db) {
 // Local ensureProfile function
 async function ensureProfile(db, uid) {
   log("profile:ensure:start", { uid });
-  const ref = doc(db, "u", uid);
-  const snap = await getDoc(ref);
+  const ref = appFirestore.doc(db, "u", uid);
+  const snap = await appFirestore.getDoc(ref);
   if (snap.exists()) {
     const data = snap.data();
     log("profile:ensure:existing", { uid });
@@ -372,7 +372,7 @@ async function ensureProfile(db, uid) {
     displayName: "Nouvel utilisateur",
     createdAt: new Date().toISOString()
   };
-  await setDoc(ref, newProfile);
+  await appFirestore.setDoc(ref, newProfile);
   log("profile:ensure:created", { uid });
   return newProfile;
 }
@@ -506,7 +506,7 @@ function renderAdmin(db) {
       log("admin:newUser:submit", { name });
       const uid = newUid();
       try {
-        await setDoc(doc(db, "u", uid), {
+        await appFirestore.setDoc(appFirestore.doc(db, "u", uid), {
           displayName: name,
           createdAt: new Date().toISOString()
         });
@@ -529,7 +529,7 @@ async function loadUsers(db) {
   list.innerHTML = "<div class='text-sm text-[var(--muted)]'>Chargement…</div>";
   log("admin:users:load:start");
   try {
-    const ss = await getDocs(collection(db, "u"));
+    const ss = await appFirestore.getDocs(appFirestore.collection(db, "u"));
     const items = [];
     ss.forEach(d => {
       const data = d.data();
