@@ -383,7 +383,7 @@ async function resetSRForConsigne(db, uid, consigneId) {
   });
 }
 
-// answers: [{ consigne, value, sessionId? }]
+// answers: [{ consigne, value, sessionId?, sessionIndex?, sessionNumber? }]
 async function saveResponses(db, uid, mode, answers) {
   const batch = [];
   for (const a of answers) {
@@ -397,6 +397,26 @@ async function saveResponses(db, uid, mode, answers) {
       sessionId: a.sessionId || null,
       category: a.consigne.category || "Général",
     };
+    if (mode === "practice") {
+      if (a.sessionIndex !== undefined && a.sessionIndex !== null && a.sessionIndex !== "") {
+        const parsedIndex = Number(a.sessionIndex);
+        if (Number.isFinite(parsedIndex)) {
+          payload.sessionIndex = parsedIndex;
+        }
+      }
+      if (a.sessionNumber !== undefined && a.sessionNumber !== null && a.sessionNumber !== "") {
+        const parsedNumber = Number(a.sessionNumber);
+        if (Number.isFinite(parsedNumber)) {
+          payload.sessionNumber = parsedNumber;
+        }
+      }
+      if (!payload.sessionId && a.sessionIndex !== undefined && a.sessionIndex !== null) {
+        const fallbackIndex = Number(a.sessionIndex);
+        if (Number.isFinite(fallbackIndex)) {
+          payload.sessionId = `session-${String(fallbackIndex + 1).padStart(4, "0")}`;
+        }
+      }
+    }
     if (a.dayKey || mode === "daily") {
       payload.dayKey = a.dayKey || todayKey();
     }
@@ -422,11 +442,16 @@ async function countPracticeSessions(db, uid){
   return ss.size;
 }
 
-async function startNewPracticeSession(db, uid) {
-  await addDoc(col(db, uid, "sessions"), {
+async function startNewPracticeSession(db, uid, extra = {}) {
+  const payload = {
     ownerUid: uid,
-    startedAt: serverTimestamp()
-  });
+    startedAt: serverTimestamp(),
+    ...extra,
+  };
+  if (!payload.startedAt) {
+    payload.startedAt = serverTimestamp();
+  }
+  await addDoc(col(db, uid, "sessions"), payload);
 }
 
 // list consignes par mode

@@ -124,15 +124,33 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
 
   const percentFormatter = new Intl.NumberFormat("fr-FR", { style: "percent", maximumFractionDigits: 0 });
   const numberFormatter = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
-  const fullDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+  const fullDateTimeFormatter = new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
   const shortDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
   const today = new Date();
   today.setHours(12, 0, 0, 0);
 
   function toDate(dateIso) {
     if (!dateIso) return null;
-    const iso = `${dateIso}T12:00:00`;
-    const d = new Date(iso);
+    if (dateIso instanceof Date) {
+      const copy = new Date(dateIso.getTime());
+      return Number.isNaN(copy.getTime()) ? null : copy;
+    }
+    let value = String(dateIso);
+    if (value.startsWith("ts-")) {
+      value = value.slice(3);
+    }
+    if (!value.includes("T")) {
+      const simple = `${value}T12:00:00`;
+      const simpleDate = new Date(simple);
+      return Number.isNaN(simpleDate.getTime()) ? null : simpleDate;
+    }
+    const d = new Date(value);
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
@@ -197,7 +215,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
   }
 
   function formatRelativeDate(dateIso) {
-    const d = toDate(dateIso);
+    const d = dateIso instanceof Date ? dateIso : toDate(dateIso);
     if (!d) return "";
     const diffDays = Math.round((today.getTime() - d.getTime()) / 86400000);
     if (diffDays <= 0) return "Aujourd’hui";
@@ -216,50 +234,262 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
 
   try {
     const consignes = await Schema.listConsignesByCategory(ctx.db, ctx.user.uid, category);
+    const iterationMetaMap = new Map();
+
+    const seenFallback = { value: 0 };
+
+    function ensureIterationMeta(key) {
+      if (!key) return null;
+      let meta = iterationMetaMap.get(key);
+      if (!meta) {
+        meta = {
+          key,
+          createdAt: null,
+          sessionIndex: null,
+          sessionNumber: null,
+          sessionId: null,
+          sources: new Set(),
+        };
+        iterationMetaMap.set(key, meta);
+      }
+      return meta;
+    }
+
+    function parseResponseDate(value) {
+      if (!value) return null;
+      if (value instanceof Date) {
+        return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+      }
+      if (typeof value.toDate === "function") {
+        try {
+          const parsed = value.toDate();
+          return Number.isNaN(parsed?.getTime?.()) ? null : parsed;
+        } catch (err) {
+          modesLogger.warn("practice-dashboard:parseDate", err);
+        }
+      }
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function computeIterationKey(row, createdAt) {
+      const sessionId = row.sessionId || row.session_id;
+      if (sessionId) return String(sessionId);
+      const rawIndex = row.sessionIndex ?? row.session_index;
+      if (rawIndex !== undefined && rawIndex !== null && rawIndex !== "") {
+        const num = Number(rawIndex);
+        if (Number.isFinite(num)) {
+          return `session-${String(num + 1).padStart(4, "0")}`;
+        }
+      }
+      const rawNumber = row.sessionNumber ?? row.session_number;
+      if (rawNumber !== undefined && rawNumber !== null && rawNumber !== "") {
+        const num = Number(rawNumber);
+        if (Number.isFinite(num)) {
+          return `session-${String(num).padStart(4, "0")}`;
+        }
+      }
+      if (createdAt) {
+        const approx = new Date(createdAt.getTime());
+        approx.setSeconds(0, 0);
+        return `ts-${approx.toISOString()}`;
+      }
+      const fallback = `resp-${seenFallback.value}`;
+      seenFallback.value += 1;
+      return fallback;
+    }
+
+    function mergeEntry(entryMap, key, payload) {
+      const current = entryMap.get(key) || { date: key, value: "", note: "", createdAt: null };
+      if (payload.value !== undefined) current.value = payload.value;
+      if (payload.note !== undefined) current.note = payload.note;
+      if (payload.createdAt instanceof Date) {
+        if (!current.createdAt || payload.createdAt > current.createdAt) {
+          current.createdAt = payload.createdAt;
+        }
+      }
+      entryMap.set(key, current);
+    }
+
+    function parseHistoryEntry(entry) {
+      return {
+        value:
+          entry.v ??
+          entry.value ??
+          entry.answer ??
+          entry.val ??
+          entry.score ??
+          "",
+        note:
+          entry.comment ??
+          entry.note ??
+          entry.remark ??
+          entry.memo ??
+          entry.obs ??
+          entry.observation ??
+          "",
+        createdAt: parseResponseDate(entry.createdAt || entry.updatedAt || null),
+      };
+    }
+
     const consigneData = await Promise.all(
       consignes.map(async (consigne, index) => {
-        const history = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
-        const entries = (history || [])
+        const entryMap = new Map();
+
+        let responseRows = [];
+        try {
+          responseRows = await Schema.fetchResponsesForConsigne(ctx.db, ctx.user.uid, consigne.id, 200);
+        } catch (responseError) {
+          modesLogger.warn("practice-dashboard:responses:error", responseError);
+        }
+
+        (responseRows || [])
+          .filter((row) => (row.mode || consigne.mode) === "practice")
+          .forEach((row) => {
+            const createdAt = parseResponseDate(row.createdAt);
+            const rawIndex = row.sessionIndex ?? row.session_index;
+            const rawNumber = row.sessionNumber ?? row.session_number;
+            const sessionIndex =
+              rawIndex !== undefined && rawIndex !== null && rawIndex !== ""
+                ? Number(rawIndex)
+                : rawNumber !== undefined && rawNumber !== null && rawNumber !== ""
+                ? Number(rawNumber) - 1
+                : null;
+            const sessionId =
+              row.sessionId ||
+              row.session_id ||
+              (Number.isFinite(sessionIndex) ? `session-${String(sessionIndex + 1).padStart(4, "0")}` : null);
+            const key = computeIterationKey(row, createdAt);
+            const meta = ensureIterationMeta(key);
+            if (!meta) return;
+            meta.sources.add("response");
+            if (sessionId && !meta.sessionId) meta.sessionId = String(sessionId);
+            if (Number.isFinite(sessionIndex)) {
+              if (meta.sessionIndex == null || sessionIndex < meta.sessionIndex) {
+                meta.sessionIndex = sessionIndex;
+              }
+              if (meta.sessionNumber == null) {
+                meta.sessionNumber = sessionIndex + 1;
+              }
+            }
+            if (rawNumber !== undefined && rawNumber !== null && rawNumber !== "") {
+              const parsedNumber = Number(rawNumber);
+              if (Number.isFinite(parsedNumber)) {
+                if (meta.sessionNumber == null || parsedNumber < meta.sessionNumber) {
+                  meta.sessionNumber = parsedNumber;
+                }
+              }
+            }
+            if (createdAt && (!meta.createdAt || createdAt < meta.createdAt)) {
+              meta.createdAt = createdAt;
+            }
+            const value =
+              row.value ?? row.v ?? row.answer ?? row.score ?? row.val ?? "";
+            const note = row.note ?? row.comment ?? row.remark ?? "";
+            mergeEntry(entryMap, key, { value, note, createdAt });
+          });
+
+        let historyEntries = [];
+        try {
+          historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+        } catch (historyError) {
+          modesLogger.warn("practice-dashboard:history:error", historyError);
+        }
+
+        (historyEntries || [])
           .filter((entry) => entry?.date)
-          .map((entry) => ({
-            date: entry.date,
-            value: entry.v ?? entry.value ?? entry.answer ?? entry.val ?? entry.score ?? "",
-            note:
-              entry.comment ??
-              entry.note ??
-              entry.remark ??
-              entry.memo ??
-              entry.obs ??
-              entry.observation ??
-              "",
-          }))
-          .sort((a, b) => a.date.localeCompare(b.date));
-        return { consigne, entries, index };
+          .forEach((entry) => {
+            const key = entry.date;
+            const meta = ensureIterationMeta(key);
+            if (!meta) return;
+            meta.sources.add("history");
+            const normalized = parseHistoryEntry(entry);
+            if (normalized.createdAt && (!meta.createdAt || normalized.createdAt < meta.createdAt)) {
+              meta.createdAt = normalized.createdAt;
+            }
+            const alreadyExists = entryMap.has(key);
+            mergeEntry(entryMap, key, {
+              value: normalized.value,
+              note: normalized.note,
+              createdAt: alreadyExists ? undefined : normalized.createdAt,
+            });
+          });
+
+        entryMap.forEach((entry, key) => {
+          const meta = iterationMetaMap.get(key);
+          if (meta && !meta.createdAt && entry.createdAt) {
+            meta.createdAt = entry.createdAt;
+          }
+        });
+
+        return { consigne, entries: entryMap, index };
       }),
     );
 
-    const iterationDatesSet = new Set();
-    consigneData.forEach(({ entries }) => {
-      entries.forEach((entry) => {
-        if (entry.date) {
-          iterationDatesSet.add(entry.date);
+    const iterationMeta = Array.from(iterationMetaMap.values())
+      .sort((a, b) => {
+        const aIndex = Number.isFinite(a.sessionIndex) ? a.sessionIndex : Number.isFinite(a.sessionNumber) ? a.sessionNumber - 1 : null;
+        const bIndex = Number.isFinite(b.sessionIndex) ? b.sessionIndex : Number.isFinite(b.sessionNumber) ? b.sessionNumber - 1 : null;
+        if (aIndex != null && bIndex != null && aIndex !== bIndex) {
+          return aIndex - bIndex;
         }
+        const aDate = a.createdAt || toDate(a.key);
+        const bDate = b.createdAt || toDate(b.key);
+        if (aDate && bDate && aDate.getTime() !== bDate.getTime()) {
+          return aDate.getTime() - bDate.getTime();
+        }
+        if (aIndex != null) return -1;
+        if (bIndex != null) return 1;
+        return String(a.key).localeCompare(String(b.key));
+      })
+      .map((meta, idx) => {
+        const sessionNumber =
+          Number.isFinite(meta.sessionNumber)
+            ? Number(meta.sessionNumber)
+            : Number.isFinite(meta.sessionIndex)
+            ? Number(meta.sessionIndex) + 1
+            : null;
+        const key = meta.key;
+        let dateObj = meta.createdAt || null;
+        if (!dateObj) {
+          if (typeof key === "string" && key.startsWith("ts-")) {
+            const parsed = new Date(key.slice(3));
+            if (!Number.isNaN(parsed.getTime())) {
+              dateObj = parsed;
+            }
+          } else {
+            dateObj = toDate(key);
+          }
+        }
+        const label = `Itération ${sessionNumber != null ? sessionNumber : idx + 1}`;
+        let fullLabel = "";
+        if (dateObj) {
+          fullLabel = fullDateTimeFormatter.format(dateObj);
+        } else if (sessionNumber != null) {
+          fullLabel = label;
+        } else {
+          fullLabel = String(key);
+        }
+        const headerTitle = fullLabel && fullLabel !== label ? `${label} — ${fullLabel}` : label;
+        return {
+          key,
+          iso: key,
+          index: idx,
+          label,
+          fullLabel,
+          headerTitle,
+          sessionNumber,
+          dateObj: dateObj || null,
+        };
       });
-    });
 
-    const iterationDates = Array.from(iterationDatesSet).sort((a, b) => a.localeCompare(b));
-    const iterationMeta = iterationDates.map((iso, index) => {
-      const dateObj = toDate(iso);
-      const label = `Itération ${index + 1}`;
-      const fullLabel = dateObj ? fullDateFormatter.format(dateObj) : iso;
-      const headerTitle = fullLabel && fullLabel !== label ? `${label} — ${fullLabel}` : label;
-      return { iso, index, label, fullLabel, headerTitle };
-    });
+    const iterationMetaByKey = new Map(iterationMeta.map((meta) => [meta.iso, meta]));
+    const iterationLabels = iterationMeta.map((meta) => meta.label);
+    const iterationDates = iterationMeta.map((meta) => (meta.dateObj ? meta.dateObj.toISOString() : meta.iso));
 
     const stats = consigneData.map(({ consigne, entries, index }) => {
-      const entryMap = new Map(entries.map((entry) => [entry.date, entry]));
       const timeline = iterationMeta.map((meta) => {
-        const record = entryMap.get(meta.iso);
+        const record = entries.get(meta.iso);
         const rawValue = record ? record.value : "";
         const numeric = numericPoint(consigne.type, rawValue);
         return {
@@ -274,8 +504,25 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         ? numericValues.reduce((acc, value) => acc + value, 0) / numericValues.length
         : null;
       const averageNormalized = normalizeScore(consigne.type, averageNumeric);
-      const lastEntry = entries[entries.length - 1] || null;
+      const orderedEntries = iterationMeta
+        .map((meta) => {
+          const record = entries.get(meta.iso);
+          if (!record) return null;
+          const hasValue = record.value !== "" && record.value != null;
+          const hasNote = record.note && record.note.trim();
+          if (!hasValue && !hasNote) return null;
+          return {
+            date: meta.iso,
+            value: record.value,
+            note: record.note,
+            createdAt: record.createdAt || meta.dateObj || null,
+          };
+        })
+        .filter(Boolean);
+      const lastEntry = orderedEntries[orderedEntries.length - 1] || null;
       const lastDateIso = lastEntry?.date || "";
+      const lastMeta = lastDateIso ? iterationMetaByKey.get(lastDateIso) : null;
+      const lastDateObj = lastEntry?.createdAt || lastMeta?.dateObj || null;
       const lastValue = lastEntry?.value ?? "";
       const lastNote = lastEntry?.note ?? "";
       const priority = normalizePriorityValue(consigne.priority);
@@ -310,7 +557,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         type: consigne.type || "short",
         typeLabel: typeLabel(consigne.type),
         timeline,
-        entries: entries.slice(),
+        entries: orderedEntries,
         chartValues: timeline.map((point) => point.numeric),
         rawValues: timeline.map((point) => point.rawValue),
         rawNotes: timeline.map((point) => point.note),
@@ -320,15 +567,15 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         averageDisplay: scoreDisplay,
         averageTitle: scoreTitle,
         lastDateIso,
-        lastDateShort: lastDateIso ? shortDateFormatter.format(toDate(lastDateIso)) : "Jamais",
-        lastDateFull: lastDateIso ? fullDateFormatter.format(toDate(lastDateIso)) : "Jamais",
-        lastRelative: formatRelativeDate(lastDateIso),
+        lastDateShort: lastDateObj ? shortDateFormatter.format(lastDateObj) : "Jamais",
+        lastDateFull: lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais",
+        lastRelative: formatRelativeDate(lastDateObj || lastDateIso),
         lastValue,
         lastFormatted: formatValue(consigne.type, lastValue),
         lastCommentRaw: lastNote,
         commentDisplay: truncateText(lastNote, 180),
         statusKind: dotColor(consigne.type, lastValue),
-        totalEntries: entries.length,
+        totalEntries: orderedEntries.length,
         color: baseColor,
         accentStrong,
         accentSoft,
@@ -464,8 +711,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const iterationLabel = iterationInfo?.label;
       if (iterationLabel) parts.push(iterationLabel);
       const iso = iterationInfo?.iso || dateIso;
-      const dateObj = toDate(iso);
-      const fullLabel = iterationInfo?.fullLabel || (dateObj ? fullDateFormatter.format(dateObj) : iso);
+      const dateObj = iterationInfo?.dateObj || toDate(iso);
+      const fullLabel = iterationInfo?.fullLabel || (dateObj ? fullDateTimeFormatter.format(dateObj) : iso);
       if (fullLabel && fullLabel !== iterationLabel) parts.push(fullLabel);
       if (valueText && valueText !== "—") parts.push(`Valeur : ${valueText}`);
       if (noteText) parts.push(noteText);
@@ -615,6 +862,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       stat.rawValues[pointIndex] = rawValue;
       stat.rawNotes[pointIndex] = note;
       stat.chartValues[pointIndex] = point.numeric;
+      const meta = iterationMeta[pointIndex];
+      const createdAt = meta?.dateObj || null;
       const entryIndex = stat.entries.findIndex((entry) => entry.date === point.dateIso);
       const isRawEmpty =
         rawValue === "" ||
@@ -622,9 +871,9 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       if (isRawEmpty && !note) {
         if (entryIndex !== -1) stat.entries.splice(entryIndex, 1);
       } else if (entryIndex !== -1) {
-        stat.entries[entryIndex] = { date: point.dateIso, value: rawValue, note };
+        stat.entries[entryIndex] = { date: point.dateIso, value: rawValue, note, createdAt };
       } else {
-        stat.entries.push({ date: point.dateIso, value: rawValue, note });
+        stat.entries.push({ date: point.dateIso, value: rawValue, note, createdAt });
         stat.entries.sort((a, b) => a.date.localeCompare(b.date));
       }
       stat.hasNumeric = stat.chartValues.some((value) => value != null);
@@ -636,10 +885,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const valueId = `practice-editor-value-${stat.id}-${pointIndex}-${Date.now()}`;
       const valueField = buildValueField(consigne, point.rawValue, valueId);
       const noteValue = point.note || "";
-      const dateObj = toDate(point.dateIso);
       const iterationInfo = iterationMeta[pointIndex];
       const iterationLabel = iterationInfo?.label || `Itération ${pointIndex + 1}`;
-      const fullDateLabel = iterationInfo?.fullLabel || (dateObj ? fullDateFormatter.format(dateObj) : point.dateIso);
+      const dateObj = iterationInfo?.dateObj || toDate(point.dateIso);
+      const fullDateLabel = iterationInfo?.fullLabel || (dateObj ? fullDateTimeFormatter.format(dateObj) : point.dateIso);
       const dateLabel = fullDateLabel && fullDateLabel !== iterationLabel ? `${iterationLabel} — ${fullDateLabel}` : iterationLabel;
       const editorHtml = `
         <form class="practice-editor">
@@ -855,6 +1104,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         day: "2-digit",
         month: "long",
         year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
       });
 
       chartInstance = new Chart(canvas.getContext("2d"), {
@@ -1658,7 +1909,13 @@ async function renderPractice(ctx, root, _opts = {}) {
   saveBtn.onclick = async (e) => {
     e.preventDefault();
     const answers = collectAnswers(form, visible);
-    answers.forEach((ans) => { ans.sessionIndex = sessionIndex; });
+    const sessionNumber = sessionIndex + 1;
+    const sessionId = `session-${String(sessionNumber).padStart(4, "0")}`;
+    answers.forEach((ans) => {
+      ans.sessionIndex = sessionIndex;
+      ans.sessionNumber = sessionNumber;
+      ans.sessionId = sessionId;
+    });
 
     saveBtn.disabled = true;
     saveBtn.textContent = "Enregistrement…";
@@ -1667,7 +1924,11 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (answers.length) {
         await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answers);
       }
-      await Schema.startNewPracticeSession(ctx.db, ctx.user.uid);
+      await Schema.startNewPracticeSession(ctx.db, ctx.user.uid, {
+        sessionId,
+        index: sessionNumber,
+        sessionIndex,
+      });
 
       $$("input[type=text],textarea", form).forEach((input) => (input.value = ""));
       $$("input[type=range]", form).forEach((input) => {
