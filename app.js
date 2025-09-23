@@ -669,10 +669,14 @@
               return;
             }
             try {
-              await appFirestore.updateDoc(appFirestore.doc(db, "u", uid), {
-                name: trimmed,
-                displayName: trimmed,
-              });
+              await appFirestore.setDoc(
+                appFirestore.doc(db, "u", uid),
+                {
+                  name: trimmed,
+                  displayName: trimmed,
+                },
+                { merge: true }
+              );
               await loadUsers(db);
             } catch (error) {
               console.error("admin:users:rename:error", error);
