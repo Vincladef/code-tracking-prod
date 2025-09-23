@@ -725,6 +725,17 @@ async function upsertObjective(db, uid, data, objectifId = null) {
   return ref.id;
 }
 
+async function deleteObjective(db, uid, objectifId) {
+  if (!objectifId) return;
+  const objectiveRef = doc(db, "u", uid, "objectifs", objectifId);
+  const entriesRef = collection(db, "u", uid, "objectiveEntries", objectifId, "entries");
+  const entriesSnap = await getDocs(entriesRef);
+  await Promise.all(entriesSnap.docs.map((entryDoc) => deleteDoc(entryDoc.ref)));
+  const entryContainerRef = doc(db, "u", uid, "objectiveEntries", objectifId);
+  await deleteDoc(entryContainerRef);
+  await deleteDoc(objectiveRef);
+}
+
 // --- Lier / délier une consigne ---
 async function linkConsigneToObjective(db, uid, consigneId, objectifId) {
   if (!consigneId) return;
@@ -793,6 +804,7 @@ Object.assign(Schema, {
   listObjectivesByMonth,
   getObjective,
   upsertObjective,
+  deleteObjective,
   linkConsigneToObjective,
   saveObjectiveEntry,
   loadObjectiveEntriesRange,

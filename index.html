@@ -59,6 +59,8 @@
     .btn-primary:hover{ background:var(--accent-700); }
     .btn-ghost{ background:transparent; border:1px solid var(--accent-200); color:#334155; }
     .btn-ghost:hover{ background:var(--accent-50); }
+    .btn-danger{ background:#fee2e2; border:1px solid #fecaca; color:#b91c1c; }
+    .btn-danger:hover{ background:#fecaca; }
 
     /* Animation de changement d’onglet */
     @keyframes fadeSlideIn{ from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:translateY(0);} }
@@ -259,7 +261,15 @@
     .goal-row--neutral{ background:#fefce8; border-left-color:#fbbf24; }
     .goal-row--negative{ background:#fef2f2; border-left-color:#f87171; }
     .goal-row--none{ background:#f8fafc; border-left-color:#94a3b8; }
-    .goal-title{ font-weight:600; flex:1; }
+    .goal-row--editable{ cursor:pointer; }
+    .goal-row--editable .goal-quick,
+    .goal-row--editable .goal-quick *{ cursor:auto; }
+    .goal-title{ flex:1; }
+    .goal-title__button{ display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%; background:none; border:none; padding:0; font:inherit; color:inherit; text-align:left; cursor:pointer; }
+    .goal-title__button:hover .goal-title__text{ text-decoration:underline; }
+    .goal-title__button:focus-visible{ outline:2px solid var(--accent-400); outline-offset:2px; border-radius:6px; }
+    .goal-title__text{ font-weight:600; }
+    .goal-title__subtitle{ color:var(--muted); font-size:.75rem; }
     .goal-quick{ min-width:140px; }
     .goal-empty{ padding:1rem; border-radius:.75rem; background:var(--accent-50); }
     .select-compact{ font-size:.95rem; padding:4px 8px; border-radius:10px; border:1px solid #e5e7eb; background:#fff; }
@@ -278,7 +288,8 @@
     .goal-field{ display:grid; gap:.4rem; }
     .goal-label{ font-size:.85rem; color:var(--muted); }
     .goal-input{ width:100%; }
-    .goal-actions{ display:flex; justify-content:flex-end; gap:.5rem; }
+    .goal-actions{ display:flex; justify-content:flex-end; gap:.5rem; flex-wrap:wrap; }
+    .goal-actions [data-delete]{ margin-right:auto; }
     .goal-list{ margin-top:.5rem; padding-left:1.25rem; display:grid; gap:.35rem; list-style:disc; }
 
   </style>
