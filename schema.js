@@ -1,5 +1,5 @@
+/* global Schema */
 window.Schema = window.Schema || {};
-const Schema = window.Schema;
 
 const firebaseCompat = window.firebase || {};
 const firestoreCompat = firebaseCompat.firestore;
@@ -36,7 +36,7 @@ function docFromCompat(base, ...segments) {
   return base.doc(path);
 }
 
-const firestoreAPI = firestoreCompat
+window.firestoreAPI = window.firestoreAPI || (firestoreCompat
   ? {
       getFirestore: (app) => firebaseCompat.firestore(app),
       collection: collectionFromCompat,
@@ -45,7 +45,8 @@ const firestoreAPI = firestoreCompat
       getDoc: (ref) => ref.get(),
       getDocs: (qry) => qry.get(),
       addDoc: (ref, data) => ref.add(data),
-      query: (base, ...constraints) => constraints.reduce((ref, fn) => (typeof fn === "function" ? fn(ref) : ref), base),
+      query: (base, ...constraints) =>
+        constraints.reduce((ref, fn) => (typeof fn === "function" ? fn(ref) : ref), base),
       where: (field, op, value) => (ref) => ref.where(field, op, value),
       orderBy: (field, direction) => (ref) => ref.orderBy(field, direction),
       updateDoc: (ref, data) => ref.update(data),
@@ -66,9 +67,9 @@ const firestoreAPI = firestoreCompat
       updateDoc: () => missingFirestoreWarning(),
       limit: () => missingFirestoreWarning(),
       serverTimestamp: () => missingFirestoreWarning(),
-    };
+    });
 
-Schema.firestore = Schema.firestore || firestoreAPI;
+Schema.firestore = Schema.firestore || window.firestoreAPI;
 
 const {
   collection,

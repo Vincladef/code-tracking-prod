@@ -1,8 +1,7 @@
 // modes.js — Journalier / Pratique / Historique
-/* global Schema */
-const Modes = window.Modes = window.Modes || {};
-const firestoreAPI = Schema.firestore || {};
-const { collection, query, where, orderBy, limit, getDocs } = firestoreAPI;
+/* global Schema, Modes */
+window.Modes = window.Modes || {};
+const { collection, query, where, orderBy, limit, getDocs } = Schema.firestore || window.firestoreAPI || {};
 
 const L = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
 
