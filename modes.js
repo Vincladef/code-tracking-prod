@@ -126,19 +126,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
   const numberFormatter = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
   const fullDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
   const shortDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
-  const axisDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
   const today = new Date();
   today.setHours(12, 0, 0, 0);
-
-  const daysIso = Array.from({ length: 30 }, (_, index) => {
-    const base = new Date(today);
-    base.setDate(base.getDate() - (29 - index));
-    return base.toISOString().slice(0, 10);
-  });
-  const axisLabels = daysIso.map((iso) => {
-    const d = toDate(iso);
-    return d ? axisDateFormatter.format(d) : iso;
-  });
 
   function toDate(dateIso) {
     if (!dateIso) return null;
@@ -227,7 +216,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
 
   try {
     const consignes = await Schema.listConsignesByCategory(ctx.db, ctx.user.uid, category);
-    const stats = await Promise.all(
+    const consigneData = await Promise.all(
       consignes.map(async (consigne, index) => {
         const history = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
         const entries = (history || [])
@@ -245,89 +234,111 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               "",
           }))
           .sort((a, b) => a.date.localeCompare(b.date));
-        const entryMap = new Map(entries.map((entry) => [entry.date, entry]));
-        const timeline = daysIso.map((iso) => {
-          const record = entryMap.get(iso);
-          const rawValue = record ? record.value : "";
-          const numeric = numericPoint(consigne.type, rawValue);
-          return {
-            dateIso: iso,
-            rawValue,
-            numeric,
-            note: record?.note ?? "",
-          };
-        });
-        const numericValues = timeline.map((point) => point.numeric).filter((point) => point != null);
-        const averageNumeric = numericValues.length
-          ? numericValues.reduce((acc, value) => acc + value, 0) / numericValues.length
-          : null;
-        const averageNormalized = normalizeScore(consigne.type, averageNumeric);
-        const lastEntry = entries[entries.length - 1] || null;
-        const lastDateIso = lastEntry?.date || "";
-        const lastValue = lastEntry?.value ?? "";
-        const lastNote = lastEntry?.note ?? "";
-        const priority = normalizePriorityValue(consigne.priority);
-        const baseColor = palette[index % palette.length];
-        const accentStrong = withAlpha(baseColor, priority === 1 ? 0.9 : priority === 2 ? 0.75 : 0.55);
-        const accentSoft = withAlpha(baseColor, priority === 1 ? 0.18 : priority === 2 ? 0.12 : 0.08);
-        const accentBorder = withAlpha(baseColor, priority === 1 ? 0.55 : priority === 2 ? 0.4 : 0.28);
-        const accentProgress = withAlpha(baseColor, priority === 1 ? 0.88 : priority === 2 ? 0.66 : 0.45);
-        const rowAccent = withAlpha(baseColor, priority === 1 ? 0.65 : priority === 2 ? 0.45 : 0.35);
-
-        const scoreDisplay =
-          averageNormalized != null
-            ? percentFormatter.format(averageNormalized)
-            : averageNumeric != null
-            ? numberFormatter.format(averageNumeric)
-            : "—";
-        const scoreTitle =
-          averageNormalized != null
-            ? consigne.type === "likert5"
-              ? "Score converti en pourcentage sur une échelle de 0 à 4."
-              : "Taux moyen de réussite sur la période affichée."
-            : averageNumeric != null
-            ? "Moyenne des valeurs numériques enregistrées."
-            : "Aucune donnée disponible pour le moment.";
-
-        const name = consigne.text || consigne.titre || consigne.name || consigne.id;
-        const stat = {
-          id: consigne.id,
-          name,
-          priority,
-          priorityLabel: priorityLabels[priority] || priorityLabels[2],
-          type: consigne.type || "short",
-          typeLabel: typeLabel(consigne.type),
-          timeline,
-          entries: entries.slice(),
-          chartValues: timeline.map((point) => point.numeric),
-          rawValues: timeline.map((point) => point.rawValue),
-          rawNotes: timeline.map((point) => point.note),
-          hasNumeric: numericValues.length > 0,
-          averageNumeric,
-          averageNormalized,
-          averageDisplay: scoreDisplay,
-          averageTitle: scoreTitle,
-          lastDateIso,
-          lastDateShort: lastDateIso ? shortDateFormatter.format(toDate(lastDateIso)) : "Jamais",
-          lastDateFull: lastDateIso ? fullDateFormatter.format(toDate(lastDateIso)) : "Jamais",
-          lastRelative: formatRelativeDate(lastDateIso),
-          lastValue,
-          lastFormatted: formatValue(consigne.type, lastValue),
-          lastCommentRaw: lastNote,
-          commentDisplay: truncateText(lastNote, 180),
-          statusKind: dotColor(consigne.type, lastValue),
-          totalEntries: entries.length,
-          color: baseColor,
-          accentStrong,
-          accentSoft,
-          accentBorder,
-          accentProgress,
-          rowAccent,
-          consigne,
-        };
-        return stat;
+        return { consigne, entries, index };
       }),
     );
+
+    const iterationDatesSet = new Set();
+    consigneData.forEach(({ entries }) => {
+      entries.forEach((entry) => {
+        if (entry.date) {
+          iterationDatesSet.add(entry.date);
+        }
+      });
+    });
+
+    const iterationDates = Array.from(iterationDatesSet).sort((a, b) => a.localeCompare(b));
+    const iterationMeta = iterationDates.map((iso, index) => {
+      const dateObj = toDate(iso);
+      const label = `Itération ${index + 1}`;
+      const fullLabel = dateObj ? fullDateFormatter.format(dateObj) : iso;
+      const headerTitle = fullLabel && fullLabel !== label ? `${label} — ${fullLabel}` : label;
+      return { iso, index, label, fullLabel, headerTitle };
+    });
+
+    const stats = consigneData.map(({ consigne, entries, index }) => {
+      const entryMap = new Map(entries.map((entry) => [entry.date, entry]));
+      const timeline = iterationMeta.map((meta) => {
+        const record = entryMap.get(meta.iso);
+        const rawValue = record ? record.value : "";
+        const numeric = numericPoint(consigne.type, rawValue);
+        return {
+          dateIso: meta.iso,
+          rawValue,
+          numeric,
+          note: record?.note ?? "",
+        };
+      });
+      const numericValues = timeline.map((point) => point.numeric).filter((point) => point != null);
+      const averageNumeric = numericValues.length
+        ? numericValues.reduce((acc, value) => acc + value, 0) / numericValues.length
+        : null;
+      const averageNormalized = normalizeScore(consigne.type, averageNumeric);
+      const lastEntry = entries[entries.length - 1] || null;
+      const lastDateIso = lastEntry?.date || "";
+      const lastValue = lastEntry?.value ?? "";
+      const lastNote = lastEntry?.note ?? "";
+      const priority = normalizePriorityValue(consigne.priority);
+      const baseColor = palette[index % palette.length];
+      const accentStrong = withAlpha(baseColor, priority === 1 ? 0.9 : priority === 2 ? 0.75 : 0.55);
+      const accentSoft = withAlpha(baseColor, priority === 1 ? 0.18 : priority === 2 ? 0.12 : 0.08);
+      const accentBorder = withAlpha(baseColor, priority === 1 ? 0.55 : priority === 2 ? 0.4 : 0.28);
+      const accentProgress = withAlpha(baseColor, priority === 1 ? 0.88 : priority === 2 ? 0.66 : 0.45);
+      const rowAccent = withAlpha(baseColor, priority === 1 ? 0.65 : priority === 2 ? 0.45 : 0.35);
+
+      const scoreDisplay =
+        averageNormalized != null
+          ? percentFormatter.format(averageNormalized)
+          : averageNumeric != null
+          ? numberFormatter.format(averageNumeric)
+          : "—";
+      const scoreTitle =
+        averageNormalized != null
+          ? consigne.type === "likert5"
+            ? "Score converti en pourcentage sur une échelle de 0 à 4."
+            : "Taux moyen de réussite sur la période affichée."
+          : averageNumeric != null
+          ? "Moyenne des valeurs numériques enregistrées."
+          : "Aucune donnée disponible pour le moment.";
+
+      const name = consigne.text || consigne.titre || consigne.name || consigne.id;
+      const stat = {
+        id: consigne.id,
+        name,
+        priority,
+        priorityLabel: priorityLabels[priority] || priorityLabels[2],
+        type: consigne.type || "short",
+        typeLabel: typeLabel(consigne.type),
+        timeline,
+        entries: entries.slice(),
+        chartValues: timeline.map((point) => point.numeric),
+        rawValues: timeline.map((point) => point.rawValue),
+        rawNotes: timeline.map((point) => point.note),
+        hasNumeric: numericValues.length > 0,
+        averageNumeric,
+        averageNormalized,
+        averageDisplay: scoreDisplay,
+        averageTitle: scoreTitle,
+        lastDateIso,
+        lastDateShort: lastDateIso ? shortDateFormatter.format(toDate(lastDateIso)) : "Jamais",
+        lastDateFull: lastDateIso ? fullDateFormatter.format(toDate(lastDateIso)) : "Jamais",
+        lastRelative: formatRelativeDate(lastDateIso),
+        lastValue,
+        lastFormatted: formatValue(consigne.type, lastValue),
+        lastCommentRaw: lastNote,
+        commentDisplay: truncateText(lastNote, 180),
+        statusKind: dotColor(consigne.type, lastValue),
+        totalEntries: entries.length,
+        color: baseColor,
+        accentStrong,
+        accentSoft,
+        accentBorder,
+        accentProgress,
+        rowAccent,
+        consigne,
+      };
+      return stat;
+    });
 
     const safeCategory = escapeHtml(category || "Pratique");
 
@@ -406,14 +417,14 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       stat.chartDatasetIndex = null;
     });
 
+    const iterationLabels = iterationMeta.map((meta) => meta.label);
+
     if (headRow) {
       headRow.innerHTML = [
         '<th scope="col" class="practice-dashboard__matrix-head-consigne">Consigne</th>',
-        ...daysIso.map((iso, index) => {
-          const dateObj = toDate(iso);
-          const label = axisLabels[index] || iso;
-          const fullLabel = dateObj ? fullDateFormatter.format(dateObj) : iso;
-          return `<th scope="col" data-date="${iso}"><span title="${escapeHtml(fullLabel)}">${escapeHtml(label)}</span></th>`;
+        ...iterationMeta.map((meta) => {
+          const title = meta.headerTitle || meta.label;
+          return `<th scope="col" data-date="${meta.iso}" data-iteration="${meta.index}"><span title="${escapeHtml(title)}">${escapeHtml(meta.label)}</span></th>`;
         }),
       ].join("");
     }
@@ -448,10 +459,14 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     setView("table");
     updateToggleState();
 
-    function formatCellTooltip(dateIso, valueText, noteText) {
-      const dateObj = toDate(dateIso);
-      const fullLabel = dateObj ? fullDateFormatter.format(dateObj) : dateIso;
-      const parts = [fullLabel];
+    function formatCellTooltip(iterationInfo, dateIso, valueText, noteText) {
+      const parts = [];
+      const iterationLabel = iterationInfo?.label;
+      if (iterationLabel) parts.push(iterationLabel);
+      const iso = iterationInfo?.iso || dateIso;
+      const dateObj = toDate(iso);
+      const fullLabel = iterationInfo?.fullLabel || (dateObj ? fullDateFormatter.format(dateObj) : iso);
+      if (fullLabel && fullLabel !== iterationLabel) parts.push(fullLabel);
       if (valueText && valueText !== "—") parts.push(`Valeur : ${valueText}`);
       if (noteText) parts.push(noteText);
       return parts.join(" • ");
@@ -459,8 +474,13 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
 
     function renderMatrix() {
       if (!tableBody) return;
+      const colSpan = iterationMeta.length + 1;
       if (!stats.length) {
-        tableBody.innerHTML = `<tr><td colspan="${daysIso.length + 1}" class="practice-dashboard__empty-row">Aucune consigne pour cette catégorie pour le moment.</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="${colSpan}" class="practice-dashboard__empty-row">Aucune consigne pour cette catégorie pour le moment.</td></tr>`;
+        return;
+      }
+      if (!iterationMeta.length) {
+        tableBody.innerHTML = `<tr><td colspan="${colSpan}" class="practice-dashboard__empty-row">Aucune session de pratique enregistrée pour cette catégorie pour le moment.</td></tr>`;
         return;
       }
       tableBody.innerHTML = stats
@@ -476,11 +496,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               </div>
             </th>`;
           const cells = stat.timeline
-            .map((point) => {
+            .map((point, iterationIndex) => {
+              const iterationInfo = iterationMeta[iterationIndex];
               const valueText = formatValue(stat.type, point.rawValue);
               const noteText = (point.note || "").trim();
               const status = dotColor(stat.type, point.rawValue);
-              const tooltip = formatCellTooltip(point.dateIso, valueText, noteText);
+              const tooltip = formatCellTooltip(iterationInfo, point.dateIso, valueText, noteText);
               const hasNote = noteText ? ' data-has-note="1"' : "";
               const isEmpty = !valueText || valueText === "—";
               const content = isEmpty ? "—" : escapeHtml(valueText);
@@ -491,7 +512,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               ]
                 .filter(Boolean)
                 .join(" ");
-              return `<td><button type="button" class="${classes}" data-cell data-consigne="${stat.id}" data-date="${point.dateIso}" title="${escapeHtml(tooltip)}" aria-label="${escapeHtml(tooltip)}"${hasNote}>${content}</button></td>`;
+              return `<td><button type="button" class="${classes}" data-cell data-consigne="${stat.id}" data-date="${point.dateIso}" data-iteration="${iterationIndex}" title="${escapeHtml(tooltip)}" aria-label="${escapeHtml(tooltip)}"${hasNote}>${content}</button></td>`;
             })
             .join("");
           return `<tr data-id="${stat.id}">${rowHead}${cells}</tr>`;
@@ -616,7 +637,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const valueField = buildValueField(consigne, point.rawValue, valueId);
       const noteValue = point.note || "";
       const dateObj = toDate(point.dateIso);
-      const dateLabel = dateObj ? fullDateFormatter.format(dateObj) : point.dateIso;
+      const iterationInfo = iterationMeta[pointIndex];
+      const iterationLabel = iterationInfo?.label || `Itération ${pointIndex + 1}`;
+      const fullDateLabel = iterationInfo?.fullLabel || (dateObj ? fullDateFormatter.format(dateObj) : point.dateIso);
+      const dateLabel = fullDateLabel && fullDateLabel !== iterationLabel ? `${iterationLabel} — ${fullDateLabel}` : iterationLabel;
       const editorHtml = `
         <form class="practice-editor">
           <header class="practice-editor__header">
@@ -709,7 +733,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         rawValues: stat.timeline.map((point) => point.rawValue),
         rawNotes: stat.timeline.map((point) => point.note),
         consigneType: stat.type,
-        dates: daysIso,
+        dates: iterationDates,
         borderColor: stat.accentStrong,
         backgroundColor: withAlpha(stat.color, 0.16),
         borderWidth: stat.priority === 1 ? 3 : 2,
@@ -770,6 +794,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             dataset.data = stat.timeline.map((point) => point.numeric);
             dataset.rawValues = stat.timeline.map((point) => point.rawValue);
             dataset.rawNotes = stat.timeline.map((point) => point.note);
+            dataset.dates = iterationDates;
           }
         }
       } else if (stat.chartDatasetIndex != null) {
@@ -790,7 +815,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     }
 
     const chartStats = stats.filter((stat) => stat.hasNumeric);
-    if (canvas && chartCard && window.Chart && chartStats.length) {
+    if (canvas && chartCard && window.Chart && chartStats.length && iterationMeta.length) {
       const chartDatasets = chartStats.map((stat, index) => {
         stat.chartDatasetIndex = index;
         return buildChartDataset(stat);
@@ -835,7 +860,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       chartInstance = new Chart(canvas.getContext("2d"), {
         type: "line",
         data: {
-          labels: axisLabels,
+          labels: iterationLabels,
           datasets: chartDatasets,
         },
         options: {
@@ -884,11 +909,21 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               bodyFont: { family: "Inter" },
               callbacks: {
                 title(context) {
-                  const dataset = context[0];
-                  const iso = dataset.dataset.dates?.[dataset.dataIndex];
-                  if (!iso) return context[0].label;
+                  const point = context[0];
+                  if (!point) return "";
+                  const index = point.dataIndex ?? 0;
+                  const info = iterationMeta[index];
+                  if (info) {
+                    const parts = [info.label];
+                    if (info.fullLabel && info.fullLabel !== info.label) {
+                      parts.push(info.fullLabel);
+                    }
+                    return parts.join(" — ");
+                  }
+                  const iso = point.dataset?.dates?.[index];
+                  if (!iso) return point.label;
                   const d = toDate(iso);
-                  return d ? tooltipDateFormatter.format(d) : context[0].label;
+                  return d ? tooltipDateFormatter.format(d) : point.label;
                 },
                 label(context) {
                   const ds = context.dataset;
