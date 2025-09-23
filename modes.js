@@ -303,7 +303,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       }
       if (createdAt) {
         const approx = new Date(createdAt.getTime());
-        approx.setSeconds(0, 0);
+        approx.setMilliseconds(0);
         return `ts-${approx.toISOString()}`;
       }
       const fallback = `resp-${seenFallback.value}`;
