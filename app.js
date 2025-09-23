@@ -14,8 +14,8 @@
   const BASE_TITLE = "Habitudes & Pratique";
 
   // --- feature flags & logger ---
-  const DEBUG = false;
-  const LOG = DEBUG;
+  const DEBUG = true;
+  const LOG = true;
   const L = Schema.D || {
     on: false,
     info: () => {},
@@ -26,7 +26,14 @@
     groupEnd: () => {},
   };
   if (L) L.on = DEBUG;
-  const appLog = (...args) => { if (LOG) console.debug("[app]", ...args); };
+  const appLog = (event, payload) => {
+    if (!LOG) return;
+    if (payload === undefined) {
+      console.info("[app]", event);
+      return;
+    }
+    console.info("[app]", event, payload);
+  };
   function logStep(step, data) {
     L.group(step);
     if (data) L.info(data);
@@ -52,6 +59,7 @@
     const isAdminRoute = routeKey === "admin";
 
     const applyBadge = (label, updateTitle = true) => {
+      appLog("badge:update", { label, updateTitle });
       el.textContent = label;
       if (!updateTitle) return;
       if (!label || label === "…") {
@@ -87,14 +95,26 @@
   }
 
   function setupProfileWatcher(db, uid) {
+    appLog("profile:watch:setup", { uid });
     if (typeof profileUnsubscribe === "function") {
-      try { profileUnsubscribe(); } catch (error) { console.warn("profile:watch:cleanup", error); }
+      try {
+        profileUnsubscribe();
+        appLog("profile:watch:cleanup", { uid });
+      } catch (error) {
+        console.warn("profile:watch:cleanup", error);
+      }
       profileUnsubscribe = null;
     }
-    if (!db || !uid || typeof db.collection !== "function") return;
+    if (!db || !uid || typeof db.collection !== "function") {
+      appLog("profile:watch:skip", { uid, reason: "missing-db-or-uid" });
+      return;
+    }
     try {
       const ref = db.collection("u").doc(uid);
-      if (!ref || typeof ref.onSnapshot !== "function") return;
+      if (!ref || typeof ref.onSnapshot !== "function") {
+        appLog("profile:watch:skip", { uid, reason: "missing-onSnapshot" });
+        return;
+      }
       profileUnsubscribe = ref.onSnapshot(
         (snap) => {
           if (!snapshotExists(snap)) return;
@@ -102,11 +122,13 @@
           ctx.profile = { ...(ctx.profile || {}), ...data, uid };
           renderSidebar();
           refreshUserBadge(uid, data.displayName || data.name || data.slug || "Utilisateur");
+          appLog("profile:watch:update", { uid, hasData: !!Object.keys(data || {}).length });
         },
         (error) => {
           console.warn("profile:watch:error", error);
         }
       );
+      appLog("profile:watch:bound", { uid });
     } catch (error) {
       console.warn("profile:watch:error", error);
     }
@@ -570,10 +592,11 @@
             createdAt: new Date().toISOString()
           });
           if (input) input.value = "";
-          appLog("admin:newUser:created", { uid });
+          appLog("admin:newUser:created", { uid, name });
           loadUsers(db);
         } catch (error) {
           console.error("admin:newUser:error", error);
+          appLog("admin:newUser:error", { message: error?.message || String(error) });
           alert("Création impossible. Réessaie plus tard.");
         }
       });
@@ -601,6 +624,7 @@
         const data = d.data();
         const uid = d.id;
         const displayName = data.displayName || data.name || "(sans nom)";
+        appLog("admin:users:load:item", { uid, displayName });
         const safeName = escapeHtml(displayName);
         const safeUid = escapeHtml(uid);
         const encodedUid = encodeURIComponent(uid);
@@ -656,30 +680,49 @@
           e.preventDefault();
           if (action === "rename") {
             const currentName = name || "";
+            appLog("admin:users:rename:prompt", { uid, currentName });
             const nextName = prompt("Nouveau nom de l’utilisateur :", currentName);
             if (nextName === null) {
+              appLog("admin:users:rename:cancelled", { uid });
               return;
             }
             const trimmed = nextName.trim();
             if (!trimmed) {
+              appLog("admin:users:rename:invalid", { uid, value: nextName });
               alert("Le nom ne peut pas être vide.");
               return;
             }
             if (trimmed === currentName.trim()) {
+              appLog("admin:users:rename:unchanged", { uid });
               return;
             }
             try {
+              const userRef = appFirestore.doc(db, "u", uid);
               await appFirestore.setDoc(
-                appFirestore.doc(db, "u", uid),
+                userRef,
                 {
                   name: trimmed,
                   displayName: trimmed,
                 },
                 { merge: true }
               );
+              appLog("admin:users:rename:write", { uid, nextName: trimmed });
+              try {
+                const snap = await appFirestore.getDoc(userRef);
+                if (snapshotExists(snap)) {
+                  const storedData = snap.data() || {};
+                  const storedName = storedData.displayName || storedData.name || null;
+                  appLog("admin:users:rename:confirm", { uid, storedName });
+                } else {
+                  appLog("admin:users:rename:confirm", { uid, storedName: null, exists: false });
+                }
+              } catch (verifyError) {
+                console.warn("admin:users:rename:verify:error", verifyError);
+              }
               await loadUsers(db);
             } catch (error) {
               console.error("admin:users:rename:error", error);
+              appLog("admin:users:rename:error", { uid, message: error?.message || String(error) });
               alert("Impossible de renommer l’utilisateur.");
             }
             return;
@@ -688,10 +731,13 @@
           if (action === "delete") {
             const label = name || uid;
             if (!confirm(`Supprimer l’utilisateur « ${label} » ? Cette action est irréversible.`)) {
+              appLog("admin:users:delete:cancelled", { uid });
               return;
             }
             try {
+              appLog("admin:users:delete:start", { uid });
               await appFirestore.deleteDoc(appFirestore.doc(db, "u", uid));
+              appLog("admin:users:delete:done", { uid });
               await loadUsers(db);
             } catch (error) {
               console.error("admin:users:delete:error", error);
@@ -703,11 +749,13 @@
       }
     } catch (error) {
       console.warn("admin:users:load:error", error);
+      appLog("admin:users:load:error", { message: error?.message || String(error) });
       list.innerHTML = "<div class='text-sm text-red-600'>Impossible de charger les utilisateurs.</div>";
     }
   }
 
   function renderUser(db, uid) {
+    appLog("render:user", { uid });
     initApp({
       app: ctx.app,
       db,
@@ -727,6 +775,7 @@
     root.classList.add("route-enter");
 
     const h = ctx.route || location.hash || "#/admin";
+    appLog("render:start", { hash: h });
     const tokens = h.replace(/^#\//, "").split("/"); // ["u","{uid}","daily?day=mon"] ou ["daily?..."]
 
     let section = tokens[0];
@@ -747,6 +796,7 @@
 
     const currentSection = section === "u" ? sub : section;
     setActiveNav(currentSection);
+    appLog("render:section", { section: currentSection, uid: ctx.user?.uid || null });
 
     switch (currentSection) {
       case "admin":

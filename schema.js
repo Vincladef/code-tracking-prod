@@ -117,6 +117,7 @@ let boundDb = null;
 
 function bindDb(db) {
   boundDb = db;
+  D.info("bindDb", { hasDb: !!db });
 }
 Schema.bindDb = Schema.bindDb || bindDb;
 
@@ -249,17 +250,22 @@ function hydrateConsigne(doc) {
 
 // --- Catégories & Users ---
 async function getUserName(uid) {
+  D.info("getUserName:start", { uid });
   if (!uid) return "Utilisateur";
   if (!boundDb) {
     console.warn("getUserName error:", new Error("Firestore not initialized"));
+    D.warn("getUserName:missingDb", { uid });
     return "Utilisateur";
   }
   try {
     const snap = await getDoc(doc(boundDb, "u", uid));
     const d = snapshotExists(snap) ? (snap.data() || {}) : {};
-    return d.name || d.displayName || d.slug || "Utilisateur";
+    const resolved = d.name || d.displayName || d.slug || "Utilisateur";
+    D.info("getUserName:result", { uid, resolved });
+    return resolved;
   } catch (e) {
     console.warn("getUserName error:", e);
+    D.warn("getUserName:error", { uid, message: e?.message || String(e) });
     return "Utilisateur";
   }
 }
