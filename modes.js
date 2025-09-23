@@ -110,63 +110,645 @@ function toAppPath(h) {
 
 // --------- CAT DASHBOARD (modal) ---------
 window.openCategoryDashboard = async function openCategoryDashboard(ctx, category) {
+  const palette = [
+    "#2563EB",
+    "#0EA5E9",
+    "#10B981",
+    "#F97316",
+    "#6366F1",
+    "#EC4899",
+    "#14B8A6",
+    "#8B5CF6",
+  ];
+  const priorityLabels = { 1: "Haute", 2: "Moyenne", 3: "Basse" };
+  const statusLabels = { ok: "Réussi", mid: "À surveiller", ko: "À retravailler", na: "—" };
+
+  const percentFormatter = new Intl.NumberFormat("fr-FR", { style: "percent", maximumFractionDigits: 0 });
+  const numberFormatter = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+  const fullDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+  const shortDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+  const axisDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+
+  const daysIso = Array.from({ length: 30 }, (_, index) => {
+    const base = new Date(today);
+    base.setDate(base.getDate() - (29 - index));
+    return base.toISOString().slice(0, 10);
+  });
+  const axisLabels = daysIso.map((iso) => {
+    const d = toDate(iso);
+    return d ? axisDateFormatter.format(d) : iso;
+  });
+
+  function toDate(dateIso) {
+    if (!dateIso) return null;
+    const iso = `${dateIso}T12:00:00`;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function withAlpha(hex, alpha) {
+    const safe = String(hex || "").replace("#", "");
+    if (safe.length !== 6) {
+      return `rgba(99, 102, 241, ${alpha})`;
+    }
+    const value = parseInt(safe, 16);
+    const r = (value >> 16) & 255;
+    const g = (value >> 8) & 255;
+    const b = value & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function normalizePriorityValue(value) {
+    const num = Number(value);
+    if (Number.isFinite(num) && num >= 1 && num <= 3) return num;
+    return 2;
+  }
+
+  function typeLabel(type) {
+    if (type === "likert6") return "Échelle ×6";
+    if (type === "likert5") return "Échelle ×5";
+    if (type === "yesno") return "Oui / Non";
+    if (type === "num") return "Numérique";
+    if (type === "long") return "Texte long";
+    if (type === "short") return "Texte court";
+    return "Libre";
+  }
+
+  function formatValue(type, value) {
+    if (value === null || value === undefined || value === "") return "—";
+    if (type === "yesno") return value === "yes" ? "Oui" : value === "no" ? "Non" : String(value);
+    if (type === "likert5") return String(value);
+    if (type === "likert6") {
+      return (
+        {
+          no: "Non",
+          rather_no: "Plutôt non",
+          medium: "Neutre",
+          rather_yes: "Plutôt oui",
+          yes: "Oui",
+          no_answer: "Pas de réponse",
+        }[value] || String(value)
+      );
+    }
+    return String(value);
+  }
+
+  function numericPoint(type, value) {
+    if (value === null || value === undefined || value === "") return null;
+    const point = Schema.valueToNumericPoint(type, value);
+    return Number.isFinite(point) ? point : null;
+  }
+
+  function normalizeScore(type, value) {
+    if (value == null) return null;
+    if (type === "likert5") return Math.max(0, Math.min(1, value / 4));
+    if (type === "likert6" || type === "yesno") return Math.max(0, Math.min(1, value));
+    return null;
+  }
+
+  function formatRelativeDate(dateIso) {
+    const d = toDate(dateIso);
+    if (!d) return "";
+    const diffDays = Math.round((today.getTime() - d.getTime()) / 86400000);
+    if (diffDays <= 0) return "Aujourd’hui";
+    if (diffDays === 1) return "Hier";
+    if (diffDays < 7) return `Il y a ${diffDays} j`;
+    return "";
+  }
+
+  function truncateText(str, max = 160) {
+    if (!str) return "—";
+    const text = String(str).trim();
+    if (!text) return "—";
+    if (text.length <= max) return text;
+    return `${text.slice(0, max - 1)}…`;
+  }
+
   try {
     const consignes = await Schema.listConsignesByCategory(ctx.db, ctx.user.uid, category);
+    const stats = await Promise.all(
+      consignes.map(async (consigne, index) => {
+        const history = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+        const entries = (history || [])
+          .filter((entry) => entry?.date)
+          .map((entry) => ({
+            date: entry.date,
+            value: entry.v ?? entry.value ?? entry.answer ?? entry.val ?? entry.score ?? "",
+            note:
+              entry.comment ??
+              entry.note ??
+              entry.remark ??
+              entry.memo ??
+              entry.obs ??
+              entry.observation ??
+              "",
+          }))
+          .sort((a, b) => a.date.localeCompare(b.date));
+        const entryMap = new Map(entries.map((entry) => [entry.date, entry]));
+        const timeline = daysIso.map((iso) => {
+          const record = entryMap.get(iso);
+          const rawValue = record ? record.value : "";
+          const numeric = numericPoint(consigne.type, rawValue);
+          return {
+            dateIso: iso,
+            rawValue,
+            numeric,
+            note: record?.note ?? "",
+          };
+        });
+        const numericValues = timeline.map((point) => point.numeric).filter((point) => point != null);
+        const averageNumeric = numericValues.length
+          ? numericValues.reduce((acc, value) => acc + value, 0) / numericValues.length
+          : null;
+        const averageNormalized = normalizeScore(consigne.type, averageNumeric);
+        const lastEntry = entries[entries.length - 1] || null;
+        const lastDateIso = lastEntry?.date || "";
+        const lastValue = lastEntry?.value ?? "";
+        const lastNote = lastEntry?.note ?? "";
+        const priority = normalizePriorityValue(consigne.priority);
+        const baseColor = palette[index % palette.length];
+        const accentStrong = withAlpha(baseColor, priority === 1 ? 0.9 : priority === 2 ? 0.75 : 0.55);
+        const accentSoft = withAlpha(baseColor, priority === 1 ? 0.18 : priority === 2 ? 0.12 : 0.08);
+        const accentBorder = withAlpha(baseColor, priority === 1 ? 0.55 : priority === 2 ? 0.4 : 0.28);
+        const accentProgress = withAlpha(baseColor, priority === 1 ? 0.88 : priority === 2 ? 0.66 : 0.45);
+        const rowAccent = withAlpha(baseColor, priority === 1 ? 0.65 : priority === 2 ? 0.45 : 0.35);
 
-    const today = new Date();
-    const days = Array.from({length: 30}, (_,i) => {
-      const d = new Date(today); d.setDate(d.getDate()- (29-i));
-      return d.toISOString().slice(0,10);
-    });
+        const scoreDisplay =
+          averageNormalized != null
+            ? percentFormatter.format(averageNormalized)
+            : averageNumeric != null
+            ? numberFormatter.format(averageNumeric)
+            : "—";
+        const scoreTitle =
+          averageNormalized != null
+            ? consigne.type === "likert5"
+              ? "Score converti en pourcentage sur une échelle de 0 à 4."
+              : "Taux moyen de réussite sur la période affichée."
+            : averageNumeric != null
+            ? "Moyenne des valeurs numériques enregistrées."
+            : "Aucune donnée disponible pour le moment.";
 
-    const rows = [];
-    for (const c of consignes) {
-      const hist = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, c.id);
-      const map = new Map(hist.map(h => [h.date, h.v ?? h.value ?? '']));
-      rows.push({ name: c.titre || c.name || c.id, values: days.map(d => map.get(d) ?? '') });
-    }
+        const name = consigne.text || consigne.titre || consigne.name || consigne.id;
+        const stat = {
+          id: consigne.id,
+          name,
+          priority,
+          priorityLabel: priorityLabels[priority] || priorityLabels[2],
+          type: consigne.type || "short",
+          typeLabel: typeLabel(consigne.type),
+          timeline,
+          chartValues: timeline.map((point) => point.numeric),
+          rawValues: timeline.map((point) => point.rawValue),
+          rawNotes: timeline.map((point) => point.note),
+          hasNumeric: numericValues.length > 0,
+          averageNumeric,
+          averageNormalized,
+          averageDisplay: scoreDisplay,
+          averageTitle: scoreTitle,
+          lastDateIso,
+          lastDateShort: lastDateIso ? shortDateFormatter.format(toDate(lastDateIso)) : "Jamais",
+          lastDateFull: lastDateIso ? fullDateFormatter.format(toDate(lastDateIso)) : "Jamais",
+          lastRelative: formatRelativeDate(lastDateIso),
+          lastValue,
+          lastFormatted: formatValue(consigne.type, lastValue),
+          lastCommentRaw: lastNote,
+          commentDisplay: truncateText(lastNote, 180),
+          statusKind: dotColor(consigne.type, lastValue),
+          totalEntries: entries.length,
+          color: baseColor,
+          accentStrong,
+          accentSoft,
+          accentBorder,
+          accentProgress,
+          rowAccent,
+          consigne,
+          averageForSort:
+            averageNormalized != null ? averageNormalized : averageNumeric != null ? averageNumeric : 0,
+          lastDateSort: lastDateIso ? toDate(lastDateIso).getTime() : 0,
+          nameSort: String(name || "").toLocaleLowerCase("fr-FR"),
+        };
+        stat.searchHaystack = [
+          stat.nameSort,
+          (stat.priorityLabel || "").toLocaleLowerCase("fr-FR"),
+          stat.typeLabel.toLocaleLowerCase("fr-FR"),
+        ].join(" ");
+        return stat;
+      }),
+    );
 
-    const safeCategory = escapeHtml(category ?? "");
+    const safeCategory = escapeHtml(category || "Pratique");
+    const summaryHtml = stats.length
+      ? stats
+          .map(
+            (stat) => `
+        <article class="practice-dashboard__summary-card" data-priority="${stat.priority}" style="--summary-border:${stat.accentBorder};--summary-bg:${stat.accentSoft};--summary-accent:${stat.accentStrong};--progress-color:${stat.accentProgress}">
+          <div class="practice-dashboard__summary-header">
+            <h3 class="practice-dashboard__summary-title">${escapeHtml(stat.name)}</h3>
+            <span class="practice-dashboard__badge practice-dashboard__badge--${stat.priority === 1 ? "high" : stat.priority === 2 ? "medium" : "low"}">${stat.priorityLabel}</span>
+          </div>
+          <p class="practice-dashboard__summary-metric">${escapeHtml(stat.averageDisplay)}</p>
+          <dl class="practice-dashboard__summary-meta">
+            <div>
+              <dt>Dernière activité</dt>
+              <dd>${escapeHtml(stat.lastDateFull)}</dd>
+            </div>
+            <div>
+              <dt>Dernière note</dt>
+              <dd>${escapeHtml(stat.lastFormatted)}</dd>
+            </div>
+          </dl>
+          ${
+            stat.averageNormalized != null
+              ? `<div class="practice-dashboard__progress" aria-hidden="true" style="--progress-color:${stat.accentProgress}"><div style="width:${Math.round(Math.max(0, Math.min(1, stat.averageNormalized)) * 100)}%;"></div></div>`
+              : ""
+          }
+        </article>`
+          )
+          .join("")
+      : '<div class="practice-dashboard__empty">Aucune consigne pour cette catégorie pour le moment.</div>';
+
+    const uniqueId = Date.now();
+    const searchId = `practice-search-${uniqueId}`;
+    const filterId = `practice-filter-${uniqueId}`;
+    const sortId = `practice-sort-${uniqueId}`;
+
     const html = `
-      <div class="goal-modal modal"><div class="goal-modal-card modal-card">
-        <div class="goal-modal-header modal-header">
-          <div class="goal-modal-title title">📊 ${safeCategory}</div>
-          <button id="x" class="btn-ghost">✕</button>
+      <div class="goal-modal modal practice-dashboard">
+        <div class="goal-modal-card modal-card practice-dashboard__card">
+          <div class="practice-dashboard__header">
+            <div>
+              <h2 class="practice-dashboard__title">Tableau de bord — ${safeCategory}</h2>
+              <p class="practice-dashboard__subtitle">Suivez la progression de vos consignes de pratique.</p>
+            </div>
+            <button type="button" class="practice-dashboard__close btn btn-ghost" data-close>✕</button>
+          </div>
+          <div class="practice-dashboard__body">
+            <section class="practice-dashboard__summary" data-summary>${summaryHtml}</section>
+            <div class="practice-dashboard__view-switch">
+              <button type="button" class="practice-dashboard__view-btn is-active" data-view-btn="table">Vue tableau</button>
+              <button type="button" class="practice-dashboard__view-btn" data-view-btn="chart">Vue graphique</button>
+            </div>
+            <div class="practice-dashboard__view practice-dashboard__view--table is-active" data-view="table">
+              <div class="practice-dashboard__controls">
+                <div class="practice-dashboard__control">
+                  <label class="practice-dashboard__control-label" for="${searchId}">Recherche</label>
+                  <input type="search" id="${searchId}" data-search placeholder="Rechercher une consigne" />
+                </div>
+                <div class="practice-dashboard__control">
+                  <label class="practice-dashboard__control-label" for="${filterId}">Priorité</label>
+                  <select id="${filterId}" data-filter-priority>
+                    <option value="all">Toutes</option>
+                    <option value="1">Haute</option>
+                    <option value="2">Moyenne</option>
+                    <option value="3">Basse</option>
+                  </select>
+                </div>
+                <div class="practice-dashboard__control">
+                  <label class="practice-dashboard__control-label" for="${sortId}">Trier par</label>
+                  <select id="${sortId}" data-sort>
+                    <option value="recent">Dernière activité</option>
+                    <option value="score">Performance</option>
+                    <option value="alpha">Nom</option>
+                  </select>
+                </div>
+              </div>
+              <div class="practice-dashboard__table-wrapper">
+                <table class="practice-dashboard__table">
+                  <thead>
+                    <tr>
+                      <th>Consigne</th>
+                      <th>Dernière activité</th>
+                      <th>Dernière note</th>
+                      <th>Commentaire</th>
+                      <th>Performance</th>
+                    </tr>
+                  </thead>
+                  <tbody data-table-body></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="practice-dashboard__view practice-dashboard__view--chart" data-view="chart">
+              <div class="practice-dashboard__chart-card" data-chart-card>
+                <canvas id="practiceCatChart"></canvas>
+              </div>
+              <p class="practice-dashboard__chart-caption" data-chart-caption></p>
+            </div>
+          </div>
         </div>
-        <div class="history-scroll">
-          <table class="history-table">
-            <thead>
-              <tr><th>Consigne</th>${days.map(d=>`<th>${escapeHtml(d.slice(5))}</th>`).join('')}</tr>
-            </thead>
-            <tbody>
-              ${rows.map(r=>`<tr><td>${escapeHtml(r.name)}</td>${r.values.map(v=>`<td>${v===''? '' : escapeHtml(String(v))}</td>`).join('')}</tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-        <canvas id="catChart" height="180" style="margin-top:12px;"></canvas>
-      </div></div>
+      </div>
     `;
-    const wrap = document.createElement('div'); wrap.innerHTML = html; document.body.appendChild(wrap);
-    wrap.querySelector('#x').onclick = () => wrap.remove();
 
-    if (window.Chart) {
-      const datasets = rows.map(r => ({
-        label: r.name,
-        data: r.values.map(v => (v===''? null : Number(v))),
-        spanGaps: true
-      }));
-      const ctx2 = wrap.querySelector('#catChart').getContext('2d');
-      new Chart(ctx2, {
-        type: 'line',
-        data: { labels: days, datasets },
-        options: { responsive: true, interaction: { mode:'nearest', intersect:false } }
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+    const overlay = wrapper.firstElementChild;
+    if (!overlay) return;
+    document.body.appendChild(overlay);
+    wrapper.innerHTML = "";
+
+    let chartInstance = null;
+    const close = () => {
+      if (chartInstance) {
+        chartInstance.destroy();
+        chartInstance = null;
+      }
+      document.removeEventListener("keydown", onKeyDown);
+      overlay.remove();
+    };
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") close();
+    };
+    document.addEventListener("keydown", onKeyDown);
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close();
+    });
+    overlay.querySelector("[data-close]")?.addEventListener("click", close);
+
+    const tableBody = overlay.querySelector("[data-table-body]");
+    const searchInput = overlay.querySelector(`#${searchId}`);
+    const filterSelect = overlay.querySelector(`#${filterId}`);
+    const sortSelect = overlay.querySelector(`#${sortId}`);
+
+    const viewButtons = Array.from(overlay.querySelectorAll("[data-view-btn]"));
+    const views = Array.from(overlay.querySelectorAll("[data-view]"));
+
+    function setView(targetView) {
+      viewButtons.forEach((btn) => {
+        const isActive = btn.dataset.viewBtn === targetView;
+        btn.classList.toggle("is-active", isActive);
+      });
+      views.forEach((panel) => {
+        panel.classList.toggle("is-active", panel.dataset.view === targetView);
       });
     }
-  } catch (e) {
-    console.warn('openCategoryDashboard:error', e);
+
+    viewButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        setView(btn.dataset.viewBtn || "table");
+      });
+    });
+
+    setView("table");
+
+    function renderTable(list) {
+      if (!tableBody) return;
+      if (!list.length) {
+        tableBody.innerHTML =
+          '<tr><td colspan="5" class="practice-dashboard__empty-row">Aucune consigne ne correspond à vos filtres.</td></tr>';
+        return;
+      }
+      tableBody.innerHTML = list
+        .map((stat) => {
+          const statusLabel = statusLabels[stat.statusKind] || "—";
+          const statusValue =
+            stat.lastFormatted && stat.lastFormatted !== "—"
+              ? ` · ${escapeHtml(stat.lastFormatted)}`
+              : "";
+          const relative = stat.lastRelative
+            ? `<span class="practice-dashboard__date-sub">${escapeHtml(stat.lastRelative)}</span>`
+            : "";
+          const comment =
+            stat.commentDisplay && stat.commentDisplay !== "—"
+              ? escapeHtml(stat.commentDisplay)
+              : "—";
+          const normalized =
+            stat.averageNormalized != null ? Math.max(0, Math.min(1, stat.averageNormalized)) : null;
+          const progress =
+            normalized != null
+              ? `<div class="practice-dashboard__progress" style="--progress-color:${stat.accentProgress}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(normalized * 100)}"><div style="width:${Math.round(normalized * 100)}%;"></div></div>`
+              : "";
+          return `
+            <tr data-priority="${stat.priority}" style="--row-accent:${stat.rowAccent}">
+              <td>
+                <div class="practice-dashboard__consigne">
+                  <span class="practice-dashboard__consigne-name">${escapeHtml(stat.name)}</span>
+                  <div class="practice-dashboard__consigne-meta">
+                    <span class="practice-dashboard__badge practice-dashboard__badge--${stat.priority === 1 ? "high" : stat.priority === 2 ? "medium" : "low"}">${stat.priorityLabel}</span>
+                    <span class="practice-dashboard__tag">${escapeHtml(stat.typeLabel)}</span>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="practice-dashboard__date">
+                  <span>${escapeHtml(stat.lastDateShort)}</span>
+                  ${relative}
+                </div>
+              </td>
+              <td>
+                <div class="practice-dashboard__status">
+                  <span class="status-chip status-chip--${stat.statusKind}">${statusLabel}${statusValue}</span>
+                  <button type="button" class="practice-dashboard__history" data-action="history" data-id="${stat.id}">Historique</button>
+                </div>
+              </td>
+              <td><p class="practice-dashboard__comment">${comment}</p></td>
+              <td>
+                <div class="practice-dashboard__score" title="${escapeHtml(stat.averageTitle)}">
+                  <span>${escapeHtml(stat.averageDisplay)}</span>
+                  ${progress}
+                </div>
+              </td>
+            </tr>`;
+        })
+        .join("");
+    }
+
+    function applyFilters() {
+      let filtered = stats.slice();
+      const query = (searchInput?.value || "").trim().toLocaleLowerCase("fr-FR");
+      const prio = filterSelect?.value || "all";
+      const sortValue = sortSelect?.value || "recent";
+
+      if (prio !== "all") {
+        filtered = filtered.filter((stat) => String(stat.priority) === prio);
+      }
+      if (query) {
+        filtered = filtered.filter((stat) => stat.searchHaystack.includes(query));
+      }
+
+      if (sortValue === "alpha") {
+        filtered.sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
+      } else if (sortValue === "score") {
+        filtered.sort((a, b) => (b.averageForSort || 0) - (a.averageForSort || 0));
+      } else {
+        filtered.sort((a, b) => (b.lastDateSort || 0) - (a.lastDateSort || 0));
+      }
+
+      renderTable(filtered);
+    }
+
+    filterSelect?.addEventListener("change", applyFilters);
+    sortSelect?.addEventListener("change", applyFilters);
+    searchInput?.addEventListener("input", applyFilters);
+
+    tableBody?.addEventListener("click", (event) => {
+      const target = event.target.closest("[data-action=\"history\"]");
+      if (!target) return;
+      const id = target.getAttribute("data-id");
+      const stat = stats.find((item) => item.id === id);
+      if (stat?.consigne) openHistory(ctx, stat.consigne);
+    });
+
+    applyFilters();
+
+    const chartCard = overlay.querySelector("[data-chart-card]");
+    const chartCaption = overlay.querySelector("[data-chart-caption]");
+    const canvas = overlay.querySelector("#practiceCatChart");
+
+    const chartStats = stats.filter((stat) => stat.hasNumeric);
+    if (canvas && chartCard && window.Chart && chartStats.length) {
+      const chartDatasets = chartStats.map((stat) => {
+        const dataset = {
+          label: stat.name,
+          data: stat.chartValues,
+          rawValues: stat.rawValues,
+          rawNotes: stat.rawNotes,
+          consigneType: stat.type,
+          dates: daysIso,
+          borderColor: stat.accentStrong,
+          backgroundColor: withAlpha(stat.color, 0.16),
+          borderWidth: stat.priority === 1 ? 3 : 2,
+          pointRadius: stat.priority === 1 ? 4 : stat.priority === 2 ? 3 : 2,
+          pointHoverRadius: stat.priority === 1 ? 5 : stat.priority === 2 ? 4 : 3,
+          tension: 0.35,
+          spanGaps: true,
+        };
+        if (stat.priority === 3) {
+          dataset.borderDash = [6, 4];
+        }
+        return dataset;
+      });
+
+      const typeSet = new Set(chartDatasets.map((dataset) => dataset.consigneType));
+      let yTitle = "Score";
+      if (typeSet.size === 1) {
+        const [typeOnly] = typeSet;
+        if (typeOnly === "yesno" || typeOnly === "likert6") {
+          yTitle = "Taux de réussite (0 = raté, 1 = réussi)";
+        } else if (typeOnly === "likert5") {
+          yTitle = "Score (0 à 4)";
+        } else if (typeOnly === "num") {
+          yTitle = "Valeur saisie";
+        }
+      } else if ([...typeSet].every((type) => type === "yesno" || type === "likert6" || type === "likert5")) {
+        yTitle = "Score normalisé";
+      } else {
+        yTitle = "Valeur / Score";
+      }
+
+      let suggestedMin;
+      let suggestedMax;
+      if (typeSet.size === 1) {
+        const [typeOnly] = typeSet;
+        if (typeOnly === "yesno" || typeOnly === "likert6") {
+          suggestedMin = 0;
+          suggestedMax = 1;
+        } else if (typeOnly === "likert5") {
+          suggestedMin = 0;
+          suggestedMax = 4;
+        }
+      }
+
+      const tooltipDateFormatter = new Intl.DateTimeFormat("fr-FR", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      });
+
+      chartInstance = new Chart(canvas.getContext("2d"), {
+        type: "line",
+        data: {
+          labels: axisLabels,
+          datasets: chartDatasets,
+        },
+        options: {
+          maintainAspectRatio: false,
+          responsive: true,
+          interaction: { mode: "nearest", intersect: false },
+          scales: {
+            x: {
+              ticks: { color: "#64748B", maxRotation: 0 },
+              grid: { color: "#E2E8F0" },
+            },
+            y: {
+              title: {
+                display: true,
+                text: yTitle,
+                color: "#475569",
+                font: { family: "Inter", weight: "600", size: 12 },
+              },
+              ticks: {
+                color: "#64748B",
+                callback(value) {
+                  if ([...typeSet].every((type) => type === "yesno" || type === "likert6")) {
+                    return `${Math.round(Number(value) * 100)}%`;
+                  }
+                  return value;
+                },
+              },
+              grid: { color: "#E2E8F0" },
+              beginAtZero: suggestedMin === 0,
+              suggestedMin,
+              suggestedMax,
+            },
+          },
+          plugins: {
+            legend: {
+              align: "start",
+              labels: {
+                usePointStyle: true,
+                font: { family: "Inter", size: 12 },
+                color: "#334155",
+              },
+            },
+            tooltip: {
+              backgroundColor: "#0f172a",
+              titleFont: { family: "Inter", weight: "600" },
+              bodyFont: { family: "Inter" },
+              callbacks: {
+                title(context) {
+                  const dataset = context[0];
+                  const iso = dataset.dataset.dates?.[dataset.dataIndex];
+                  if (!iso) return context[0].label;
+                  const d = toDate(iso);
+                  return d ? tooltipDateFormatter.format(d) : context[0].label;
+                },
+                label(context) {
+                  const ds = context.dataset;
+                  const raw = ds.rawValues?.[context.dataIndex];
+                  const formatted = formatValue(ds.consigneType, raw);
+                  return `${ds.label}: ${formatted}`;
+                },
+                footer(context) {
+                  const ds = context[0].dataset;
+                  const note = ds.rawNotes?.[context[0].dataIndex];
+                  if (note) return `Note : ${note}`;
+                  return "";
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (chartCaption) {
+        chartCaption.textContent =
+          "Cliquez sur la légende pour afficher ou masquer une consigne. Les valeurs sont normalisées quand c’est possible.";
+      }
+    } else {
+      if (chartCard) {
+        chartCard.innerHTML =
+          '<div class="practice-dashboard__empty">Aucune donnée suffisante pour afficher le graphique pour cette catégorie.</div>';
+      }
+      if (chartCaption) {
+        chartCaption.textContent = "Ajoutez des réponses pour visualiser l’évolution dans le temps.";
+      }
+    }
+  } catch (err) {
+    console.warn("openCategoryDashboard:error", err);
   }
 };
-
 // --------- DRAG & DROP (ordre consignes) ---------
 window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx) {
   let dragId = null;
