@@ -669,12 +669,12 @@ async function linkConsigneToObjective(db, uid, consigneId, objectifId) {
 }
 
 async function saveObjectiveEntry(db, uid, objectifId, dateIso, value) {
-  const ref = doc(db, "u", uid, "objectiveEntries", objectifId, dateIso);
+  const ref = doc(db, "u", uid, "objectiveEntries", objectifId, "entries", dateIso);
   await setDoc(ref, { v: value, at: serverTimestamp() }, { merge: true });
 }
 
 async function loadObjectiveEntriesRange(db, uid, objectifId, _fromIso, _toIso) {
-  const colRef = collection(db, "u", uid, "objectiveEntries", objectifId);
+  const colRef = collection(db, "u", uid, "objectiveEntries", objectifId, "entries");
   const snap = await getDocs(colRef);
   return snap.docs.map((d) => ({ date: d.id, v: d.data().v }));
 }
