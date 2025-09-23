@@ -17,7 +17,7 @@ const L = Schema.D || {
   groupEnd: () => {},
 };
 if (L) L.on = DEBUG;
-const log = (...args) => { if (LOG) console.debug("[app]", ...args); };
+const appLog = (...args) => { if (LOG) console.debug("[app]", ...args); };
 function logStep(step, data) {
   L.group(step);
   if (data) L.info(data);
@@ -116,7 +116,7 @@ function routeTo(hash) {
 
   // Si l'argument est déjà une URL utilisateur complète, on la prend telle quelle
   if (/^#\/u\/[^/]+\//.test(hash)) {
-    log("routeTo", { from: location.hash || null, requested: hash, target: hash });
+    appLog("routeTo", { from: location.hash || null, requested: hash, target: hash });
     ctx.route = hash;
     window.location.hash = hash;
     render();
@@ -129,7 +129,7 @@ function routeTo(hash) {
   const stayInUserSpace = m && !hash.startsWith("#/admin") && !hash.startsWith("#/u/");
   const target = stayInUserSpace ? base + hash.replace(/^#\//, "") : hash;
 
-  log("routeTo", { from: location.hash || null, requested: hash, target });
+  appLog("routeTo", { from: location.hash || null, requested: hash, target });
   ctx.route = target;
   window.location.hash = target;
   render();
@@ -176,18 +176,18 @@ function parseHash(hashValue) {
 
 async function loadCategories() {
   // Categories are per user, default fallback if empty
-  log("categories:load:start", { uid: ctx.user?.uid });
+  appLog("categories:load:start", { uid: ctx.user?.uid });
   const uid = ctx.user.uid;
   const cats = await Schema.fetchCategories(ctx.db, uid);
   ctx.categories = cats;
-  log("categories:load:done", { count: cats.length });
+  appLog("categories:load:done", { count: cats.length });
   renderSidebar();
 }
 
 function renderSidebar() {
   const box = $("#profile-box");
   if (!box) return;
-  log("sidebar:render", { profile: ctx.profile, categories: ctx.categories?.length });
+  appLog("sidebar:render", { profile: ctx.profile, categories: ctx.categories?.length });
   const link = `${location.origin}${location.pathname}#/u/${ctx.user.uid}`;
   box.innerHTML = `
     <div><strong>${ctx.profile.displayName || "Utilisateur"}</strong></div>
@@ -206,29 +206,29 @@ function renderSidebar() {
 
 function bindNav() {
   // Navigation haut (Daily, Practice, etc.)
-  log("nav:bind:start");
+  appLog("nav:bind:start");
   $$("button[data-route]").forEach(btn => {
     const target = btn.getAttribute("data-route");
-    log("nav:bind:button", { target });
+    appLog("nav:bind:button", { target });
     btn.onclick = () => routeTo(target);
   });
 
   // Boutons spécifiques (seulement si présents dans le DOM)
   const btnSession = $("#btn-new-session");
   if (btnSession) {
-    log("nav:bind:newSessionButton");
+    appLog("nav:bind:newSessionButton");
     btnSession.onclick = () => routeTo("#/practice?new=1");
   }
 
   const btnConsigne = $("#btn-add-consigne");
   if (btnConsigne) {
-    log("nav:bind:addConsigne");
+    appLog("nav:bind:addConsigne");
     btnConsigne.onclick = () => Modes.openConsigneForm(ctx);
   }
 
   const btnGoal = $("#btn-add-goal");
   if (btnGoal) {
-    log("nav:bind:addGoal");
+    appLog("nav:bind:addGoal");
     btnGoal.onclick = () => Goals.openGoalForm(ctx);
   }
 }
@@ -281,7 +281,7 @@ async function handleRoute() {
   const currentHash = location.hash || "#/admin";
   const parsed = parseHash(currentHash);
   ctx.route = currentHash;
-  log("handleRoute", parsed);
+  appLog("handleRoute", parsed);
 
   const routeName = parsed.segments[0] || "admin";
 
@@ -342,7 +342,7 @@ async function handleRoute() {
 
 function startRouter(app, db) {
   // We keep app/db in the context for the screens
-  log("router:start", { hash: location.hash });
+  appLog("router:start", { hash: location.hash });
   ctx.app = app;
   ctx.db = db;
   if (typeof Schema.bindDb === "function") Schema.bindDb(db);
@@ -353,19 +353,19 @@ function startRouter(app, db) {
     handleRoute(); // initial render
   }
   window.addEventListener("hashchange", () => {
-    log("router:hashchange", { hash: location.hash });
+    appLog("router:hashchange", { hash: location.hash });
     handleRoute();
   }); // navigation
 }
 
 // Local ensureProfile function
 async function ensureProfile(db, uid) {
-  log("profile:ensure:start", { uid });
+  appLog("profile:ensure:start", { uid });
   const ref = appFirestore.doc(db, "u", uid);
   const snap = await appFirestore.getDoc(ref);
   if (snap.exists()) {
     const data = snap.data();
-    log("profile:ensure:existing", { uid });
+    appLog("profile:ensure:existing", { uid });
     return data;
   }
   const newProfile = {
@@ -373,7 +373,7 @@ async function ensureProfile(db, uid) {
     createdAt: new Date().toISOString()
   };
   await appFirestore.setDoc(ref, newProfile);
-  log("profile:ensure:created", { uid });
+  appLog("profile:ensure:created", { uid });
   return newProfile;
 }
 
@@ -430,10 +430,10 @@ async function initApp({ app, db, user }) {
   if (sidebar) sidebar.style.display = "";
 
   L.group("app.init", user?.uid);
-  log("app:init:start", { uid: user?.uid });
+  appLog("app:init:start", { uid: user?.uid });
   if (!user || !user.uid) {
     L.error("No UID in context");
-    log("app:init:error", { reason: "missing uid" });
+    appLog("app:init:error", { reason: "missing uid" });
     L.groupEnd();
     return;
   }
@@ -445,7 +445,7 @@ async function initApp({ app, db, user }) {
 
   const profile = await ensureProfile(db, user.uid);
   ctx.profile = profile;
-  log("app:init:profile", { profile });
+  appLog("app:init:profile", { profile });
 
   // Display profile in the sidebar
   const box = document.getElementById("profile-box");
@@ -455,16 +455,16 @@ async function initApp({ app, db, user }) {
   bindNav();
 
   ctx.route = location.hash || "#/admin";
-  log("app:init:route", { route: ctx.route });
+  appLog("app:init:route", { route: ctx.route });
   window.addEventListener("hashchange", () => {
     ctx.route = location.hash || "#/admin";
-    log("app:init:hashchange", { route: ctx.route });
+    appLog("app:init:hashchange", { route: ctx.route });
     render();
   });
   await render();
   // 👉 Inscription (silencieuse si refus/unsupported)
   ensurePushSubscription(ctx).catch(console.error);
-  log("app:init:rendered");
+  appLog("app:init:rendered");
   L.groupEnd();
 }
 
@@ -481,7 +481,7 @@ function renderAdmin(db) {
   refreshUserBadge(null);
 
   const root = document.getElementById("view-root");
-  log("admin:render");
+  appLog("admin:render");
   root.innerHTML = `
     <div class="space-y-4">
       <h2 class="text-xl font-semibold">Admin — Utilisateurs</h2>
@@ -503,7 +503,7 @@ function renderAdmin(db) {
       const input = document.getElementById("new-user-name");
       const name = input?.value?.trim();
       if (!name) return;
-      log("admin:newUser:submit", { name });
+      appLog("admin:newUser:submit", { name });
       const uid = newUid();
       try {
         await appFirestore.setDoc(appFirestore.doc(db, "u", uid), {
@@ -511,7 +511,7 @@ function renderAdmin(db) {
           createdAt: new Date().toISOString()
         });
         if (input) input.value = "";
-        log("admin:newUser:created", { uid });
+        appLog("admin:newUser:created", { uid });
         loadUsers(db);
       } catch (error) {
         console.error("admin:newUser:error", error);
@@ -527,7 +527,7 @@ async function loadUsers(db) {
   const list = document.getElementById("user-list");
   if (!list) return;
   list.innerHTML = "<div class='text-sm text-[var(--muted)]'>Chargement…</div>";
-  log("admin:users:load:start");
+  appLog("admin:users:load:start");
   try {
     const ss = await appFirestore.getDocs(appFirestore.collection(db, "u"));
     const items = [];
@@ -550,7 +550,7 @@ async function loadUsers(db) {
       `);
     });
     list.innerHTML = items.join("") || "<div class='text-sm text-[var(--muted)]'>Aucun utilisateur</div>";
-    log("admin:users:load:done", { count: items.length });
+    appLog("admin:users:load:done", { count: items.length });
 
     if (!list.dataset.bound) {
       list.addEventListener("click", (e) => {
@@ -559,7 +559,7 @@ async function loadUsers(db) {
         if (!a.target || a.target === "_self") {
           e.preventDefault();
           location.hash = `#/u/${a.dataset.uid}`;
-          log("admin:users:navigate", { uid: a.dataset.uid });
+          appLog("admin:users:navigate", { uid: a.dataset.uid });
           handleRoute();
         }
       });
