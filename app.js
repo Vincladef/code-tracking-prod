@@ -1,8 +1,8 @@
 // app.js — bootstrapping, routing, context, nav
 /* global Schema, Modes, Goals */
-const { collection, query, where, orderBy, limit, getDocs, doc, setDoc, getDoc } = Schema.firestore || window.firestoreAPI || {};
+const appFirestore = Schema.firestore || window.firestoreAPI || {};
 
-const firebaseCompat = window.firebase || {};
+const firebaseCompatApp = window.firebase || {};
 
 // --- feature flags & logger ---
 const DEBUG = false;
@@ -67,12 +67,12 @@ function $$(sel) {
 }
 
 function getAuthInstance() {
-  if (!firebaseCompat || typeof firebaseCompat.auth !== "function") return null;
+  if (!firebaseCompatApp || typeof firebaseCompatApp.auth !== "function") return null;
   try {
-    return ctx.app ? firebaseCompat.auth(ctx.app) : firebaseCompat.auth();
+    return ctx.app ? firebaseCompatApp.auth(ctx.app) : firebaseCompatApp.auth();
   } catch (err) {
     console.warn("firebase.auth() fallback", err);
-    return firebaseCompat.auth();
+    return firebaseCompatApp.auth();
   }
 }
 
@@ -361,8 +361,8 @@ function startRouter(app, db) {
 // Local ensureProfile function
 async function ensureProfile(db, uid) {
   log("profile:ensure:start", { uid });
-  const ref = doc(db, "u", uid);
-  const snap = await getDoc(ref);
+  const ref = appFirestore.doc(db, "u", uid);
+  const snap = await appFirestore.getDoc(ref);
   if (snap.exists()) {
     const data = snap.data();
     log("profile:ensure:existing", { uid });
@@ -372,14 +372,14 @@ async function ensureProfile(db, uid) {
     displayName: "Nouvel utilisateur",
     createdAt: new Date().toISOString()
   };
-  await setDoc(ref, newProfile);
+  await appFirestore.setDoc(ref, newProfile);
   log("profile:ensure:created", { uid });
   return newProfile;
 }
 
 async function ensurePushSubscription(ctx) {
-  const messagingSupported = typeof firebaseCompat?.messaging?.isSupported === "function"
-    ? firebaseCompat.messaging.isSupported()
+  const messagingSupported = typeof firebaseCompatApp?.messaging?.isSupported === "function"
+    ? firebaseCompatApp.messaging.isSupported()
     : Promise.resolve(false);
   if (!(await messagingSupported)) { console.info("[push] non supporté"); return; }
   if (!("Notification" in window) || !("serviceWorker" in navigator)) return;
@@ -398,7 +398,7 @@ async function ensurePushSubscription(ctx) {
   // 3) Token FCM avec TA clé VAPID publique
   let messaging;
   try {
-    messaging = ctx.app ? firebaseCompat.messaging(ctx.app) : firebaseCompat.messaging();
+    messaging = ctx.app ? firebaseCompatApp.messaging(ctx.app) : firebaseCompatApp.messaging();
   } catch (err) {
     console.info("[push] messaging non disponible", err);
     return;
@@ -506,7 +506,7 @@ function renderAdmin(db) {
       log("admin:newUser:submit", { name });
       const uid = newUid();
       try {
-        await setDoc(doc(db, "u", uid), {
+        await appFirestore.setDoc(appFirestore.doc(db, "u", uid), {
           displayName: name,
           createdAt: new Date().toISOString()
         });
@@ -529,7 +529,7 @@ async function loadUsers(db) {
   list.innerHTML = "<div class='text-sm text-[var(--muted)]'>Chargement…</div>";
   log("admin:users:load:start");
   try {
-    const ss = await getDocs(collection(db, "u"));
+    const ss = await appFirestore.getDocs(appFirestore.collection(db, "u"));
     const items = [];
     ss.forEach(d => {
       const data = d.data();

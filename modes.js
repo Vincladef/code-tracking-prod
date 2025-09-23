@@ -1,7 +1,7 @@
 // modes.js — Journalier / Pratique / Historique
 /* global Schema, Modes */
 window.Modes = window.Modes || {};
-const { collection, query, where, orderBy, limit, getDocs } = Schema.firestore || window.firestoreAPI || {};
+const modesFirestore = Schema.firestore || window.firestoreAPI || {};
 
 const L = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
 
@@ -9,8 +9,8 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 // --- Normalisation du jour (LUN..DIM ou mon..sun) ---
-const DAY_ALIAS = { mon: "LUN", tue: "MAR", wed: "MER", thu: "JEU", fri: "VEN", sat: "SAM", sun: "DIM" };
-const DAY_VALUES = new Set(["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"]);
+const DAY_ALIAS = Schema.DAY_ALIAS || { mon: "LUN", tue: "MAR", wed: "MER", thu: "JEU", fri: "VEN", sat: "SAM", sun: "DIM" };
+const DAY_VALUES = Schema.DAY_VALUES || new Set(["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"]);
 
 function normalizeDay(value) {
   if (!value) return null;
@@ -505,13 +505,13 @@ function dotHTML(kind){
 
 async function openHistory(ctx, consigne) {
   L.group("ui.history.open", { consigneId: consigne.id, type: consigne.type });
-  const qy = query(
-    collection(ctx.db, `u/${ctx.user.uid}/responses`),
-    where("consigneId", "==", consigne.id),
-    orderBy("createdAt", "desc"),
-    limit(60)
+  const qy = modesFirestore.query(
+    modesFirestore.collection(ctx.db, `u/${ctx.user.uid}/responses`),
+    modesFirestore.where("consigneId", "==", consigne.id),
+    modesFirestore.orderBy("createdAt", "desc"),
+    modesFirestore.limit(60)
   );
-  const ss = await getDocs(qy);
+  const ss = await modesFirestore.getDocs(qy);
   L.info("ui.history.rows", ss.size);
   const rows = ss.docs.map((d) => ({ id: d.id, ...d.data() }));
 
