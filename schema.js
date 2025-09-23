@@ -93,8 +93,20 @@ const snapshotExists =
   Schema.snapshotExists ||
   ((snap) => {
     if (!snap) return false;
-    if (typeof snap.exists === "function") return snap.exists();
-    if (Object.prototype.hasOwnProperty.call(snap, "exists")) return !!snap.exists;
+    const { exists } = snap;
+    if (typeof exists === "function") {
+      try {
+        return !!exists.call(snap);
+      } catch (error) {
+        console.warn("snapshotExists:call:error", error);
+      }
+    }
+    if (exists !== undefined) {
+      return !!exists;
+    }
+    if ("exists" in snap) {
+      return !!snap.exists;
+    }
     return false;
   });
 Schema.snapshotExists = Schema.snapshotExists || snapshotExists;
