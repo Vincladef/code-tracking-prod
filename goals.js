@@ -48,18 +48,6 @@
     section.style.padding = "16px";
     root.appendChild(section);
 
-    const header = document.createElement("div");
-    header.className = "goal-header";
-    header.innerHTML = `
-      <div>
-        <h2 class="text-lg font-semibold">Objectifs</h2>
-      </div>
-      <button type="button" class="btn btn-primary" data-new-goal>＋ Nouvel objectif</button>
-    `;
-    section.appendChild(header);
-
-    header.querySelector("[data-new-goal]").onclick = () => openGoalForm(ctx);
-
     const navUpWrap = document.createElement("div");
     navUpWrap.className = "goal-nav goal-nav--up";
     navUpWrap.innerHTML = `
@@ -84,12 +72,14 @@
 
     const createGoalRow = (goal, subtitleOverride = null) => {
       const row = document.createElement("div");
-      row.className = "goal-row";
+      row.className = "goal-row goal-row--editable";
       const subtitle = subtitleOverride || typeLabel(goal, goal.monthKey);
       row.innerHTML = `
         <div class="goal-title">
-          <div>${escapeHtml(goal.titre || "Objectif")}</div>
-          <div class="text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</div>
+          <button type="button" class="goal-title__button" data-edit-goal>
+            <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
+            <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
+          </button>
         </div>
         <div class="goal-quick">
           <select class="select-compact">
@@ -167,6 +157,23 @@
         }
       };
       hydrateSavedValue();
+
+      const openEditor = () => openGoalForm(ctx, goal);
+
+      const editButton = row.querySelector("[data-edit-goal]");
+      if (editButton) {
+        editButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openEditor();
+        });
+      }
+
+      row.addEventListener("click", (event) => {
+        if (event.target.closest(".goal-quick")) return;
+        openEditor();
+      });
+
       return row;
     };
 
@@ -365,6 +372,7 @@
             <textarea name="description" rows="3" class="goal-input" placeholder="Notes facultatives">${escapeHtml(goal?.description || "")}</textarea>
           </label>
           <div class="goal-actions">
+            ${goal ? '<button type="button" class="btn btn-danger" data-delete>Supprimer</button>' : ""}
             <button type="button" class="btn btn-ghost" data-close>Annuler</button>
             <button type="submit" class="btn btn-primary">Enregistrer</button>
           </div>
@@ -436,6 +444,29 @@
         alert("Impossible d'enregistrer l’objectif.");
       }
     });
+
+    if (goal?.id) {
+      const deleteButton = form.querySelector("[data-delete]");
+      if (deleteButton) {
+        deleteButton.addEventListener("click", async (event) => {
+          event.preventDefault();
+          const confirmed = window.confirm("Supprimer cet objectif ?");
+          if (!confirmed) {
+            return;
+          }
+          try {
+            await Schema.deleteObjective(ctx.db, ctx.user.uid, goal.id);
+            close();
+            if (lastMount) {
+              renderGoals(ctx, lastMount);
+            }
+          } catch (err) {
+            goalsLogger.error("goals.delete.error", err);
+            alert("Impossible de supprimer l’objectif.");
+          }
+        });
+      }
+    }
   }
 
   GoalsNS.renderGoals = renderGoals;
