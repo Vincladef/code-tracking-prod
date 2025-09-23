@@ -2,12 +2,20 @@ import { isAdminHashPlaceholder, resolveAdminHash } from "./admin-hash.js";
 
 const ADMIN_ACCESS_KEY = "hp::admin::authorized";
 const STATUS_ELEMENT_ID = "admin-login-status";
+const HELPER_ELEMENT_ID = "admin-login-helper";
 const MAX_ATTEMPTS = 3;
 const ADMIN_HASH_TIMEOUT_MS = 2000;
 const ADMIN_HASH_POLL_INTERVAL_MS = 50;
 
 function updateStatus(message) {
   const el = document.getElementById(STATUS_ELEMENT_ID);
+  if (el) {
+    el.textContent = message;
+  }
+}
+
+function updateHelper(message) {
+  const el = document.getElementById(HELPER_ELEMENT_ID);
   if (el) {
     el.textContent = message;
   }
@@ -42,10 +50,6 @@ function redirectToAdmin() {
   redirectToIndex("#/admin");
 }
 
-function redirectToHome() {
-  redirectToIndex("");
-}
-
 async function sha256Hex(value) {
   const encoder = new TextEncoder();
   const data = encoder.encode(value);
@@ -57,8 +61,8 @@ async function sha256Hex(value) {
 async function promptForPassword(expectedHash) {
   if (typeof crypto === "undefined" || !crypto?.subtle) {
     updateStatus("Impossible de vérifier le mot de passe sur ce navigateur.");
+    updateHelper("Essayez depuis un navigateur plus récent pour accéder à l’espace administrateur.");
     alert("Votre navigateur ne supporte pas SHA-256. Accès refusé.");
-    redirectToHome();
     return;
   }
 
@@ -66,13 +70,14 @@ async function promptForPassword(expectedHash) {
     const input = window.prompt("Mot de passe administrateur", "");
     if (input === null) {
       updateStatus("Vérification annulée.");
-      redirectToHome();
+      updateHelper("Rechargez la page pour réessayer la connexion administrateur.");
       return;
     }
     const hash = await sha256Hex(input);
     if (hash === expectedHash) {
       storeAdminAccess(true);
       updateStatus("Accès accordé. Redirection…");
+      updateHelper("Vous allez être redirigé vers l’espace administrateur.");
       redirectToAdmin();
       return;
     }
@@ -81,7 +86,7 @@ async function promptForPassword(expectedHash) {
 
   storeAdminAccess(false);
   updateStatus("Accès refusé.");
-  redirectToHome();
+  updateHelper("Rechargez la page pour réessayer.");
 }
 
 function sleep(delay) {
@@ -102,8 +107,8 @@ async function waitForAdminHash(timeoutMs = ADMIN_HASH_TIMEOUT_MS) {
   const adminHash = await waitForAdminHash();
   if (isAdminHashPlaceholder(adminHash)) {
     updateStatus("Hash administrateur non configuré.");
+    updateHelper("Exécutez le workflow \"Generate Admin Hash\" puis rechargez cette page.");
     alert("Le hash administrateur n'est pas configuré. Exécutez le workflow pour le générer.");
-    redirectToHome();
     return;
   }
 
@@ -111,16 +116,19 @@ async function waitForAdminHash(timeoutMs = ADMIN_HASH_TIMEOUT_MS) {
   const alreadyAllowed = storage?.getItem(ADMIN_ACCESS_KEY) === "true";
   if (alreadyAllowed) {
     updateStatus("Session admin active. Redirection…");
+    updateHelper("Redirection en cours vers l’espace administrateur.");
     redirectToAdmin();
     return;
   }
 
   storeAdminAccess(false);
   updateStatus("Vérification du mot de passe…");
+  updateHelper("Saisissez le mot de passe administrateur dans la fenêtre qui s’ouvre.");
   promptForPassword(adminHash).catch((error) => {
     console.error("[admin-auth] Erreur lors de la vérification", error);
     alert("Erreur lors de la vérification du mot de passe.");
     storeAdminAccess(false);
-    redirectToHome();
+    updateStatus("Erreur lors de la vérification du mot de passe.");
+    updateHelper("Rechargez la page pour réessayer.");
   });
 })();
