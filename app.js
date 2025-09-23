@@ -63,13 +63,9 @@
     }
   }
 
-  function $(sel) {
-    return document.querySelector(sel);
-  }
+  const queryOne = (sel) => document.querySelector(sel);
 
-  function $$(sel) {
-    return Array.from(document.querySelectorAll(sel));
-  }
+  const queryAll = (sel) => Array.from(document.querySelectorAll(sel));
 
   function getAuthInstance() {
     if (!firebaseCompatApp || typeof firebaseCompatApp.auth !== "function") return null;
@@ -162,7 +158,7 @@
 
     document.body.setAttribute("data-section", accentSection);
 
-    $$('button[data-route]').forEach((btn) => {
+    queryAll("button[data-route]").forEach((btn) => {
       const target = btn.getAttribute("data-route");
       const isActive = target === activeTarget;
       btn.setAttribute("aria-current", isActive ? "page" : "false");
@@ -190,7 +186,7 @@
   }
 
   function renderSidebar() {
-    const box = $("#profile-box");
+    const box = queryOne("#profile-box");
     if (!box) return;
     appLog("sidebar:render", { profile: ctx.profile, categories: ctx.categories?.length });
     const link = `${location.origin}${location.pathname}#/u/${ctx.user.uid}`;
@@ -199,7 +195,7 @@
       <div class="muted">UID : <code>${ctx.user.uid}</code></div>
       <div class="muted">Lien direct : <a class="link" href="${link}">${link}</a></div>
     `;
-    const catBox = $("#category-box");
+    const catBox = queryOne("#category-box");
     if (catBox) {
       if (!ctx.categories.length) {
         catBox.innerHTML = '<span class="muted">Aucune catégorie. Elles seront créées automatiquement lors de l’ajout d’une consigne.</span>';
@@ -212,26 +208,26 @@
   function bindNav() {
     // Navigation haut (Daily, Practice, etc.)
     appLog("nav:bind:start");
-    $$("button[data-route]").forEach(btn => {
+    queryAll("button[data-route]").forEach(btn => {
       const target = btn.getAttribute("data-route");
       appLog("nav:bind:button", { target });
       btn.onclick = () => routeTo(target);
     });
 
     // Boutons spécifiques (seulement si présents dans le DOM)
-    const btnSession = $("#btn-new-session");
+    const btnSession = queryOne("#btn-new-session");
     if (btnSession) {
       appLog("nav:bind:newSessionButton");
       btnSession.onclick = () => routeTo("#/practice?new=1");
     }
 
-    const btnConsigne = $("#btn-add-consigne");
+    const btnConsigne = queryOne("#btn-add-consigne");
     if (btnConsigne) {
       appLog("nav:bind:addConsigne");
       btnConsigne.onclick = () => Modes.openConsigneForm(ctx);
     }
 
-    const btnGoal = $("#btn-add-goal");
+    const btnGoal = queryOne("#btn-add-goal");
     if (btnGoal) {
       appLog("nav:bind:addGoal");
       btnGoal.onclick = () => Goals.openGoalForm(ctx);
