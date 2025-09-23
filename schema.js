@@ -564,42 +564,91 @@ function mondayIndexFromSundayIndex(value) {
   return normalizedWeekday(value + 6);
 }
 
-function weeksOf(monthKey) {
+function monthWeekSegments(monthKey) {
   const [yearStr, monthStr] = String(monthKey || "").split("-");
   const year = Number(yearStr);
   const month = Number(monthStr);
-  if (!year || !month) return [1, 2, 3, 4];
-  const firstDay = new Date(year, month - 1, 1);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return [];
+  }
   const totalDays = new Date(year, month, 0).getDate();
+  if (!totalDays) return [];
+  const firstDay = new Date(year, month - 1, 1);
   const firstWeekday = mondayIndexFromSundayIndex(firstDay.getDay());
   const span = totalDays + firstWeekday;
-  const count = Math.max(4, Math.ceil(span / 7));
-  return Array.from({ length: count }, (_, idx) => idx + 1);
+  const rawCount = Math.max(4, Math.ceil(span / 7));
+  const rawWeeks = [];
+  for (let i = 0; i < rawCount; i += 1) {
+    const rawStart = 1 - firstWeekday + i * 7;
+    const rawEnd = rawStart + 6;
+    const startDay = Math.max(1, rawStart);
+    const endDay = Math.min(totalDays, rawEnd);
+    if (startDay > endDay) {
+      continue;
+    }
+    rawWeeks.push({ startDay, endDay });
+  }
+  if (!rawWeeks.length) {
+    return [];
+  }
+  while (rawWeeks.length > 4) {
+    const first = rawWeeks[0];
+    const last = rawWeeks[rawWeeks.length - 1];
+    const firstLength = first.endDay - first.startDay + 1;
+    const lastLength = last.endDay - last.startDay + 1;
+    if (firstLength <= lastLength) {
+      rawWeeks[1].startDay = first.startDay;
+      rawWeeks.shift();
+    } else {
+      rawWeeks[rawWeeks.length - 2].endDay = last.endDay;
+      rawWeeks.pop();
+    }
+  }
+  return rawWeeks.map((week, idx) => {
+    const start = new Date(year, month - 1, week.startDay);
+    const end = new Date(year, month - 1, week.endDay);
+    return {
+      index: idx + 1,
+      start,
+      end,
+      startDay: week.startDay,
+      endDay: week.endDay,
+    };
+  });
+}
+
+function weeksOf(monthKey) {
+  const segments = monthWeekSegments(monthKey);
+  if (!segments.length) {
+    return [1, 2, 3, 4];
+  }
+  return segments.map((segment) => segment.index);
 }
 
 function weekOfMonthFromDate(d) {
-  const dt = d instanceof Date ? d : new Date(d);
+  const dt = d instanceof Date ? new Date(d.getTime()) : new Date(d);
   if (Number.isNaN(dt.getTime())) return 1;
-  const first = new Date(dt.getFullYear(), dt.getMonth(), 1);
-  const firstWeekday = mondayIndexFromSundayIndex(first.getDay());
-  const offset = dt.getDate() + firstWeekday - 1;
-  return Math.max(1, Math.floor(offset / 7) + 1);
+  const monthKey = monthKeyFromDate(dt);
+  const segments = monthWeekSegments(monthKey);
+  if (!segments.length) return 1;
+  const day = dt.getDate();
+  const found = segments.find((segment) => day >= segment.startDay && day <= segment.endDay);
+  if (found) {
+    return found.index;
+  }
+  if (day < segments[0].startDay) {
+    return segments[0].index;
+  }
+  return segments[segments.length - 1].index;
 }
 
 function weekDateRange(monthKey, weekIndex) {
-  const [yearStr, monthStr] = String(monthKey || "").split("-");
-  const year = Number(yearStr);
-  const month = Number(monthStr);
-  if (!year || !month || !weekIndex) return null;
-  const first = new Date(year, month - 1, 1);
-  const totalDays = new Date(year, month, 0).getDate();
-  const firstWeekday = mondayIndexFromSundayIndex(first.getDay());
-  const rawStartDay = 1 - firstWeekday + (weekIndex - 1) * 7;
-  if (rawStartDay > totalDays) return null;
-  const rawEndDay = rawStartDay + 6;
-  const clampedEndDay = Math.min(rawEndDay, totalDays);
-  const start = new Date(year, month - 1, rawStartDay);
-  const end = new Date(year, month - 1, clampedEndDay);
+  if (!weekIndex) return null;
+  const segments = monthWeekSegments(monthKey);
+  if (!segments.length) return null;
+  const target = segments.find((segment) => segment.index === Number(weekIndex));
+  if (!target) return null;
+  const { start, end } = target;
   const startDayLabel = String(start.getDate()).padStart(2, "0");
   const endDayLabel = String(end.getDate()).padStart(2, "0");
   const startMonthName = start.toLocaleDateString("fr-FR", { month: "long" });
