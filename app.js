@@ -1,10 +1,6 @@
 // app.js — bootstrapping, routing, context, nav
-/* global Schema */
-const Modes = window.Modes || {};
-const Goals = window.Goals || {};
-
-const firestoreAPI = Schema.firestore || {};
-const { collection, query, where, orderBy, limit, getDocs, doc, setDoc, getDoc } = firestoreAPI;
+/* global Schema, Modes, Goals */
+const { collection, query, where, orderBy, limit, getDocs, doc, setDoc, getDoc } = Schema.firestore || window.firestoreAPI || {};
 
 const firebaseCompat = window.firebase || {};
 
