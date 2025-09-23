@@ -55,30 +55,30 @@
         <h2 class="text-lg font-semibold">Objectifs</h2>
         <p class="text-sm text-[var(--muted)]">Quatre semaines par mois, saisie rapide incluse.</p>
       </div>
-      <div class="flex items-center gap-2">
-        <div class="goal-nav flex flex-col gap-1" role="group" aria-label="Navigation des mois">
-          <button type="button" class="btn btn-ghost p-2" data-nav-up title="Mois précédent" aria-label="Mois précédent">▲</button>
-          <button type="button" class="btn btn-ghost p-2" data-nav-down title="Mois suivant" aria-label="Mois suivant">▼</button>
-        </div>
-        <button type="button" class="btn btn-primary" data-new-goal>＋ Nouvel objectif</button>
-      </div>
+      <button type="button" class="btn btn-primary" data-new-goal>＋ Nouvel objectif</button>
     `;
     section.appendChild(header);
 
     header.querySelector("[data-new-goal]").onclick = () => openGoalForm(ctx);
 
+    const navUpWrap = document.createElement("div");
+    navUpWrap.className = "goal-nav goal-nav--up";
+    navUpWrap.innerHTML = `
+      <button type="button" class="btn btn-ghost goal-nav-button" data-nav-up title="Mois précédent" aria-label="Mois précédent">▲</button>
+    `;
+    section.appendChild(navUpWrap);
+
     const timeline = document.createElement("div");
     timeline.className = "goal-timeline";
     section.appendChild(timeline);
 
-    const topSentinel = document.createElement("div");
-    const bottomSentinel = document.createElement("div");
-    topSentinel.style.height = bottomSentinel.style.height = "1px";
-    timeline.appendChild(topSentinel);
-    timeline.appendChild(bottomSentinel);
+    const navDownWrap = document.createElement("div");
+    navDownWrap.className = "goal-nav goal-nav--down";
+    navDownWrap.innerHTML = `
+      <button type="button" class="btn btn-ghost goal-nav-button" data-nav-down title="Mois suivant" aria-label="Mois suivant">▼</button>
+    `;
+    section.appendChild(navDownWrap);
 
-    const rendered = new Set();
-    const months = [];
     let activeMonthKey = null;
 
     const toneClasses = ["goal-row--positive", "goal-row--neutral", "goal-row--negative", "goal-row--none"];
@@ -146,29 +146,7 @@
       return row;
     };
 
-    const focusMonth = (monthKey, element, behavior = "smooth") => {
-      if (!monthKey) return;
-      const target = element || timeline.querySelector(`[data-month="${monthKey}"]`);
-      if (!target) return;
-      activeMonthKey = monthKey;
-      timeline.querySelectorAll(".goal-month--active").forEach((node) => {
-        node.classList.remove("goal-month--active");
-      });
-      target.classList.add("goal-month--active");
-      if (typeof target.scrollIntoView === "function") {
-        const behaviorMode = behavior === "auto" ? "auto" : behavior;
-        target.scrollIntoView({ behavior: behaviorMode, block: "start" });
-      }
-    };
-
-    const renderMonth = async (monthKey, where = "end") => {
-      if (rendered.has(monthKey)) {
-        return timeline.querySelector(`[data-month="${monthKey}"]`);
-      }
-      rendered.add(monthKey);
-      months.push(monthKey);
-      months.sort();
-
+    const renderMonth = async (monthKey) => {
       const box = document.createElement("section");
       box.className = "goal-month";
       box.dataset.month = monthKey;
@@ -264,21 +242,21 @@
         empty.textContent = "Aucun objectif pour ce mois.";
         box.appendChild(empty);
       }
-
-      if (where === "start") {
-        const nextSibling = timeline.children[1] || bottomSentinel;
-        timeline.insertBefore(box, nextSibling);
-      } else {
-        timeline.insertBefore(box, bottomSentinel);
-      }
       return box;
     };
 
-    const showMonth = async (monthKey, direction = 0, behavior = "smooth") => {
+    const showMonth = async (monthKey, behavior = "auto") => {
       if (!monthKey) return;
-      const element = await renderMonth(monthKey, direction < 0 ? "start" : "end");
-      if (element) {
-        focusMonth(monthKey, element, behavior);
+      const element = await renderMonth(monthKey);
+      if (!element) return;
+      activeMonthKey = monthKey;
+      timeline.innerHTML = "";
+      timeline.appendChild(element);
+      if (typeof timeline.scrollTo === "function") {
+        const behaviorMode = behavior === "smooth" ? "smooth" : "auto";
+        timeline.scrollTo({ top: 0, behavior: behaviorMode });
+      } else {
+        timeline.scrollTop = 0;
       }
     };
 
@@ -289,15 +267,15 @@
         .then(() => {
           const startFrom = activeMonthKey || Schema.monthKeyFromDate(new Date());
           const target = monthShift(startFrom, offset);
-          return showMonth(target, offset, "smooth");
+          return showMonth(target, "smooth");
         })
         .catch((error) => {
           goalsLogger.warn("goals.navigate.error", error);
         });
     };
 
-    const navUp = header.querySelector("[data-nav-up]");
-    const navDown = header.querySelector("[data-nav-down]");
+    const navUp = navUpWrap.querySelector("[data-nav-up]");
+    const navDown = navDownWrap.querySelector("[data-nav-down]");
     if (navUp) {
       navUp.addEventListener("click", () => navigateMonth(-1));
     }
@@ -305,23 +283,8 @@
       navDown.addEventListener("click", () => navigateMonth(1));
     }
 
-    const observer = new IntersectionObserver(async (entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        if (entry.target === topSentinel) {
-          const base = months[0] || Schema.monthKeyFromDate(new Date());
-          await renderMonth(monthShift(base, -1), "start");
-        } else if (entry.target === bottomSentinel) {
-          const base = months[months.length - 1] || Schema.monthKeyFromDate(new Date());
-          await renderMonth(monthShift(base, 1), "end");
-        }
-      }
-    }, { root: null, rootMargin: "300px" });
-
     const currentMonth = Schema.monthKeyFromDate(new Date());
-    await showMonth(currentMonth, 0, "auto");
-    observer.observe(topSentinel);
-    observer.observe(bottomSentinel);
+    await showMonth(currentMonth, "auto");
   }
 
   function openGoalForm(ctx, goal = null, initial = {}) {
