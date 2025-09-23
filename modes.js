@@ -212,7 +212,8 @@ window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx
 
 async function categorySelect(ctx, mode, currentName = "") {
   const cats = await Schema.fetchCategories(ctx.db, ctx.user.uid);
-  const names = cats.filter(c => c.mode === mode).map(c => c.name);
+  const uniqueNames = Array.from(new Set(cats.map((c) => c.name).filter(Boolean)));
+  uniqueNames.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
   const listId = `category-list-${mode}-${Date.now()}`;
 
   return `
@@ -223,7 +224,7 @@ async function categorySelect(ctx, mode, currentName = "") {
            placeholder="Choisir ou taper un nom…"
            value="${escapeHtml(currentName || "")}">
     <datalist id="${listId}">
-      ${names.map(n => `<option value="${escapeHtml(n)}"></option>`).join("")}
+      ${uniqueNames.map(n => `<option value="${escapeHtml(n)}"></option>`).join("")}
     </datalist>
     <div class="text-xs text-[var(--muted)] mt-1">
       Tu peux taper un nouveau nom ou choisir dans la liste.
@@ -425,12 +426,21 @@ async function openConsigneForm(ctx, consigne = null) {
   const dailyAll = m.querySelector("#daily-all");
   const daysBox  = m.querySelector("#daily-days");
   if (dailyAll && daysBox) {
-    const setAll = (on) => {
-      daysBox.querySelectorAll('input[name="days"]').forEach(cb => { cb.checked = on; });
+    const dayInputs = Array.from(daysBox.querySelectorAll('input[name="days"]'));
+    const syncDaysState = (isDaily) => {
+      dayInputs.forEach((cb) => {
+        if (isDaily) cb.checked = true;
+        cb.disabled = isDaily;
+        const label = cb.closest("label");
+        if (label) {
+          label.classList.toggle("opacity-60", isDaily);
+        }
+      });
     };
-    // init : si "Quotidien" coché mais anciens jours présents → coche tout
-    if (dailyAll.checked) setAll(true);
-    dailyAll.addEventListener("change", () => setAll(dailyAll.checked));
+    syncDaysState(dailyAll.checked);
+    dailyAll.addEventListener("change", () => {
+      syncDaysState(dailyAll.checked);
+    });
   }
   modesLogger.groupEnd();
   $("#cancel", m).onclick = () => m.remove();
