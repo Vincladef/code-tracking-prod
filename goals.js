@@ -1,5 +1,5 @@
 // goals.js — Objectifs timeline
-const Schema = window.Schema || {};
+/* global Schema */
 const Goals = window.Goals = window.Goals || {};
 const L = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
 
