@@ -29,6 +29,13 @@
           const raw = storage.getItem(INSTALL_TARGET_STORAGE_KEY);
           if (!raw || typeof raw !== "string") return null;
           const trimmed = raw.trim();
+          if (!trimmed) return null;
+          if (/^#\/admin(?:\/|\?|$)/.test(trimmed)) {
+            const [rawPath = "", searchPart = ""] = trimmed.split("?");
+            const segments = rawPath.replace(/^#\/+/g, "").split("/");
+            const normalizedHash = `#/${segments.filter(Boolean).join("/") || "admin"}`;
+            return searchPart ? `${normalizedHash}?${searchPart}` : normalizedHash;
+          }
           if (!/^#\/u\//.test(trimmed)) return null;
           const [rawPath = "", searchPart = ""] = trimmed.split("?");
           const segments = rawPath.replace(/^#\/+/g, "").split("/");
