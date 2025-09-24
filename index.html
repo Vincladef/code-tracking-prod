@@ -581,6 +581,18 @@
 
       let deferredPrompt = null;
 
+      function rememberCurrentInstallTarget() {
+        const api = window.__appInstallTarget;
+        if (!api || typeof api.save !== "function") {
+          return;
+        }
+        try {
+          api.save(window.location.hash || "");
+        } catch (error) {
+          console.warn("[install] target:remember", error);
+        }
+      }
+
       function showButton({ label } = {}) {
         if (isStandalone) return;
         installButton.textContent = label || defaultLabel;
@@ -602,8 +614,9 @@
       });
 
       window.addEventListener("appinstalled", () => {
+        rememberCurrentInstallTarget();
         deferredPrompt = null;
-        hideButton();
+        showButton({ label: defaultLabel });
       });
 
       if (isiOS && !isStandalone) {
@@ -613,6 +626,7 @@
       }
 
       installButton.addEventListener("click", async () => {
+        rememberCurrentInstallTarget();
         if (typeof window.__closeUserActionsMenu === "function") {
           window.__closeUserActionsMenu();
         }
@@ -623,7 +637,7 @@
             const choice = await deferredPrompt.userChoice;
             deferredPrompt = null;
             if (choice?.outcome === "accepted") {
-              hideButton();
+              showButton({ label: defaultLabel });
             }
           } catch (error) {
             console.warn("[install] prompt", error);
