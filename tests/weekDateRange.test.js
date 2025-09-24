@@ -38,16 +38,36 @@ function runTests() {
   assert(augustRange, "La première semaine d’août 2020 doit être définie");
   assertEqual(
     augustRange.label,
-    "Semaine du 01 au 09 août",
+    "Semaine du 27 juillet au 02 août",
     "Libellé de la première semaine d’août 2020 incorrect",
+  );
+  assertEqual(
+    augustRange.start.getDay(),
+    1,
+    "La première semaine d’août 2020 doit commencer un lundi",
+  );
+  assertEqual(
+    augustRange.end.getDay(),
+    0,
+    "La première semaine d’août 2020 doit se terminer un dimanche",
   );
 
   const octoberRange = weekDateRange("2023-10", 4);
   assert(octoberRange, "La quatrième semaine d’octobre 2023 doit être définie");
   assertEqual(
     octoberRange.label,
-    "Semaine du 23 au 31 octobre",
+    "Semaine du 16 au 22 octobre",
     "Libellé de la dernière semaine d’octobre 2023 incorrect",
+  );
+  assertEqual(
+    octoberRange.start.getDay(),
+    1,
+    "La quatrième semaine d’octobre 2023 doit commencer un lundi",
+  );
+  assertEqual(
+    octoberRange.end.getDay(),
+    0,
+    "La quatrième semaine d’octobre 2023 doit se terminer un dimanche",
   );
 
   assertEqual(
@@ -57,8 +77,8 @@ function runTests() {
   );
   assertEqual(
     weekOfMonthFromDate(new Date("2020-08-10")),
-    2,
-    "Le 10 août 2020 devrait appartenir à la deuxième semaine",
+    3,
+    "Le 10 août 2020 devrait appartenir à la troisième semaine",
   );
 }
 

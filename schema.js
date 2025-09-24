@@ -663,46 +663,22 @@ function monthWeekSegments(monthKey) {
   if (!totalDays) return [];
   const firstDay = new Date(year, month - 1, 1);
   const firstWeekday = mondayIndexFromSundayIndex(firstDay.getDay());
-  const span = totalDays + firstWeekday;
-  const rawCount = Math.max(4, Math.ceil(span / 7));
-  const rawWeeks = [];
-  for (let i = 0; i < rawCount; i += 1) {
-    const rawStart = 1 - firstWeekday + i * 7;
-    const rawEnd = rawStart + 6;
-    const startDay = Math.max(1, rawStart);
-    const endDay = Math.min(totalDays, rawEnd);
-    if (startDay > endDay) {
-      continue;
-    }
-    rawWeeks.push({ startDay, endDay });
-  }
-  if (!rawWeeks.length) {
-    return [];
-  }
-  while (rawWeeks.length > 4) {
-    const first = rawWeeks[0];
-    const last = rawWeeks[rawWeeks.length - 1];
-    const firstLength = first.endDay - first.startDay + 1;
-    const lastLength = last.endDay - last.startDay + 1;
-    if (firstLength <= lastLength) {
-      rawWeeks[1].startDay = first.startDay;
-      rawWeeks.shift();
-    } else {
-      rawWeeks[rawWeeks.length - 2].endDay = last.endDay;
-      rawWeeks.pop();
-    }
-  }
-  return rawWeeks.map((week, idx) => {
-    const start = new Date(year, month - 1, week.startDay);
-    const end = new Date(year, month - 1, week.endDay);
-    return {
-      index: idx + 1,
+  const baseStartDay = 1 - firstWeekday;
+  const segments = [];
+  for (let i = 0; i < 4; i += 1) {
+    const startDay = baseStartDay + i * 7;
+    const endDay = startDay + 6;
+    const start = new Date(year, month - 1, startDay);
+    const end = new Date(year, month - 1, endDay);
+    segments.push({
+      index: i + 1,
       start,
       end,
-      startDay: week.startDay,
-      endDay: week.endDay,
-    };
-  });
+      startDay,
+      endDay,
+    });
+  }
+  return segments;
 }
 
 function weeksOf(monthKey) {
