@@ -75,11 +75,24 @@ function srBadge(c){
             aria-pressed="${enabled}" title="${title}">⏳</button>`;
 }
 
+function priorityTone(p) {
+  const n = Number(p);
+  if (!Number.isFinite(n)) return "medium";
+  if (n <= 1) return "high";
+  if (n >= 3) return "low";
+  return "medium";
+}
+
+function priorityLabelFromTone(tone) {
+  if (tone === "high") return "haute";
+  if (tone === "low") return "basse";
+  return "moyenne";
+}
+
 function prioChip(p) {
-  const n = Number(p)||2;
-  const cls = n===1 ? "prio-chip prio-high" : n===2 ? "prio-chip prio-medium" : "prio-chip prio-low";
-  const lbl = n===1 ? "Haute" : n===2 ? "Moyenne" : "Basse";
-  return `<span class="${cls}" title="Priorité ${lbl}">${lbl}</span>`;
+  const tone = priorityTone(p);
+  const lbl = priorityLabelFromTone(tone);
+  return `<span class="sr-only" data-priority="${tone}">Priorité ${lbl}</span>`;
 }
 
 function smallBtn(label, cls = "") {
@@ -813,7 +826,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
                 <span class="practice-dashboard__row-indicator" aria-hidden="true"></span>
                 <div class="practice-dashboard__row-info">
                   <span class="practice-dashboard__consigne-name">${escapeHtml(stat.name)}</span>
-                  <span class="practice-dashboard__row-meta">${escapeHtml(stat.priorityLabel)}</span>
+                  <span class="practice-dashboard__row-meta sr-only">Priorité ${escapeHtml(stat.priorityLabel)}</span>
                 </div>
               </div>
             </th>`;
@@ -1398,7 +1411,7 @@ function consigneActions() {
     <div class="daily-consigne__actions" role="group" aria-label="Actions">
       ${smallBtn("Historique", "js-histo")}
       ${smallBtn("Modifier", "js-edit")}
-      ${smallBtn("Supprimer", "js-del text-red-600")}
+      ${smallBtn("Supprimer", "js-del")}
     </div>
   `;
 }
@@ -1938,8 +1951,9 @@ async function renderPractice(ctx, root, _opts = {}) {
     form.innerHTML = "";
 
     const makeItem = (c) => {
+      const tone = priorityTone(c.priority);
       const el = document.createElement("div");
-      el.className = "consigne-card card p-3 space-y-3";
+      el.className = `consigne-card card p-3 space-y-3 priority-surface priority-surface-${tone}`;
       el.dataset.id = c.id;
       el.setAttribute("draggable", "true");
       el.innerHTML = `
@@ -2206,7 +2220,8 @@ async function renderDaily(ctx, root, opts = {}) {
   const renderItemCard = (item) => {
     const previous = previousAnswers?.get(item.id);
     const itemCard = document.createElement("div");
-    itemCard.className = "daily-consigne";
+    const tone = priorityTone(item.priority);
+    itemCard.className = `daily-consigne priority-surface priority-surface-${tone}`;
     itemCard.innerHTML = `
       <div class="daily-consigne__top">
         <div class="daily-consigne__title">
