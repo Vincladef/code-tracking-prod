@@ -1401,12 +1401,10 @@
         const encodedUid = encodeURIComponent(uid);
         const link = `${location.origin}${location.pathname}#/u/${encodedUid}/daily`;
         items.push(`
-          <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3">
-            <div>
-              <div class="font-medium">${safeName}</div>
-              <div class="text-sm text-[var(--muted)]">UID: ${safeUid}</div>
-            </div>
-            <div class="flex flex-wrap items-center justify-end gap-2">
+          <div class="rounded-xl border border-gray-200 bg-white p-3">
+            <div class="font-medium">${safeName}</div>
+            <div class="text-sm text-[var(--muted)]">UID: ${safeUid}</div>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
               <a class="btn btn-ghost text-sm"
                  href="${link}"
                  target="_blank"
