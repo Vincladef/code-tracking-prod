@@ -434,6 +434,9 @@
           <button class="tab" data-route="#/practice"><span>⚡</span><span>Pratique</span></button>
           <button class="tab" data-route="#/goals"><span>🎯</span><span>Objectifs</span></button>
         </nav>
+        <div class="hidden w-full flex-col gap-2 sm:hidden" id="mobile-actions">
+          <button type="button" class="btn btn-primary" id="install-app-button">Ajouter à l’écran d’accueil</button>
+        </div>
       </div>
     </header>
 
@@ -478,6 +481,69 @@
         startRouter(app, db);
       } else {
         console.error("startRouter indisponible");
+      }
+    })();
+  </script>
+  <script>
+    (function setupInstallButton() {
+      const actions = document.getElementById("mobile-actions");
+      const installButton = document.getElementById("install-app-button");
+      if (!installButton || !actions) {
+        return;
+      }
+
+      let deferredPrompt = null;
+      const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+      const isiOS = /iphone|ipad|ipod/i.test(window.navigator.userAgent || "");
+
+      function showButton() {
+        if (isStandalone) return;
+        actions.classList.remove("hidden");
+        installButton.classList.remove("hidden");
+      }
+
+      function hideButton() {
+        installButton.classList.add("hidden");
+        actions.classList.add("hidden");
+      }
+
+      hideButton();
+
+      window.addEventListener("beforeinstallprompt", (event) => {
+        event.preventDefault();
+        deferredPrompt = event;
+        showButton();
+      });
+
+      window.addEventListener("appinstalled", () => {
+        deferredPrompt = null;
+        hideButton();
+      });
+
+      installButton.addEventListener("click", async () => {
+        if (deferredPrompt) {
+          deferredPrompt.prompt();
+          try {
+            const choice = await deferredPrompt.userChoice;
+            deferredPrompt = null;
+            if (choice?.outcome === "accepted") {
+              hideButton();
+            }
+          } catch (error) {
+            console.warn("[install] prompt", error);
+          }
+          return;
+        }
+
+        if (isiOS && !isStandalone) {
+          alert("Pour ajouter cette app à l’écran d’accueil, ouvrez le menu de partage Safari puis choisissez « Ajouter à l’écran d’accueil ».");
+        } else {
+          alert("Utilisez les options du navigateur pour ajouter cette page à l’écran d’accueil.");
+        }
+      });
+
+      if (isiOS && !isStandalone) {
+        showButton();
       }
     })();
   </script>
