@@ -543,12 +543,22 @@
         return;
       }
 
-      let deferredPrompt = null;
-      const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
-      const isiOS = /iphone|ipad|ipod/i.test(window.navigator.userAgent || "");
+      const defaultLabel = installButton.textContent.trim() || "📱 Ajouter à l’écran d’accueil";
+      const supportsMatchMedia = typeof window.matchMedia === "function";
+      const mediaMatches = (query) => (supportsMatchMedia ? window.matchMedia(query).matches : false);
+      const isStandalone = mediaMatches("(display-mode: standalone)") || window.navigator.standalone === true;
+      const userAgent = (window.navigator.userAgent || "").toLowerCase();
+      const isiOS = /iphone|ipad|ipod/.test(userAgent);
+      const isAndroid = /android/.test(userAgent);
+      const hasTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+      const isSmallViewport = mediaMatches("(max-width: 768px)");
+      const isMobileDevice = (isiOS || isAndroid || (hasTouch && isSmallViewport));
 
-      function showButton() {
+      let deferredPrompt = null;
+
+      function showButton({ label } = {}) {
         if (isStandalone) return;
+        installButton.textContent = label || defaultLabel;
         installButton.classList.remove("hidden");
         installButton.disabled = false;
       }
@@ -563,7 +573,7 @@
       window.addEventListener("beforeinstallprompt", (event) => {
         event.preventDefault();
         deferredPrompt = event;
-        showButton();
+        showButton({ label: defaultLabel });
       });
 
       window.addEventListener("appinstalled", () => {
@@ -572,9 +582,9 @@
       });
 
       if (isiOS && !isStandalone) {
-        installButton.classList.remove("hidden");
-        installButton.textContent = "📱 Ajouter via Safari";
-        installButton.disabled = false;
+        showButton({ label: "📱 Ajouter via Safari" });
+      } else if (isMobileDevice && !isStandalone) {
+        showButton({ label: defaultLabel });
       }
 
       installButton.addEventListener("click", async () => {
@@ -597,15 +607,17 @@
         }
 
         if (isiOS && !isStandalone) {
-          alert("Pour ajouter cette app à l’écran d’accueil, ouvrez le menu de partage Safari puis choisissez « Ajouter à l’écran d’accueil ».");
-        } else {
-          alert("Utilisez les options du navigateur pour ajouter cette page à l’écran d’accueil.");
+          alert("Pour ajouter cette app à l’écran d’accueil, ouvre le menu de partage Safari puis choisis « Ajouter à l’écran d’accueil ».");
+          return;
         }
-      });
 
-      if (isiOS && !isStandalone) {
-        showButton();
-      }
+        if ((isAndroid || isMobileDevice) && !isStandalone) {
+          alert("Pour installer cette app, utilise le menu du navigateur (⋮) puis sélectionne « Ajouter à l’écran d’accueil ».");
+          return;
+        }
+
+        alert("Utilise les options du navigateur pour ajouter cette page à l’écran d’accueil.");
+      });
     })();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
