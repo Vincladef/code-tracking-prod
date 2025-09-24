@@ -733,6 +733,9 @@
         deferredPrompt = null;
         showButton({ label: primaryDefaultLabel });
         hideBanner();
+        if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+          window.__appBadge.refresh().catch(() => {});
+        }
       });
 
       if (isiOS && !isStandalone) {

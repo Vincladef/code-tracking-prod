@@ -2345,11 +2345,17 @@ async function renderDaily(ctx, root, opts = {}) {
       return;
     }
     await Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers);
+    if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+      window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+    }
     showToast("Journal enregistré");
     renderDaily(ctx, root, { day: currentDay, dateIso: dayKey });
   };
 
   modesLogger.groupEnd();
+  if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+    window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+  }
 }
 
 function renderHistory() {}
