@@ -430,6 +430,12 @@
     .goal-input{ width:100%; }
     .goal-checkbox{ display:inline-flex; align-items:center; gap:.5rem; font-size:.9rem; color:#0f172a; }
     .goal-checkbox input{ width:1.1rem; height:1.1rem; accent-color:var(--accent-500,#4f46e5); }
+    .goal-reminder{ display:grid; gap:.35rem; margin-left:1.75rem; }
+    .goal-reminder__input{ width:min(220px,100%); }
+    .goal-reminder__label{ font-size:.8rem; color:#64748B; }
+    .goal-hint{ font-size:.75rem; color:var(--muted); }
+    .goal-hint.is-disabled{ opacity:.6; }
+    .goal-input[disabled]{ background:#f8fafc; color:#94a3b8; cursor:not-allowed; }
     .goal-actions{ display:flex; justify-content:flex-end; gap:.5rem; flex-wrap:wrap; }
     .goal-actions [data-delete]{ margin-right:auto; }
     .goal-list{ margin-top:.5rem; padding-left:1.25rem; display:grid; gap:.35rem; list-style:disc; }

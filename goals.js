@@ -19,6 +19,106 @@
       .replace(/'/g, "&#39;");
   }
 
+  function toDate(value) {
+    if (!value) return null;
+    if (value instanceof Date) return new Date(value.getTime());
+    if (typeof value.toDate === "function") {
+      try {
+        const asDate = value.toDate();
+        if (asDate instanceof Date && !Number.isNaN(asDate.getTime())) {
+          return asDate;
+        }
+      } catch (err) {
+        goalsLogger.warn("goals.toDate", err);
+      }
+    }
+    if (typeof value === "number") {
+      const asDate = new Date(value);
+      if (!Number.isNaN(asDate.getTime())) return asDate;
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+        const [year, month, day] = trimmed.split("-").map(Number);
+        const asDate = new Date(year, (month || 1) - 1, day || 1);
+        if (!Number.isNaN(asDate.getTime())) return asDate;
+      }
+      const asDate = new Date(trimmed);
+      if (!Number.isNaN(asDate.getTime())) return asDate;
+    }
+    return null;
+  }
+
+  function formatDateInputValue(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function isoValueFromAny(value) {
+    if (!value) return "";
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return "";
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+      const parsed = toDate(trimmed);
+      return formatDateInputValue(parsed);
+    }
+    const parsed = toDate(value);
+    return formatDateInputValue(parsed);
+  }
+
+  function parseMonthKey(monthKey) {
+    const [yearStr, monthStr] = String(monthKey || "").split("-");
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    if (!Number.isFinite(year) || !Number.isFinite(month)) return null;
+    return { year, month };
+  }
+
+  function computeTheoreticalGoalDate(goal) {
+    if (!goal) return null;
+    const explicitEnd = toDate(goal.endDate);
+    if (explicitEnd) {
+      explicitEnd.setHours(0, 0, 0, 0);
+      return explicitEnd;
+    }
+    if (goal.type === "hebdo") {
+      const range = Schema.weekDateRange(goal.monthKey, goal.weekOfMonth || goal.weekIndex || 1);
+      if (range?.end instanceof Date) {
+        const end = new Date(range.end.getTime());
+        end.setHours(0, 0, 0, 0);
+        return end;
+      }
+    }
+    if (goal.type === "mensuel") {
+      const parsed = parseMonthKey(goal.monthKey);
+      if (parsed) {
+        const end = new Date(parsed.year, parsed.month, 0);
+        end.setHours(0, 0, 0, 0);
+        return end;
+      }
+    }
+    const start = toDate(goal.startDate);
+    if (start) {
+      start.setHours(0, 0, 0, 0);
+      return start;
+    }
+    return null;
+  }
+
+  function formatGoalDateLabel(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+    const raw = date.toLocaleDateString("fr-FR", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+    return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "";
+  }
+
   function monthShift(monthKey, offset) {
     const [year, month] = monthKey.split("-").map(Number);
     const base = new Date(year || 1970, (month || 1) - 1 + offset, 1);
@@ -338,6 +438,18 @@
       .map((w) => `<button type="button" class="btn-ghost" data-w="${w}">S${w}</button>`)
       .join("");
 
+    const theoreticalInitialDate = computeTheoreticalGoalDate({
+      type: typeInitial,
+      monthKey,
+      weekOfMonth,
+      startDate: goal?.startDate ?? initial.startDate,
+      endDate: goal?.endDate ?? initial.endDate,
+    });
+    const theoreticalInitialIso = formatDateInputValue(theoreticalInitialDate);
+    const storedNotifyIso = isoValueFromAny(goal?.notifyAt ?? initial.notifyAt ?? "");
+    let notifyDateDirty = Boolean(storedNotifyIso && storedNotifyIso !== theoreticalInitialIso);
+    const notifyDateInitialValue = storedNotifyIso || theoreticalInitialIso || "";
+
     const wrap = document.createElement("div");
     wrap.className = "goal-modal";
     wrap.innerHTML = `
@@ -376,8 +488,15 @@
             <span class="goal-label">Notifications</span>
             <label class="goal-checkbox">
               <input type="checkbox" name="notifyOnTarget" ${notificationsInitial ? "checked" : ""}>
-              <span>Recevoir un rappel à l’échéance théorique</span>
+              <span>Recevoir un rappel</span>
             </label>
+            <div class="goal-reminder">
+              <label class="goal-label goal-reminder__label" for="goal-notify-date">Jour du rappel</label>
+              <input type="date" id="goal-notify-date" name="notifyAt" class="goal-input goal-reminder__input" value="${escapeHtml(
+                notifyDateInitialValue
+              )}">
+              <p class="goal-reminder__hint goal-hint" data-notify-default></p>
+            </div>
           </div>
           <div class="goal-actions">
             ${goal ? '<button type="button" class="btn btn-danger" data-delete>Supprimer</button>' : ""}
@@ -401,11 +520,79 @@
     const typeSelect = form.querySelector("#obj-type");
     const weekPicker = form.querySelector("#week-picker");
     const weekButtons = form.querySelectorAll("#week-picker [data-w]");
+    const notifyCheckbox = form.querySelector("[name=notifyOnTarget]");
+    const notifyDateInput = form.querySelector("[name=notifyAt]");
+    const notifyDefaultHint = form.querySelector("[data-notify-default]");
 
     const syncWeekPicker = () => {
       weekPicker.style.display = typeSelect.value === "hebdo" ? "" : "none";
     };
     syncWeekPicker();
+
+    const currentGoalConfig = () => ({
+      type: typeSelect.value,
+      monthKey,
+      weekOfMonth,
+      startDate: goal?.startDate ?? initial.startDate,
+      endDate: goal?.endDate ?? initial.endDate,
+    });
+
+    const updateNotifyDefault = () => {
+      const theoreticalDate = computeTheoreticalGoalDate(currentGoalConfig());
+      const theoreticalIso = formatDateInputValue(theoreticalDate);
+      if (notifyDefaultHint) {
+        if (theoreticalDate) {
+          notifyDefaultHint.textContent = `Échéance théorique : ${formatGoalDateLabel(theoreticalDate)}`;
+        } else {
+          notifyDefaultHint.textContent = "Choisis le jour de rappel souhaité.";
+        }
+      }
+      if (!notifyDateInput) return;
+      if (!notifyDateDirty) {
+        notifyDateInput.value = theoreticalIso || "";
+      } else if (notifyDateInput.value === theoreticalIso) {
+        notifyDateDirty = false;
+      }
+    };
+
+    const updateNotificationEnabledState = () => {
+      const enabled = notifyCheckbox?.checked !== false;
+      if (notifyDateInput) {
+        notifyDateInput.disabled = !enabled;
+      }
+      if (notifyDefaultHint) {
+        notifyDefaultHint.classList.toggle("is-disabled", !enabled);
+      }
+    };
+
+    const markNotifyDirty = () => {
+      if (!notifyDateInput) {
+        notifyDateDirty = false;
+        return;
+      }
+      if (!notifyDateInput.value) {
+        notifyDateDirty = false;
+        updateNotifyDefault();
+        return;
+      }
+      const theoreticalIso = formatDateInputValue(computeTheoreticalGoalDate(currentGoalConfig())) || "";
+      notifyDateDirty = notifyDateInput.value !== theoreticalIso;
+    };
+
+    if (notifyDateInput) {
+      notifyDateInput.addEventListener("input", markNotifyDirty);
+      notifyDateInput.addEventListener("change", markNotifyDirty);
+    }
+
+    if (notifyCheckbox) {
+      notifyCheckbox.addEventListener("change", () => {
+        updateNotificationEnabledState();
+        if (notifyCheckbox.checked && notifyDateInput && !notifyDateInput.value) {
+          notifyDateDirty = false;
+          updateNotifyDefault();
+        }
+      });
+    }
 
     weekButtons.forEach((btn) => {
       const value = Number(btn.dataset.w || "1");
@@ -416,10 +603,17 @@
         event.preventDefault();
         weekOfMonth = value;
         weekButtons.forEach((other) => other.classList.toggle("is-active", other === btn));
+        updateNotifyDefault();
       });
     });
 
-    typeSelect.addEventListener("change", syncWeekPicker);
+    typeSelect.addEventListener("change", () => {
+      syncWeekPicker();
+      updateNotifyDefault();
+    });
+
+    updateNotifyDefault();
+    updateNotificationEnabledState();
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -430,7 +624,16 @@
       }
       const description = form.querySelector("[name=description]").value.trim();
       const type = typeSelect.value;
-      const notifyOnTarget = form.querySelector("[name=notifyOnTarget]")?.checked !== false;
+      const notifyOnTarget = notifyCheckbox?.checked !== false;
+      const notifyAtRaw = (notifyDateInput?.value || "").trim();
+      let notifyAt = null;
+      if (notifyOnTarget) {
+        if (notifyAtRaw) {
+          notifyAt = notifyAtRaw;
+        } else {
+          notifyAt = formatDateInputValue(computeTheoreticalGoalDate(currentGoalConfig())) || null;
+        }
+      }
 
       const data = {
         titre,
@@ -438,6 +641,7 @@
         type,
         monthKey,
         notifyOnTarget,
+        notifyAt: notifyAt || null,
       };
       if (type === "hebdo") {
         data.weekOfMonth = weekOfMonth;
