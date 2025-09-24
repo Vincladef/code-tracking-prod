@@ -122,16 +122,19 @@ function toAppPath(h) {
 }
 
 // --------- CAT DASHBOARD (modal) ---------
-window.openCategoryDashboard = async function openCategoryDashboard(ctx, category) {
+window.openCategoryDashboard = async function openCategoryDashboard(ctx, category, options = {}) {
+  const mode = options.mode === "daily" ? "daily" : "practice";
+  const isPractice = mode === "practice";
+  const isDaily = mode === "daily";
   const palette = [
-    "#2563EB",
-    "#0EA5E9",
-    "#10B981",
-    "#F97316",
-    "#6366F1",
-    "#EC4899",
-    "#14B8A6",
-    "#8B5CF6",
+    "#1B9E77",
+    "#D95F02",
+    "#7570B3",
+    "#E7298A",
+    "#66A61E",
+    "#E6AB02",
+    "#A6761D",
+    "#1F78B4",
   ];
   const priorityLabels = { 1: "Haute", 2: "Moyenne", 3: "Basse" };
 
@@ -143,6 +146,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+  });
+  const fullDayFormatter = new Intl.DateTimeFormat("fr-FR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
   });
   const shortDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
   const today = new Date();
@@ -258,7 +267,26 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
   }
 
   try {
-    const consignes = await Schema.listConsignesByCategory(ctx.db, ctx.user.uid, category);
+    const normalizedCategory = typeof category === "string" ? category.trim() : "";
+    let effectiveCategory = normalizedCategory;
+    let consignes = [];
+    let dailyCategories = [];
+
+    if (isPractice) {
+      consignes = await Schema.listConsignesByCategory(ctx.db, ctx.user.uid, normalizedCategory);
+    } else {
+      const allDaily = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
+      const activeDaily = (allDaily || []).filter((item) => item?.active !== false);
+      dailyCategories = Array.from(new Set(activeDaily.map((item) => item.category || "Général")));
+      dailyCategories.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+      const requestedCategory = normalizedCategory && normalizedCategory !== "__all__" ? normalizedCategory : "";
+      effectiveCategory = requestedCategory;
+      consignes = requestedCategory
+        ? activeDaily.filter((item) => (item.category || "Général") === requestedCategory)
+        : activeDaily;
+    }
+
+    consignes = (consignes || []).filter((item) => item?.active !== false);
     const iterationMetaMap = new Map();
 
     const seenFallback = { value: 0 };
@@ -324,51 +352,72 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       return fallback;
     }
 
-    let practiceSessions = [];
-    try {
-      practiceSessions = await Schema.fetchPracticeSessions(ctx.db, ctx.user.uid, 500);
-    } catch (sessionError) {
-      modesLogger.warn("practice-dashboard:sessions:error", sessionError);
+    function computeDayKey(row, createdAt) {
+      const rawDay =
+        row.dayKey ||
+        row.day_key ||
+        row.date ||
+        row.day ||
+        (typeof row.getDayKey === "function" ? row.getDayKey() : null);
+      if (rawDay) return String(rawDay);
+      const sourceDate = createdAt || parseResponseDate(row.createdAt || row.updatedAt || null);
+      if (sourceDate) {
+        return Schema.dayKeyFromDate(sourceDate);
+      }
+      const fallback = `day-${seenFallback.value}`;
+      seenFallback.value += 1;
+      return fallback;
     }
 
-    (practiceSessions || []).forEach((session) => {
-      const createdAt = parseResponseDate(session.startedAt || session.createdAt || session.date || null);
-      const key = computeIterationKey(session, createdAt);
-      const meta = ensureIterationMeta(key);
-      if (!meta) return;
-      meta.sources.add("session");
-      if (session.sessionId && !meta.sessionId) {
-        meta.sessionId = String(session.sessionId);
+    const computeTemporalKey = isPractice ? computeIterationKey : computeDayKey;
+
+    if (isPractice) {
+      let practiceSessions = [];
+      try {
+        practiceSessions = await Schema.fetchPracticeSessions(ctx.db, ctx.user.uid, 500);
+      } catch (sessionError) {
+        modesLogger.warn("practice-dashboard:sessions:error", sessionError);
       }
-      const rawSessionIndex = session.sessionIndex ?? session.session_index;
-      if (rawSessionIndex !== undefined && rawSessionIndex !== null && rawSessionIndex !== "") {
-        const parsedIndex = Number(rawSessionIndex);
-        if (Number.isFinite(parsedIndex)) {
-          if (meta.sessionIndex == null || parsedIndex < meta.sessionIndex) {
-            meta.sessionIndex = parsedIndex;
-          }
-          if (meta.sessionNumber == null) {
-            meta.sessionNumber = parsedIndex + 1;
+
+      (practiceSessions || []).forEach((session) => {
+        const createdAt = parseResponseDate(session.startedAt || session.createdAt || session.date || null);
+        const key = computeTemporalKey(session, createdAt);
+        const meta = ensureIterationMeta(key);
+        if (!meta) return;
+        meta.sources.add("session");
+        if (session.sessionId && !meta.sessionId) {
+          meta.sessionId = String(session.sessionId);
+        }
+        const rawSessionIndex = session.sessionIndex ?? session.session_index;
+        if (rawSessionIndex !== undefined && rawSessionIndex !== null && rawSessionIndex !== "") {
+          const parsedIndex = Number(rawSessionIndex);
+          if (Number.isFinite(parsedIndex)) {
+            if (meta.sessionIndex == null || parsedIndex < meta.sessionIndex) {
+              meta.sessionIndex = parsedIndex;
+            }
+            if (meta.sessionNumber == null) {
+              meta.sessionNumber = parsedIndex + 1;
+            }
           }
         }
-      }
-      const rawSessionNumber =
-        session.sessionNumber ?? session.session_number ?? session.index ?? session.order;
-      if (rawSessionNumber !== undefined && rawSessionNumber !== null && rawSessionNumber !== "") {
-        const parsedNumber = Number(rawSessionNumber);
-        if (Number.isFinite(parsedNumber)) {
-          if (meta.sessionNumber == null || parsedNumber < meta.sessionNumber) {
-            meta.sessionNumber = parsedNumber;
-          }
-          if (meta.sessionIndex == null) {
-            meta.sessionIndex = parsedNumber - 1;
+        const rawSessionNumber =
+          session.sessionNumber ?? session.session_number ?? session.index ?? session.order;
+        if (rawSessionNumber !== undefined && rawSessionNumber !== null && rawSessionNumber !== "") {
+          const parsedNumber = Number(rawSessionNumber);
+          if (Number.isFinite(parsedNumber)) {
+            if (meta.sessionNumber == null || parsedNumber < meta.sessionNumber) {
+              meta.sessionNumber = parsedNumber;
+            }
+            if (meta.sessionIndex == null) {
+              meta.sessionIndex = parsedNumber - 1;
+            }
           }
         }
-      }
-      if (createdAt && (!meta.createdAt || createdAt < meta.createdAt)) {
-        meta.createdAt = createdAt;
-      }
-    });
+        if (createdAt && (!meta.createdAt || createdAt < meta.createdAt)) {
+          meta.createdAt = createdAt;
+        }
+      });
+    }
 
     function mergeEntry(entryMap, key, payload) {
       const current = entryMap.get(key) || { date: key, value: "", note: "", createdAt: null };
@@ -415,39 +464,46 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         }
 
         (responseRows || [])
-          .filter((row) => (row.mode || consigne.mode) === "practice")
+          .filter((row) => (row.mode || consigne.mode || mode) === mode)
           .forEach((row) => {
             const createdAt = parseResponseDate(row.createdAt);
-            const rawIndex = row.sessionIndex ?? row.session_index;
-            const rawNumber = row.sessionNumber ?? row.session_number;
-            const sessionIndex =
-              rawIndex !== undefined && rawIndex !== null && rawIndex !== ""
-                ? Number(rawIndex)
-                : rawNumber !== undefined && rawNumber !== null && rawNumber !== ""
-                ? Number(rawNumber) - 1
-                : null;
-            const sessionId =
-              row.sessionId ||
-              row.session_id ||
-              (Number.isFinite(sessionIndex) ? `session-${String(sessionIndex + 1).padStart(4, "0")}` : null);
-            const key = computeIterationKey(row, createdAt);
+            let sessionIndex = null;
+            let sessionId = null;
+            let rawNumber = null;
+            if (isPractice) {
+              const rawIndex = row.sessionIndex ?? row.session_index;
+              rawNumber = row.sessionNumber ?? row.session_number;
+              sessionIndex =
+                rawIndex !== undefined && rawIndex !== null && rawIndex !== ""
+                  ? Number(rawIndex)
+                  : rawNumber !== undefined && rawNumber !== null && rawNumber !== ""
+                  ? Number(rawNumber) - 1
+                  : null;
+              sessionId =
+                row.sessionId ||
+                row.session_id ||
+                (Number.isFinite(sessionIndex) ? `session-${String(sessionIndex + 1).padStart(4, "0")}` : null);
+            }
+            const key = computeTemporalKey(row, createdAt);
             const meta = ensureIterationMeta(key);
             if (!meta) return;
             meta.sources.add("response");
-            if (sessionId && !meta.sessionId) meta.sessionId = String(sessionId);
-            if (Number.isFinite(sessionIndex)) {
-              if (meta.sessionIndex == null || sessionIndex < meta.sessionIndex) {
-                meta.sessionIndex = sessionIndex;
+            if (isPractice) {
+              if (sessionId && !meta.sessionId) meta.sessionId = String(sessionId);
+              if (Number.isFinite(sessionIndex)) {
+                if (meta.sessionIndex == null || sessionIndex < meta.sessionIndex) {
+                  meta.sessionIndex = sessionIndex;
+                }
+                if (meta.sessionNumber == null) {
+                  meta.sessionNumber = sessionIndex + 1;
+                }
               }
-              if (meta.sessionNumber == null) {
-                meta.sessionNumber = sessionIndex + 1;
-              }
-            }
-            if (rawNumber !== undefined && rawNumber !== null && rawNumber !== "") {
-              const parsedNumber = Number(rawNumber);
-              if (Number.isFinite(parsedNumber)) {
-                if (meta.sessionNumber == null || parsedNumber < meta.sessionNumber) {
-                  meta.sessionNumber = parsedNumber;
+              if (rawNumber !== undefined && rawNumber !== null && rawNumber !== "") {
+                const parsedNumber = Number(rawNumber);
+                if (Number.isFinite(parsedNumber)) {
+                  if (meta.sessionNumber == null || parsedNumber < meta.sessionNumber) {
+                    meta.sessionNumber = parsedNumber;
+                  }
                 }
               }
             }
@@ -470,11 +526,13 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         (historyEntries || [])
           .filter((entry) => entry?.date)
           .forEach((entry) => {
-            const key = entry.date;
+            const normalized = parseHistoryEntry(entry);
+            const key = isDaily
+              ? computeTemporalKey({ dayKey: entry.date }, normalized.createdAt)
+              : entry.date;
             const meta = ensureIterationMeta(key);
             if (!meta) return;
             meta.sources.add("history");
-            const normalized = parseHistoryEntry(entry);
             if (normalized.createdAt && (!meta.createdAt || normalized.createdAt < meta.createdAt)) {
               meta.createdAt = normalized.createdAt;
             }
@@ -514,12 +572,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         return String(a.key).localeCompare(String(b.key));
       })
       .map((meta, idx) => {
-        const sessionNumber =
-          Number.isFinite(meta.sessionNumber)
-            ? Number(meta.sessionNumber)
-            : Number.isFinite(meta.sessionIndex)
-            ? Number(meta.sessionIndex) + 1
-            : null;
         const key = meta.key;
         let dateObj = meta.createdAt || null;
         if (!dateObj) {
@@ -532,26 +584,49 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             dateObj = toDate(key);
           }
         }
+
         const displayIndex = idx + 1;
-        const label = `Itération ${displayIndex}`;
+        let sessionNumber = null;
+        let label = "";
         let fullLabel = "";
-        if (dateObj) {
-          fullLabel = fullDateTimeFormatter.format(dateObj);
-        } else if (sessionNumber != null && sessionNumber !== displayIndex) {
-          fullLabel = `Session ${sessionNumber}`;
-        } else if (sessionNumber != null) {
-          fullLabel = label;
+        let headerTitle = "";
+
+        if (isPractice) {
+          sessionNumber =
+            Number.isFinite(meta.sessionNumber)
+              ? Number(meta.sessionNumber)
+              : Number.isFinite(meta.sessionIndex)
+              ? Number(meta.sessionIndex) + 1
+              : null;
+          label = `Itération ${displayIndex}`;
+          if (dateObj) {
+            fullLabel = fullDateTimeFormatter.format(dateObj);
+          } else if (sessionNumber != null && sessionNumber !== displayIndex) {
+            fullLabel = `Session ${sessionNumber}`;
+          } else if (sessionNumber != null) {
+            fullLabel = label;
+          } else {
+            fullLabel = String(key);
+          }
+          const headerParts = [label];
+          if (Number.isFinite(sessionNumber) && sessionNumber !== displayIndex) {
+            headerParts.push(`Session ${sessionNumber}`);
+          }
+          if (fullLabel && fullLabel !== label) {
+            headerParts.push(fullLabel);
+          }
+          headerTitle = headerParts.join(" — ");
         } else {
-          fullLabel = String(key);
+          if (dateObj) {
+            label = shortDateFormatter.format(dateObj);
+            fullLabel = fullDayFormatter.format(dateObj);
+          } else {
+            label = `Jour ${displayIndex}`;
+            fullLabel = label;
+          }
+          headerTitle = fullLabel && fullLabel !== label ? `${label} — ${fullLabel}` : fullLabel || label;
         }
-        const headerParts = [label];
-        if (Number.isFinite(sessionNumber) && sessionNumber !== displayIndex) {
-          headerParts.push(`Session ${sessionNumber}`);
-        }
-        if (fullLabel && fullLabel !== label) {
-          headerParts.push(fullLabel);
-        }
-        const headerTitle = headerParts.join(" — ");
+
         return {
           key,
           iso: key,
@@ -561,7 +636,9 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           fullLabel,
           headerTitle,
           sessionNumber,
+          sessionIndex: isPractice ? meta.sessionIndex ?? null : null,
           dateObj: dateObj || null,
+          dayKey: isDaily ? key : null,
         };
       });
 
@@ -672,7 +749,30 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       return stat;
     });
 
-    const safeCategory = escapeHtml(category || "Pratique");
+    const titleText = isPractice
+      ? effectiveCategory || "Pratique"
+      : effectiveCategory
+      ? `Journalier — ${effectiveCategory}`
+      : "Journalier — toutes les catégories";
+    const safeCategory = escapeHtml(titleText);
+    const categoryFilterMarkup =
+      isDaily && dailyCategories.length > 1
+        ? `<label class="practice-dashboard__filter"><span class="practice-dashboard__filter-label">Catégorie</span><select class="practice-dashboard__filter-select" data-category-select><option value="__all__"${effectiveCategory ? "" : " selected"}>Toutes les catégories</option>${dailyCategories
+            .map(
+              (name) =>
+                `<option value="${escapeHtml(name)}"${name === effectiveCategory ? " selected" : ""}>${escapeHtml(name)}</option>`,
+            )
+            .join("")}</select></label>`
+        : "";
+
+    const trendTitle = isPractice ? "Tendance des itérations" : "Tendance des jours";
+    const detailsTitle = isPractice ? "Détails par consigne" : "Détails du journal";
+    const chartScrollLabel = isPractice
+      ? "Défilement horizontal du graphique des itérations"
+      : "Défilement horizontal du graphique des jours";
+    const tableHintText = isPractice
+      ? "Cliquez sur une cellule pour ajouter ou modifier la note correspondante."
+      : "Cliquez sur une cellule pour mettre à jour la valeur du jour sélectionné.";
 
     const html = `
       <div class="goal-modal modal practice-dashboard">
@@ -680,12 +780,32 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           <div class="practice-dashboard__header">
             <h2 class="practice-dashboard__title">${safeCategory}</h2>
             <div class="practice-dashboard__header-actions">
-              <button type="button" class="practice-dashboard__toggle" data-toggle-view>Vue graphique</button>
+              ${categoryFilterMarkup}
               <button type="button" class="practice-dashboard__close btn btn-ghost" data-close aria-label="Fermer">✕</button>
             </div>
           </div>
           <div class="practice-dashboard__body">
-            <div class="practice-dashboard__view practice-dashboard__view--table is-active" data-view="table">
+            <section class="practice-dashboard__section practice-dashboard__section--chart">
+              <div class="practice-dashboard__section-head">
+                <h3 class="practice-dashboard__section-title">${escapeHtml(trendTitle)}</h3>
+              </div>
+              <div class="practice-dashboard__chart-panel">
+                <div class="practice-dashboard__chart-scroll" data-chart-scroll tabindex="0" aria-label="${escapeHtml(chartScrollLabel)}">
+                  <div class="practice-dashboard__chart-card" data-chart-card>
+                    <div class="practice-dashboard__chart-canvas" data-chart-canvas>
+                      <canvas id="practiceCatChart"></canvas>
+                    </div>
+                  </div>
+                </div>
+                <p class="practice-dashboard__chart-caption" data-chart-caption></p>
+              </div>
+              <div class="practice-dashboard__chart-zoom" data-chart-zoom></div>
+              <div class="practice-dashboard__chart-controls" data-chart-select></div>
+            </section>
+            <section class="practice-dashboard__section practice-dashboard__section--table">
+              <div class="practice-dashboard__section-head">
+                <h3 class="practice-dashboard__section-title">${escapeHtml(detailsTitle)}</h3>
+              </div>
               <div class="practice-dashboard__table-wrapper">
                 <table class="practice-dashboard__matrix">
                   <thead>
@@ -696,15 +816,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
                   <tbody data-table-body></tbody>
                 </table>
               </div>
-              <p class="practice-dashboard__hint">Cliquez sur une cellule pour ajouter ou modifier la note correspondante.</p>
-            </div>
-            <div class="practice-dashboard__view practice-dashboard__view--chart" data-view="chart">
-              <div class="practice-dashboard__chart-controls" data-chart-select></div>
-              <div class="practice-dashboard__chart-card" data-chart-card>
-                <canvas id="practiceCatChart"></canvas>
-              </div>
-              <p class="practice-dashboard__chart-caption" data-chart-caption></p>
-            </div>
+              <p class="practice-dashboard__hint">${escapeHtml(tableHintText)}</p>
+            </section>
           </div>
         </div>
       </div>
@@ -718,10 +831,15 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     wrapper.innerHTML = "";
 
     let chartInstance = null;
+    let resizeHandler = null;
     const close = () => {
       if (chartInstance) {
         chartInstance.destroy();
         chartInstance = null;
+      }
+      if (resizeHandler) {
+        window.removeEventListener("resize", resizeHandler);
+        resizeHandler = null;
       }
       document.removeEventListener("keydown", onKeyDown);
       overlay.remove();
@@ -738,16 +856,37 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
 
     const tableBody = overlay.querySelector("[data-table-body]");
     const headRow = overlay.querySelector("[data-matrix-head]");
-    const toggleButton = overlay.querySelector("[data-toggle-view]");
-    const views = Array.from(overlay.querySelectorAll("[data-view]"));
     const chartCard = overlay.querySelector("[data-chart-card]");
+    const chartCanvasWrapper = overlay.querySelector("[data-chart-canvas]");
+    const chartScroll = overlay.querySelector("[data-chart-scroll]");
     const chartCaption = overlay.querySelector("[data-chart-caption]");
     const chartSelect = overlay.querySelector("[data-chart-select]");
+    const chartZoom = overlay.querySelector("[data-chart-zoom]");
     const canvas = overlay.querySelector("#practiceCatChart");
+    const categorySelectEl = overlay.querySelector("[data-category-select]");
 
     stats.forEach((stat) => {
       stat.chartDatasetIndex = null;
     });
+
+    const zoomLabelUnit = isPractice ? "sessions" : "jours";
+    const zoomPresets = [
+      { value: 5, label: `5 dernières ${zoomLabelUnit}` },
+      { value: 10, label: `10 dernières ${zoomLabelUnit}` },
+      { value: 20, label: `20 dernières ${zoomLabelUnit}` },
+      { value: null, label: "Tout l'historique" },
+    ];
+    let currentZoomValue = "all";
+    let hasInitializedScrollPosition = false;
+
+    if (categorySelectEl) {
+      categorySelectEl.addEventListener("change", (event) => {
+        const value = event.target.value || "__all__";
+        const nextCategory = value === "__all__" ? "" : value;
+        close();
+        window.openCategoryDashboard(ctx, nextCategory, { mode });
+      });
+    }
 
     if (headRow) {
       headRow.innerHTML = [
@@ -759,35 +898,214 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       ].join("");
     }
 
-    let currentView = "table";
+    function updateChartViewport(visibleCount = iterationMeta.length) {
+      if (!chartCanvasWrapper) return;
+      const baseWidth =
+        visibleCount > 60 ? 28 : visibleCount > 36 ? 36 : visibleCount > 18 ? 52 : 72;
+      const minWidth = Math.max(520, Math.round((visibleCount || 1) * baseWidth));
+      const containerWidth = chartScroll ? chartScroll.clientWidth : 0;
+      const targetWidth = Math.max(minWidth, containerWidth);
+      chartCanvasWrapper.style.minWidth = `${targetWidth}px`;
+      chartCanvasWrapper.style.width = `${targetWidth}px`;
+      if (chartInstance) {
+        requestAnimationFrame(() => {
+          if (chartInstance) {
+            chartInstance.resize();
+          }
+        });
+      }
+    }
 
-    function setView(targetView) {
-      currentView = targetView;
-      views.forEach((panel) => {
-        panel.classList.toggle("is-active", panel.dataset.view === targetView);
+    function updateZoomButtons() {
+      if (!chartZoom) return;
+      chartZoom.querySelectorAll("[data-zoom]").forEach((button) => {
+        const value = button.getAttribute("data-zoom");
+        const isAll = value === "all";
+        const isActive = currentZoomValue === "all" ? isAll : !isAll && Number(value) === Number(currentZoomValue);
+        button.classList.toggle("is-active", isActive);
+        button.disabled = isActive;
       });
-      if (toggleButton) {
-        toggleButton.textContent = targetView === "table" ? "Vue graphique" : "Vue tableau";
+    }
+
+    function applyChartWindow(windowSize) {
+      if (!chartInstance) return;
+      const total = iterationMeta.length;
+      if (!total) {
+        chartInstance.data.labels = [];
+        chartInstance.data.datasets.forEach((dataset) => {
+          dataset.data = [];
+          dataset.rawValues = [];
+          dataset.rawNotes = [];
+          dataset.dates = [];
+        });
+        chartInstance.update();
+        updateChartViewport(0);
+        if (chartScroll) {
+          chartScroll.scrollLeft = 0;
+        }
+        hasInitializedScrollPosition = false;
+        return;
+      }
+      let count = total;
+      if (Number.isFinite(windowSize) && windowSize > 0 && windowSize < total) {
+        count = Math.floor(windowSize);
+      }
+      const start = Math.max(0, total - count);
+      const visibleMeta = iterationMeta.slice(start);
+      const shouldStickToEnd = (() => {
+        if (!chartScroll) return true;
+        if (!hasInitializedScrollPosition) return true;
+        const remaining = chartScroll.scrollWidth - chartScroll.clientWidth - chartScroll.scrollLeft;
+        return remaining < 32;
+      })();
+      chartInstance.data.labels = visibleMeta.map((meta) => meta.label);
+      chartInstance.data.datasets.forEach((dataset) => {
+        const fullData = dataset.fullData || [];
+        const fullRawValues = dataset.fullRawValues || [];
+        const fullRawNotes = dataset.fullRawNotes || [];
+        const fullDates = dataset.fullDates || [];
+        dataset.data = fullData.slice(start);
+        dataset.rawValues = fullRawValues.slice(start);
+        dataset.rawNotes = fullRawNotes.slice(start);
+        dataset.dates = fullDates.slice(start);
+      });
+      const lastMeta = visibleMeta[visibleMeta.length - 1] || null;
+      const pluginOpts = chartInstance.options.plugins.practiceGuideLine || {};
+      pluginOpts.meta = lastMeta;
+      if (lastMeta) {
+        if (isPractice) {
+          pluginOpts.label = "Dernière session";
+        } else {
+          const todayKey = typeof Schema?.todayKey === "function" ? Schema.todayKey() : null;
+          const metaKey = String(lastMeta.iso || lastMeta.key || "");
+          pluginOpts.label = todayKey && metaKey === todayKey ? "Aujourd’hui" : "Dernier jour";
+        }
+      } else {
+        pluginOpts.label = "";
+      }
+      pluginOpts.caption = lastMeta?.fullLabel || "";
+      pluginOpts.color = pluginOpts.color || "#334155";
+      pluginOpts.textColor = pluginOpts.textColor || "#475569";
+      chartInstance.options.plugins.practiceGuideLine = pluginOpts;
+      updateChartViewport(visibleMeta.length || 1);
+      chartInstance.update();
+      if (chartScroll) {
+        requestAnimationFrame(() => {
+          if (!chartScroll) return;
+          if (shouldStickToEnd) {
+            const maxScroll = chartScroll.scrollWidth - chartScroll.clientWidth;
+            chartScroll.scrollLeft = maxScroll > 0 ? maxScroll : 0;
+          }
+          if (!hasInitializedScrollPosition) {
+            hasInitializedScrollPosition = true;
+          }
+        });
+      } else if (!hasInitializedScrollPosition) {
+        hasInitializedScrollPosition = true;
       }
     }
 
-    function updateToggleState() {
-      if (!toggleButton) return;
-      const hasChartData = Boolean(chartInstance && chartInstance.data.datasets.length);
-      toggleButton.disabled = !hasChartData;
-      toggleButton.classList.toggle("is-disabled", !hasChartData);
-      if (!hasChartData && currentView === "chart") {
-        setView("table");
-      }
+    function setZoomValue(nextValue) {
+      currentZoomValue = nextValue === "all" ? "all" : Number(nextValue);
+      const targetWindow = currentZoomValue === "all" ? null : currentZoomValue;
+      applyChartWindow(targetWindow);
+      updateZoomButtons();
     }
 
-    toggleButton?.addEventListener("click", () => {
-      const nextView = currentView === "table" ? "chart" : "table";
-      setView(nextView);
-    });
+    function renderZoomControls() {
+      if (!chartZoom) return;
+      const total = iterationMeta.length;
+      if (total <= 1) {
+        chartZoom.innerHTML = "";
+        return;
+      }
+      const options = zoomPresets.filter((preset) => preset.value == null || total > preset.value);
+      chartZoom.innerHTML = options
+        .map((preset) => {
+          const value = preset.value == null ? "all" : String(preset.value);
+          return `<button type="button" class="practice-dashboard__zoom-btn" data-zoom="${value}">${escapeHtml(preset.label)}</button>`;
+        })
+        .join("");
+      chartZoom.onclick = (event) => {
+        const target = event.target.closest("[data-zoom]");
+        if (!target) return;
+        const value = target.getAttribute("data-zoom") || "all";
+        if (value === "all" && currentZoomValue === "all") return;
+        if (value !== "all") {
+          const numeric = Number(value);
+          if (!Number.isFinite(numeric) || numeric <= 0 || Number(currentZoomValue) === numeric) {
+            return;
+          }
+          setZoomValue(numeric);
+          return;
+        }
+        setZoomValue("all");
+      };
+      updateZoomButtons();
+    }
 
-    setView("table");
-    updateToggleState();
+    if (chartScroll) {
+      let isDragging = false;
+      let dragPointerId = null;
+      let dragStartX = 0;
+      let dragScrollLeft = 0;
+
+      const stopDragging = (event) => {
+        if (!isDragging) return;
+        if (event && dragPointerId != null && event.pointerId != null && event.pointerId !== dragPointerId) {
+          return;
+        }
+        isDragging = false;
+        chartScroll.classList.remove("is-dragging");
+        if (
+          dragPointerId != null &&
+          typeof chartScroll.hasPointerCapture === "function" &&
+          chartScroll.hasPointerCapture(dragPointerId)
+        ) {
+          try {
+            chartScroll.releasePointerCapture(dragPointerId);
+          } catch (releaseError) {
+            /* ignore */
+          }
+        }
+        dragPointerId = null;
+      };
+
+      chartScroll.addEventListener("pointerdown", (event) => {
+        if (event.pointerType === "mouse" && event.button !== 0) return;
+        isDragging = true;
+        dragPointerId = event.pointerId;
+        dragStartX = event.clientX;
+        dragScrollLeft = chartScroll.scrollLeft;
+        chartScroll.classList.add("is-dragging");
+        try {
+          chartScroll.setPointerCapture(event.pointerId);
+        } catch (captureError) {
+          /* ignore */
+        }
+      });
+
+      chartScroll.addEventListener("pointermove", (event) => {
+        if (!isDragging) return;
+        const deltaX = event.clientX - dragStartX;
+        chartScroll.scrollLeft = dragScrollLeft - deltaX;
+      });
+
+      chartScroll.addEventListener("pointerup", stopDragging);
+      chartScroll.addEventListener("pointercancel", stopDragging);
+      chartScroll.addEventListener("pointerleave", stopDragging);
+
+      chartScroll.addEventListener("keydown", (event) => {
+        if (event.defaultPrevented) return;
+        if (event.key === "ArrowLeft") {
+          chartScroll.scrollBy({ left: -80, behavior: "smooth" });
+          event.preventDefault();
+        } else if (event.key === "ArrowRight") {
+          chartScroll.scrollBy({ left: 80, behavior: "smooth" });
+          event.preventDefault();
+        }
+      });
+    }
 
     function formatCellTooltip(iterationInfo, dateIso, valueText, noteText) {
       const parts = [];
@@ -1072,24 +1390,33 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     }
 
     function buildChartDataset(stat) {
+      const numericData = stat.timeline.map((point) => point.numeric);
+      const rawValues = stat.timeline.map((point) => point.rawValue);
+      const rawNotes = stat.timeline.map((point) => point.note);
+      const dates = iterationDates.slice();
       const dataset = {
         label: stat.name,
-        data: stat.timeline.map((point) => point.numeric),
-        rawValues: stat.timeline.map((point) => point.rawValue),
-        rawNotes: stat.timeline.map((point) => point.note),
+        data: numericData.slice(),
+        rawValues: rawValues.slice(),
+        rawNotes: rawNotes.slice(),
         consigneType: stat.type,
-        dates: iterationDates,
+        dates,
         borderColor: stat.accentStrong,
-        backgroundColor: withAlpha(stat.color, 0.16),
+        backgroundColor: withAlpha(stat.color, 0.24),
         borderWidth: stat.priority === 1 ? 3 : 2,
         pointRadius: stat.priority === 1 ? 4 : stat.priority === 2 ? 3 : 2,
         pointHoverRadius: stat.priority === 1 ? 5 : stat.priority === 2 ? 4 : 3,
+        pointStyle: stat.priority === 1 ? "circle" : stat.priority === 2 ? "rectRounded" : "triangle",
         tension: 0.35,
         spanGaps: true,
       };
       if (stat.priority === 3) {
         dataset.borderDash = [6, 4];
       }
+      dataset.fullData = numericData.slice();
+      dataset.fullRawValues = rawValues.slice();
+      dataset.fullRawNotes = rawNotes.slice();
+      dataset.fullDates = dates.slice();
       return dataset;
     }
 
@@ -1118,12 +1445,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const dataset = chartInstance.data.datasets[stat.chartDatasetIndex];
       if (!dataset) return;
       dataset.hidden = !input.checked;
-      chartInstance.update();
+      applyChartWindow(currentZoomValue === "all" ? null : currentZoomValue);
     });
 
     function updateChartForStat(stat) {
       if (!chartInstance) {
-        updateToggleState();
         return;
       }
       const hasNumeric = stat.timeline.some((point) => point.numeric != null);
@@ -1136,10 +1462,18 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         } else {
           const dataset = chartInstance.data.datasets[stat.chartDatasetIndex];
           if (dataset) {
-            dataset.data = stat.timeline.map((point) => point.numeric);
-            dataset.rawValues = stat.timeline.map((point) => point.rawValue);
-            dataset.rawNotes = stat.timeline.map((point) => point.note);
-            dataset.dates = iterationDates;
+            const numericData = stat.timeline.map((point) => point.numeric);
+            const rawValues = stat.timeline.map((point) => point.rawValue);
+            const rawNotes = stat.timeline.map((point) => point.note);
+            const dates = iterationDates.slice();
+            dataset.data = numericData.slice();
+            dataset.rawValues = rawValues.slice();
+            dataset.rawNotes = rawNotes.slice();
+            dataset.dates = dates;
+            dataset.fullData = numericData.slice();
+            dataset.fullRawValues = rawValues.slice();
+            dataset.fullRawNotes = rawNotes.slice();
+            dataset.fullDates = dates.slice();
           }
         }
       } else if (stat.chartDatasetIndex != null) {
@@ -1154,9 +1488,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           }
         });
       }
-      chartInstance.update();
+      applyChartWindow(currentZoomValue === "all" ? null : currentZoomValue);
       renderChartSelector();
-      updateToggleState();
     }
 
     const chartStats = stats.filter((stat) => stat.hasNumeric);
@@ -1165,6 +1498,46 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         stat.chartDatasetIndex = index;
         return buildChartDataset(stat);
       });
+
+      const guidePlugin = {
+        id: "practiceGuideLine",
+        afterDraw(chart, args, opts) {
+          const meta = opts?.meta;
+          if (!meta) return;
+          const { ctx, chartArea, scales } = chart;
+          const xScale = scales?.x;
+          if (!xScale) return;
+          const labels = chart.data.labels || [];
+          if (!labels.length) return;
+          const index = labels.length - 1;
+          const x = xScale.getPixelForValue(index);
+          if (!Number.isFinite(x)) return;
+          ctx.save();
+          ctx.strokeStyle = opts?.color || "#334155";
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([6, 6]);
+          ctx.beginPath();
+          ctx.moveTo(x, chartArea.top);
+          ctx.lineTo(x, chartArea.bottom);
+          ctx.stroke();
+          ctx.restore();
+          const label = opts?.label;
+          if (!label) return;
+          const caption = opts?.caption;
+          const textColor = opts?.textColor || "#475569";
+          const text = caption ? `${label} · ${caption}` : label;
+          ctx.save();
+          ctx.font = "12px 'Inter', sans-serif";
+          ctx.fillStyle = textColor;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+          const clampLeft = chartArea.left + 60;
+          const clampRight = chartArea.right - 60;
+          const posX = Math.min(Math.max(x, clampLeft), clampRight);
+          ctx.fillText(text, posX, chartArea.top + 6);
+          ctx.restore();
+        },
+      };
 
       const typeSet = new Set(chartDatasets.map((dataset) => dataset.consigneType));
       const hasLikert6 = typeSet.has("likert6");
@@ -1308,22 +1681,39 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             },
           },
         },
+        plugins: [guidePlugin],
       });
 
+      chartInstance.options.plugins.practiceGuideLine = {
+        color: "#334155",
+        textColor: "#475569",
+      };
+
+      const zoomHint = iterationMeta.length > 1 ? ` Utilisez les boutons de zoom pour explorer les dernières ${zoomLabelUnit}.` : "";
+      const scrollHint = " Faites défiler horizontalement pour parcourir l’historique complet.";
       if (chartCaption) {
         if (hasOnlyLikert6) {
           chartCaption.textContent =
-            "Cochez les consignes à afficher. Les réponses suivent l’échelle : Non → Plutôt non → Neutre → Plutôt oui → Oui.";
+            "Cochez les consignes à afficher. Les réponses suivent l’échelle : Non → Plutôt non → Neutre → Plutôt oui → Oui." +
+            scrollHint;
         } else if (hasLikert6) {
           chartCaption.textContent =
-            "Cochez les consignes à afficher. Les réponses Likert sont affichées avec leurs libellés (Non à Oui).";
+            "Cochez les consignes à afficher. Les réponses Likert sont affichées avec leurs libellés (Non à Oui)." + scrollHint;
         } else {
           chartCaption.textContent =
-            "Cochez les consignes à afficher. Les valeurs sont normalisées quand c’est possible.";
+            "Cochez les consignes à afficher. Les valeurs sont normalisées quand c’est possible." + scrollHint;
+        }
+        if (zoomHint) {
+          chartCaption.textContent += zoomHint;
         }
       }
+      renderZoomControls();
+      applyChartWindow(null);
       renderChartSelector();
-      updateToggleState();
+      resizeHandler = () => {
+        updateChartViewport(chartInstance?.data?.labels?.length || iterationMeta.length);
+      };
+      window.addEventListener("resize", resizeHandler);
     } else {
       if (chartCard) {
         chartCard.innerHTML =
@@ -1335,7 +1725,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       if (chartSelect) {
         chartSelect.innerHTML = '<p class="practice-dashboard__chart-empty">Aucune consigne numérique à afficher pour le moment.</p>';
       }
-      updateToggleState();
+      if (chartZoom) {
+        chartZoom.innerHTML = "";
+      }
+      updateChartViewport(0);
     }
   } catch (err) {
     console.warn("openCategoryDashboard:error", err);
@@ -2154,7 +2547,7 @@ async function renderDaily(ctx, root, opts = {}) {
           <span aria-hidden="true">→</span>
         </button>
       </div>
-      <div class="ml-auto flex items-center gap-2">${smallBtn("+ Nouvelle consigne", "js-new")}</div>
+      <div class="ml-auto flex items-center gap-2">${smallBtn("📊 Tableau de bord", "js-dashboard")}${smallBtn("+ Nouvelle consigne", "js-new")}</div>
     </div>
   `;
   container.appendChild(card);
@@ -2179,12 +2572,8 @@ async function renderDaily(ctx, root, opts = {}) {
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
   const dashBtn = card.querySelector(".js-dashboard");
   if (dashBtn) {
-    const hasCategory = Boolean(currentCat);
-    dashBtn.disabled = !hasCategory;
-    dashBtn.classList.toggle("opacity-50", !hasCategory);
     dashBtn.onclick = () => {
-      if (!currentCat) return;
-      window.openCategoryDashboard(ctx, currentCat);
+      window.openCategoryDashboard(ctx, "", { mode: "daily" });
     };
   }
 
