@@ -26,12 +26,28 @@ self.addEventListener("fetch", () => {
   // La présence de ce gestionnaire garantit le comportement attendu pour la PWA.
 });
 
-messaging.onBackgroundMessage(({ notification = {}, data = {} }) => {
-  self.registration.showNotification(notification.title || "Rappel", {
-    body: notification.body || "Tu as des consignes à remplir aujourd’hui.",
-    icon: "/icon.png",
-    badge: "/badge.png",
-    data: { link: data.link || "/" }
+messaging.onBackgroundMessage((payload = {}) => {
+  const notification = payload.notification || {};
+  const data = payload.data || {};
+
+  const hasNotificationPayload = Boolean(
+    (notification && notification.title) || notification.body
+  );
+
+  if (hasNotificationPayload) {
+    // Firebase affiche automatiquement les notifications avec un payload "notification".
+    // On ne fait rien ici pour éviter un doublon.
+    return;
+  }
+
+  const title = data.title || "Rappel";
+  const body = data.body || "Tu as des consignes à remplir aujourd’hui.";
+
+  self.registration.showNotification(title, {
+    body,
+    icon: data.icon || "/icon.png",
+    badge: data.badge || "/badge.png",
+    data: { link: data.link || "/" },
   });
 });
 
