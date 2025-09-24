@@ -280,7 +280,7 @@
         try {
           const title = data.title || "Rappel";
           const body =
-            data.body || "Tu as des consignes à remplir aujourd’hui.";
+            data.body || "Tu as des éléments à remplir aujourd’hui.";
           const link = data.link || "/";
 
           const notificationInstance = new Notification(title, {
