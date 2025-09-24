@@ -10,6 +10,47 @@
         return;
       }
 
+      const isStandaloneDisplay = (() => {
+        try {
+          const mediaQueryMatch =
+            typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches;
+          return mediaQueryMatch || window.navigator.standalone === true;
+        } catch (error) {
+          return window.navigator.standalone === true;
+        }
+      })();
+
+      const INSTALL_TARGET_STORAGE_KEY = "hp::install::target";
+
+      function readStoredInstallTarget() {
+        try {
+          const storage = window.localStorage;
+          if (!storage) return null;
+          const raw = storage.getItem(INSTALL_TARGET_STORAGE_KEY);
+          if (!raw || typeof raw !== "string") return null;
+          const trimmed = raw.trim();
+          if (!/^#\/u\//.test(trimmed)) return null;
+          const [rawPath = "", searchPart = ""] = trimmed.split("?");
+          const segments = rawPath.replace(/^#\/+/g, "").split("/");
+          if (!segments[1]) return null; // nécessite au moins un UID
+          if (segments.length < 3 || !segments[2]) {
+            segments[2] = "daily";
+          }
+          const normalizedHash = `#/${segments.filter(Boolean).join("/")}`;
+          return searchPart ? `${normalizedHash}?${searchPart}` : normalizedHash;
+        } catch (error) {
+          console.warn("[install] target:read", error);
+          return null;
+        }
+      }
+
+      const storedTarget = readStoredInstallTarget();
+      if (storedTarget && isStandaloneDisplay) {
+        const normalized = storedTarget.replace(/^#/, "");
+        window.location.hash = normalized;
+        return;
+      }
+
       const target = new URL("admin.html", window.location.href);
       window.location.replace(target.toString());
     })();
