@@ -1960,7 +1960,6 @@ async function renderPractice(ctx, root, _opts = {}) {
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex flex-wrap items-center gap-2">
             <h4 class="font-semibold">${escapeHtml(c.text)}</h4>
-            ${pill(c.category || "Général")}
             ${prioChip(Number(c.priority)||2)}
             ${srBadge(c)}
           </div>
