@@ -81,6 +81,64 @@
   let serviceWorkerRegistrationPromise = null;
   let foregroundListenerBound = false;
 
+  const INSTALL_TARGET_STORAGE_KEY = "hp::install::target";
+
+  function normalizeInstallTargetHash(hash) {
+    if (!hash || typeof hash !== "string") return null;
+    const trimmed = hash.trim();
+    if (!/^#\/u\//.test(trimmed)) return null;
+    const [rawPath = "", searchPart = ""] = trimmed.split("?");
+    const pathSegments = rawPath.replace(/^#\/+/g, "").split("/");
+    if (!pathSegments[1]) return null;
+    if (pathSegments.length < 3 || !pathSegments[2]) {
+      pathSegments[2] = "daily";
+    }
+    const normalizedPath = `#/${pathSegments.filter(Boolean).join("/")}`;
+    return searchPart ? `${normalizedPath}?${searchPart}` : normalizedPath;
+  }
+
+  function loadInstallTargetHash() {
+    const storage = getSafeStorage();
+    if (!storage) return null;
+    try {
+      const raw = storage.getItem(INSTALL_TARGET_STORAGE_KEY);
+      return normalizeInstallTargetHash(raw);
+    } catch (error) {
+      console.warn("[install] target:load", error);
+      return null;
+    }
+  }
+
+  function saveInstallTargetHash(hash) {
+    const normalized = normalizeInstallTargetHash(hash);
+    if (!normalized) return false;
+    const storage = getSafeStorage();
+    if (!storage) return false;
+    try {
+      storage.setItem(INSTALL_TARGET_STORAGE_KEY, normalized);
+      return true;
+    } catch (error) {
+      console.warn("[install] target:save", error);
+      return false;
+    }
+  }
+
+  function clearInstallTargetHash() {
+    const storage = getSafeStorage();
+    if (!storage) return;
+    try {
+      storage.removeItem(INSTALL_TARGET_STORAGE_KEY);
+    } catch (error) {
+      console.warn("[install] target:clear", error);
+    }
+  }
+
+  window.__appInstallTarget = {
+    save: saveInstallTargetHash,
+    load: loadInstallTargetHash,
+    clear: clearInstallTargetHash,
+  };
+
   function getSafeStorage() {
     try {
       return window.localStorage;
@@ -644,6 +702,16 @@
   window.routeTo = routeTo;
 
   function routeToDefault() {
+    const storedTarget = loadInstallTargetHash();
+    if (storedTarget) {
+      if (location.hash !== storedTarget) {
+        location.hash = storedTarget;
+      } else {
+        handleRoute();
+      }
+      return;
+    }
+
     const defaultHash = hasAdminAccess() ? "#/admin" : "#/daily";
     if (location.hash !== defaultHash) {
       location.hash = defaultHash;
