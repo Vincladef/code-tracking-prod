@@ -262,12 +262,37 @@
     if (foregroundListenerBound) return;
     if (!messaging || typeof messaging.onMessage !== "function") return;
     try {
-      messaging.onMessage((payload) => {
+      messaging.onMessage((payload = {}) => {
+        const notification = payload.notification || {};
+        const data = payload.data || {};
+
+        const hasNotificationPayload = Boolean(
+          (notification && notification.title) || notification.body
+        );
+
+        if (hasNotificationPayload) {
+          // Le payload "notification" est affiché automatiquement par Firebase.
+          return;
+        }
+
         try {
-          new Notification(payload?.notification?.title || "Rappel", {
-            body: payload?.notification?.body || "Tu as des consignes à remplir aujourd’hui.",
-            icon: "/icon.png"
+          const title = data.title || "Rappel";
+          const body =
+            data.body || "Tu as des consignes à remplir aujourd’hui.";
+          const link = data.link || "/";
+
+          const notificationInstance = new Notification(title, {
+            body,
+            icon: data.icon || "/icon.png",
+            badge: data.badge || "/badge.png",
+            data: { link },
           });
+
+          if (notificationInstance && typeof notificationInstance.addEventListener === "function") {
+            notificationInstance.addEventListener("click", () => {
+              if (link) window.open(link, "_blank");
+            });
+          }
         } catch (error) {
           console.warn("[push] foreground:notify", error);
         }
