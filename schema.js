@@ -866,6 +866,9 @@ async function upsertObjective(db, uid, data, objectifId = null) {
   if (data?.notifyOnTarget !== undefined) {
     payload.notifyOnTarget = data.notifyOnTarget !== false;
   }
+  if (data?.notifyAt !== undefined) {
+    payload.notifyAt = data.notifyAt || null;
+  }
 
   await setDoc(ref, payload, { merge: true });
   return ref.id;

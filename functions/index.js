@@ -183,6 +183,19 @@ function theoreticalObjectiveDate(objective) {
   return null;
 }
 
+function customObjectiveReminderDate(objective) {
+  if (!objective) return null;
+  const raw =
+    objective.notifyAt ??
+    objective.notifyDate ??
+    objective.notificationDate ??
+    null;
+  const customDate = toDate(raw);
+  if (!customDate) return null;
+  customDate.setHours(0, 0, 0, 0);
+  return customDate;
+}
+
 async function fetchObjectivesByMonth(uid, monthKey) {
   if (!uid || !monthKey) return [];
   try {
@@ -217,7 +230,7 @@ async function countObjectivesDueToday(uid, context) {
   let count = 0;
   for (const objective of objectives) {
     if (objective.notifyOnTarget === false) continue;
-    const dueDate = theoreticalObjectiveDate(objective);
+    const dueDate = customObjectiveReminderDate(objective) || theoreticalObjectiveDate(objective);
     if (!dueDate) continue;
     const iso = dueDate.toISOString().slice(0, 10);
     if (iso === dueIso) {
