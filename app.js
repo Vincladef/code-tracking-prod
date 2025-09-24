@@ -75,6 +75,309 @@
 
   let profileUnsubscribe = null;
 
+  const PUSH_PREFS_KEY = "hp::push::prefs";
+  let pushPrefsCache = null;
+  let messagingInstancePromise = null;
+  let serviceWorkerRegistrationPromise = null;
+  let foregroundListenerBound = false;
+
+  function getSafeStorage() {
+    try {
+      return window.localStorage;
+    } catch (error) {
+      console.warn("[push] storage inaccessible", error);
+      return null;
+    }
+  }
+
+  function loadPushPrefs() {
+    if (pushPrefsCache) return pushPrefsCache;
+    const storage = getSafeStorage();
+    if (!storage) {
+      pushPrefsCache = {};
+      return pushPrefsCache;
+    }
+    try {
+      const raw = storage.getItem(PUSH_PREFS_KEY);
+      if (!raw) {
+        pushPrefsCache = {};
+        return pushPrefsCache;
+      }
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") {
+        pushPrefsCache = {};
+        return pushPrefsCache;
+      }
+      pushPrefsCache = parsed;
+    } catch (error) {
+      console.warn("[push] prefs:parse", error);
+      pushPrefsCache = {};
+    }
+    return pushPrefsCache;
+  }
+
+  function savePushPrefs(nextPrefs) {
+    pushPrefsCache = nextPrefs || {};
+    const storage = getSafeStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(PUSH_PREFS_KEY, JSON.stringify(pushPrefsCache));
+    } catch (error) {
+      console.warn("[push] prefs:save", error);
+    }
+  }
+
+  function getPushPreference(uid) {
+    if (!uid) return null;
+    const prefs = loadPushPrefs();
+    return prefs[uid] || null;
+  }
+
+  function setPushPreference(uid, value) {
+    if (!uid) return;
+    const prefs = { ...loadPushPrefs() };
+    prefs[uid] = { ...(prefs[uid] || {}), ...value };
+    savePushPrefs(prefs);
+  }
+
+  function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(value);
+    }
+    return String(value || "").replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
+  }
+
+  function isPushSupported() {
+    return typeof window !== "undefined" && "Notification" in window && "serviceWorker" in navigator;
+  }
+
+  async function ensureMessagingInstance() {
+    if (messagingInstancePromise) return messagingInstancePromise;
+    messagingInstancePromise = (async () => {
+      const supported = typeof firebaseCompatApp?.messaging?.isSupported === "function"
+        ? await firebaseCompatApp.messaging.isSupported()
+        : false;
+      if (!supported) {
+        console.info("[push] messaging non supporté");
+        return null;
+      }
+      try {
+        return ctx.app ? firebaseCompatApp.messaging(ctx.app) : firebaseCompatApp.messaging();
+      } catch (error) {
+        console.warn("[push] messaging indisponible", error);
+        return null;
+      }
+    })();
+    return messagingInstancePromise;
+  }
+
+  async function ensureServiceWorkerRegistration() {
+    if (serviceWorkerRegistrationPromise) return serviceWorkerRegistrationPromise;
+    if (!("serviceWorker" in navigator)) return null;
+    const basePath = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, "")}`;
+    const swUrl = new URL("sw.js", basePath);
+    serviceWorkerRegistrationPromise = (async () => {
+      try {
+        const existing = await navigator.serviceWorker.getRegistration(swUrl.href);
+        if (existing) return existing;
+      } catch (error) {
+        console.warn("[push] sw:getRegistration", error);
+      }
+      try {
+        return await navigator.serviceWorker.register(swUrl.href, { scope: "./" });
+      } catch (error) {
+        console.warn("[push] sw:register", error);
+        return null;
+      }
+    })();
+    return serviceWorkerRegistrationPromise;
+  }
+
+  function bindForegroundNotifications(messaging) {
+    if (foregroundListenerBound) return;
+    if (!messaging || typeof messaging.onMessage !== "function") return;
+    try {
+      messaging.onMessage((payload) => {
+        try {
+          new Notification(payload?.notification?.title || "Rappel", {
+            body: payload?.notification?.body || "Tu as des consignes à remplir aujourd’hui.",
+            icon: "/icon.png"
+          });
+        } catch (error) {
+          console.warn("[push] foreground:notify", error);
+        }
+      });
+      foregroundListenerBound = true;
+    } catch (error) {
+      console.warn("[push] foreground:onMessage", error);
+    }
+  }
+
+  async function enablePushForUid(uid, { interactive = false } = {}) {
+    if (!uid || !ctx.db) return false;
+    if (!isPushSupported()) {
+      if (interactive) alert("Les notifications ne sont pas disponibles sur ce navigateur.");
+      return false;
+    }
+    let permission = "denied";
+    try {
+      permission = Notification.permission;
+      if (permission === "default") {
+        permission = await Notification.requestPermission();
+      }
+    } catch (error) {
+      console.warn("[push] permission:error", error);
+      if (interactive) alert("Impossible de demander l’autorisation de notifications.");
+      return false;
+    }
+    if (permission !== "granted") {
+      if (interactive) alert("Permission de notifications refusée.");
+      return false;
+    }
+
+    const messaging = await ensureMessagingInstance();
+    if (!messaging) {
+      if (interactive) alert("Impossible d’initialiser le service de notifications Firebase.");
+      return false;
+    }
+
+    const registration = await ensureServiceWorkerRegistration();
+    if (!registration) {
+      if (interactive) alert("Impossible d’initialiser le service worker des notifications.");
+      return false;
+    }
+
+    let token = null;
+    try {
+      token = await messaging.getToken({
+        vapidKey: "BMKhViKlpYs9dtqHYQYIU9rmTJQA3rPUP2h5Mg1YlA6lUs4uHk74F8rT9y8hT1U2N4M-UUE7-YvbAjYfTpjA1nM",
+        serviceWorkerRegistration: registration
+      });
+    } catch (error) {
+      console.warn("[push] getToken", error);
+      if (interactive) alert("Impossible de récupérer le jeton de notifications.");
+      return false;
+    }
+
+    if (!token) {
+      if (interactive) alert("Impossible de récupérer le jeton de notifications.");
+      return false;
+    }
+
+    try {
+      await Schema.savePushToken(ctx.db, uid, token);
+      setPushPreference(uid, { token, enabled: true, updatedAt: Date.now() });
+      bindForegroundNotifications(messaging);
+      return true;
+    } catch (error) {
+      console.warn("[push] saveToken", error);
+      if (interactive) alert("Impossible d’enregistrer le jeton de notifications.");
+      return false;
+    }
+  }
+
+  async function disablePushForUid(uid, { interactive = false } = {}) {
+    if (!uid || !ctx.db) return false;
+    const pref = getPushPreference(uid);
+    const token = pref?.token;
+    if (!token) {
+      setPushPreference(uid, { enabled: false });
+      return true;
+    }
+    try {
+      await Schema.disablePushToken(ctx.db, uid, token);
+      setPushPreference(uid, { enabled: false, token, updatedAt: Date.now() });
+      return true;
+    } catch (error) {
+      console.warn("[push] disableToken", error);
+      if (interactive) alert("Impossible de désactiver les notifications pour cet utilisateur.");
+      return false;
+    }
+  }
+
+  function setButtonLoading(btn, loading) {
+    if (!btn) return;
+    if (loading) {
+      btn.dataset.loading = "1";
+      btn.disabled = true;
+      btn.classList.add("opacity-60");
+    } else {
+      btn.classList.remove("opacity-60");
+      btn.dataset.loading = "0";
+      if (isPushSupported()) {
+        btn.disabled = false;
+      }
+    }
+  }
+
+  function syncNotificationButtonsForUid(uid) {
+    if (!uid) return;
+    const pref = getPushPreference(uid);
+    const enabled = !!(pref && pref.enabled && pref.token);
+    const selector = `[data-notif-toggle][data-uid="${cssEscape(uid)}"]`;
+    queryAll(selector).forEach((btn) => {
+      btn.dataset.enabled = enabled ? "1" : "0";
+      const label = enabled ? "🔕 Désactiver les notifications" : "🔔 Activer les notifications";
+      btn.textContent = label;
+      if (!isPushSupported()) {
+        btn.disabled = true;
+        btn.title = "Notifications non disponibles sur cet appareil";
+      } else if (!btn.dataset.loading || btn.dataset.loading === "0") {
+        btn.disabled = false;
+        btn.title = enabled ? "Désactiver les notifications" : "Activer les notifications";
+      }
+    });
+
+    if (ctx.user?.uid === uid) {
+      const status = queryOne("#notification-status");
+      const toggle = queryOne("#btn-notifications-toggle");
+      if (toggle) {
+        toggle.dataset.enabled = enabled ? "1" : "0";
+        if (!isPushSupported()) {
+          toggle.disabled = true;
+          toggle.textContent = "🔔 Activer les notifications";
+          toggle.title = "Notifications non disponibles sur cet appareil";
+        } else {
+          toggle.disabled = false;
+          toggle.title = enabled ? "Notifications actives" : "Activer les notifications";
+          toggle.textContent = enabled ? "🔕 Désactiver les notifications" : "🔔 Activer les notifications";
+        }
+      }
+      if (status) {
+        if (!isPushSupported()) {
+          status.textContent = "Les notifications ne sont pas disponibles sur ce navigateur.";
+        } else if (enabled) {
+          status.textContent = "Notifications actives sur cet appareil pour cet utilisateur.";
+        } else {
+          status.textContent = "Notifications désactivées sur cet appareil pour cet utilisateur.";
+        }
+      }
+    }
+  }
+
+  async function handleNotificationToggle(uid, trigger, { interactive = false } = {}) {
+    if (!uid) return;
+    const pref = getPushPreference(uid);
+    const enabled = !!(pref && pref.enabled && pref.token);
+    setButtonLoading(trigger, true);
+    try {
+      if (enabled) {
+        await disablePushForUid(uid, { interactive });
+      } else {
+        await enablePushForUid(uid, { interactive });
+      }
+    } catch (error) {
+      console.warn("[push] toggle:error", error);
+      if (interactive) alert("Impossible de mettre à jour les notifications.");
+    } finally {
+      setButtonLoading(trigger, false);
+      if (trigger && !isPushSupported()) {
+        trigger.disabled = true;
+      }
+      syncNotificationButtonsForUid(uid);
+    }
+  }
+
   async function refreshUserBadge(uid, explicitName = null) {
     const el = document.querySelector("[data-username]");
     if (!el) return;
@@ -291,20 +594,89 @@
     renderSidebar();
   }
 
+  function ensureSidebarStructure() {
+    const sidebar = queryOne("#sidebar");
+    if (!sidebar) return null;
+    if (!sidebar.dataset.ready) {
+      sidebar.innerHTML = `
+        <div class="grid gap-4">
+          <section class="card space-y-3 p-4">
+            <div class="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Profil</div>
+            <div id="profile-box" class="space-y-2 text-sm"></div>
+            <div id="notification-box" class="space-y-2 border-t border-gray-200 pt-3">
+              <div class="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Notifications</div>
+              <p id="notification-status" class="text-sm text-[var(--muted)]"></p>
+              <button type="button"
+                      class="btn btn-ghost w-full text-sm"
+                      id="btn-notifications-toggle"
+                      data-notif-toggle
+                      data-uid=""
+                      data-enabled="0">🔔 Activer les notifications</button>
+            </div>
+          </section>
+          <section class="card space-y-3 p-4">
+            <div class="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Catégories</div>
+            <div id="category-box" class="space-y-2 text-sm"></div>
+          </section>
+        </div>
+      `;
+      const toggleBtn = sidebar.querySelector("#btn-notifications-toggle");
+      if (toggleBtn) {
+        toggleBtn.addEventListener("click", () => {
+          const targetUid = toggleBtn.dataset.uid;
+          if (!targetUid) return;
+          handleNotificationToggle(targetUid, toggleBtn, { interactive: true });
+        });
+      }
+      sidebar.dataset.ready = "1";
+    }
+    return sidebar;
+  }
+
   function renderSidebar() {
+    const sidebar = ensureSidebarStructure();
     const box = queryOne("#profile-box");
-    if (!box) return;
+    const status = queryOne("#notification-status");
+    const toggle = queryOne("#btn-notifications-toggle");
+    if (!sidebar || !box) return;
+
     appLog("sidebar:render", { profile: ctx.profile, categories: ctx.categories?.length });
+
     if (!ctx.user?.uid) {
       box.innerHTML = '<span class="muted">Aucun utilisateur sélectionné.</span>';
+      if (status) status.textContent = "Sélectionnez un utilisateur pour gérer les notifications.";
+      if (toggle) {
+        toggle.dataset.uid = "";
+        toggle.disabled = true;
+        toggle.textContent = "🔔 Activer les notifications";
+      }
+      const catBoxEmpty = queryOne("#category-box");
+      if (catBoxEmpty) {
+        catBoxEmpty.innerHTML = '<span class="muted">Sélectionnez un utilisateur pour voir ses catégories.</span>';
+      }
       return;
     }
+
     const link = `${location.origin}${location.pathname}#/u/${ctx.user.uid}`;
     box.innerHTML = `
       <div><strong>${ctx.profile.displayName || ctx.profile.name || "Utilisateur"}</strong></div>
       <div class="muted">UID : <code>${ctx.user.uid}</code></div>
       <div class="muted">Lien direct : <a class="link" href="${link}">${link}</a></div>
     `;
+
+    if (toggle) {
+      toggle.dataset.uid = ctx.user.uid;
+      if (!isPushSupported()) {
+        toggle.disabled = true;
+        toggle.title = "Notifications non disponibles sur cet appareil";
+      } else {
+        toggle.disabled = false;
+        toggle.removeAttribute("title");
+      }
+    }
+
+    syncNotificationButtonsForUid(ctx.user.uid);
+
     const catBox = queryOne("#category-box");
     if (catBox) {
       if (!ctx.categories.length) {
@@ -493,51 +865,11 @@
     return newProfile;
   }
 
-  async function ensurePushSubscription(ctx) {
-    const messagingSupported = typeof firebaseCompatApp?.messaging?.isSupported === "function"
-      ? firebaseCompatApp.messaging.isSupported()
-      : Promise.resolve(false);
-    if (!(await messagingSupported)) { console.info("[push] non supporté"); return; }
-    if (!("Notification" in window) || !("serviceWorker" in navigator)) return;
-
-    // 1) Permission
-    let perm = Notification.permission;
-    if (perm === "default") perm = await Notification.requestPermission();
-    if (perm !== "granted") { console.info("[push] permission refusée"); return; }
-
-    // 2) Enregistrer le SW *avec un chemin relatif fiable sur GitHub Pages*
-    const basePath = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, '')}`;
-    const swUrl = new URL("sw.js", basePath);
-    const reg = await navigator.serviceWorker.register(swUrl.href, { scope: "./" });
-    console.info("[push] SW OK", reg.scope);
-
-    // 3) Token FCM avec TA clé VAPID publique
-    let messaging;
-    try {
-      messaging = ctx.app ? firebaseCompatApp.messaging(ctx.app) : firebaseCompatApp.messaging();
-    } catch (err) {
-      console.info("[push] messaging non disponible", err);
-      return;
-    }
-    const token = await messaging.getToken({
-      vapidKey: "BMKhViKlpYs9dtqHYQYIU9rmTJQA3rPUP2h5Mg1YlA6lUs4uHk74F8rT9y8hT1U2N4M-UUE7-YvbAjYfTpjA1nM",
-      serviceWorkerRegistration: reg
-    });
-    if (!token) { console.warn("[push] pas de token"); return; }
-    console.info("[push] token", token);
-
-    // 4) Enregistrer le token côté Firestore
-    await Schema.savePushToken(ctx.db, ctx.user.uid, token);
-
-    // 5) Réception en foreground
-    messaging.onMessage((payload) => {
-      try {
-        new Notification(payload?.notification?.title || "Rappel", {
-          body: payload?.notification?.body || "Tu as des consignes à remplir aujourd’hui.",
-          icon: "/icon.png"
-        });
-      } catch {}
-    });
+  async function ensurePushSubscriptionForUid(uid, { interactive = false } = {}) {
+    const targetUid = uid || ctx.user?.uid;
+    if (!targetUid) return;
+    const success = await enablePushForUid(targetUid, { interactive });
+    if (success) syncNotificationButtonsForUid(targetUid);
   }
 
   async function initApp({ app, db, user }) {
@@ -577,8 +909,10 @@
       render();
     });
     await render();
-    // 👉 Inscription (silencieuse si refus/unsupported)
-    ensurePushSubscription(ctx).catch(console.error);
+    const pref = getPushPreference(user.uid);
+    if (pref?.enabled && isPushSupported()) {
+      ensurePushSubscriptionForUid(user.uid, { interactive: false }).catch(console.error);
+    }
     appLog("app:init:rendered");
     L.groupEnd();
   }
@@ -659,6 +993,8 @@
     try {
       const ss = await appFirestore.getDocs(appFirestore.collection(db, "u"));
       const items = [];
+      const processedUids = [];
+      const pushSupported = isPushSupported();
       ss.forEach(d => {
         const data = d.data();
         const uid = d.id;
@@ -668,6 +1004,13 @@
         const safeUid = escapeHtml(uid);
         const encodedUid = encodeURIComponent(uid);
         const link = `${location.origin}${location.pathname}#/u/${encodedUid}/daily`;
+        const pref = getPushPreference(uid);
+        const notificationsEnabled = !!(pref && pref.enabled && pref.token);
+        const notifLabel = notificationsEnabled ? "🔕 Désactiver les notifications" : "🔔 Activer les notifications";
+        const notifTitle = pushSupported
+          ? (notificationsEnabled ? `Désactiver les notifications pour ${safeName}` : `Activer les notifications pour ${safeName}`)
+          : "Notifications non disponibles sur cet appareil";
+        const notifDisabledAttr = pushSupported ? "" : " disabled";
         items.push(`
           <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3">
             <div>
@@ -685,6 +1028,14 @@
                       class="btn btn-ghost text-sm"
                       data-uid="${safeUid}"
                       data-name="${safeName}"
+                      data-action="notify"
+                      data-notif-toggle
+                      data-enabled="${notificationsEnabled ? 1 : 0}"
+                      title="${notifTitle}"${notifDisabledAttr}>${notifLabel}</button>
+              <button type="button"
+                      class="btn btn-ghost text-sm"
+                      data-uid="${safeUid}"
+                      data-name="${safeName}"
                       data-action="rename"
                       title="Renommer ${safeName}">✏️ Renommer</button>
               <button type="button"
@@ -696,9 +1047,12 @@
             </div>
           </div>
         `);
+        processedUids.push(uid);
       });
       list.innerHTML = items.join("") || "<div class='text-sm text-[var(--muted)]'>Aucun utilisateur</div>";
       appLog("admin:users:load:done", { count: items.length });
+
+      processedUids.forEach((uidValue) => syncNotificationButtonsForUid(uidValue));
 
       if (!list.dataset.bound) {
         list.addEventListener("click", async (e) => {
@@ -717,6 +1071,11 @@
           }
 
           e.preventDefault();
+          if (action === "notify") {
+            handleNotificationToggle(uid, actionTarget, { interactive: true });
+            return;
+          }
+
           if (action === "rename") {
             const currentName = name || "";
             appLog("admin:users:rename:prompt", { uid, currentName });
