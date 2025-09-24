@@ -652,6 +652,21 @@ function mondayIndexFromSundayIndex(value) {
   return normalizedWeekday(value + 6);
 }
 
+function weekSegmentDaysInMonth(segment, targetYear, targetMonthIndex) {
+  if (!segment?.start || !segment?.end) {
+    return 0;
+  }
+  let count = 0;
+  const cursor = new Date(segment.start.getTime());
+  for (let step = 0; step < 7; step += 1) {
+    if (cursor.getFullYear() === targetYear && cursor.getMonth() === targetMonthIndex) {
+      count += 1;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
 function monthWeekSegments(monthKey) {
   const [yearStr, monthStr] = String(monthKey || "").split("-");
   const year = Number(yearStr);
@@ -664,12 +679,12 @@ function monthWeekSegments(monthKey) {
   const firstDay = new Date(year, month - 1, 1);
   const firstWeekday = mondayIndexFromSundayIndex(firstDay.getDay());
   const baseStartDay = 1 - firstWeekday;
-  const segments = [];
+  const rawSegments = [];
   for (let index = 1, startDay = baseStartDay; startDay <= totalDays; index += 1, startDay += 7) {
     const endDay = startDay + 6;
     const start = new Date(year, month - 1, startDay);
     const end = new Date(year, month - 1, endDay);
-    segments.push({
+    rawSegments.push({
       index,
       start,
       end,
@@ -677,7 +692,15 @@ function monthWeekSegments(monthKey) {
       endDay,
     });
   }
-  return segments;
+  const monthIndex = month - 1;
+  const filtered = rawSegments.filter((segment) => weekSegmentDaysInMonth(segment, year, monthIndex) >= 4);
+  if (!filtered.length) {
+    return rawSegments;
+  }
+  return filtered.map((segment, idx) => ({
+    ...segment,
+    index: idx + 1,
+  }));
 }
 
 function weeksOf(monthKey) {
@@ -688,21 +711,88 @@ function weeksOf(monthKey) {
   return segments.map((segment) => segment.index);
 }
 
-function weekOfMonthFromDate(d) {
-  const dt = d instanceof Date ? new Date(d.getTime()) : new Date(d);
-  if (Number.isNaN(dt.getTime())) return 1;
-  const monthKey = monthKeyFromDate(dt);
-  const segments = monthWeekSegments(monthKey);
-  if (!segments.length) return 1;
-  const day = dt.getDate();
-  const found = segments.find((segment) => day >= segment.startDay && day <= segment.endDay);
-  if (found) {
-    return found.index;
+function weekPlacementFromDate(dateInput) {
+  const dt = dateInput instanceof Date ? new Date(dateInput.getTime()) : new Date(dateInput);
+  if (Number.isNaN(dt.getTime())) {
+    const fallbackKey = monthKeyFromDate(new Date());
+    return { monthKey: fallbackKey, weekIndex: 1 };
   }
-  if (day < segments[0].startDay) {
+  dt.setHours(0, 0, 0, 0);
+  const currentMonthKey = monthKeyFromDate(dt);
+  const weekStart = new Date(dt.getTime());
+  const offset = mondayIndexFromSundayIndex(dt.getDay());
+  weekStart.setDate(weekStart.getDate() - offset);
+  weekStart.setHours(0, 0, 0, 0);
+
+  const counts = new Map();
+  const cursor = new Date(weekStart.getTime());
+  for (let step = 0; step < 7; step += 1) {
+    const key = monthKeyFromDate(cursor);
+    counts.set(key, (counts.get(key) || 0) + 1);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  let targetMonthKey = currentMonthKey;
+  let maxCount = -1;
+  counts.forEach((value, key) => {
+    if (value > maxCount || (value === maxCount && key === currentMonthKey)) {
+      maxCount = value;
+      targetMonthKey = key;
+    }
+  });
+
+  const segments = monthWeekSegments(targetMonthKey);
+  const weekStartTime = weekStart.getTime();
+  const match = segments.find((segment) => {
+    const startTime = segment.start.getTime();
+    const endTime = segment.end.getTime();
+    return weekStartTime >= startTime && weekStartTime <= endTime;
+  });
+  if (match) {
+    return { monthKey: targetMonthKey, weekIndex: match.index };
+  }
+  const fallback = segments.find((segment) => {
+    const startTime = segment.start.getTime();
+    const endTime = segment.end.getTime();
+    const point = dt.getTime();
+    return point >= startTime && point <= endTime;
+  });
+  if (fallback) {
+    return { monthKey: targetMonthKey, weekIndex: fallback.index };
+  }
+  if (segments.length) {
+    return { monthKey: targetMonthKey, weekIndex: segments[segments.length - 1].index };
+  }
+  return { monthKey: targetMonthKey, weekIndex: 1 };
+}
+
+function weekIndexForDateInMonth(dateInput, monthKey) {
+  const dt = dateInput instanceof Date ? new Date(dateInput.getTime()) : new Date(dateInput);
+  if (Number.isNaN(dt.getTime())) {
+    return 1;
+  }
+  const segments = monthWeekSegments(monthKey);
+  if (!segments.length) {
+    return 1;
+  }
+  const point = dt.getTime();
+  const match = segments.find((segment) => {
+    const startTime = segment.start.getTime();
+    const endTime = segment.end.getTime();
+    return point >= startTime && point <= endTime;
+  });
+  if (match) {
+    return match.index;
+  }
+  if (point < segments[0].start.getTime()) {
     return segments[0].index;
   }
   return segments[segments.length - 1].index;
+}
+
+function weekOfMonthFromDate(d) {
+  const placement = weekPlacementFromDate(d);
+  return placement?.weekIndex || 1;
 }
 
 function weekDateRange(monthKey, weekIndex) {
@@ -740,10 +830,18 @@ async function getObjective(db, uid, objectifId) {
 
 async function upsertObjective(db, uid, data, objectifId = null) {
   const rawStart = data?.startDate ? new Date(data.startDate) : new Date();
-  const monthKey = data?.monthKey || monthKeyFromDate(rawStart);
+  const placement = weekPlacementFromDate(rawStart);
+  const derivedMonthKey = placement?.monthKey || monthKeyFromDate(rawStart);
+  const monthKey = data?.monthKey || derivedMonthKey;
   const type = data?.type || "hebdo";
   const week = type === "hebdo"
-    ? Number(data?.weekOfMonth || weekOfMonthFromDate(rawStart) || 1)
+    ? Number(
+        data?.weekOfMonth
+          || (placement?.monthKey === monthKey
+            ? placement.weekIndex
+            : weekIndexForDateInMonth(rawStart, monthKey))
+          || 1,
+      )
     : null;
 
   const ref = objectifId
