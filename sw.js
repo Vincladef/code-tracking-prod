@@ -44,7 +44,7 @@ messaging.onBackgroundMessage((payload = {}) => {
   }
 
   const title = data.title || "Rappel";
-  const body = data.body || "Tu as des consignes à remplir aujourd’hui.";
+  const body = data.body || "Tu as des éléments à remplir aujourd’hui.";
 
   self.registration.showNotification(title, {
     body,

@@ -322,6 +322,7 @@
     const monthKey = goal?.monthKey || initial.monthKey || Schema.monthKeyFromDate(new Date());
     let weekOfMonth = Number(goal?.weekOfMonth || initial.weekOfMonth || 1);
     const typeInitial = goal?.type || initial.type || "hebdo";
+    const notificationsInitial = goal?.notifyOnTarget !== false;
     const monthLabel = (() => {
       const [y, m] = monthKey.split("-").map(Number);
       if (!Number.isFinite(y) || !Number.isFinite(m)) return monthKey;
@@ -371,6 +372,13 @@
             <span class="goal-label">Description</span>
             <textarea name="description" rows="3" class="goal-input" placeholder="Notes facultatives">${escapeHtml(goal?.description || "")}</textarea>
           </label>
+          <div class="goal-field">
+            <span class="goal-label">Notifications</span>
+            <label class="goal-checkbox">
+              <input type="checkbox" name="notifyOnTarget" ${notificationsInitial ? "checked" : ""}>
+              <span>Recevoir un rappel à l’échéance théorique</span>
+            </label>
+          </div>
           <div class="goal-actions">
             ${goal ? '<button type="button" class="btn btn-danger" data-delete>Supprimer</button>' : ""}
             <button type="button" class="btn btn-ghost" data-close>Annuler</button>
@@ -422,12 +430,14 @@
       }
       const description = form.querySelector("[name=description]").value.trim();
       const type = typeSelect.value;
+      const notifyOnTarget = form.querySelector("[name=notifyOnTarget]")?.checked !== false;
 
       const data = {
         titre,
         description,
         type,
         monthKey,
+        notifyOnTarget,
       };
       if (type === "hebdo") {
         data.weekOfMonth = weekOfMonth;
