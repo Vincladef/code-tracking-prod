@@ -125,6 +125,7 @@
     /* Onglets (pills) + état actif coloré */
     .tabs{ display:flex; gap:.5rem; align-items:center; overflow-x:auto; flex-wrap:nowrap; -webkit-overflow-scrolling:touch; }
     .tabs::-webkit-scrollbar{ display:none; }
+    body[data-section="admin"] .tabs .tab:not([data-nav="admin"]){ display:none; }
     .tab{ border:1px solid #E5E7EB; background:#fff; border-radius:999px; padding:.5rem .875rem; font-size:.9rem; display:inline-flex; gap:.5rem; align-items:center; white-space:nowrap; flex:0 0 auto; }
     .tab[aria-current="page"]{ background:var(--accent-50); border-color:var(--accent-400); color:#0B4B66; }
 
