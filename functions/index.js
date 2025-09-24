@@ -71,6 +71,188 @@ function parisContext(now = new Date()) {
   };
 }
 
+function monthKeyFromDate(date) {
+  const dt = date instanceof Date ? new Date(date.getTime()) : new Date(date);
+  if (Number.isNaN(dt.getTime())) return "";
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function parseMonthKey(monthKey) {
+  const [yearStr, monthStr] = String(monthKey || "").split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return null;
+  }
+  return { year, month };
+}
+
+function shiftMonthKey(baseKey, offset) {
+  if (!Number.isFinite(offset)) return baseKey;
+  const parsed = parseMonthKey(baseKey);
+  if (!parsed) return baseKey;
+  const base = new Date(parsed.year, parsed.month - 1 + offset, 1);
+  return monthKeyFromDate(base);
+}
+
+function normalizedWeekday(value) {
+  return ((value % 7) + 7) % 7;
+}
+
+function mondayIndexFromSundayIndex(value) {
+  return normalizedWeekday(value + 6);
+}
+
+function weekSegmentDaysInMonth(segment, targetYear, targetMonthIndex) {
+  if (!segment?.start || !segment?.end) {
+    return 0;
+  }
+  let count = 0;
+  const cursor = new Date(segment.start.getTime());
+  for (let step = 0; step < 7; step += 1) {
+    if (cursor.getFullYear() === targetYear && cursor.getMonth() === targetMonthIndex) {
+      count += 1;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
+function monthWeekSegments(monthKey) {
+  const parsed = parseMonthKey(monthKey);
+  if (!parsed) return [];
+  const { year, month } = parsed;
+  const totalDays = new Date(year, month, 0).getDate();
+  if (!totalDays) return [];
+  const firstDay = new Date(year, month - 1, 1);
+  const firstWeekday = mondayIndexFromSundayIndex(firstDay.getDay());
+  const baseStartDay = 1 - firstWeekday;
+  const rawSegments = [];
+  for (let index = 1, startDay = baseStartDay; startDay <= totalDays; index += 1, startDay += 7) {
+    const endDay = startDay + 6;
+    const start = new Date(year, month - 1, startDay);
+    const end = new Date(year, month - 1, endDay);
+    rawSegments.push({ index, start, end, startDay, endDay });
+  }
+  const monthIndex = month - 1;
+  const filtered = rawSegments.filter((segment) =>
+    weekSegmentDaysInMonth(segment, year, monthIndex) >= 4
+  );
+  if (!filtered.length) {
+    return rawSegments;
+  }
+  return filtered.map((segment, idx) => ({ ...segment, index: idx + 1 }));
+}
+
+function weekDateRange(monthKey, weekIndex) {
+  if (!weekIndex) return null;
+  const segments = monthWeekSegments(monthKey);
+  if (!segments.length) return null;
+  const target = segments.find((segment) => segment.index === Number(weekIndex));
+  if (!target) return null;
+  return { start: target.start, end: target.end };
+}
+
+function theoreticalObjectiveDate(objective) {
+  const explicitEnd = toDate(objective?.endDate);
+  if (explicitEnd) {
+    explicitEnd.setHours(0, 0, 0, 0);
+    return explicitEnd;
+  }
+  if (objective?.type === "hebdo") {
+    const range = weekDateRange(objective.monthKey, objective.weekOfMonth || 1);
+    if (range?.end) {
+      const end = new Date(range.end.getTime());
+      end.setHours(0, 0, 0, 0);
+      return end;
+    }
+  }
+  if (objective?.type === "mensuel") {
+    const parsed = parseMonthKey(objective.monthKey);
+    if (parsed) {
+      const end = new Date(parsed.year, parsed.month, 0);
+      end.setHours(0, 0, 0, 0);
+      return end;
+    }
+  }
+  const fallback = toDate(objective?.startDate);
+  if (fallback) {
+    fallback.setHours(0, 0, 0, 0);
+    return fallback;
+  }
+  return null;
+}
+
+async function fetchObjectivesByMonth(uid, monthKey) {
+  if (!uid || !monthKey) return [];
+  try {
+    const snap = await db
+      .collection("u")
+      .doc(uid)
+      .collection("objectifs")
+      .where("monthKey", "==", monthKey)
+      .get();
+    return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    functions.logger.warn("fetchObjectivesByMonth:error", { uid, monthKey, error });
+    return [];
+  }
+}
+
+async function countObjectivesDueToday(uid, context) {
+  const monthKey = monthKeyFromDate(context.selectedDate);
+  const previousMonth = shiftMonthKey(monthKey, -1);
+  const targetMonths = new Set([monthKey]);
+  if (previousMonth && previousMonth !== monthKey) {
+    targetMonths.add(previousMonth);
+  }
+
+  const objectives = [];
+  for (const key of targetMonths) {
+    const rows = await fetchObjectivesByMonth(uid, key);
+    objectives.push(...rows);
+  }
+
+  const dueIso = context.dateIso;
+  let count = 0;
+  for (const objective of objectives) {
+    if (objective.notifyOnTarget === false) continue;
+    const dueDate = theoreticalObjectiveDate(objective);
+    if (!dueDate) continue;
+    const iso = dueDate.toISOString().slice(0, 10);
+    if (iso === dueIso) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function pluralize(count, singular, plural = null) {
+  if (count === 1) return singular;
+  return plural || `${singular}s`;
+}
+
+function buildReminderBody(consigneCount, objectiveCount) {
+  const items = [];
+  if (consigneCount > 0) {
+    items.push(`${consigneCount} ${pluralize(consigneCount, "consigne")}`);
+  }
+  if (objectiveCount > 0) {
+    items.push(`${objectiveCount} ${pluralize(objectiveCount, "objectif")}`);
+  }
+  if (!items.length) {
+    return "Tu n’as rien à remplir aujourd’hui.";
+  }
+  if (items.length === 1) {
+    return `Tu as ${items[0]} à remplir aujourd’hui.`;
+  }
+  if (items.length === 2) {
+    return `Tu as ${items[0]} et ${items[1]} à remplir aujourd’hui.`;
+  }
+  const last = items.pop();
+  return `Tu as ${items.join(", ")} et ${last} à remplir aujourd’hui.`;
+}
+
 async function collectPushTokens() {
   const snap = await db.collectionGroup("pushTokens").get();
   const tokensByUid = new Map();
@@ -164,11 +346,11 @@ async function countVisibleConsignes(uid, context) {
   return visible;
 }
 
-async function sendReminder(uid, tokens, visibleCount, context) {
+async function sendReminder(uid, tokens, visibleCount, objectiveCount, context) {
   if (!tokens.length) return { successCount: 0, failureCount: 0, responses: [] };
 
   const title = "Rappel du jour 👋";
-  const body = `Tu as ${visibleCount} consigne(s) à remplir aujourd’hui.`;
+  const body = buildReminderBody(visibleCount, objectiveCount);
 
   const link = buildUserDailyLink(uid, context.dateIso);
 
@@ -178,6 +360,10 @@ async function sendReminder(uid, tokens, visibleCount, context) {
       link,
       count: String(visibleCount),
       day: context.dayLabel,
+      consignes: String(visibleCount),
+      objectifs: String(objectiveCount),
+      body,
+      title,
     },
     notification: { title, body },
     webpush: {
@@ -235,19 +421,21 @@ exports.sendDailyReminders = functions
       for (const [uid, tokens] of tokensByUid.entries()) {
         try {
           const visibleCount = await countVisibleConsignes(uid, context);
-          if (visibleCount < 1) {
+          const objectiveCount = await countObjectivesDueToday(uid, context);
+          if (visibleCount < 1 && objectiveCount < 1) {
             functions.logger.debug("sendDailyReminders:skip", {
               uid,
-              reason: "no_visible_consignes",
+              reason: "no_visible_items",
             });
             continue;
           }
 
-          const response = await sendReminder(uid, tokens, visibleCount, context);
+          const response = await sendReminder(uid, tokens, visibleCount, objectiveCount, context);
           results.push({
             uid,
             tokens: tokens.length,
             visibleCount,
+            objectiveCount,
             sent: response.successCount,
             failed: response.failureCount,
           });
