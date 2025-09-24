@@ -114,7 +114,7 @@
       border-radius:999px;
       background:#fff;
       min-width:12.5rem;
-      width:clamp(12.5rem, 42vw, 16rem);
+      width:clamp(13rem, 70vw, 18rem);
     }
     .day-nav-btn {
       flex:0 0 auto;
@@ -452,9 +452,9 @@
 <body class="min-h-screen">
   <div class="flex min-h-screen flex-col">
     <header class="border-b border-gray-200 bg-white">
-      <div class="mx-auto w-full max-w-5xl px-4 py-4
+      <div class="mx-auto w-full max-w-5xl px-4 py-4 relative
             flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 class="text-lg sm:text-xl font-semibold">
+        <h1 class="text-lg sm:text-xl font-semibold pr-12 sm:pr-0">
           Habitudes &amp; Pratique
           <span id="user-badge" style="margin-left:.5rem;color:#94a3b8;font-weight:600;">
             — <span data-username>…</span>
@@ -466,7 +466,7 @@
           <button class="tab" data-route="#/practice"><span>⚡</span><span>Pratique</span></button>
           <button class="tab" data-route="#/goals"><span>🎯</span><span>Objectifs</span></button>
         </nav>
-        <div class="user-actions hidden" id="user-actions" aria-hidden="true">
+        <div class="user-actions hidden absolute right-4 top-4 sm:static" id="user-actions" aria-hidden="true">
           <button type="button" class="user-actions__trigger" id="user-actions-trigger" aria-haspopup="true" aria-expanded="false" title="Actions">
             ⋮
           </button>
