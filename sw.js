@@ -13,6 +13,19 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
+self.addEventListener("install", (event) => {
+  event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener("fetch", () => {
+  // Ce service worker est principalement dédié aux notifications push.
+  // La présence de ce gestionnaire garantit le comportement attendu pour la PWA.
+});
+
 messaging.onBackgroundMessage(({ notification = {}, data = {} }) => {
   self.registration.showNotification(notification.title || "Rappel", {
     body: notification.body || "Tu as des consignes à remplir aujourd’hui.",
