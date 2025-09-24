@@ -283,6 +283,9 @@
             todayIso,
             Number(select.value || 0)
           );
+          if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+            window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+          }
           applyTone(select.value);
         } catch (err) {
           goalsLogger.error("goals.quickEntry.error", err);
@@ -474,6 +477,9 @@
 
     const currentMonth = Schema.monthKeyFromDate(new Date());
     await showMonth(currentMonth, "auto");
+    if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+      window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+    }
   }
 
   function openGoalForm(ctx, goal = null, initial = {}) {

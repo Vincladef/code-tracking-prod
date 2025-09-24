@@ -900,6 +900,22 @@ async function saveObjectiveEntry(db, uid, objectifId, dateIso, value) {
   await setDoc(ref, { v: value, at: serverTimestamp() }, { merge: true });
 }
 
+async function getObjectiveEntry(db, uid, objectifId, dateIso) {
+  if (!db || !uid || !objectifId || !dateIso) return null;
+  try {
+    const ref = doc(db, "u", uid, "objectiveEntries", objectifId, "entries", dateIso);
+    const snap = await getDoc(ref);
+    if (!snapshotExists(snap)) {
+      return null;
+    }
+    const data = snap.data() || {};
+    return { id: snap.id, ...data };
+  } catch (error) {
+    console.warn("getObjectiveEntry", error);
+    return null;
+  }
+}
+
 async function loadObjectiveEntriesRange(db, uid, objectifId, _fromIso, _toIso) {
   const colRef = collection(db, "u", uid, "objectiveEntries", objectifId, "entries");
   const snap = await getDocs(colRef);
@@ -959,6 +975,7 @@ Object.assign(Schema, {
   deleteObjective,
   linkConsigneToObjective,
   saveObjectiveEntry,
+  getObjectiveEntry,
   loadObjectiveEntriesRange,
 });
 

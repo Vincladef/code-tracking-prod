@@ -77,6 +77,325 @@
     route: "#/admin",
   };
 
+  const badgeManager = (() => {
+    const DOW = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
+    let refreshPromise = null;
+
+    function isBadgeSupported() {
+      if (typeof navigator === "undefined") return false;
+      return typeof navigator.setAppBadge === "function" || typeof navigator.setClientBadge === "function";
+    }
+
+    function resolveBadgeApi() {
+      if (typeof navigator === "undefined") return { set: null, clear: null };
+      const set = navigator.setAppBadge || navigator.setClientBadge;
+      const clear = navigator.clearAppBadge || navigator.clearClientBadge;
+      return { set, clear };
+    }
+
+    function isStandaloneDisplay() {
+      try {
+        const media = typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)");
+        return (media && media.matches) || window.navigator?.standalone === true;
+      } catch (error) {
+        return window.navigator?.standalone === true;
+      }
+    }
+
+    async function applyBadgeValue(value) {
+      const { set, clear } = resolveBadgeApi();
+      if (!set) return;
+      try {
+        if (Number.isFinite(value) && value > 0) {
+          await set.call(navigator, Math.round(value));
+        } else if (clear) {
+          await clear.call(navigator);
+        } else {
+          await set.call(navigator, 0);
+        }
+      } catch (error) {
+        console.warn("[badge] apply", error);
+      }
+    }
+
+    function normalizeDateLike(value) {
+      const date = value instanceof Date ? new Date(value.getTime()) : new Date(value || Date.now());
+      if (Number.isNaN(date.getTime())) {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        return now;
+      }
+      date.setHours(0, 0, 0, 0);
+      return date;
+    }
+
+    function toDate(value) {
+      if (!value) return null;
+      if (value instanceof Date) return new Date(value.getTime());
+      if (typeof value.toDate === "function") {
+        try {
+          const fromFirestore = value.toDate();
+          if (fromFirestore instanceof Date && !Number.isNaN(fromFirestore.getTime())) {
+            return fromFirestore;
+          }
+        } catch (error) {
+          console.warn("[badge] toDate", error);
+        }
+      }
+      if (typeof value === "number") {
+        const asDate = new Date(value);
+        if (!Number.isNaN(asDate.getTime())) return asDate;
+      }
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        const asDate = new Date(trimmed);
+        if (!Number.isNaN(asDate.getTime())) return asDate;
+      }
+      return null;
+    }
+
+    function parseMonthKey(monthKey) {
+      const [yearStr, monthStr] = String(monthKey || "").split("-");
+      const year = Number(yearStr);
+      const month = Number(monthStr);
+      if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+        return null;
+      }
+      return { year, month };
+    }
+
+    function shiftMonthKey(baseKey, offset) {
+      if (!Number.isFinite(offset)) return baseKey;
+      const parsed = parseMonthKey(baseKey);
+      if (!parsed) return baseKey;
+      const base = new Date(parsed.year, parsed.month - 1 + offset, 1);
+      return Schema.monthKeyFromDate(base);
+    }
+
+    function computeTheoreticalObjectiveDate(goal) {
+      if (!goal) return null;
+      const explicitEnd = toDate(goal.endDate);
+      if (explicitEnd) {
+        explicitEnd.setHours(0, 0, 0, 0);
+        return explicitEnd;
+      }
+      if (goal.type === "hebdo") {
+        const range = Schema.weekDateRange(goal.monthKey, goal.weekOfMonth || goal.weekIndex || 1);
+        if (range?.end instanceof Date) {
+          const end = new Date(range.end.getTime());
+          end.setHours(0, 0, 0, 0);
+          return end;
+        }
+      }
+      if (goal.type === "mensuel") {
+        const parsed = parseMonthKey(goal.monthKey);
+        if (parsed) {
+          const end = new Date(parsed.year, parsed.month, 0);
+          end.setHours(0, 0, 0, 0);
+          return end;
+        }
+      }
+      const start = toDate(goal.startDate);
+      if (start) {
+        start.setHours(0, 0, 0, 0);
+        return start;
+      }
+      return null;
+    }
+
+    function customObjectiveReminderDate(goal) {
+      if (!goal) return null;
+      const raw = goal.notifyAt ?? goal.notifyDate ?? goal.notificationDate ?? null;
+      const custom = toDate(raw);
+      if (!custom) return null;
+      custom.setHours(0, 0, 0, 0);
+      return custom;
+    }
+
+    async function countDailyPending(db, uid, targetDate) {
+      if (!db || !uid) return 0;
+      const date = normalizeDateLike(targetDate);
+      const dayLabel = DOW[date.getDay()];
+      const dayKey = Schema.dayKeyFromDate(date);
+      let consignes = [];
+      try {
+        consignes = await Schema.fetchConsignes(db, uid, "daily");
+      } catch (error) {
+        console.warn("[badge] daily:consignes", error);
+        return 0;
+      }
+      if (!Array.isArray(consignes) || !consignes.length) {
+        return 0;
+      }
+      const todaysConsignes = consignes.filter((item) => {
+        const days = Array.isArray(item.days) ? item.days : [];
+        if (!days.length) return true;
+        return days.includes(dayLabel);
+      });
+      if (!todaysConsignes.length) {
+        return 0;
+      }
+
+      let responses = new Map();
+      try {
+        responses = await Schema.fetchDailyResponses(db, uid, dayKey);
+      } catch (error) {
+        console.warn("[badge] daily:responses", error);
+        responses = new Map();
+      }
+
+      let count = 0;
+      for (const consigne of todaysConsignes) {
+        const hasResponse = responses instanceof Map && responses.has(consigne.id);
+        if (hasResponse) {
+          continue;
+        }
+        if (consigne.srEnabled === false) {
+          count += 1;
+          continue;
+        }
+        try {
+          const state = await Schema.readSRState(db, uid, consigne.id, "consigne");
+          const nextISO = state?.nextVisibleOn || state?.hideUntil;
+          if (!nextISO) {
+            count += 1;
+            continue;
+          }
+          const next = new Date(nextISO);
+          if (Number.isNaN(next.getTime()) || next <= date) {
+            count += 1;
+          }
+        } catch (error) {
+          console.warn("[badge] daily:sr", error);
+          count += 1;
+        }
+      }
+      return count;
+    }
+
+    async function countObjectivePending(db, uid, targetDate) {
+      if (!db || !uid) return 0;
+      const date = normalizeDateLike(targetDate);
+      const targetIso = Schema.dayKeyFromDate(date);
+      const currentMonthKey = Schema.monthKeyFromDate(date);
+      const previousMonthKey = shiftMonthKey(currentMonthKey, -1);
+      const monthKeys = new Set([currentMonthKey]);
+      if (previousMonthKey && previousMonthKey !== currentMonthKey) {
+        monthKeys.add(previousMonthKey);
+      }
+
+      const objectivesById = new Map();
+      await Promise.all(
+        Array.from(monthKeys).map(async (monthKey) => {
+          if (!monthKey) return;
+          try {
+            const rows = await Schema.listObjectivesByMonth(db, uid, monthKey);
+            if (!Array.isArray(rows)) return;
+            rows.forEach((row) => {
+              if (row && row.id) {
+                objectivesById.set(row.id, row);
+              }
+            });
+          } catch (error) {
+            console.warn("[badge] goals:list", error);
+          }
+        })
+      );
+
+      if (!objectivesById.size) {
+        return 0;
+      }
+
+      let count = 0;
+      for (const objective of objectivesById.values()) {
+        if (!objective || objective.notifyOnTarget === false) {
+          continue;
+        }
+        const dueDate = customObjectiveReminderDate(objective) || computeTheoreticalObjectiveDate(objective);
+        if (!dueDate) continue;
+        const dueIso = Schema.dayKeyFromDate(dueDate);
+        if (dueIso !== targetIso) continue;
+
+        let entry = null;
+        if (typeof Schema.getObjectiveEntry === "function") {
+          try {
+            entry = await Schema.getObjectiveEntry(db, uid, objective.id, targetIso);
+          } catch (error) {
+            console.warn("[badge] goals:entry", error);
+          }
+        }
+        if (entry && entry.v !== undefined && entry.v !== null) {
+          continue;
+        }
+        count += 1;
+      }
+      return count;
+    }
+
+    async function refresh(explicitUid, options = {}) {
+      if (!isBadgeSupported()) {
+        return 0;
+      }
+      if (!isStandaloneDisplay()) {
+        await applyBadgeValue(0);
+        return 0;
+      }
+      const db = ctx.db;
+      const uid = explicitUid || ctx.user?.uid || null;
+      if (!db || !uid) {
+        await applyBadgeValue(0);
+        return 0;
+      }
+      const date = normalizeDateLike(options.date || new Date());
+      if (!refreshPromise) {
+        refreshPromise = (async () => {
+          const [daily, goals] = await Promise.all([
+            countDailyPending(db, uid, date),
+            countObjectivePending(db, uid, date),
+          ]);
+          const total = Number(daily || 0) + Number(goals || 0);
+          await applyBadgeValue(total);
+          return total;
+        })().catch((error) => {
+          console.warn("[badge] refresh", error);
+          return 0;
+        });
+      }
+      try {
+        return await refreshPromise;
+      } finally {
+        refreshPromise = null;
+      }
+    }
+
+    async function clear() {
+      if (!isBadgeSupported()) return;
+      await applyBadgeValue(0);
+    }
+
+    return {
+      refresh,
+      clear,
+      isBadgeSupported,
+      countDailyPending,
+      countObjectivePending,
+    };
+  })();
+
+  window.__appBadge = {
+    refresh: (uid, options) => badgeManager.refresh(uid, options),
+    clear: () => badgeManager.clear(),
+  };
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        badgeManager.refresh().catch(() => {});
+      }
+    });
+  }
+
   let profileUnsubscribe = null;
 
   const PUSH_PREFS_KEY = "hp::push::prefs";
@@ -1307,6 +1626,7 @@
       render();
     });
     await render();
+    badgeManager.refresh(user.uid).catch(() => {});
     const pref = getPushPreference(user.uid);
     if (pref?.enabled && isPushSupported()) {
       ensurePushSubscriptionForUid(user.uid, { interactive: false }).catch(console.error);
@@ -1568,6 +1888,9 @@
     const currentSection = section === "u" ? sub : section;
     setActiveNav(currentSection);
     appLog("render:section", { section: currentSection, uid: ctx.user?.uid || null });
+    if (ctx.user?.uid) {
+      badgeManager.refresh(ctx.user.uid).catch(() => {});
+    }
 
     switch (currentSection) {
       case "admin":
