@@ -665,13 +665,12 @@ function monthWeekSegments(monthKey) {
   const firstWeekday = mondayIndexFromSundayIndex(firstDay.getDay());
   const baseStartDay = 1 - firstWeekday;
   const segments = [];
-  for (let i = 0; i < 4; i += 1) {
-    const startDay = baseStartDay + i * 7;
+  for (let index = 1, startDay = baseStartDay; startDay <= totalDays; index += 1, startDay += 7) {
     const endDay = startDay + 6;
     const start = new Date(year, month - 1, startDay);
     const end = new Date(year, month - 1, endDay);
     segments.push({
-      index: i + 1,
+      index,
       start,
       end,
       startDay,
