@@ -62,8 +62,8 @@
   <meta name="apple-mobile-web-app-title" content="Habitudes &amp; Pratique" />
   <title>Habitudes &amp; Pratique</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%20512%20512%27%20role%3D%27img%27%20aria-label%3D%27Habitudes%20et%20Pratique%27%3E%0A%20%20%3Crect%20width%3D%27512%27%20height%3D%27512%27%20rx%3D%27128%27%20fill%3D%27%233EA6EB%27%20%2F%3E%0A%20%20%3Ctext%20x%3D%2750%25%27%20y%3D%2755%25%27%20text-anchor%3D%27middle%27%20font-family%3D%27Inter%2C%20Helvetica%2C%20Arial%2C%20sans-serif%27%20font-size%3D%27220%27%20font-weight%3D%27700%27%20fill%3D%27%23FFFFFF%27%3EHP%3C%2Ftext%3E%0A%3C%2Fsvg%3E" />
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%20512%20512%27%20role%3D%27img%27%20aria-label%3D%27Habitudes%20et%20Pratique%27%3E%0A%20%20%3Crect%20width%3D%27512%27%20height%3D%27512%27%20rx%3D%27116%27%20fill%3D%27%233EA6EB%27%2F%3E%0A%20%20%3Ctext%20x%3D%2750%25%27%20y%3D%2758%25%27%20text-anchor%3D%27middle%27%20font-family%3D%27%22Segoe%20UI%20Emoji%22%2C%20%22Apple%20Color%20Emoji%22%2C%20%22Noto%20Color%20Emoji%22%2C%20sans-serif%27%20font-size%3D%27260%27%3E%F0%9F%8C%B1%3C%2Ftext%3E%0A%3C%2Fsvg%3E" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%20100%20100%27%20role%3D%27img%27%20aria-label%3D%27Habitudes%20et%20Pratique%27%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20rx%3D%2722%27%20fill%3D%27%233EA6EB%27%2F%3E%3Ctext%20x%3D%2750%25%27%20y%3D%2760%25%27%20text-anchor%3D%27middle%27%20font-family%3D%27%22Segoe%20UI%20Emoji%22%2C%20%22Apple%20Color%20Emoji%22%2C%20%22Noto%20Color%20Emoji%22%2C%20sans-serif%27%20font-size%3D%2748%27%3E%F0%9F%8C%B1%3C%2Ftext%3E%3C%2Fsvg%3E">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 
@@ -133,6 +133,16 @@
     .btn-danger{ background:#fee2e2; border:1px solid #fecaca; color:#b91c1c; }
     .btn-danger:hover{ background:#fecaca; }
 
+    .install-banner{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; background:var(--accent-50); border:1px solid var(--accent-200); border-radius:1rem; padding:.65rem .85rem; font-size:.85rem; color:#0f172a; margin-bottom:1rem; }
+    .install-banner__content{ display:flex; align-items:center; gap:.6rem; flex:1 1 auto; }
+    .install-banner__icon{ font-size:1.4rem; }
+    .install-banner__text{ display:flex; flex-direction:column; gap:2px; }
+    .install-banner__title{ font-weight:600; }
+    .install-banner__subtitle{ color:var(--muted); font-size:.8rem; }
+    .install-banner__action{ display:inline-flex; align-items:center; gap:.25rem; font-weight:600; color:var(--accent-700); text-decoration:none; font-size:.82rem; flex-shrink:0; }
+    .install-banner__action:hover,
+    .install-banner__action:focus-visible{ text-decoration:underline; outline:none; }
+
     /* Animation de changement d’onglet */
     @keyframes fadeSlideIn{ from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:translateY(0);} }
     .route-enter{ animation: fadeSlideIn .25s ease-out; }
@@ -143,6 +153,8 @@
     /* Titre un peu plus petit sur mobile */
     @media (max-width: 640px){
       header h1{ font-size:1rem; }
+      .install-banner{ flex-direction:column; align-items:flex-start; text-align:left; }
+      .install-banner__action{ padding-top:.25rem; }
     }
 
     /* utilitaire pour masquer la scrollbar (déjà utilisé ci-dessus) */
@@ -498,25 +510,35 @@
 <body class="min-h-screen">
   <div class="flex min-h-screen flex-col">
     <header class="border-b border-gray-200 bg-white">
-      <div class="mx-auto w-full max-w-5xl px-4 py-4 relative
-            flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 class="text-lg sm:text-xl font-semibold pr-12 sm:pr-0">
-          Habitudes &amp; Pratique
-          <span id="user-badge" style="margin-left:.5rem;color:#94a3b8;font-weight:600;">
-            — <span data-username>…</span>
-          </span>
-        </h1>
-        <nav class="tabs w-full sm:w-auto overflow-x-auto no-scrollbar">
-          <button class="tab" data-route="#/admin" data-nav="admin"><span>🛠️</span><span>Admin</span></button>
-          <button class="tab" data-route="#/daily"><span>📅</span><span>Journalier</span></button>
-          <button class="tab" data-route="#/practice"><span>⚡</span><span>Pratique</span></button>
-          <button class="tab" data-route="#/goals"><span>🎯</span><span>Objectifs</span></button>
-        </nav>
-        <div class="user-actions hidden absolute right-4 top-4 sm:static" id="user-actions" aria-hidden="true">
-          <button type="button" class="user-actions__trigger" id="user-actions-trigger" aria-haspopup="true" aria-expanded="false" title="Actions">
-            ⋮
-          </button>
-          <div class="user-actions__panel hidden" id="user-actions-panel" role="menu">
+      <div class="mx-auto w-full max-w-5xl px-4 py-4 relative">
+        <div class="install-banner hidden" id="install-banner" aria-hidden="true">
+          <div class="install-banner__content">
+            <span class="install-banner__icon" aria-hidden="true">📲</span>
+            <div class="install-banner__text">
+              <span class="install-banner__title">Télécharger l’application</span>
+              <span class="install-banner__subtitle">Ajoutez-la à votre écran d’accueil pour un accès rapide.</span>
+            </div>
+          </div>
+          <a class="install-banner__action" href="https://support.google.com/chrome/answer/9658361?hl=fr" target="_blank" rel="noreferrer">Comment faire&nbsp;?</a>
+        </div>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 class="text-lg sm:text-xl font-semibold pr-12 sm:pr-0">
+            Habitudes &amp; Pratique
+            <span id="user-badge" style="margin-left:.5rem;color:#94a3b8;font-weight:600;">
+              — <span data-username>…</span>
+            </span>
+          </h1>
+          <nav class="tabs w-full sm:w-auto overflow-x-auto no-scrollbar">
+            <button class="tab" data-route="#/admin" data-nav="admin"><span>🛠️</span><span>Admin</span></button>
+            <button class="tab" data-route="#/daily"><span>📅</span><span>Journalier</span></button>
+            <button class="tab" data-route="#/practice"><span>⚡</span><span>Pratique</span></button>
+            <button class="tab" data-route="#/goals"><span>🎯</span><span>Objectifs</span></button>
+          </nav>
+          <div class="user-actions hidden absolute right-4 top-4 sm:static" id="user-actions" aria-hidden="true">
+            <button type="button" class="user-actions__trigger" id="user-actions-trigger" aria-haspopup="true" aria-expanded="false" title="Actions">
+              ⋮
+            </button>
+            <div class="user-actions__panel hidden" id="user-actions-panel" role="menu">
             <button type="button"
                     class="user-actions__item"
                     id="user-actions-notifications"
@@ -605,6 +627,7 @@
   <script>
     (function setupInstallButton() {
       const installButton = document.getElementById("install-app-button");
+      const installBanner = document.getElementById("install-banner");
       if (!installButton) {
         return;
       }
@@ -621,6 +644,18 @@
       const isMobileDevice = (isiOS || isAndroid || (hasTouch && isSmallViewport));
 
       let deferredPrompt = null;
+
+      function hideBanner() {
+        if (!installBanner) return;
+        installBanner.classList.add("hidden");
+        installBanner.setAttribute("aria-hidden", "true");
+      }
+
+      function showBanner() {
+        if (!installBanner) return;
+        installBanner.classList.remove("hidden");
+        installBanner.removeAttribute("aria-hidden");
+      }
 
       function rememberCurrentInstallTarget() {
         const api = window.__appInstallTarget;
@@ -647,6 +682,11 @@
       }
 
       hideButton();
+      if (isStandalone || !isMobileDevice) {
+        hideBanner();
+      } else {
+        showBanner();
+      }
 
       window.addEventListener("beforeinstallprompt", (event) => {
         event.preventDefault();
@@ -658,6 +698,7 @@
         rememberCurrentInstallTarget();
         deferredPrompt = null;
         showButton({ label: defaultLabel });
+        hideBanner();
       });
 
       if (isiOS && !isStandalone) {
