@@ -109,6 +109,64 @@
     return null;
   }
 
+  function computeGoalDateRange(goal) {
+    if (!goal) {
+      return { start: null, end: null };
+    }
+
+    const normalize = (value) => {
+      const parsed = toDate(value);
+      if (!parsed) return null;
+      parsed.setHours(0, 0, 0, 0);
+      return parsed;
+    };
+
+    const explicitStart = normalize(goal.startDate);
+    const explicitEnd = normalize(goal.endDate);
+    if (explicitStart || explicitEnd) {
+      return {
+        start: explicitStart || (explicitEnd ? new Date(explicitEnd.getTime()) : null),
+        end: explicitEnd || (explicitStart ? new Date(explicitStart.getTime()) : null),
+      };
+    }
+
+    if (goal.type === "hebdo") {
+      const range = Schema.weekDateRange(goal.monthKey, goal.weekOfMonth || goal.weekIndex || 1);
+      if (range?.start instanceof Date && range?.end instanceof Date) {
+        const start = new Date(range.start.getTime());
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(range.end.getTime());
+        end.setHours(0, 0, 0, 0);
+        return { start, end };
+      }
+    }
+
+    if (goal.type === "mensuel") {
+      const parsed = parseMonthKey(goal.monthKey);
+      if (parsed) {
+        const year = parsed.year;
+        const month = parsed.month;
+        if (Number.isFinite(year) && Number.isFinite(month)) {
+          const start = new Date(year, month - 1, 1);
+          start.setHours(0, 0, 0, 0);
+          const end = new Date(year, month, 0);
+          end.setHours(0, 0, 0, 0);
+          return { start, end };
+        }
+      }
+    }
+
+    const theoretical = computeTheoreticalGoalDate(goal);
+    if (theoretical instanceof Date && !Number.isNaN(theoretical.getTime())) {
+      const start = new Date(theoretical.getTime());
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start.getTime());
+      return { start, end };
+    }
+
+    return { start: null, end: null };
+  }
+
   function formatGoalDateLabel(date) {
     if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
     const raw = date.toLocaleDateString("fr-FR", {
@@ -538,8 +596,12 @@
     });
 
     const updateNotifyDefault = () => {
-      const theoreticalDate = computeTheoreticalGoalDate(currentGoalConfig());
+      const config = currentGoalConfig();
+      const theoreticalDate = computeTheoreticalGoalDate(config);
       const theoreticalIso = formatDateInputValue(theoreticalDate);
+      const range = computeGoalDateRange(config);
+      const minIso = range?.start ? formatDateInputValue(range.start) : "";
+      const maxIso = range?.end ? formatDateInputValue(range.end) : "";
       if (notifyDefaultHint) {
         if (theoreticalDate) {
           notifyDefaultHint.textContent = `Échéance théorique : ${formatGoalDateLabel(theoreticalDate)}`;
@@ -548,11 +610,28 @@
         }
       }
       if (!notifyDateInput) return;
+      if (minIso) {
+        notifyDateInput.min = minIso;
+      } else {
+        notifyDateInput.removeAttribute("min");
+      }
+      if (maxIso) {
+        notifyDateInput.max = maxIso;
+      } else {
+        notifyDateInput.removeAttribute("max");
+      }
       if (!notifyDateDirty) {
         notifyDateInput.value = theoreticalIso || "";
-      } else if (notifyDateInput.value === theoreticalIso) {
-        notifyDateDirty = false;
       }
+      if (notifyDateInput.value) {
+        if (minIso && notifyDateInput.value < minIso) {
+          notifyDateInput.value = minIso;
+        }
+        if (maxIso && notifyDateInput.value > maxIso) {
+          notifyDateInput.value = maxIso;
+        }
+      }
+      notifyDateDirty = (notifyDateInput.value || "") !== (theoreticalIso || "");
     };
 
     const updateNotificationEnabledState = () => {
@@ -575,8 +654,22 @@
         updateNotifyDefault();
         return;
       }
-      const theoreticalIso = formatDateInputValue(computeTheoreticalGoalDate(currentGoalConfig())) || "";
-      notifyDateDirty = notifyDateInput.value !== theoreticalIso;
+      const config = currentGoalConfig();
+      const theoreticalIso = formatDateInputValue(computeTheoreticalGoalDate(config)) || "";
+      const range = computeGoalDateRange(config);
+      const minIso = range?.start ? formatDateInputValue(range.start) : "";
+      const maxIso = range?.end ? formatDateInputValue(range.end) : "";
+      let nextValue = notifyDateInput.value;
+      if (minIso && nextValue && nextValue < minIso) {
+        nextValue = minIso;
+      }
+      if (maxIso && nextValue && nextValue > maxIso) {
+        nextValue = maxIso;
+      }
+      if (nextValue !== notifyDateInput.value) {
+        notifyDateInput.value = nextValue;
+      }
+      notifyDateDirty = (notifyDateInput.value || "") !== theoreticalIso;
     };
 
     if (notifyDateInput) {
@@ -627,11 +720,22 @@
       const notifyOnTarget = notifyCheckbox?.checked !== false;
       const notifyAtRaw = (notifyDateInput?.value || "").trim();
       let notifyAt = null;
+      const goalConfig = currentGoalConfig();
       if (notifyOnTarget) {
+        const range = computeGoalDateRange(goalConfig);
+        const minIso = range?.start ? formatDateInputValue(range.start) : "";
+        const maxIso = range?.end ? formatDateInputValue(range.end) : "";
         if (notifyAtRaw) {
-          notifyAt = notifyAtRaw;
+          let normalized = notifyAtRaw;
+          if (minIso && normalized < minIso) {
+            normalized = minIso;
+          }
+          if (maxIso && normalized > maxIso) {
+            normalized = maxIso;
+          }
+          notifyAt = normalized;
         } else {
-          notifyAt = formatDateInputValue(computeTheoreticalGoalDate(currentGoalConfig())) || null;
+          notifyAt = formatDateInputValue(computeTheoreticalGoalDate(goalConfig)) || null;
         }
       }
 
