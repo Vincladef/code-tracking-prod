@@ -330,26 +330,13 @@
 
     if (ctx.user?.uid === uid) {
       const status = queryOne("#notification-status");
-      const toggle = queryOne("#btn-notifications-toggle");
-      if (toggle) {
-        toggle.dataset.enabled = enabled ? "1" : "0";
-        if (!isPushSupported()) {
-          toggle.disabled = true;
-          toggle.textContent = "🔔 Activer les notifications";
-          toggle.title = "Notifications non disponibles sur cet appareil";
-        } else {
-          toggle.disabled = false;
-          toggle.title = enabled ? "Notifications actives" : "Activer les notifications";
-          toggle.textContent = enabled ? "🔕 Désactiver les notifications" : "🔔 Activer les notifications";
-        }
-      }
       if (status) {
         if (!isPushSupported()) {
           status.textContent = "Les notifications ne sont pas disponibles sur ce navigateur.";
         } else if (enabled) {
-          status.textContent = "Notifications actives sur cet appareil pour cet utilisateur.";
+          status.textContent = "Notifications actives sur cet appareil. Utilise le menu ⋮ pour les gérer.";
         } else {
-          status.textContent = "Notifications désactivées sur cet appareil pour cet utilisateur.";
+          status.textContent = "Notifications désactivées sur cet appareil. Active-les depuis le menu ⋮.";
         }
       }
     }
@@ -464,6 +451,110 @@
   const queryOne = (sel) => document.querySelector(sel);
 
   const queryAll = (sel) => Array.from(document.querySelectorAll(sel));
+
+  const userActions = {
+    container: document.getElementById("user-actions"),
+    trigger: document.getElementById("user-actions-trigger"),
+    panel: document.getElementById("user-actions-panel"),
+    notif: document.getElementById("user-actions-notifications"),
+    install: document.getElementById("install-app-button"),
+  };
+
+  let userActionsOpen = false;
+
+  function closeUserActionsMenu() {
+    if (userActions.panel) {
+      userActions.panel.classList.add("hidden");
+    }
+    if (userActions.trigger) {
+      userActions.trigger.setAttribute("aria-expanded", "false");
+    }
+    userActionsOpen = false;
+  }
+
+  function openUserActionsMenu() {
+    if (userActions.panel) {
+      userActions.panel.classList.remove("hidden");
+    }
+    if (userActions.trigger) {
+      userActions.trigger.setAttribute("aria-expanded", "true");
+    }
+    userActionsOpen = true;
+  }
+
+  function toggleUserActionsMenu() {
+    if (userActionsOpen) closeUserActionsMenu();
+    else openUserActionsMenu();
+  }
+
+  function setUserActionsVisibility(visible) {
+    if (!userActions.container) return;
+    if (visible) {
+      userActions.container.classList.remove("hidden");
+      userActions.container.setAttribute("aria-hidden", "false");
+    } else {
+      userActions.container.classList.add("hidden");
+      userActions.container.setAttribute("aria-hidden", "true");
+      closeUserActionsMenu();
+      if (userActions.notif) {
+        userActions.notif.dataset.uid = "";
+        userActions.notif.disabled = true;
+      }
+    }
+  }
+
+  function updateUserActionsTarget(uid) {
+    if (!userActions.notif) return;
+    if (!uid) {
+      userActions.notif.dataset.uid = "";
+      userActions.notif.disabled = true;
+      return;
+    }
+    userActions.notif.dataset.uid = uid;
+    if (!isPushSupported()) {
+      userActions.notif.disabled = true;
+      userActions.notif.title = "Notifications non disponibles sur cet appareil";
+    } else {
+      userActions.notif.disabled = false;
+      userActions.notif.removeAttribute("title");
+    }
+  }
+
+  function handleUserActionsOutsideClick(event) {
+    if (!userActionsOpen || !userActions.container) return;
+    if (!userActions.container.contains(event.target)) {
+      closeUserActionsMenu();
+    }
+  }
+
+  function handleUserActionsEscape(event) {
+    if (event.key === "Escape" && userActionsOpen) {
+      closeUserActionsMenu();
+    }
+  }
+
+  userActions.trigger?.addEventListener("click", (event) => {
+    event.preventDefault();
+    toggleUserActionsMenu();
+  });
+
+  userActions.notif?.addEventListener("click", () => {
+    const targetUid = userActions.notif?.dataset?.uid;
+    if (!targetUid) return;
+    handleNotificationToggle(targetUid, userActions.notif, { interactive: true });
+    closeUserActionsMenu();
+  });
+
+  if (userActions.install) {
+    userActions.install.addEventListener("click", () => {
+      closeUserActionsMenu();
+    });
+  }
+
+  document.addEventListener("click", handleUserActionsOutsideClick);
+  document.addEventListener("keydown", handleUserActionsEscape);
+
+  window.__closeUserActionsMenu = closeUserActionsMenu;
 
   function getAuthInstance() {
     if (!firebaseCompatApp || typeof firebaseCompatApp.auth !== "function") return null;
@@ -584,6 +675,21 @@
     return { hash, segments, search: searchPart, qp };
   }
 
+  function syncUserActionsContext() {
+    const { segments } = parseHash(ctx.route || location.hash || "#/admin");
+    const routeKey = segments[0] || "admin";
+    const isAdminRoute = routeKey === "admin";
+    const activeUid = ctx.user?.uid || null;
+    const visible = !isAdminRoute && !!activeUid;
+    setUserActionsVisibility(visible);
+    if (visible) {
+      updateUserActionsTarget(activeUid);
+      syncNotificationButtonsForUid(activeUid);
+    } else {
+      updateUserActionsTarget(null);
+    }
+  }
+
   async function loadCategories() {
     // Categories are per user, default fallback if empty
     appLog("categories:load:start", { uid: ctx.user?.uid });
@@ -606,12 +712,7 @@
             <div id="notification-box" class="space-y-2 border-t border-gray-200 pt-3">
               <div class="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Notifications</div>
               <p id="notification-status" class="text-sm text-[var(--muted)]"></p>
-              <button type="button"
-                      class="btn btn-ghost w-full text-sm"
-                      id="btn-notifications-toggle"
-                      data-notif-toggle
-                      data-uid=""
-                      data-enabled="0">🔔 Activer les notifications</button>
+              <p class="text-xs text-[var(--muted)]">Gère les notifications depuis le menu ⋮ en haut de page.</p>
             </div>
           </section>
           <section class="card space-y-3 p-4">
@@ -620,14 +721,6 @@
           </section>
         </div>
       `;
-      const toggleBtn = sidebar.querySelector("#btn-notifications-toggle");
-      if (toggleBtn) {
-        toggleBtn.addEventListener("click", () => {
-          const targetUid = toggleBtn.dataset.uid;
-          if (!targetUid) return;
-          handleNotificationToggle(targetUid, toggleBtn, { interactive: true });
-        });
-      }
       sidebar.dataset.ready = "1";
     }
     return sidebar;
@@ -637,19 +730,13 @@
     const sidebar = ensureSidebarStructure();
     const box = queryOne("#profile-box");
     const status = queryOne("#notification-status");
-    const toggle = queryOne("#btn-notifications-toggle");
     if (!sidebar || !box) return;
 
     appLog("sidebar:render", { profile: ctx.profile, categories: ctx.categories?.length });
 
     if (!ctx.user?.uid) {
       box.innerHTML = '<span class="muted">Aucun utilisateur sélectionné.</span>';
-      if (status) status.textContent = "Sélectionnez un utilisateur pour gérer les notifications.";
-      if (toggle) {
-        toggle.dataset.uid = "";
-        toggle.disabled = true;
-        toggle.textContent = "🔔 Activer les notifications";
-      }
+      if (status) status.textContent = "Sélectionnez un utilisateur pour accéder aux paramètres.";
       const catBoxEmpty = queryOne("#category-box");
       if (catBoxEmpty) {
         catBoxEmpty.innerHTML = '<span class="muted">Sélectionnez un utilisateur pour voir ses catégories.</span>';
@@ -663,17 +750,6 @@
       <div class="muted">UID : <code>${ctx.user.uid}</code></div>
       <div class="muted">Lien direct : <a class="link" href="${link}">${link}</a></div>
     `;
-
-    if (toggle) {
-      toggle.dataset.uid = ctx.user.uid;
-      if (!isPushSupported()) {
-        toggle.disabled = true;
-        toggle.title = "Notifications non disponibles sur cet appareil";
-      } else {
-        toggle.disabled = false;
-        toggle.removeAttribute("title");
-      }
-    }
 
     syncNotificationButtonsForUid(ctx.user.uid);
 
@@ -903,6 +979,7 @@
 
     ctx.route = location.hash || "#/admin";
     appLog("app:init:route", { route: ctx.route });
+    syncUserActionsContext();
     window.addEventListener("hashchange", () => {
       ctx.route = location.hash || "#/admin";
       appLog("app:init:hashchange", { route: ctx.route });
@@ -993,8 +1070,6 @@
     try {
       const ss = await appFirestore.getDocs(appFirestore.collection(db, "u"));
       const items = [];
-      const processedUids = [];
-      const pushSupported = isPushSupported();
       ss.forEach(d => {
         const data = d.data();
         const uid = d.id;
@@ -1004,13 +1079,6 @@
         const safeUid = escapeHtml(uid);
         const encodedUid = encodeURIComponent(uid);
         const link = `${location.origin}${location.pathname}#/u/${encodedUid}/daily`;
-        const pref = getPushPreference(uid);
-        const notificationsEnabled = !!(pref && pref.enabled && pref.token);
-        const notifLabel = notificationsEnabled ? "🔕 Désactiver les notifications" : "🔔 Activer les notifications";
-        const notifTitle = pushSupported
-          ? (notificationsEnabled ? `Désactiver les notifications pour ${safeName}` : `Activer les notifications pour ${safeName}`)
-          : "Notifications non disponibles sur cet appareil";
-        const notifDisabledAttr = pushSupported ? "" : " disabled";
         items.push(`
           <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3">
             <div>
@@ -1028,14 +1096,6 @@
                       class="btn btn-ghost text-sm"
                       data-uid="${safeUid}"
                       data-name="${safeName}"
-                      data-action="notify"
-                      data-notif-toggle
-                      data-enabled="${notificationsEnabled ? 1 : 0}"
-                      title="${notifTitle}"${notifDisabledAttr}>${notifLabel}</button>
-              <button type="button"
-                      class="btn btn-ghost text-sm"
-                      data-uid="${safeUid}"
-                      data-name="${safeName}"
                       data-action="rename"
                       title="Renommer ${safeName}">✏️ Renommer</button>
               <button type="button"
@@ -1047,12 +1107,9 @@
             </div>
           </div>
         `);
-        processedUids.push(uid);
       });
       list.innerHTML = items.join("") || "<div class='text-sm text-[var(--muted)]'>Aucun utilisateur</div>";
       appLog("admin:users:load:done", { count: items.length });
-
-      processedUids.forEach((uidValue) => syncNotificationButtonsForUid(uidValue));
 
       if (!list.dataset.bound) {
         list.addEventListener("click", async (e) => {
@@ -1071,11 +1128,6 @@
           }
 
           e.preventDefault();
-          if (action === "notify") {
-            handleNotificationToggle(uid, actionTarget, { interactive: true });
-            return;
-          }
-
           if (action === "rename") {
             const currentName = name || "";
             appLog("admin:users:rename:prompt", { uid, currentName });
@@ -1188,6 +1240,8 @@
     } else {
       ctx.user = null;
     }
+
+    syncUserActionsContext();
 
     // Query params (toujours depuis l'URL complète)
     const qp = new URLSearchParams((h.split("?")[1] || ""));
