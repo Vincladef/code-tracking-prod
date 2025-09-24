@@ -16,7 +16,12 @@
   </script>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#3ea6eb" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Habitudes &amp; Pratique" />
   <title>Habitudes &amp; Pratique</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%20512%20512%27%20role%3D%27img%27%20aria-label%3D%27Habitudes%20et%20Pratique%27%3E%0A%20%20%3Crect%20width%3D%27512%27%20height%3D%27512%27%20rx%3D%27128%27%20fill%3D%27%233EA6EB%27%20%2F%3E%0A%20%20%3Ctext%20x%3D%2750%25%27%20y%3D%2755%25%27%20text-anchor%3D%27middle%27%20font-family%3D%27Inter%2C%20Helvetica%2C%20Arial%2C%20sans-serif%27%20font-size%3D%27220%27%20font-weight%3D%27700%27%20fill%3D%27%23FFFFFF%27%3EHP%3C%2Ftext%3E%0A%3C%2Fsvg%3E" />
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -534,6 +539,26 @@
       } else {
         console.error("startRouter indisponible");
       }
+    })();
+  </script>
+  <script>
+    (function registerAppServiceWorker() {
+      if (!("serviceWorker" in navigator)) {
+        return;
+      }
+
+      if (window.__appSWRegistrationPromise) {
+        return;
+      }
+
+      const swUrl = new URL("sw.js", window.location.href);
+      window.__appSWRegistrationPromise = navigator.serviceWorker
+        .getRegistration(swUrl.href)
+        .then((existing) => existing || navigator.serviceWorker.register(swUrl.href, { scope: "./" }))
+        .catch((error) => {
+          console.warn("[sw] registration échouée", error);
+          return null;
+        });
     })();
   </script>
   <script>

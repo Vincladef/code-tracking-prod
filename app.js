@@ -173,6 +173,10 @@
 
   async function ensureServiceWorkerRegistration() {
     if (serviceWorkerRegistrationPromise) return serviceWorkerRegistrationPromise;
+    if (window.__appSWRegistrationPromise) {
+      serviceWorkerRegistrationPromise = window.__appSWRegistrationPromise;
+      return serviceWorkerRegistrationPromise;
+    }
     if (!("serviceWorker" in navigator)) return null;
     const basePath = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, "")}`;
     const swUrl = new URL("sw.js", basePath);
@@ -184,12 +188,15 @@
         console.warn("[push] sw:getRegistration", error);
       }
       try {
-        return await navigator.serviceWorker.register(swUrl.href, { scope: "./" });
+        const registration = await navigator.serviceWorker.register(swUrl.href, { scope: "./" });
+        window.__appSWRegistrationPromise = Promise.resolve(registration);
+        return registration;
       } catch (error) {
         console.warn("[push] sw:register", error);
         return null;
       }
     })();
+    window.__appSWRegistrationPromise = serviceWorkerRegistrationPromise;
     return serviceWorkerRegistrationPromise;
   }
 
