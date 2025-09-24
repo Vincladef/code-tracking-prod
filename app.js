@@ -90,6 +90,18 @@
   function normalizeInstallTargetHash(hash) {
     if (!hash || typeof hash !== "string") return null;
     const trimmed = hash.trim();
+    if (!trimmed) return null;
+
+    if (/^#\/admin(?:\/|\?|$)/.test(trimmed)) {
+      const [rawPath = "", searchPart = ""] = trimmed.split("?");
+      const pathSegments = rawPath.replace(/^#\/+/g, "").split("/");
+      if (!pathSegments[0]) {
+        return "#/admin";
+      }
+      const normalizedPath = `#/${pathSegments.filter(Boolean).join("/") || "admin"}`;
+      return searchPart ? `${normalizedPath}?${searchPart}` : normalizedPath;
+    }
+
     if (!/^#\/u\//.test(trimmed)) return null;
     const [rawPath = "", searchPart = ""] = trimmed.split("?");
     const pathSegments = rawPath.replace(/^#\/+/g, "").split("/");
@@ -219,26 +231,33 @@
         return baseLabel || trimmedSuffix;
       }
       const separator = INSTALL_NAME_SEPARATOR;
-      const candidate = `${baseLabel}${separator}${trimmedSuffix}`.trim();
+      const candidate = `${trimmedSuffix}${separator}${baseLabel}`.trim();
       if (!maxLength || candidate.length <= maxLength) {
         return candidate;
       }
-      const ellipsis = "…";
-      const available = maxLength - baseLabel.length - separator.length;
-      if (available <= 0) {
+      const availableForSuffix = maxLength - baseLabel.length - separator.length;
+      if (availableForSuffix <= 0) {
         return (baseLabel || candidate).slice(0, maxLength);
       }
-      let truncatedSuffix = trimmedSuffix.slice(0, Math.max(1, available));
-      truncatedSuffix = truncatedSuffix.trimEnd();
-      let result = `${baseLabel}${separator}${truncatedSuffix}`;
-      if (truncatedSuffix.length < trimmedSuffix.length) {
-        if (result.length + ellipsis.length <= maxLength) {
-          result = `${result}${ellipsis}`;
+      const ellipsis = "…";
+      let suffixPart = trimmedSuffix;
+      if (suffixPart.length > availableForSuffix) {
+        if (availableForSuffix > ellipsis.length) {
+          const room = Math.max(1, availableForSuffix - ellipsis.length);
+          suffixPart = suffixPart.slice(0, room).trimEnd();
+          if (!suffixPart) {
+            suffixPart = trimmedSuffix.slice(0, room);
+          }
+          suffixPart = `${suffixPart}${ellipsis}`;
         } else {
-          const sliceLength = Math.max(0, maxLength - ellipsis.length);
-          result = `${result.slice(0, sliceLength)}${ellipsis}`;
+          suffixPart = suffixPart.slice(0, availableForSuffix).trimEnd();
+          if (!suffixPart) {
+            suffixPart = trimmedSuffix.slice(0, availableForSuffix);
+          }
         }
-      } else if (result.length > maxLength) {
+      }
+      let result = `${suffixPart}${separator}${baseLabel}`.trim();
+      if (result.length > maxLength) {
         result = result.slice(0, maxLength);
       }
       if (!result) {
@@ -298,7 +317,7 @@
     if (!trimmed) return "";
     const normalized = typeof trimmed.normalize === "function" ? trimmed.normalize("NFKC") : trimmed;
     const lower = normalized.toLowerCase();
-    if (lower === "utilisateur" || lower === "admin") {
+    if (lower === "utilisateur") {
       return "";
     }
     return trimmed;
@@ -310,7 +329,16 @@
   }
 
   function safeUpdateInstallShortcutLabel(rawValue, context) {
-    updateInstallShortcutLabel(rawValue).catch((error) => {
+    const { segments } = parseHash(ctx.route || window.location.hash || "#/admin");
+    const routeKey = segments[0] || "admin";
+    let targetValue = rawValue;
+    if (routeKey === "admin") {
+      const normalized = typeof rawValue === "string" ? rawValue.trim().toLowerCase() : "";
+      if (normalized !== "admin") {
+        targetValue = "Admin";
+      }
+    }
+    updateInstallShortcutLabel(targetValue).catch((error) => {
       if (context) {
         console.warn(`[install] label:${context}`, error);
       } else {
@@ -660,7 +688,7 @@
 
     if (isAdminRoute) {
       applyBadge("Admin");
-      safeUpdateInstallShortcutLabel(null, "admin-route");
+      safeUpdateInstallShortcutLabel("Admin", "admin-route");
       return;
     }
 
