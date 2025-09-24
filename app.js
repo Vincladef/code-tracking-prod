@@ -12,6 +12,8 @@
 
   const firebaseCompatApp = window.firebase || {};
   const BASE_TITLE = "Habitudes & Pratique";
+  const BASE_SHORT_APP_NAME = "Habitudes";
+  const INSTALL_NAME_SEPARATOR = " — ";
   const ADMIN_ACCESS_KEY = "hp::admin::authorized";
   const ADMIN_LOGIN_PAGE = "admin.html";
   const DEFAULT_NOTIFICATION_ICON =
@@ -140,6 +142,187 @@
     load: loadInstallTargetHash,
     clear: clearInstallTargetHash,
   };
+
+  const installShortcutManager = (() => {
+    const manifestLink = document.querySelector('link[rel="manifest"]');
+    const appleTitleMeta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    const originalHref = manifestLink ? manifestLink.getAttribute("href") : null;
+    const baseAppleTitle = appleTitleMeta?.getAttribute("content") || BASE_TITLE;
+    const manifestFallback = {
+      name: BASE_TITLE,
+      short_name: BASE_SHORT_APP_NAME,
+      description: "Suivi quotidien des habitudes et de la pratique.",
+      start_url: "./",
+      scope: "./",
+      display: "standalone",
+      background_color: "#f6f7fb",
+      theme_color: "#3ea6eb",
+      lang: "fr",
+      dir: "ltr",
+      icons: [
+        {
+          src: "data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%20512%20512%27%20role%3D%27img%27%20aria-label%3D%27Habitudes%20et%20Pratique%27%3E%0A%20%20%3Crect%20width%3D%27512%27%20height%3D%27512%27%20rx%3D%27116%27%20fill%3D%27%233EA6EB%27%2F%3E%0A%20%20%3Ctext%20x%3D%2750%25%27%20y%3D%2758%25%27%20text-anchor%3D%27middle%27%20font-family%3D%27%22Segoe%20UI%20Emoji%22%2C%20%22Apple%20Color%20Emoji%22%2C%20%22Noto%20Color%20Emoji%22%2C%20sans-serif%27%20font-size%3D%27260%27%3E%F0%9F%8C%B1%3C%2Ftext%3E%0A%3C%2Fsvg%3E",
+          sizes: "any",
+          type: "image/svg+xml"
+        },
+        {
+          src: "data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%20512%20512%27%20role%3D%27img%27%20aria-label%3D%27Habitudes%20et%20Pratique%27%3E%0A%20%20%3Crect%20width%3D%27512%27%20height%3D%27512%27%20fill%3D%27%233EA6EB%27%20rx%3D%27116%27%2F%3E%0A%20%20%3Ctext%20x%3D%2750%25%27%20y%3D%2758%25%27%20text-anchor%3D%27middle%27%20font-family%3D%27%22Segoe%20UI%20Emoji%22%2C%20%22Apple%20Color%20Emoji%22%2C%20%22Noto%20Color%20Emoji%22%2C%20sans-serif%27%20font-size%3D%27260%27%3E%F0%9F%8C%B1%3C%2Ftext%3E%0A%3C%2Fsvg%3E",
+          sizes: "any",
+          type: "image/svg+xml",
+          purpose: "any maskable"
+        }
+      ]
+    };
+    let baseManifest = null;
+    let baseManifestPromise = null;
+    let currentBlobUrl = null;
+    let lastSuffix = null;
+
+    function cleanupBlobUrl() {
+      if (!currentBlobUrl) return;
+      try {
+        URL.revokeObjectURL(currentBlobUrl);
+      } catch (error) {
+        console.warn("[install] manifest:revoke", error);
+      }
+      currentBlobUrl = null;
+    }
+
+    async function ensureBaseManifest() {
+      if (baseManifest) return baseManifest;
+      if (baseManifestPromise) return baseManifestPromise;
+      if (!manifestLink || !originalHref) {
+        baseManifestPromise = Promise.resolve(null);
+        return baseManifestPromise;
+      }
+      const manifestUrl = new URL(originalHref, window.location.href);
+      baseManifestPromise = fetch(manifestUrl.toString())
+        .then((response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.json();
+        })
+        .then((data) => {
+          baseManifest = data || null;
+          return baseManifest;
+        })
+        .catch((error) => {
+          console.warn("[install] manifest:load", error);
+          return null;
+        });
+      return baseManifestPromise;
+    }
+
+    function computeLabel(base, suffix, maxLength) {
+      const baseLabel = (base || "").trim();
+      const trimmedSuffix = (suffix || "").trim();
+      if (!trimmedSuffix) {
+        return baseLabel || trimmedSuffix;
+      }
+      const separator = INSTALL_NAME_SEPARATOR;
+      const candidate = `${baseLabel}${separator}${trimmedSuffix}`.trim();
+      if (!maxLength || candidate.length <= maxLength) {
+        return candidate;
+      }
+      const ellipsis = "…";
+      const available = maxLength - baseLabel.length - separator.length;
+      if (available <= 0) {
+        return (baseLabel || candidate).slice(0, maxLength);
+      }
+      let truncatedSuffix = trimmedSuffix.slice(0, Math.max(1, available));
+      truncatedSuffix = truncatedSuffix.trimEnd();
+      let result = `${baseLabel}${separator}${truncatedSuffix}`;
+      if (truncatedSuffix.length < trimmedSuffix.length) {
+        if (result.length + ellipsis.length <= maxLength) {
+          result = `${result}${ellipsis}`;
+        } else {
+          const sliceLength = Math.max(0, maxLength - ellipsis.length);
+          result = `${result.slice(0, sliceLength)}${ellipsis}`;
+        }
+      } else if (result.length > maxLength) {
+        result = result.slice(0, maxLength);
+      }
+      if (!result) {
+        return candidate.slice(0, maxLength);
+      }
+      return result;
+    }
+
+    async function applySuffix(nextSuffix) {
+      const targetSuffix = (nextSuffix || "").trim();
+      if (lastSuffix === targetSuffix) {
+        return;
+      }
+      lastSuffix = targetSuffix;
+      const baseData = await ensureBaseManifest();
+      const manifestSource = baseData || manifestFallback;
+      const baseName = manifestSource?.name || BASE_TITLE;
+      const baseShortName = manifestSource?.short_name || BASE_SHORT_APP_NAME;
+      if (!targetSuffix) {
+        cleanupBlobUrl();
+        if (manifestLink && originalHref) {
+          manifestLink.setAttribute("href", originalHref);
+        }
+        if (appleTitleMeta) {
+          appleTitleMeta.setAttribute("content", baseAppleTitle);
+        }
+        return;
+      }
+      const manifestCopy = JSON.parse(JSON.stringify(manifestSource || {}));
+      manifestCopy.name = computeLabel(baseName, targetSuffix, 60);
+      manifestCopy.short_name = computeLabel(baseShortName, targetSuffix, 30);
+      if (appleTitleMeta) {
+        appleTitleMeta.setAttribute("content", computeLabel(baseAppleTitle, targetSuffix, 48));
+      }
+      if (!manifestLink) {
+        return;
+      }
+      try {
+        const blob = new Blob([JSON.stringify(manifestCopy)], { type: "application/manifest+json" });
+        cleanupBlobUrl();
+        const blobUrl = URL.createObjectURL(blob);
+        manifestLink.setAttribute("href", blobUrl);
+        currentBlobUrl = blobUrl;
+      } catch (error) {
+        console.warn("[install] manifest:update", error);
+      }
+    }
+
+    return { applySuffix };
+  })();
+
+  function normalizeInstallSuffix(rawValue) {
+    if (typeof rawValue !== "string") {
+      return "";
+    }
+    const trimmed = rawValue.trim();
+    if (!trimmed) return "";
+    const normalized = typeof trimmed.normalize === "function" ? trimmed.normalize("NFKC") : trimmed;
+    const lower = normalized.toLowerCase();
+    if (lower === "utilisateur" || lower === "admin") {
+      return "";
+    }
+    return trimmed;
+  }
+
+  async function updateInstallShortcutLabel(rawValue) {
+    const suffix = normalizeInstallSuffix(rawValue);
+    await installShortcutManager.applySuffix(suffix);
+  }
+
+  function safeUpdateInstallShortcutLabel(rawValue, context) {
+    updateInstallShortcutLabel(rawValue).catch((error) => {
+      if (context) {
+        console.warn(`[install] label:${context}`, error);
+      } else {
+        console.warn("[install] label", error);
+      }
+    });
+  }
+
+  function resolveInstallLabelFromProfile(profile) {
+    if (!profile) return "";
+    return profile.displayName || profile.name || profile.slug || "";
+  }
 
   function getSafeStorage() {
     try {
@@ -477,26 +660,32 @@
 
     if (isAdminRoute) {
       applyBadge("Admin");
+      safeUpdateInstallShortcutLabel(null, "admin-route");
       return;
     }
 
     if (explicitName != null) {
       const safeName = explicitName || "Utilisateur";
       applyBadge(safeName);
+      safeUpdateInstallShortcutLabel(safeName, "explicit");
       return;
     }
 
     if (!uid) {
       applyBadge("Utilisateur");
+      safeUpdateInstallShortcutLabel(null, "missing-uid");
       return;
     }
     applyBadge("…", false);
     try {
       const resolved = await Schema.getUserName(uid);
-      applyBadge(resolved || "Utilisateur");
+      const label = resolved || "Utilisateur";
+      applyBadge(label);
+      safeUpdateInstallShortcutLabel(resolved, "resolved");
     } catch (err) {
       console.warn("refreshUserBadge", err);
       applyBadge("Utilisateur");
+      safeUpdateInstallShortcutLabel(null, "resolve-error");
     }
   }
 
@@ -528,6 +717,7 @@
           ctx.profile = { ...(ctx.profile || {}), ...data, uid };
           renderSidebar();
           refreshUserBadge(uid, data.displayName || data.name || data.slug || "Utilisateur");
+          safeUpdateInstallShortcutLabel(resolveInstallLabelFromProfile(ctx.profile), "profile-watch");
           appLog("profile:watch:update", { uid, hasData: !!Object.keys(data || {}).length });
         },
         (error) => {
@@ -1072,6 +1262,7 @@
     const profile = await ensureProfile(db, user.uid);
     ctx.profile = { uid: user.uid, ...profile };
     appLog("app:init:profile", { profile });
+    safeUpdateInstallShortcutLabel(resolveInstallLabelFromProfile(ctx.profile), "profile-init");
 
     renderSidebar();
     setupProfileWatcher(ctx.db, user.uid);
