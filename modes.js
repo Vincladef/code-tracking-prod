@@ -1400,8 +1400,15 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const dateObj = iterationInfo?.dateObj || toDate(point.dateIso);
       const fullDateLabel = iterationInfo?.fullLabel || (dateObj ? fullDateTimeFormatter.format(dateObj) : point.dateIso);
       const dateLabel = fullDateLabel && fullDateLabel !== iterationLabel ? `${iterationLabel} — ${fullDateLabel}` : iterationLabel;
+      const autosaveKeyParts = [
+        "practice-entry",
+        ctx.user?.uid || "anon",
+        stat.id || "stat",
+        point.dateIso || pointIndex,
+      ];
+      const autosaveKey = autosaveKeyParts.map((part) => String(part)).join(":");
       const editorHtml = `
-        <form class="practice-editor">
+        <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
           <header class="practice-editor__header">
             <h3 class="practice-editor__title">Modifier la note</h3>
             <p class="practice-editor__subtitle">${escapeHtml(stat.name)}</p>
@@ -2020,7 +2027,13 @@ async function openConsigneForm(ctx, consigne = null) {
     .join("");
   const html = `
     <h3 class="text-lg font-semibold mb-2">${consigne ? "Modifier" : "Nouvelle"} consigne</h3>
-    <form class="grid gap-4" id="consigne-form">
+    <form class="grid gap-4" id="consigne-form" data-autosave-key="${escapeHtml(
+      [
+        "consigne",
+        ctx.user?.uid || "anon",
+        consigne?.id ? `edit-${consigne.id}` : `new-${mode}`,
+      ].map((part) => String(part)).join(":")
+    )}">
       <label class="grid gap-1">
         <span class="text-sm text-[var(--muted)]">Texte de la consigne</span>
         <input name="text" required class="w-full"
@@ -2365,6 +2378,16 @@ async function renderPractice(ctx, root, _opts = {}) {
     )
     .join("");
 
+  const autosaveDayKey = typeof Schema.todayKey === "function"
+    ? Schema.todayKey()
+    : new Date().toISOString().slice(0, 10);
+  const practiceFormAutosaveKey = [
+    "practice-session",
+    ctx.user?.uid || "anon",
+    currentCat || "all",
+    autosaveDayKey || "today",
+  ].map((part) => String(part)).join(":");
+
   const card = document.createElement("section");
   card.className = "card p-4 space-y-4";
   card.innerHTML = `
@@ -2378,7 +2401,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         ${smallBtn("+ Nouvelle consigne", "js-new")}
       </div>
     </div>
-    <form id="practice-form" class="grid gap-3"></form>
+    <form id="practice-form" class="grid gap-3" data-autosave-key="${escapeHtml(practiceFormAutosaveKey)}"></form>
     <div class="flex justify-end">
       <button class="btn btn-primary" type="button" id="save">Enregistrer</button>
     </div>
@@ -2546,6 +2569,10 @@ async function renderPractice(ctx, root, _opts = {}) {
         index: sessionNumber,
         sessionIndex,
       });
+
+      if (form && window.formAutosave?.clear) {
+        window.formAutosave.clear(form);
+      }
 
       $$("input[type=text],textarea", form).forEach((input) => (input.value = ""));
       $$("input[type=range]", form).forEach((input) => {
