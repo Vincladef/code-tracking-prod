@@ -893,7 +893,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           .map((value) => {
             const disabled = iterationMeta.length < value ? " disabled" : "";
             const selected = currentWindowSize === value ? " selected" : "";
-            return `<option value="${value}"${disabled}${selected}>${value} dernières</option>`;
+            const suffix = value > 1 ? "dernières itérations" : "dernière itération";
+            return `<option value="${value}"${disabled}${selected}>${value} ${suffix}</option>`;
           })
           .join("")}` +
         `<option value="__all__"${currentWindowSize == null ? " selected" : ""}>Tout l’historique</option></select></label>`
@@ -1160,6 +1161,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       iterationDisplayMeta = buildIterationDisplayMeta(currentWindowSize);
       renderMatrixHead();
       renderMatrix();
+      hasInitializedScrollPosition = false;
       applyChartWindow(currentWindowSize);
       if (rangeSelectEl) {
         const nextValue = currentWindowSize == null ? "__all__" : String(currentWindowSize);
@@ -1200,10 +1202,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     function updateChartViewport(visibleCount = iterationMeta.length) {
       if (!chartCanvasWrapper) return;
       const baseWidth =
-        visibleCount > 60 ? 28 : visibleCount > 36 ? 36 : visibleCount > 18 ? 52 : 72;
-      const minWidth = Math.max(520, Math.round((visibleCount || 1) * baseWidth));
+        visibleCount > 60 ? 18 : visibleCount > 36 ? 24 : visibleCount > 18 ? 32 : 44;
+      const minWidth = Math.max(420, Math.round((visibleCount || 1) * baseWidth));
       const containerWidth = chartScroll ? chartScroll.clientWidth : 0;
-      const targetWidth = Math.max(minWidth, containerWidth);
+      const targetWidth = Math.max(minWidth, containerWidth || minWidth);
       chartCanvasWrapper.style.minWidth = `${targetWidth}px`;
       chartCanvasWrapper.style.width = `${targetWidth}px`;
       if (chartInstance) {
@@ -1289,7 +1291,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           if (!chartScroll) return;
           const maxScroll = Math.max(chartScroll.scrollWidth - chartScroll.clientWidth, 0);
           if (!hasInitializedScrollPosition) {
-            chartScroll.scrollLeft = maxScroll > 0 ? Math.round(maxScroll / 2) : 0;
+            chartScroll.scrollLeft = maxScroll > 0 ? maxScroll : 0;
             hasInitializedScrollPosition = true;
             return;
           }
@@ -1667,12 +1669,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         consigneType: stat.type,
         dates,
         borderColor: stat.accentStrong,
-        backgroundColor: withAlpha(stat.color, 0.24),
-        borderWidth: stat.priority === 1 ? 3 : 2,
-        pointRadius: stat.priority === 1 ? 4 : stat.priority === 2 ? 3 : 2,
-        pointHoverRadius: stat.priority === 1 ? 5 : stat.priority === 2 ? 4 : 3,
+        backgroundColor: withAlpha(stat.color, 0.18),
+        borderWidth: stat.priority === 1 ? 2 : stat.priority === 2 ? 2 : 1,
+        pointRadius: stat.priority === 1 ? 3 : stat.priority === 2 ? 2 : 1,
+        pointHoverRadius: stat.priority === 1 ? 4 : stat.priority === 2 ? 3 : 2,
         pointStyle: stat.priority === 1 ? "circle" : stat.priority === 2 ? "rectRounded" : "triangle",
-        tension: 0.35,
+        tension: 0.3,
         spanGaps: true,
       };
       if (stat.priority === 3) {
