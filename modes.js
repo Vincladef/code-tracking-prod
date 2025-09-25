@@ -123,9 +123,30 @@ function toAppPath(h) {
 
 // --------- CAT DASHBOARD (modal) ---------
 window.openCategoryDashboard = async function openCategoryDashboard(ctx, category, options = {}) {
-  const mode = options.mode === "daily" ? "daily" : "practice";
-  const isPractice = mode === "practice";
-  const isDaily = mode === "daily";
+  const providedConsignes = Array.isArray(options.consignes)
+    ? options.consignes.filter((item) => item && item.id)
+    : null;
+  let mode = options.mode === "daily" ? "daily" : "practice";
+  let allowMixedMode = options.allowMixedMode === true;
+  if (providedConsignes && !options.mode) {
+    const modeSet = new Set(
+      providedConsignes
+        .map((item) => (item.mode === "daily" ? "daily" : item.mode === "practice" ? "practice" : ""))
+        .filter(Boolean)
+    );
+    if (modeSet.size === 1) {
+      const [onlyMode] = Array.from(modeSet);
+      mode = onlyMode === "daily" ? "daily" : "practice";
+    } else if (modeSet.size > 1) {
+      allowMixedMode = true;
+      mode = "daily";
+    }
+  }
+  const customTitle = typeof options.title === "string" ? options.title : "";
+  const customTrendTitle = typeof options.trendTitle === "string" ? options.trendTitle : "";
+  const customDetailsTitle = typeof options.detailsTitle === "string" ? options.detailsTitle : "";
+  let isPractice = mode === "practice";
+  let isDaily = mode === "daily";
   const palette = [
     "#1B9E77",
     "#D95F02",
@@ -272,7 +293,20 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     let consignes = [];
     let dailyCategories = [];
 
-    if (isPractice) {
+    if (providedConsignes) {
+      const unique = new Map();
+      providedConsignes.forEach((item) => {
+        if (!item || !item.id) return;
+        if (!unique.has(item.id)) {
+          unique.set(item.id, item);
+        }
+      });
+      consignes = Array.from(unique.values());
+      effectiveCategory = customTitle || normalizedCategory || "Consignes liées";
+      dailyCategories = [];
+      isPractice = mode === "practice";
+      isDaily = mode === "daily";
+    } else if (isPractice) {
       consignes = await Schema.listConsignesByCategory(ctx.db, ctx.user.uid, normalizedCategory);
     } else {
       const allDaily = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
@@ -286,7 +320,14 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         : activeDaily;
     }
 
-    consignes = (consignes || []).filter((item) => item?.active !== false);
+    consignes = providedConsignes
+      ? (consignes || []).filter((item) => item && item.id)
+      : (consignes || []).filter((item) => item?.active !== false);
+    consignes.sort((a, b) => {
+      const aLabel = (a.text || a.titre || a.name || "").toString();
+      const bLabel = (b.text || b.titre || b.name || "").toString();
+      return aLabel.localeCompare(bLabel, "fr", { sensitivity: "base" });
+    });
     const iterationMetaMap = new Map();
 
     const seenFallback = { value: 0 };
@@ -464,7 +505,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         }
 
         (responseRows || [])
-          .filter((row) => (row.mode || consigne.mode || mode) === mode)
+          .filter((row) => {
+            if (allowMixedMode) return true;
+            return (row.mode || consigne.mode || mode) === mode;
+          })
           .forEach((row) => {
             const createdAt = parseResponseDate(row.createdAt);
             let sessionIndex = null;
@@ -749,14 +793,18 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       return stat;
     });
 
-    const titleText = isPractice
+    const titleText = customTitle
+      ? customTitle
+      : providedConsignes
+      ? "Consignes liées"
+      : isPractice
       ? effectiveCategory || "Pratique"
       : effectiveCategory
       ? `Journalier — ${effectiveCategory}`
       : "Journalier — toutes les catégories";
     const safeCategory = escapeHtml(titleText);
     const categoryFilterMarkup =
-      isDaily && dailyCategories.length > 1
+      !providedConsignes && isDaily && dailyCategories.length > 1
         ? `<label class="practice-dashboard__filter"><span class="practice-dashboard__filter-label">Catégorie</span><select class="practice-dashboard__filter-select" data-category-select><option value="__all__"${effectiveCategory ? "" : " selected"}>Toutes les catégories</option>${dailyCategories
             .map(
               (name) =>
@@ -765,9 +813,23 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             .join("")}</select></label>`
         : "";
 
-    const trendTitle = isPractice ? "Tendance des itérations" : "Tendance des jours";
-    const detailsTitle = isPractice ? "Détails par consigne" : "Détails du journal";
-    const chartScrollLabel = isPractice
+    const trendTitle = customTrendTitle
+      ? customTrendTitle
+      : providedConsignes
+      ? "Progression des consignes liées"
+      : isPractice
+      ? "Tendance des itérations"
+      : "Tendance des jours";
+    const detailsTitle = customDetailsTitle
+      ? customDetailsTitle
+      : providedConsignes
+      ? "Historique par consigne"
+      : isPractice
+      ? "Détails par consigne"
+      : "Détails du journal";
+    const chartScrollLabel = providedConsignes
+      ? "Défilement horizontal du graphique des consignes liées"
+      : isPractice
       ? "Défilement horizontal du graphique des itérations"
       : "Défilement horizontal du graphique des jours";
     const tableHintText = isPractice
@@ -2068,14 +2130,74 @@ async function openConsigneForm(ctx, consigne = null) {
     modesLogger.warn("ui.consigneForm.objectifs.error", err);
   }
   const currentObjId = consigne?.objectiveId || "";
-  const objectifsOptions = objectifs
+  const monthLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
+    month: "long",
+    year: "numeric",
+  });
+  const normalizeMonthLabel = (key) => {
+    if (!key) return "";
+    const [yearStr, monthStr] = String(key).split("-");
+    const year = Number(yearStr);
+    const monthIndex = Number(monthStr);
+    if (!Number.isFinite(year) || !Number.isFinite(monthIndex)) {
+      return key;
+    }
+    const date = new Date(year, (monthIndex || 1) - 1, 1);
+    if (Number.isNaN(date.getTime())) {
+      return key;
+    }
+    const raw = monthLabelFormatter.format(date);
+    return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : key;
+  };
+  const objectiveInfo = objectifs
     .map((o) => {
-      const badge = o.type === "hebdo" ? `S${o.weekOfMonth || "?"}` : (o.type === "annuel" ? "Annuel" : "Mois");
-      const subtitle = o.monthKey || monthKey;
-      const label = `${badge} — ${subtitle}`;
-      return `<option value="${escapeHtml(o.id)}" ${o.id === currentObjId ? "selected" : ""}>${escapeHtml(o.titre || "Objectif")} — ${escapeHtml(label)}</option>`;
+      const info = {
+        id: o.id,
+        title: o.titre || "Objectif",
+        badge: "",
+        period: normalizeMonthLabel(o.monthKey || monthKey),
+      };
+      if (o.type === "hebdo") {
+        const weekNumber = Number(o.weekOfMonth || 0) || 1;
+        info.badge = `Semaine ${weekNumber}`;
+      } else if (o.type === "mensuel") {
+        info.badge = "Mensuel";
+      } else if (o.type) {
+        info.badge = o.type.charAt(0).toUpperCase() + o.type.slice(1);
+      }
+      return info;
     })
+    .sort((a, b) => a.title.localeCompare(b.title, "fr", { sensitivity: "base" }));
+  const objectiveInfoById = new Map(objectiveInfo.map((item) => [item.id, item]));
+  const renderObjectiveMeta = (id) => {
+    if (!id) {
+      return '<span class="objective-select__placeholder">Aucune association pour le moment.</span>';
+    }
+    const info = objectiveInfoById.get(id);
+    if (!info) {
+      return '<span class="objective-select__placeholder">Objectif introuvable.</span>';
+    }
+    const parts = [];
+    if (info.badge) {
+      parts.push(`<span class="objective-select__badge">${escapeHtml(info.badge)}</span>`);
+    }
+    if (info.period) {
+      parts.push(`<span class="objective-select__period">${escapeHtml(info.period)}</span>`);
+    }
+    if (!parts.length) {
+      parts.push('<span class="objective-select__placeholder">Aucune période renseignée</span>');
+    }
+    return `<div class="objective-select__summary">${parts.join("")}</div>`;
+  };
+  const objectifsOptions = objectiveInfo
+    .map(
+      (info) =>
+        `<option value="${escapeHtml(info.id)}" ${info.id === currentObjId ? "selected" : ""}>
+          ${escapeHtml(info.title)}
+        </option>`
+    )
     .join("");
+  const objectiveMetaInitial = renderObjectiveMeta(currentObjId);
   const canManageChildren = !consigne?.parentId;
   let childConsignes = [];
   if (canManageChildren && consigne?.id) {
@@ -2120,12 +2242,13 @@ async function openConsigneForm(ctx, consigne = null) {
 
       ${catUI}
 
-      <div class="grid gap-1">
+      <div class="grid gap-1 objective-select">
         <span class="text-sm text-[var(--muted)]">📌 Associer à un objectif</span>
-        <select id="objective-select" class="w-full">
+        <select id="objective-select" class="w-full objective-select__input">
           <option value="">Aucun</option>
           ${objectifsOptions}
         </select>
+        <div class="objective-select__meta" data-objective-meta>${objectiveMetaInitial}</div>
       </div>
 
       <label class="grid gap-1">
@@ -2181,6 +2304,17 @@ async function openConsigneForm(ctx, consigne = null) {
     </form>
   `;
   const m = modal(html);
+  const objectiveSelectEl = m.querySelector("#objective-select");
+  const objectiveMetaBox = m.querySelector("[data-objective-meta]");
+  const syncObjectiveMeta = () => {
+    if (!objectiveMetaBox) return;
+    const selectedId = objectiveSelectEl?.value || "";
+    objectiveMetaBox.innerHTML = renderObjectiveMeta(selectedId);
+  };
+  if (objectiveSelectEl) {
+    objectiveSelectEl.addEventListener("change", syncObjectiveMeta);
+  }
+  syncObjectiveMeta();
   const removedChildIds = new Set();
   if (canManageChildren) {
     const list = m.querySelector("#subconsignes-list");

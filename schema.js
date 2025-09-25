@@ -945,6 +945,16 @@ async function linkConsigneToObjective(db, uid, consigneId, objectifId) {
   );
 }
 
+async function listConsignesByObjective(db, uid, objectifId) {
+  if (!objectifId) return [];
+  const qy = query(
+    col(db, uid, "consignes"),
+    where("objectiveId", "==", objectifId)
+  );
+  const snap = await getDocs(qy);
+  return snap.docs.map((docSnap) => hydrateConsigne(docSnap));
+}
+
 async function saveObjectiveEntry(db, uid, objectifId, dateIso, value) {
   const ref = doc(db, "u", uid, "objectiveEntries", objectifId, "entries", dateIso);
   await setDoc(ref, { v: value, at: serverTimestamp() }, { merge: true });
@@ -1027,6 +1037,7 @@ Object.assign(Schema, {
   upsertObjective,
   deleteObjective,
   linkConsigneToObjective,
+  listConsignesByObjective,
   saveObjectiveEntry,
   getObjectiveEntry,
   loadObjectiveEntriesRange,
