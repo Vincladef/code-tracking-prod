@@ -245,25 +245,34 @@ function pluralize(count, singular, plural = null) {
   return plural || `${singular}s`;
 }
 
-function buildReminderBody(consigneCount, objectiveCount) {
+function extractFirstName(profile = {}) {
+  const raw = String(profile.displayName || profile.name || "").trim();
+  if (!raw) return "";
+  const parts = raw.split(/\s+/).filter(Boolean);
+  if (!parts.length) return "";
+  return parts[0];
+}
+
+function buildReminderBody(firstName, consigneCount, objectiveCount) {
+  const prefix = firstName ? `${firstName}, ` : "";
   const items = [];
   if (consigneCount > 0) {
-    items.push(`${consigneCount} ${pluralize(consigneCount, "consigne")}`);
+    items.push(`${consigneCount} ${pluralize(consigneCount, "consigne")} à tracker`);
   }
   if (objectiveCount > 0) {
-    items.push(`${objectiveCount} ${pluralize(objectiveCount, "objectif")}`);
+    items.push(`${objectiveCount} ${pluralize(objectiveCount, "objectif")} à compléter`);
   }
   if (!items.length) {
-    return "Tu n’as rien à remplir aujourd’hui.";
+    return `${prefix}tu n’as rien à tracker aujourd’hui.`;
   }
   if (items.length === 1) {
-    return `Tu as ${items[0]} à remplir aujourd’hui.`;
+    return `${prefix}tu as ${items[0]} aujourd’hui.`;
   }
   if (items.length === 2) {
-    return `Tu as ${items[0]} et ${items[1]} à remplir aujourd’hui.`;
+    return `${prefix}tu as ${items[0]} et ${items[1]} aujourd’hui.`;
   }
   const last = items.pop();
-  return `Tu as ${items.join(", ")} et ${last} à remplir aujourd’hui.`;
+  return `${prefix}tu as ${items.join(", ")} et ${last} aujourd’hui.`;
 }
 
 async function collectPushTokens() {
@@ -359,11 +368,11 @@ async function countVisibleConsignes(uid, context) {
   return visible;
 }
 
-async function sendReminder(uid, tokens, visibleCount, objectiveCount, context) {
+async function sendReminder(uid, tokens, visibleCount, objectiveCount, context, firstName = "") {
   if (!tokens.length) return { successCount: 0, failureCount: 0, responses: [] };
 
-  const title = "Rappel du jour 👋";
-  const body = buildReminderBody(visibleCount, objectiveCount);
+  const title = firstName ? `${firstName}, rappel du jour 👋` : "Rappel du jour 👋";
+  const body = buildReminderBody(firstName, visibleCount, objectiveCount);
 
   const link = buildUserDailyLink(uid, context.dateIso);
 
@@ -377,6 +386,7 @@ async function sendReminder(uid, tokens, visibleCount, objectiveCount, context) 
       objectifs: String(objectiveCount),
       body,
       title,
+      firstName: firstName || "",
     },
     notification: { title, body },
     webpush: {
@@ -443,7 +453,24 @@ exports.sendDailyReminders = functions
             continue;
           }
 
-          const response = await sendReminder(uid, tokens, visibleCount, objectiveCount, context);
+          let firstName = "";
+          try {
+            const profileSnap = await db.collection("u").doc(uid).get();
+            if (profileSnap.exists) {
+              firstName = extractFirstName(profileSnap.data() || {});
+            }
+          } catch (profileError) {
+            functions.logger.warn("sendDailyReminders:profile:error", { uid, error: profileError });
+          }
+
+          const response = await sendReminder(
+            uid,
+            tokens,
+            visibleCount,
+            objectiveCount,
+            context,
+            firstName
+          );
           results.push({
             uid,
             tokens: tokens.length,
@@ -451,6 +478,7 @@ exports.sendDailyReminders = functions
             objectiveCount,
             sent: response.successCount,
             failed: response.failureCount,
+            firstName,
           });
         } catch (err) {
           functions.logger.error("sendDailyReminders:userError", { uid, err });
