@@ -2,7 +2,8 @@ name: Daily Reminder Notifications (no Blaze)
 
 on:
   schedule:
-    - cron: "0 7 * * *"   # 07:00 UTC = 09:00 Paris, tous les jours
+    - cron: "0 4 * * *"   # 04:00 UTC ≈ 06:00 Paris (heure d’été)
+    - cron: "0 5 * * *"   # 05:00 UTC ≈ 06:00 Paris (heure d’hiver)
   workflow_dispatch:       # permet aussi de lancer à la main
 
 jobs:
@@ -59,9 +60,10 @@ jobs:
             const parisNow = new Date(now.toLocaleString("en-US", { timeZone:"Europe/Paris", hour12:false }));
             const offset = parisNow.getTime() - now.getTime();
             const dayLabel = DAY_LABELS[parisNow.getDay()];
+            const hour = parisNow.getHours();
             const midnightLocal = new Date(parisNow); midnightLocal.setHours(0,0,0,0);
             const selectedDate = new Date(midnightLocal.getTime() - offset);
-            return { dayLabel, selectedDate, dateIso: selectedDate.toISOString().slice(0,10) };
+            return { dayLabel, selectedDate, dateIso: selectedDate.toISOString().slice(0,10), hour };
           }
 
           function isInvalidToken(code){
@@ -131,6 +133,10 @@ jobs:
 
           async function main(){
             const ctx = parisContext();
+            if (ctx.hour !== 6){
+              console.log(`skip run: current Paris hour = ${ctx.hour}`);
+              return;
+            }
             console.log("context", ctx);
             const tokensByUid = await collectTokensByUid();
 
