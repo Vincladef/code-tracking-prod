@@ -1844,31 +1844,37 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
 // --------- DRAG & DROP (ordre consignes) ---------
 window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx) {
   let dragId = null;
+  let dragWrapper = null;
 
   container.addEventListener('dragstart', (e) => {
     const el = e.target.closest('.consigne-card');
-    if (!el) return;
+    if (!el || el.dataset.parentId) return;
     dragId = el.dataset.id;
+    dragWrapper = el.closest('.consigne-group') || el;
     e.dataTransfer.effectAllowed = 'move';
   });
 
   container.addEventListener('dragover', (e) => {
-    if (!dragId) return;
+    if (!dragId || !dragWrapper) return;
     e.preventDefault();
-    const over = e.target.closest('.consigne-card');
-    if (!over || over.dataset.id === dragId) return;
-    const rect = over.getBoundingClientRect();
+    let over = e.target.closest('.consigne-card');
+    if (!over || over.dataset.parentId) {
+      over = e.target.closest('.consigne-group')?.querySelector('.consigne-card');
+    }
+    if (!over || over.dataset.id === dragId || over.dataset.parentId) return;
+    const overWrapper = over.closest('.consigne-group') || over;
+    const rect = overWrapper.getBoundingClientRect();
     const before = (e.clientY - rect.top) < rect.height / 2;
-    over.parentNode.insertBefore(
-      container.querySelector(`.consigne-card[data-id="${dragId}"]`),
-      before ? over : over.nextSibling
+    overWrapper.parentNode.insertBefore(
+      dragWrapper,
+      before ? overWrapper : overWrapper.nextSibling
     );
   });
 
   container.addEventListener('drop', async (e) => {
     if (!dragId) return;
     e.preventDefault();
-    const cards = [...container.querySelectorAll('.consigne-card')];
+    const cards = [...container.querySelectorAll('.consigne-card:not([data-parent-id])')];
     try {
       await Promise.all(cards.map((el, idx) =>
         Schema.updateConsigneOrder(ctx.db, ctx.user.uid, el.dataset.id, (idx+1)*10)
@@ -1877,10 +1883,12 @@ window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx
       console.warn('drag-drop:save-order:error', err);
     }
     dragId = null;
+    dragWrapper = null;
   });
 
   container.addEventListener('dragend', () => {
     dragId = null;
+    dragWrapper = null;
   });
 };
 
@@ -1977,6 +1985,49 @@ function inputForType(consigne, initialValue = null) {
   return "";
 }
 
+function groupConsignes(consignes) {
+  const ordered = consignes.slice();
+  const orderIndex = new Map(ordered.map((c, idx) => [c.id, idx]));
+  const byId = new Map(ordered.map((c) => [c.id, c]));
+  const childrenByParent = new Map();
+  ordered.forEach((consigne) => {
+    if (!consigne.parentId || !byId.has(consigne.parentId)) {
+      return;
+    }
+    const list = childrenByParent.get(consigne.parentId) || [];
+    list.push(consigne);
+    childrenByParent.set(consigne.parentId, list);
+  });
+  childrenByParent.forEach((list) => {
+    list.sort((a, b) => {
+      const idxA = orderIndex.get(a.id) ?? 0;
+      const idxB = orderIndex.get(b.id) ?? 0;
+      if (idxA !== idxB) return idxA - idxB;
+      const prioDiff = (a.priority || 0) - (b.priority || 0);
+      if (prioDiff !== 0) return prioDiff;
+      return (a.text || "").localeCompare(b.text || "");
+    });
+  });
+  const seen = new Set();
+  const groups = [];
+  ordered.forEach((consigne) => {
+    if (consigne.parentId && byId.has(consigne.parentId)) {
+      return;
+    }
+    const children = childrenByParent.get(consigne.id) || [];
+    groups.push({ consigne, children });
+    seen.add(consigne.id);
+    children.forEach((child) => seen.add(child.id));
+  });
+  ordered.forEach((consigne) => {
+    if (!seen.has(consigne.id)) {
+      groups.push({ consigne, children: [] });
+      seen.add(consigne.id);
+    }
+  });
+  return groups;
+}
+
 function collectAnswers(form, consignes, options = {}) {
   const dayKey = options.dayKey || null;
   const answers = [];
@@ -2025,6 +2076,22 @@ async function openConsigneForm(ctx, consigne = null) {
       return `<option value="${escapeHtml(o.id)}" ${o.id === currentObjId ? "selected" : ""}>${escapeHtml(o.titre || "Objectif")} — ${escapeHtml(label)}</option>`;
     })
     .join("");
+  const canManageChildren = !consigne?.parentId;
+  let childConsignes = [];
+  if (canManageChildren && consigne?.id) {
+    try {
+      childConsignes = await Schema.listChildConsignes(ctx.db, ctx.user.uid, consigne.id);
+      childConsignes.sort((a, b) => {
+        const orderDiff = (Number(a.order) || 0) - (Number(b.order) || 0);
+        if (orderDiff !== 0) return orderDiff;
+        const prioDiff = (Number(a.priority) || 0) - (Number(b.priority) || 0);
+        if (prioDiff !== 0) return prioDiff;
+        return (a.text || "").localeCompare(b.text || "");
+      });
+    } catch (err) {
+      modesLogger.warn("ui.consigneForm.children.load", err);
+    }
+  }
   const html = `
     <h3 class="text-lg font-semibold mb-2">${consigne ? "Modifier" : "Nouvelle"} consigne</h3>
     <form class="grid gap-4" id="consigne-form" data-autosave-key="${escapeHtml(
@@ -2075,6 +2142,17 @@ async function openConsigneForm(ctx, consigne = null) {
         <span>⏳ Activer la répétition espacée</span>
       </label>
 
+      ${canManageChildren ? `
+      <fieldset class="grid gap-2" data-subconsignes>
+        <legend class="text-sm text-[var(--muted)]">Sous-consignes</legend>
+        <div class="grid gap-2" id="subconsignes-list"></div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" class="btn btn-ghost text-sm" id="add-subconsigne">+ Ajouter une sous-consigne</button>
+          <span class="text-xs text-[var(--muted)]">Les sous-consignes partagent la même catégorie, la même priorité et les mêmes réglages que la consigne principale.</span>
+        </div>
+      </fieldset>
+      ` : ""}
+
       ${mode === "daily" ? `
       <fieldset class="grid gap-2">
         <legend class="text-sm text-[var(--muted)]">Fréquence (jours)</legend>
@@ -2103,6 +2181,76 @@ async function openConsigneForm(ctx, consigne = null) {
     </form>
   `;
   const m = modal(html);
+  const removedChildIds = new Set();
+  if (canManageChildren) {
+    const list = m.querySelector("#subconsignes-list");
+    const addBtn = m.querySelector("#add-subconsigne");
+    const renderEmpty = () => {
+      if (!list) return;
+      if (list.children.length) {
+        list.setAttribute("data-has-items", "true");
+        return;
+      }
+      list.removeAttribute("data-has-items");
+      const empty = document.createElement("div");
+      empty.className = "subconsigne-empty";
+      empty.textContent = "Aucune sous-consigne pour le moment.";
+      list.appendChild(empty);
+    };
+    const makeRow = (item = {}) => {
+      const row = document.createElement("div");
+      row.className = "subconsigne-row";
+      row.dataset.subconsigne = "";
+      if (item.id) row.dataset.id = item.id;
+      row.innerHTML = `
+        <div class="subconsigne-row__main">
+          <input type="text" name="sub-text" class="w-full" placeholder="Texte de la sous-consigne" value="${escapeHtml(item.text || "")}">
+          <select name="sub-type" class="w-full">
+            <option value="likert6" ${!item.type || item.type === "likert6" ? "selected" : ""}>Échelle de Likert (0–4)</option>
+            <option value="yesno" ${item.type === "yesno" ? "selected" : ""}>Oui / Non</option>
+            <option value="short" ${item.type === "short" ? "selected" : ""}>Texte court</option>
+            <option value="long" ${item.type === "long" ? "selected" : ""}>Texte long</option>
+            <option value="num" ${item.type === "num" ? "selected" : ""}>Échelle numérique (1–10)</option>
+          </select>
+        </div>
+        <div class="subconsigne-row__actions">
+          <button type="button" class="btn btn-ghost text-xs" data-remove>Supprimer</button>
+        </div>
+      `;
+      row.querySelector('[data-remove]')?.addEventListener('click', () => {
+        if (item.id) {
+          removedChildIds.add(item.id);
+        }
+        row.remove();
+        if (list && !list.children.length) {
+          renderEmpty();
+        } else if (list) {
+          list.setAttribute("data-has-items", "true");
+        }
+      });
+      return row;
+    };
+    if (list) {
+      list.innerHTML = "";
+      childConsignes.forEach((item) => {
+        const row = makeRow(item);
+        list.appendChild(row);
+      });
+      renderEmpty();
+    }
+    if (addBtn) {
+      addBtn.addEventListener("click", () => {
+        if (!list) return;
+        if (!list.querySelector('[data-subconsigne]')) {
+          list.innerHTML = "";
+        }
+        const row = makeRow({});
+        list.appendChild(row);
+        list.setAttribute("data-has-items", "true");
+        row.querySelector('input[name="sub-text"]')?.focus();
+      });
+    }
+  }
   const dailyAll = m.querySelector("#daily-all");
   const daysBox  = m.querySelector("#daily-days");
   if (dailyAll && daysBox) {
@@ -2146,7 +2294,8 @@ async function openConsigneForm(ctx, consigne = null) {
         category: cat,
         priority: Number(fd.get("priority") || 2),
         srEnabled: fd.get("srEnabled") !== null,
-        active: true
+        active: true,
+        parentId: consigne?.parentId || null,
       };
       if (mode === "daily") {
         const isAll = m.querySelector("#daily-all")?.checked;
@@ -2155,6 +2304,13 @@ async function openConsigneForm(ctx, consigne = null) {
       modesLogger.info("payload", payload);
 
       const selectedObjective = m.querySelector("#objective-select")?.value || "";
+      const subRows = canManageChildren
+        ? Array.from(m.querySelectorAll('[data-subconsigne]'))
+        : [];
+      if (canManageChildren && subRows.some((row) => !(row.querySelector('input[name="sub-text"]')?.value || "").trim())) {
+        alert("Renseigne le texte de chaque sous-consigne ou supprime celles qui sont vides.");
+        return;
+      }
       let consigneId = consigne?.id || null;
       if (consigne) {
         await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, payload);
@@ -2165,6 +2321,60 @@ async function openConsigneForm(ctx, consigne = null) {
       }
       if (consigneId) {
         await Schema.linkConsigneToObjective(ctx.db, ctx.user.uid, consigneId, selectedObjective || null);
+        if (canManageChildren) {
+          const childPayloadBase = {
+            ownerUid: ctx.user.uid,
+            mode,
+            category: payload.category,
+            priority: payload.priority,
+            srEnabled: payload.srEnabled,
+            active: true,
+            parentId: consigneId,
+          };
+          const childDays = mode === "daily" ? payload.days || [] : undefined;
+          const updates = [];
+          if (subRows.length) {
+            subRows.forEach((row) => {
+              const textInput = row.querySelector('input[name="sub-text"]');
+              const typeSelect = row.querySelector('select[name="sub-type"]');
+              if (!textInput || !typeSelect) return;
+              const textValue = textInput.value.trim();
+              const typeValue = typeSelect.value;
+              const childId = row.dataset.id || null;
+              const childPayload = {
+                ...childPayloadBase,
+                text: textValue,
+                type: typeValue,
+              };
+              if (mode === "daily") {
+                childPayload.days = Array.isArray(childDays) ? [...childDays] : [];
+              }
+              if (childId) {
+                updates.push(
+                  Schema.updateConsigne(ctx.db, ctx.user.uid, childId, childPayload).then(() =>
+                    Schema.linkConsigneToObjective(ctx.db, ctx.user.uid, childId, selectedObjective || null)
+                  )
+                );
+              } else {
+                updates.push(
+                  Schema.addConsigne(ctx.db, ctx.user.uid, childPayload).then((ref) => {
+                    const newId = ref?.id;
+                    if (newId) {
+                      return Schema.linkConsigneToObjective(ctx.db, ctx.user.uid, newId, selectedObjective || null);
+                    }
+                    return null;
+                  })
+                );
+              }
+            });
+          }
+          removedChildIds.forEach((childId) => {
+            updates.push(Schema.softDeleteConsigne(ctx.db, ctx.user.uid, childId));
+          });
+          if (updates.length) {
+            await Promise.all(updates);
+          }
+        }
       }
       m.remove();
       const root = document.getElementById("view-root");
@@ -2466,12 +2676,24 @@ async function renderPractice(ctx, root, _opts = {}) {
   } else {
     form.innerHTML = "";
 
-    const makeItem = (c) => {
+    const makeItem = (c, { isChild = false } = {}) => {
       const tone = priorityTone(c.priority);
       const el = document.createElement("div");
       el.className = `consigne-card card p-3 space-y-3 priority-surface priority-surface-${tone}`;
       el.dataset.id = c.id;
-      el.setAttribute("draggable", "true");
+      if (isChild) {
+        el.classList.add("consigne-card--child");
+        if (c.parentId) {
+          el.dataset.parentId = c.parentId;
+        } else {
+          delete el.dataset.parentId;
+        }
+        el.draggable = false;
+      } else {
+        el.classList.add("consigne-card--parent");
+        delete el.dataset.parentId;
+        el.draggable = true;
+      }
       el.innerHTML = `
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex flex-wrap items-center gap-2">
@@ -2509,7 +2731,27 @@ async function renderPractice(ctx, root, _opts = {}) {
       return el;
     };
 
-    visible.forEach((c) => form.appendChild(makeItem(c)));
+    const grouped = groupConsignes(visible);
+    grouped.forEach((group) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "consigne-group";
+      const parentCard = makeItem(group.consigne, { isChild: false });
+      wrapper.appendChild(parentCard);
+      if (group.children.length) {
+        const details = document.createElement("details");
+        details.className = "consigne-group__children";
+        details.innerHTML = `<summary class="consigne-group__summary">${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}</summary>`;
+        const list = document.createElement("div");
+        list.className = "consigne-group__list";
+        group.children.forEach((child) => {
+          const childCard = makeItem(child, { isChild: true });
+          list.appendChild(childCard);
+        });
+        details.appendChild(list);
+        wrapper.appendChild(details);
+      }
+      form.appendChild(wrapper);
+    });
 
     if (typeof window.attachConsignesDragDrop === "function") {
       window.attachConsignesDragDrop(form, ctx);
@@ -2722,21 +2964,46 @@ async function renderDaily(ctx, root, opts = {}) {
     else hidden.push({ c, daysLeft: daysBetween(new Date(), next), when: next });
   }));
 
-  // Regrouper par catégorie, puis trier par priorité
-  const catGroups = {};
-  for (const c of visible) {
-    const cat = c.category || "Général";
-    (catGroups[cat] ??= []).push(c);
-  }
-  Object.values(catGroups).forEach((list) => list.sort((a, b) => (a.priority || 2) - (b.priority || 2)));
+  const orderIndex = new Map(visible.map((c, idx) => [c.id, idx]));
+  const catGroups = new Map();
+  visible.forEach((consigne) => {
+    const cat = consigne.category || "Général";
+    const list = catGroups.get(cat) || [];
+    list.push(consigne);
+    catGroups.set(cat, list);
+  });
+  const categoryGroups = Array.from(catGroups.entries()).map(([cat, list]) => {
+    const sorted = list.slice().sort((a, b) => {
+      const idxA = orderIndex.get(a.id) ?? 0;
+      const idxB = orderIndex.get(b.id) ?? 0;
+      if (idxA !== idxB) return idxA - idxB;
+      const prioDiff = (a.priority || 2) - (b.priority || 2);
+      if (prioDiff !== 0) return prioDiff;
+      return (a.text || "").localeCompare(b.text || "");
+    });
+    const groups = groupConsignes(sorted);
+    const total = groups.reduce((acc, group) => acc + 1 + group.children.length, 0);
+    return [cat, { groups, total }];
+  });
 
   const previousAnswers = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
 
-  const renderItemCard = (item) => {
+  const renderItemCard = (item, { isChild = false } = {}) => {
     const previous = previousAnswers?.get(item.id);
     const itemCard = document.createElement("div");
     const tone = priorityTone(item.priority);
     itemCard.className = `daily-consigne priority-surface priority-surface-${tone}`;
+    if (isChild) {
+      itemCard.classList.add("daily-consigne--child");
+      if (item.parentId) {
+        itemCard.dataset.parentId = item.parentId;
+      } else {
+        delete itemCard.dataset.parentId;
+      }
+    } else {
+      itemCard.classList.add("daily-consigne--parent");
+      delete itemCard.dataset.parentId;
+    }
     itemCard.innerHTML = `
       <div class="daily-consigne__top">
         <div class="daily-consigne__title">
@@ -2777,6 +3044,27 @@ async function renderDaily(ctx, root, opts = {}) {
     return itemCard;
   };
 
+  const renderGroup = (group, target) => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "consigne-group";
+    const parentCard = renderItemCard(group.consigne, { isChild: false });
+    wrapper.appendChild(parentCard);
+    if (group.children.length) {
+      const details = document.createElement("details");
+      details.className = "consigne-group__children";
+      details.innerHTML = `<summary class="consigne-group__summary">${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}</summary>`;
+      const list = document.createElement("div");
+      list.className = "consigne-group__list";
+      group.children.forEach((child) => {
+        const childCard = renderItemCard(child, { isChild: true });
+        list.appendChild(childCard);
+      });
+      details.appendChild(list);
+      wrapper.appendChild(details);
+    }
+    target.appendChild(wrapper);
+  };
+
   const form = document.createElement("form");
   form.className = "grid gap-8";
   card.appendChild(form);
@@ -2787,30 +3075,32 @@ async function renderDaily(ctx, root, opts = {}) {
     empty.innerText = "Aucune consigne visible pour ce jour.";
     form.appendChild(empty);
   } else {
-    Object.entries(catGroups).forEach(([cat, items]) => {
+    categoryGroups.forEach(([cat, info]) => {
+      const { groups, total } = info;
       const section = document.createElement("section");
       section.className = "daily-category";
       section.innerHTML = `
         <div class="daily-category__header">
           <div class="daily-category__name">${escapeHtml(cat)}</div>
-          <span class="daily-category__count">${items.length} consigne${items.length > 1 ? "s" : ""}</span>
+          <span class="daily-category__count">${total} consigne${total > 1 ? "s" : ""}</span>
         </div>`;
       const stack = document.createElement("div");
       stack.className = "daily-category__items";
       section.appendChild(stack);
 
-      const highs = items.filter((i) => (i.priority || 2) <= 2);
-      const lows = items.filter((i) => (i.priority || 2) >= 3);
+      const highs = groups.filter((g) => (g.consigne.priority || 2) <= 2);
+      const lows = groups.filter((g) => (g.consigne.priority || 2) >= 3);
 
-      highs.forEach((item) => stack.appendChild(renderItemCard(item)));
+      highs.forEach((group) => renderGroup(group, stack));
 
       if (lows.length) {
         const det = document.createElement("details");
         det.className = "daily-category__low";
-        det.innerHTML = `<summary class="daily-category__low-summary">Priorité basse (${lows.length})</summary>`;
+        const lowCount = lows.reduce((acc, group) => acc + 1 + group.children.length, 0);
+        det.innerHTML = `<summary class="daily-category__low-summary">Priorité basse (${lowCount})</summary>`;
         const box = document.createElement("div");
         box.className = "daily-category__items daily-category__items--nested";
-        lows.forEach((item) => box.appendChild(renderItemCard(item)));
+        lows.forEach((group) => renderGroup(group, box));
         det.appendChild(box);
         stack.appendChild(det);
       }

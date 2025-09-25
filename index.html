@@ -346,6 +346,52 @@
       border-radius:.5rem;
     }
 
+    .consigne-group {
+      display:grid;
+      gap:.5rem;
+    }
+    .consigne-group__children {
+      margin-top:-.25rem;
+      padding:.35rem .85rem .9rem;
+      border-radius:.85rem;
+      background:rgba(148,163,184,.08);
+    }
+    .consigne-group__summary {
+      list-style:none;
+      cursor:pointer;
+      font-size:.8rem;
+      font-weight:600;
+      color:var(--muted);
+      display:flex;
+      align-items:center;
+      gap:.4rem;
+      padding:.35rem 0;
+    }
+    .consigne-group__summary::before {
+      content:"▸";
+      font-size:.75rem;
+      transition:transform .2s ease;
+    }
+    .consigne-group__children[open] .consigne-group__summary::before {
+      transform:rotate(90deg);
+    }
+    .consigne-group__summary::-webkit-details-marker {
+      display:none;
+    }
+    .consigne-group__list {
+      display:grid;
+      gap:.75rem;
+      margin-top:.5rem;
+    }
+    .daily-consigne--child {
+      margin-left:1.2rem;
+    }
+    .consigne-card--child {
+      margin-left:1rem;
+      border-color:rgba(148,163,184,.28);
+      box-shadow:none;
+    }
+
     .priority-surface {
       position:relative;
     }
@@ -469,6 +515,26 @@
     .practice-dashboard__row-indicator{ width:.45rem; height:2.5rem; border-radius:999px; background:var(--row-accent,#CBD5F5); flex-shrink:0; }
     .practice-dashboard__row-info{ display:flex; flex-direction:column; gap:.35rem; }
     .practice-dashboard__consigne-name{ font-weight:600; font-size:.95rem; color:#0f172a; }
+
+    .subconsigne-row {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      gap:.75rem;
+      align-items:flex-start;
+      padding:.75rem;
+      border:1px solid #e2e8f0;
+      border-radius:.75rem;
+      background:#f8fafc;
+    }
+    .subconsigne-row__main { display:grid; gap:.5rem; }
+    .subconsigne-row__actions { display:flex; align-items:center; }
+    .subconsigne-row__actions .btn { margin-left:auto; }
+    #subconsignes-list[data-has-items] .subconsigne-empty { display:none; }
+    .subconsigne-empty {
+      font-size:.85rem;
+      color:var(--muted);
+      padding:.5rem 0;
+    }
     .practice-dashboard__row-meta{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
     .practice-dashboard__matrix tbody td{ padding:.45rem .35rem; text-align:center; }
     .practice-dashboard__matrix tbody tr:nth-child(even){ background:rgba(241,245,249,.35); }
