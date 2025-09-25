@@ -1038,6 +1038,31 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       return stats.some((item) => item.hasNumeric);
     }
 
+    function updateChartCaption(windowSize) {
+      if (!chartCaption) return;
+      const total = iterationMeta.length;
+      const hasData = computeChartHasData();
+      if (!total || !hasData) {
+        chartCaption.textContent = "";
+        return;
+      }
+      const normalized = Number.isFinite(windowSize) && windowSize > 0 ? Math.floor(windowSize) : null;
+      const unit = isPractice ? "session" : "jour";
+      if (!normalized || normalized >= total) {
+        chartCaption.textContent = `Affichage de l’historique complet (${total} ${unit}${total > 1 ? "s" : ""}).`;
+        return;
+      }
+      const lastWord = isPractice
+        ? normalized > 1
+          ? "dernières"
+          : "dernière"
+        : normalized > 1
+        ? "derniers"
+        : "dernier";
+      const plural = normalized > 1 ? "s" : "";
+      chartCaption.textContent = `Affichage des ${normalized} ${lastWord} ${unit}${plural}.`;
+    }
+
     function updateChartButtonState() {
       if (chartViewButton) {
         chartViewButton.disabled = !chartHasData;
@@ -1142,6 +1167,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           rangeSelectEl.value = nextValue;
         }
       }
+      updateChartCaption(currentWindowSize);
     }
 
     if (rangeSelectEl) {
@@ -1207,6 +1233,9 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           chartScroll.scrollLeft = 0;
         }
         hasInitializedScrollPosition = false;
+        if (chartCaption) {
+          chartCaption.textContent = "";
+        }
         return;
       }
       let count = total;
@@ -1254,6 +1283,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       chartInstance.options.plugins.practiceGuideLine = pluginOpts;
       updateChartViewport(visibleMeta.length || 1);
       chartInstance.update();
+      updateChartCaption(windowSize);
       if (chartScroll) {
         requestAnimationFrame(() => {
           if (!chartScroll) return;
@@ -1925,10 +1955,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         textColor: "#475569",
       };
 
-      const scrollHint = "Faites défiler horizontalement pour parcourir l’historique complet.";
-      if (chartCaption) {
-        chartCaption.textContent = scrollHint;
-      }
+      updateChartCaption(currentWindowSize);
       applyChartWindow(currentWindowSize);
       renderChartSelector();
       resizeHandler = () => {
