@@ -477,9 +477,9 @@
     .goal-modal{
       position:fixed;
       inset:0;
-      background:rgba(15,23,42,.45);
-      backdrop-filter:blur(8px);
-      -webkit-backdrop-filter:blur(8px);
+      background:rgba(15,23,42,.75);
+      backdrop-filter:blur(6px);
+      -webkit-backdrop-filter:blur(6px);
       display:grid;
       place-items:center;
       padding:1rem;
@@ -529,7 +529,7 @@
       --dashboard-surface:#ffffff;
       --dashboard-border:rgba(15,23,42,.08);
       --dashboard-shadow:0 32px 68px rgba(15,23,42,.18);
-      --dashboard-header-bg:rgba(241,245,249,.96);
+      --dashboard-header-bg:#f1f5f9;
       --dashboard-grid-stripe:rgba(241,245,249,.7);
       --dashboard-chip-bg:rgba(148,163,184,.16);
       --dashboard-status-ok:rgba(34,197,94,.16);
@@ -551,7 +551,7 @@
       flex-direction:column;
       gap:1.6rem;
       padding:1.9rem clamp(1.4rem,3vw,2.4rem);
-      background:linear-gradient(180deg,rgba(255,255,255,.96) 0%,rgba(248,250,252,.98) 100%);
+      background:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%);
       border:1px solid var(--dashboard-border);
       border-radius:1.5rem;
       box-shadow:var(--dashboard-shadow);
@@ -574,7 +574,7 @@
       position:absolute;
       inset:-1.25rem -1.9rem auto;
       height:calc(100% + 1.25rem);
-      background:linear-gradient(180deg,rgba(241,245,249,.65) 0%,rgba(255,255,255,0) 85%);
+      background:linear-gradient(180deg,rgba(241,245,249,.9) 0%,rgba(255,255,255,0) 85%);
       z-index:0;
     }
     .practice-dashboard__header::after{ content:""; position:absolute; left:-1.9rem; right:-1.9rem; bottom:0; height:1px; background:linear-gradient(90deg, rgba(148,163,184,.12) 0%, rgba(148,163,184,.4) 38%, rgba(148,163,184,.1) 100%); z-index:0; }
@@ -593,10 +593,8 @@
       border:1px solid var(--dashboard-border);
       border-radius:1.1rem;
       overflow:auto;
-      background:linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(248,250,252,.98) 100%);
+      background:linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
       box-shadow:0 20px 38px rgba(15,23,42,.12);
-      backdrop-filter:blur(4px);
-      -webkit-backdrop-filter:blur(4px);
     }
     .practice-dashboard__table-wrapper::after{ content:""; position:absolute; top:0; right:0; bottom:0; width:2.5rem; pointer-events:none; background:linear-gradient(90deg, rgba(248,250,252,0) 0%, rgba(248,250,252,.92) 65%, rgba(248,250,252,1) 100%); }
     .practice-dashboard__table-wrapper::-webkit-scrollbar{ height:8px; }
