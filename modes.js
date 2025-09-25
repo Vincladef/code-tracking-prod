@@ -896,8 +896,18 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     wrapper.innerHTML = html;
     const overlay = wrapper.firstElementChild;
     if (!overlay) return;
+    const dashboardMode = allowMixedMode ? "mixed" : isPractice ? "practice" : "daily";
+    overlay.setAttribute("data-section", isPractice ? "practice" : "daily");
+    overlay.setAttribute("data-dashboard-mode", dashboardMode);
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", `${titleText} — tableau de bord`);
     document.body.appendChild(overlay);
     wrapper.innerHTML = "";
+    const dashboardCard = overlay.querySelector(".practice-dashboard__card");
+    if (dashboardCard) {
+      dashboardCard.setAttribute("data-dashboard-mode", dashboardMode);
+    }
 
     let chartInstance = null;
     let resizeHandler = null;
@@ -1898,7 +1908,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     }
 
     ensureChartAvailability();
-    setView(chartHasData ? "chart" : "table");
+    const prefersCompactView =
+      typeof window !== "undefined" && typeof window.matchMedia === "function"
+        ? window.matchMedia("(max-width: 768px)").matches
+        : false;
+    const initialView = prefersCompactView ? "table" : "chart";
+    setView(initialView);
   } catch (err) {
     console.warn("openCategoryDashboard:error", err);
   }
