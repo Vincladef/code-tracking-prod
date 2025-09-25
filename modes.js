@@ -1061,7 +1061,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         '<th scope="col" class="practice-dashboard__matrix-head-consigne">Consigne</th>',
         ...iterationDisplayMeta.map((meta) => {
           const title = meta.headerTitle || meta.label;
-          return `<th scope="col" data-date="${meta.iso}" data-iteration="${meta.index}"><span title="${escapeHtml(title)}">${escapeHtml(meta.label)}</span></th>`;
+          const columnLabel = meta.label || title || "";
+          return `<th scope="col" data-date="${meta.iso}" data-iteration="${meta.index}" data-label="${escapeHtml(columnLabel)}"><span title="${escapeHtml(title)}">${escapeHtml(meta.label)}</span></th>`;
         }),
       ].join("");
     }
@@ -1338,7 +1339,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               ]
                 .filter(Boolean)
                 .join(" ");
-              return `<td><button type="button" class="${classes}" data-cell data-consigne="${stat.id}" data-date="${dateIso}" data-iteration="${iterationInfo.index}" title="${escapeHtml(tooltip)}" aria-label="${escapeHtml(tooltip)}"${hasNote}>${content}</button></td>`;
+              const compactLabel = iterationInfo.label || iterationInfo.fullLabel || iterationInfo.headerTitle || `Itération ${iterationInfo.displayIndex}`;
+              const verboseLabel = iterationInfo.headerTitle || iterationInfo.fullLabel || compactLabel;
+              const labelAttr = ` data-label="${escapeHtml(compactLabel)}"`;
+              const labelFullAttr = verboseLabel && verboseLabel !== compactLabel ? ` data-label-full="${escapeHtml(verboseLabel)}"` : "";
+              return `<td data-column="${escapeHtml(iterationInfo.iso)}"><button type="button" class="${classes}" data-cell data-consigne="${stat.id}" data-date="${dateIso}" data-iteration="${iterationInfo.index}" title="${escapeHtml(tooltip)}" aria-label="${escapeHtml(tooltip)}"${hasNote}${labelAttr}${labelFullAttr}>${content}</button></td>`;
             })
             .join("");
           return `<tr data-id="${stat.id}">${rowHead}${cells}</tr>`;
