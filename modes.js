@@ -916,7 +916,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           <footer class="practice-dashboard__footer">
             <div class="practice-dashboard__footer-actions">
               <button type="button" class="btn btn-ghost" data-dismiss-dashboard>Annuler</button>
-              <button type="button" class="btn btn-primary" data-primary-action>Enregistrer</button>
+              <button type="button" class="btn practice-dashboard__save-button" data-primary-action>Enregistrer</button>
             </div>
           </footer>
         </div>
