@@ -689,7 +689,20 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     const iterationMetaByKey = new Map(iterationMeta.map((meta) => [meta.iso, meta]));
     const iterationLabels = iterationMeta.map((meta) => meta.label);
     const iterationDates = iterationMeta.map((meta) => (meta.dateObj ? meta.dateObj.toISOString() : meta.iso));
-    const iterationDisplayMeta = iterationMeta.slice().reverse();
+
+    function buildIterationDisplayMeta(windowSize) {
+      if (!iterationMeta.length) return [];
+      let count = iterationMeta.length;
+      if (Number.isFinite(windowSize) && windowSize > 0 && windowSize < iterationMeta.length) {
+        count = Math.floor(windowSize);
+      }
+      const start = Math.max(0, iterationMeta.length - count);
+      return iterationMeta.slice(start).reverse();
+    }
+
+    const defaultWindowSize = iterationMeta.length > 10 ? 10 : null;
+    let currentWindowSize = defaultWindowSize;
+    let iterationDisplayMeta = buildIterationDisplayMeta(currentWindowSize);
 
     const stats = consigneData.map(({ consigne, entries, index }) => {
       const timeline = iterationMeta.map((meta) => {
@@ -802,7 +815,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       : effectiveCategory
       ? `Journalier — ${effectiveCategory}`
       : "Journalier — toutes les catégories";
-    const safeCategory = escapeHtml(titleText);
     const categoryFilterMarkup =
       !providedConsignes && isDaily && dailyCategories.length > 1
         ? `<label class="practice-dashboard__filter"><span class="practice-dashboard__filter-label">Catégorie</span><select class="practice-dashboard__filter-select" data-category-select><option value="__all__"${effectiveCategory ? "" : " selected"}>Toutes les catégories</option>${dailyCategories
@@ -836,16 +848,31 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       ? "Cliquez sur une cellule pour ajouter ou modifier la note correspondante."
       : "Cliquez sur une cellule pour mettre à jour la valeur du jour sélectionné.";
 
-    const headerEyebrow = providedConsignes
-      ? "Consignes liées"
+    const headerMainTitle = providedConsignes
+      ? "Progression"
       : isPractice
-      ? "Tableau de bord pratique"
-      : "Tableau de bord quotidien";
+      ? "Tableau de bord"
+      : "Progression quotidienne";
     const headerSubtitle = providedConsignes
       ? "Suivi des consignes sélectionnées et de leur progression."
       : isPractice
       ? "Suivi de vos consignes et progression."
       : "Suivi de vos journées et progression.";
+
+    const headerContextText = (() => {
+      if (providedConsignes) {
+        if (customTitle) return customTitle;
+        return "Consignes sélectionnées";
+      }
+      if (isPractice) {
+        return effectiveCategory || "Toutes les consignes";
+      }
+      if (effectiveCategory) {
+        return `Catégorie : ${effectiveCategory}`;
+      }
+      return "Toutes les catégories";
+    })();
+    const safeHeaderContext = escapeHtml(headerContextText);
 
     const chartSubtitleText = providedConsignes
       ? "Comparez les consignes liées et leur évolution."
@@ -859,17 +886,31 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         <button type="button" class="practice-dashboard__view-btn" data-view="table" role="tab" aria-selected="false" tabindex="-1">Vue tableau</button>
       </div>`;
 
+    const rangeOptions = [5, 10, 15, 20];
+    const rangeFilterMarkup = iterationMeta.length > 1
+      ? `<label class="practice-dashboard__filter practice-dashboard__filter--inline"><span class="practice-dashboard__filter-label">Période</span><select class="practice-dashboard__filter-select" data-range-select>` +
+        `${rangeOptions
+          .map((value) => {
+            const disabled = iterationMeta.length < value ? " disabled" : "";
+            const selected = currentWindowSize === value ? " selected" : "";
+            return `<option value="${value}"${disabled}${selected}>${value} dernières</option>`;
+          })
+          .join("")}` +
+        `<option value="__all__"${currentWindowSize == null ? " selected" : ""}>Tout l’historique</option></select></label>`
+      : "";
+
     const html = `
       <div class="goal-modal modal practice-dashboard">
         <div class="goal-modal-card modal-card practice-dashboard__card">
           <div class="practice-dashboard__header">
             <div class="practice-dashboard__title-group">
-              <span class="practice-dashboard__eyebrow">${escapeHtml(headerEyebrow)}</span>
-              <h2 class="practice-dashboard__title">${safeCategory}</h2>
+              <span class="practice-dashboard__context">${safeHeaderContext}</span>
+              <h2 class="practice-dashboard__title">${escapeHtml(headerMainTitle)}</h2>
               <p class="practice-dashboard__subtitle">${escapeHtml(headerSubtitle)}</p>
             </div>
             <div class="practice-dashboard__header-actions">
               ${viewToggleMarkup}
+              ${rangeFilterMarkup}
               ${categoryFilterMarkup}
               <button type="button" class="practice-dashboard__close btn btn-ghost" data-close aria-label="Fermer">✕</button>
             </div>
@@ -979,6 +1020,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     const chartSelect = overlay.querySelector("[data-chart-select]");
     const canvas = overlay.querySelector("#practiceCatChart");
     const categorySelectEl = overlay.querySelector("[data-category-select]");
+    const rangeSelectEl = overlay.querySelector("[data-range-select]");
     const chartSection = overlay.querySelector(".practice-dashboard__section--chart");
     const tableSection = overlay.querySelector(".practice-dashboard__section--table");
     const viewToggle = overlay.querySelector("[data-view-toggle]");
@@ -1038,7 +1080,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       });
       if (currentView === "chart" && chartInstance) {
         requestAnimationFrame(() => {
-          applyChartWindow(null);
+          applyChartWindow(currentWindowSize);
         });
       }
     }
@@ -1084,16 +1126,50 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       });
     }
 
-    if (headRow) {
+    function setWindowSizeValue(nextSize) {
+      if (Number.isFinite(nextSize) && nextSize > 0) {
+        currentWindowSize = Math.floor(nextSize);
+      } else {
+        currentWindowSize = null;
+      }
+      iterationDisplayMeta = buildIterationDisplayMeta(currentWindowSize);
+      renderMatrixHead();
+      renderMatrix();
+      applyChartWindow(currentWindowSize);
+      if (rangeSelectEl) {
+        const nextValue = currentWindowSize == null ? "__all__" : String(currentWindowSize);
+        if (rangeSelectEl.value !== nextValue) {
+          rangeSelectEl.value = nextValue;
+        }
+      }
+    }
+
+    if (rangeSelectEl) {
+      rangeSelectEl.addEventListener("change", (event) => {
+        const value = event.target.value || "__all__";
+        if (value === "__all__") {
+          setWindowSizeValue(null);
+        } else {
+          const parsed = Number(value);
+          setWindowSizeValue(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+        }
+      });
+    }
+
+    function renderMatrixHead() {
+      if (!headRow) return;
+      const columns = iterationDisplayMeta;
       headRow.innerHTML = [
         '<th scope="col" class="practice-dashboard__matrix-head-consigne">Consigne</th>',
-        ...iterationDisplayMeta.map((meta) => {
+        ...columns.map((meta) => {
           const title = meta.headerTitle || meta.label;
           const columnLabel = meta.label || title || "";
           return `<th scope="col" data-date="${meta.iso}" data-iteration="${meta.index}" data-label="${escapeHtml(columnLabel)}"><span title="${escapeHtml(title)}">${escapeHtml(meta.label)}</span></th>`;
         }),
       ].join("");
     }
+
+    renderMatrixHead();
 
     function updateChartViewport(visibleCount = iterationMeta.length) {
       if (!chartCanvasWrapper) return;
@@ -1279,7 +1355,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
 
     function renderMatrix() {
       if (!tableBody) return;
-      const colSpan = iterationMeta.length + 1;
+      const visibleColumns = iterationDisplayMeta.length;
+      const colSpan = (visibleColumns || iterationMeta.length) + 1;
       if (!stats.length) {
         tableBody.innerHTML = `<tr><td colspan="${colSpan}" class="practice-dashboard__empty-row">Aucune consigne pour cette catégorie pour le moment.</td></tr>`;
         return;
@@ -1603,7 +1680,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const dataset = chartInstance.data.datasets[stat.chartDatasetIndex];
       if (!dataset) return;
       dataset.hidden = !input.checked;
-      applyChartWindow(null);
+      applyChartWindow(currentWindowSize);
     });
 
     function updateChartForStat(stat) {
@@ -1646,7 +1723,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           }
         });
       }
-      applyChartWindow(null);
+      applyChartWindow(currentWindowSize);
       renderChartSelector();
       ensureChartAvailability();
     }
@@ -1852,7 +1929,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       if (chartCaption) {
         chartCaption.textContent = scrollHint;
       }
-      applyChartWindow(null);
+      applyChartWindow(currentWindowSize);
       renderChartSelector();
       resizeHandler = () => {
         updateChartViewport(chartInstance?.data?.labels?.length || iterationMeta.length);
