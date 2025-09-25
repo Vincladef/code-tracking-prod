@@ -984,6 +984,14 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
 
     let chartInstance = null;
     let resizeHandler = null;
+    const guideLineState = {
+      meta: null,
+      label: "",
+      caption: "",
+      color: "#334155",
+      textColor: "#475569",
+    };
+    let currentChartStartIndex = 0;
     const close = () => {
       if (chartInstance) {
         chartInstance.destroy();
@@ -1246,6 +1254,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       }
       const start = Math.max(0, total - count);
       const visibleMeta = iterationMeta.slice(start);
+      currentChartStartIndex = start;
       const shouldStickToEnd = (() => {
         if (!chartScroll) return false;
         if (!hasInitializedScrollPosition) return false;
@@ -1254,35 +1263,68 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         const distanceToEnd = maxScroll - chartScroll.scrollLeft;
         return distanceToEnd < 32;
       })();
-      chartInstance.data.labels = visibleMeta.map((meta) => meta.label);
+      const nextLabels = visibleMeta.map((meta) => meta.label);
+      if (Array.isArray(chartInstance.data.labels)) {
+        chartInstance.data.labels.splice(0, chartInstance.data.labels.length, ...nextLabels);
+      } else {
+        chartInstance.data.labels = nextLabels;
+      }
       chartInstance.data.datasets.forEach((dataset) => {
-        const fullData = dataset.fullData || [];
-        const fullRawValues = dataset.fullRawValues || [];
-        const fullRawNotes = dataset.fullRawNotes || [];
-        const fullDates = dataset.fullDates || [];
-        dataset.data = fullData.slice(start);
-        dataset.rawValues = fullRawValues.slice(start);
-        dataset.rawNotes = fullRawNotes.slice(start);
-        dataset.dates = fullDates.slice(start);
+        const fullData = Array.isArray(dataset.fullData) ? dataset.fullData : [];
+        const fullRawValues = Array.isArray(dataset.fullRawValues) ? dataset.fullRawValues : [];
+        const fullRawNotes = Array.isArray(dataset.fullRawNotes) ? dataset.fullRawNotes : [];
+        const fullDates = Array.isArray(dataset.fullDates) ? dataset.fullDates : [];
+        const slicedData = fullData.slice(start);
+        const slicedValues = fullRawValues.slice(start);
+        const slicedNotes = fullRawNotes.slice(start);
+        const slicedDates = fullDates.slice(start);
+        if (Array.isArray(dataset.data)) {
+          dataset.data.splice(0, dataset.data.length, ...slicedData);
+        } else {
+          dataset.data = slicedData;
+        }
+        if (Array.isArray(dataset.rawValues)) {
+          dataset.rawValues.splice(0, dataset.rawValues.length, ...slicedValues);
+        } else {
+          dataset.rawValues = slicedValues;
+        }
+        if (Array.isArray(dataset.rawNotes)) {
+          dataset.rawNotes.splice(0, dataset.rawNotes.length, ...slicedNotes);
+        } else {
+          dataset.rawNotes = slicedNotes;
+        }
+        if (Array.isArray(dataset.dates)) {
+          dataset.dates.splice(0, dataset.dates.length, ...slicedDates);
+        } else {
+          dataset.dates = slicedDates;
+        }
       });
       const lastMeta = visibleMeta[visibleMeta.length - 1] || null;
-      const pluginOpts = chartInstance.options.plugins.practiceGuideLine || {};
-      pluginOpts.meta = lastMeta;
+      const guideMeta = lastMeta
+        ? {
+            iso: lastMeta.iso || lastMeta.key || "",
+            label: lastMeta.label || "",
+            fullLabel: lastMeta.fullLabel || "",
+            index: lastMeta.index ?? null,
+            displayIndex: lastMeta.displayIndex ?? null,
+            sessionNumber: lastMeta.sessionNumber ?? null,
+          }
+        : null;
+      guideLineState.meta = guideMeta;
       if (lastMeta) {
         if (isPractice) {
-          pluginOpts.label = "Dernière session";
+          guideLineState.label = "Dernière session";
         } else {
           const todayKey = typeof Schema?.todayKey === "function" ? Schema.todayKey() : null;
           const metaKey = String(lastMeta.iso || lastMeta.key || "");
-          pluginOpts.label = todayKey && metaKey === todayKey ? "Aujourd’hui" : "Dernier jour";
+          guideLineState.label = todayKey && metaKey === todayKey ? "Aujourd’hui" : "Dernier jour";
         }
       } else {
-        pluginOpts.label = "";
+        guideLineState.label = "";
       }
-      pluginOpts.caption = lastMeta?.fullLabel || "";
-      pluginOpts.color = pluginOpts.color || "#334155";
-      pluginOpts.textColor = pluginOpts.textColor || "#475569";
-      chartInstance.options.plugins.practiceGuideLine = pluginOpts;
+      guideLineState.caption = guideMeta?.fullLabel || "";
+      guideLineState.color = guideLineState.color || "#334155";
+      guideLineState.textColor = guideLineState.textColor || "#475569";
       updateChartViewport(visibleMeta.length || 1);
       chartInstance.update();
       updateChartCaption(windowSize);
@@ -1769,8 +1811,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
 
       const guidePlugin = {
         id: "practiceGuideLine",
-        afterDraw(chart, args, opts) {
-          const meta = opts?.meta;
+        afterDraw(chart) {
+          const meta = guideLineState.meta;
           if (!meta) return;
           const { ctx, chartArea, scales } = chart;
           const xScale = scales?.x;
@@ -1781,7 +1823,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           const x = xScale.getPixelForValue(index);
           if (!Number.isFinite(x)) return;
           ctx.save();
-          ctx.strokeStyle = opts?.color || "#334155";
+          ctx.strokeStyle = guideLineState.color || "#334155";
           ctx.lineWidth = 1.5;
           ctx.setLineDash([6, 6]);
           ctx.beginPath();
@@ -1789,10 +1831,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           ctx.lineTo(x, chartArea.bottom);
           ctx.stroke();
           ctx.restore();
-          const label = opts?.label;
+          const label = guideLineState.label;
           if (!label) return;
-          const caption = opts?.caption;
-          const textColor = opts?.textColor || "#475569";
+          const caption = guideLineState.caption;
+          const textColor = guideLineState.textColor || "#475569";
           const text = caption ? `${label} · ${caption}` : label;
           ctx.save();
           ctx.font = "12px 'Inter', sans-serif";
@@ -1917,7 +1959,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
                   const point = context[0];
                   if (!point) return "";
                   const index = point.dataIndex ?? 0;
-                  const info = iterationMeta[index];
+                  const info = iterationMeta[currentChartStartIndex + index];
                   if (info) {
                     const parts = [info.label];
                     if (Number.isFinite(info.sessionNumber) && info.sessionNumber !== info.displayIndex) {
@@ -1951,11 +1993,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         },
         plugins: [guidePlugin],
       });
-
-      chartInstance.options.plugins.practiceGuideLine = {
-        color: "#334155",
-        textColor: "#475569",
-      };
 
       updateChartCaption(currentWindowSize);
       applyChartWindow(currentWindowSize);
