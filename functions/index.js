@@ -275,6 +275,28 @@ function buildReminderBody(firstName, consigneCount, objectiveCount) {
   return `${prefix}tu as ${items.join(", ")} et ${last} aujourd’hui.`;
 }
 
+function buildAdminReminderBody(name, consigneCount, objectiveCount) {
+  const label = name || "Cet utilisateur";
+  const items = [];
+  if (consigneCount > 0) {
+    items.push(`${consigneCount} ${pluralize(consigneCount, "consigne")} à tracker`);
+  }
+  if (objectiveCount > 0) {
+    items.push(`${objectiveCount} ${pluralize(objectiveCount, "objectif")} à compléter`);
+  }
+  if (!items.length) {
+    return `${label} n’a rien à tracker aujourd’hui.`;
+  }
+  if (items.length === 1) {
+    return `${label} a ${items[0]} aujourd’hui.`;
+  }
+  if (items.length === 2) {
+    return `${label} a ${items[0]} et ${items[1]} aujourd’hui.`;
+  }
+  const last = items.pop();
+  return `${label} a ${items.join(", ")} et ${last} aujourd’hui.`;
+}
+
 async function collectPushTokens() {
   const snap = await db.collectionGroup("pushTokens").get();
   const tokensByUid = new Map();
@@ -296,6 +318,21 @@ async function collectPushTokens() {
   return tokensByUid;
 }
 
+async function collectAdminPushTokens() {
+  const snap = await db.collection("adminPushTokens").get();
+  const tokens = [];
+
+  snap.forEach((doc) => {
+    const data = doc.data() || {};
+    if (data.enabled === false) return;
+    const token = data.token || doc.id;
+    if (!token) return;
+    if (!tokens.includes(token)) tokens.push(token);
+  });
+
+  return tokens;
+}
+
 async function disableToken(uid, token) {
   try {
     await db
@@ -309,6 +346,23 @@ async function disableToken(uid, token) {
       );
   } catch (error) {
     functions.logger.error("disableToken:error", { uid, token, error });
+  }
+}
+
+async function disableAdminToken(token) {
+  try {
+    await db
+      .collection("adminPushTokens")
+      .doc(token)
+      .set(
+        {
+          enabled: false,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+  } catch (error) {
+    functions.logger.error("disableAdminToken:error", { token, error });
   }
 }
 
@@ -421,6 +475,61 @@ async function sendReminder(uid, tokens, visibleCount, objectiveCount, context, 
   return response;
 }
 
+async function sendAdminReminder(targetUid, tokens, visibleCount, objectiveCount, context, displayName = "", firstName = "") {
+  if (!tokens.length) return { successCount: 0, failureCount: 0, responses: [] };
+
+  const nameLabel = displayName || firstName || `Utilisateur ${targetUid}`;
+  const title = `Admin — ${nameLabel}`;
+  const body = buildAdminReminderBody(nameLabel, visibleCount, objectiveCount);
+  const link = buildUserDailyLink(targetUid, context.dateIso);
+
+  const message = {
+    tokens,
+    data: {
+      link,
+      targetUid,
+      role: "admin",
+      consignes: String(visibleCount),
+      objectifs: String(objectiveCount),
+      body,
+      title,
+      displayName: displayName || "",
+      firstName: firstName || "",
+      day: context.dayLabel,
+    },
+    notification: { title, body },
+    webpush: {
+      fcmOptions: { link },
+      notification: {
+        title,
+        body,
+        icon: ICON_DATA_URL,
+        badge: BADGE_URL,
+      },
+    },
+  };
+
+  const response = await admin.messaging().sendEachForMulticast(message);
+
+  const invalid = [];
+  response.responses.forEach((r, idx) => {
+    if (r.success) return;
+    const token = tokens[idx];
+    const code = r.error?.code;
+    functions.logger.warn("sendAdminReminder:failure", {
+      targetUid,
+      token,
+      code,
+      message: r.error?.message,
+    });
+    if (code && INVALID_TOKEN_ERRORS.has(code)) invalid.push(token);
+  });
+
+  await Promise.all(invalid.map((token) => disableAdminToken(token)));
+
+  return response;
+}
+
 exports.sendDailyReminders = functions
   .region("europe-west1")
   .https.onRequest(async (req, res) => {
@@ -439,6 +548,7 @@ exports.sendDailyReminders = functions
       functions.logger.info("sendDailyReminders:start", context);
 
       const tokensByUid = await collectPushTokens();
+      const adminTokens = await collectAdminPushTokens();
       const results = [];
 
       for (const [uid, tokens] of tokensByUid.entries()) {
@@ -454,10 +564,13 @@ exports.sendDailyReminders = functions
           }
 
           let firstName = "";
+          let displayName = "";
           try {
             const profileSnap = await db.collection("u").doc(uid).get();
             if (profileSnap.exists) {
-              firstName = extractFirstName(profileSnap.data() || {});
+              const profileData = profileSnap.data() || {};
+              firstName = extractFirstName(profileData);
+              displayName = profileData.displayName || profileData.name || firstName || "";
             }
           } catch (profileError) {
             functions.logger.warn("sendDailyReminders:profile:error", { uid, error: profileError });
@@ -471,6 +584,18 @@ exports.sendDailyReminders = functions
             context,
             firstName
           );
+          let adminResponse = null;
+          if (adminTokens.length) {
+            adminResponse = await sendAdminReminder(
+              uid,
+              adminTokens,
+              visibleCount,
+              objectiveCount,
+              context,
+              displayName,
+              firstName
+            );
+          }
           results.push({
             uid,
             tokens: tokens.length,
@@ -479,6 +604,8 @@ exports.sendDailyReminders = functions
             sent: response.successCount,
             failed: response.failureCount,
             firstName,
+            adminSent: adminResponse ? adminResponse.successCount : 0,
+            adminFailed: adminResponse ? adminResponse.failureCount : 0,
           });
         } catch (err) {
           functions.logger.error("sendDailyReminders:userError", { uid, err });
