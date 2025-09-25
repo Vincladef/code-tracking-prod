@@ -1656,7 +1656,7 @@
     root.innerHTML = `
       <div class="space-y-4">
         <h2 class="text-xl font-semibold">Admin — Utilisateurs</h2>
-        <form id="new-user-form" class="card p-4 space-y-3 max-w-md">
+        <form id="new-user-form" class="card p-4 space-y-3 max-w-md" data-autosave-key="admin:new-user">
           <input type="text" id="new-user-name" placeholder="Nom de l’utilisateur" required class="w-full" />
           <button class="btn btn-primary" type="submit">Créer l’utilisateur</button>
         </form>
