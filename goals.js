@@ -482,7 +482,7 @@
     }
   }
 
-  function openGoalForm(ctx, goal = null, initial = {}) {
+  async function openGoalForm(ctx, goal = null, initial = {}) {
     const monthKey = goal?.monthKey || initial.monthKey || Schema.monthKeyFromDate(new Date());
     let weekOfMonth = Number(goal?.weekOfMonth || initial.weekOfMonth || 1);
     const typeInitial = goal?.type || initial.type || "hebdo";
@@ -513,6 +513,87 @@
     const storedNotifyIso = isoValueFromAny(goal?.notifyAt ?? initial.notifyAt ?? "");
     let notifyDateDirty = Boolean(storedNotifyIso && storedNotifyIso !== theoreticalInitialIso);
     const notifyDateInitialValue = storedNotifyIso || theoreticalInitialIso || "";
+
+    let linkedConsignes = [];
+    if (goal?.id) {
+      try {
+        linkedConsignes = await Schema.listConsignesByObjective(ctx.db, ctx.user.uid, goal.id);
+      } catch (err) {
+        goalsLogger.warn("goals.linkedConsignes.load", err);
+      }
+    }
+
+    let availableConsignes = [];
+    try {
+      const [practiceConsignes, dailyConsignes] = await Promise.all([
+        Schema.fetchConsignes(ctx.db, ctx.user.uid, "practice").catch((err) => {
+          goalsLogger.warn("goals.consigneList.practice", err);
+          return [];
+        }),
+        Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily").catch((err) => {
+          goalsLogger.warn("goals.consigneList.daily", err);
+          return [];
+        }),
+      ]);
+      availableConsignes = [...(practiceConsignes || []), ...(dailyConsignes || [])];
+    } catch (err) {
+      goalsLogger.warn("goals.consigneList.load", err);
+    }
+
+    const consignePool = new Map();
+    (linkedConsignes || []).forEach((item) => {
+      if (item && item.id) {
+        consignePool.set(item.id, item);
+      }
+    });
+    (availableConsignes || []).forEach((item) => {
+      if (item && item.id && !consignePool.has(item.id)) {
+        consignePool.set(item.id, item);
+      }
+    });
+
+    const consigneChoices = Array.from(consignePool.values()).map((consigne) => {
+      const label = consigne.text || consigne.titre || consigne.name || consigne.id || "Consigne";
+      const metaParts = [];
+      if (consigne.mode === "daily") {
+        metaParts.push("Journalier");
+      } else if (consigne.mode === "practice") {
+        metaParts.push("Pratique");
+      }
+      if (consigne.category) {
+        metaParts.push(consigne.category);
+      }
+      return {
+        id: consigne.id,
+        label,
+        meta: metaParts.join(" • "),
+        raw: consigne,
+      };
+    });
+    consigneChoices.sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+    const consigneRawById = new Map(consigneChoices.map((choice) => [choice.id, choice.raw]));
+    const initialLinkedIds = new Set((linkedConsignes || []).map((item) => item?.id).filter(Boolean));
+    const formatLinkerSummary = (count) => {
+      if (!count) return "Aucune consigne liée";
+      return `${count} consigne${count > 1 ? "s" : ""} liée${count > 1 ? "s" : ""}`;
+    };
+    const linkerSummaryInitial = formatLinkerSummary(initialLinkedIds.size);
+    const consigneOptionsMarkup = consigneChoices.length
+      ? consigneChoices
+          .map((choice) => {
+            const checked = initialLinkedIds.has(choice.id) ? "checked" : "";
+            const meta = choice.meta ? `<span class="goal-linker__option-meta">${escapeHtml(choice.meta)}</span>` : "";
+            return `
+              <label class="goal-linker__option">
+                <input type="checkbox" value="${escapeHtml(choice.id)}" ${checked}>
+                <span class="goal-linker__option-main">${escapeHtml(choice.label)}</span>
+                ${meta}
+              </label>
+            `;
+          })
+          .join("")
+      : '<p class="goal-linker__empty muted">Aucune consigne disponible pour le moment.</p>';
+    const hasInitialLinkedConsignes = initialLinkedIds.size > 0;
 
     const wrap = document.createElement("div");
     wrap.className = "goal-modal";
@@ -569,6 +650,19 @@
               <p class="goal-reminder__hint goal-hint" data-notify-default></p>
             </div>
           </div>
+          <div class="goal-field goal-linker" data-goal-linker>
+            <span class="goal-label">Consignes liées</span>
+            <div class="goal-linker__controls">
+              <button type="button" class="btn btn-ghost goal-linker__toggle" data-linker-toggle aria-expanded="false">Lier objectif à consignes</button>
+              <span class="goal-linker__summary" data-linker-summary>${escapeHtml(linkerSummaryInitial)}</span>
+            </div>
+            <div class="goal-linker__panel" data-linker-panel hidden>
+              ${consigneOptionsMarkup}
+            </div>
+            <div class="goal-linker__footer">
+              <button type="button" class="btn btn-ghost goal-linker__history" data-linker-history ${hasInitialLinkedConsignes ? "" : "hidden"}>Voir l’historique des consignes</button>
+            </div>
+          </div>
           <div class="goal-actions">
             ${goal ? '<button type="button" class="btn btn-danger" data-delete>Supprimer</button>' : ""}
             <button type="button" class="btn btn-ghost" data-close>Annuler</button>
@@ -594,6 +688,115 @@
     const notifyCheckbox = form.querySelector("[name=notifyOnTarget]");
     const notifyDateInput = form.querySelector("[name=notifyAt]");
     const notifyDefaultHint = form.querySelector("[data-notify-default]");
+    const linkerPanel = form.querySelector("[data-linker-panel]");
+    const linkerToggle = form.querySelector("[data-linker-toggle]");
+    const linkerSummaryEl = form.querySelector("[data-linker-summary]");
+    const historyButton = form.querySelector("[data-linker-history]");
+    const selectedConsigneIds = new Set(initialLinkedIds);
+    const originalConsigneIds = new Set(initialLinkedIds);
+
+    const syncHistoryButton = () => {
+      if (!historyButton) return;
+      const hasSelection = selectedConsigneIds.size > 0;
+      historyButton.hidden = !hasSelection;
+      historyButton.disabled = !hasSelection;
+      historyButton.setAttribute("aria-disabled", hasSelection ? "false" : "true");
+    };
+    const syncLinkerSummary = () => {
+      if (linkerSummaryEl) {
+        linkerSummaryEl.textContent = formatLinkerSummary(selectedConsigneIds.size);
+      }
+      syncHistoryButton();
+    };
+
+    if (linkerPanel) {
+      const inputs = Array.from(linkerPanel.querySelectorAll('input[type="checkbox"]'));
+      inputs.forEach((input) => {
+        const value = input.value || "";
+        if (input.checked && value) {
+          selectedConsigneIds.add(value);
+        }
+        input.addEventListener("change", () => {
+          const nextValue = input.value || "";
+          if (!nextValue) {
+            syncLinkerSummary();
+            return;
+          }
+          if (input.checked) {
+            selectedConsigneIds.add(nextValue);
+          } else {
+            selectedConsigneIds.delete(nextValue);
+          }
+          syncLinkerSummary();
+        });
+      });
+      linkerPanel.hidden = true;
+    }
+
+    if (linkerToggle) {
+      const hasOptions = consigneChoices.length > 0;
+      linkerToggle.disabled = !hasOptions;
+      linkerToggle.setAttribute("aria-disabled", hasOptions ? "false" : "true");
+      linkerToggle.addEventListener("click", () => {
+        if (!linkerPanel || !hasOptions) return;
+        const isOpen = linkerPanel.hasAttribute("data-open");
+        if (isOpen) {
+          linkerPanel.hidden = true;
+          linkerPanel.removeAttribute("data-open");
+          linkerToggle.setAttribute("aria-expanded", "false");
+        } else {
+          linkerPanel.hidden = false;
+          linkerPanel.setAttribute("data-open", "");
+          linkerToggle.setAttribute("aria-expanded", "true");
+        }
+      });
+    }
+
+    if (historyButton) {
+      historyButton.addEventListener("click", () => {
+        const selected = Array.from(selectedConsigneIds)
+          .map((id) => consigneRawById.get(id))
+          .filter(Boolean);
+        if (!selected.length) {
+          return;
+        }
+        if (typeof window.openCategoryDashboard !== "function") {
+          goalsLogger.warn("goals.linker.history.missing");
+          return;
+        }
+        const modeSet = new Set(
+          selected.map((item) =>
+            item.mode === "daily" ? "daily" : item.mode === "practice" ? "practice" : ""
+          )
+        );
+        let historyMode = "practice";
+        let allowMixed = false;
+        if (modeSet.size === 1) {
+          const [onlyMode] = Array.from(modeSet);
+          historyMode = onlyMode === "daily" ? "daily" : "practice";
+        } else if (modeSet.size > 1) {
+          historyMode = "daily";
+          allowMixed = true;
+        }
+        const historyTitle = goal?.titre
+          ? `Consignes liées — ${goal.titre}`
+          : "Consignes liées";
+        try {
+          window.openCategoryDashboard(ctx, "", {
+            consignes: selected,
+            mode: historyMode,
+            allowMixedMode: allowMixed,
+            title: historyTitle,
+            trendTitle: "Progression des consignes liées",
+            detailsTitle: "Historique par consigne",
+          });
+        } catch (err) {
+          goalsLogger.warn("goals.linker.history", err);
+        }
+      });
+    }
+
+    syncLinkerSummary();
 
     const syncWeekPicker = () => {
       weekPicker.style.display = typeSelect.value === "hebdo" ? "" : "none";
@@ -765,7 +968,33 @@
       }
 
       try {
-        await Schema.upsertObjective(ctx.db, ctx.user.uid, data, goal?.id || null);
+        const savedId = await Schema.upsertObjective(ctx.db, ctx.user.uid, data, goal?.id || null);
+        const objectiveId = goal?.id || savedId;
+        if (objectiveId) {
+          const toLink = [];
+          selectedConsigneIds.forEach((id) => {
+            if (!originalConsigneIds.has(id)) {
+              toLink.push(id);
+            }
+          });
+          const toUnlink = [];
+          originalConsigneIds.forEach((id) => {
+            if (!selectedConsigneIds.has(id)) {
+              toUnlink.push(id);
+            }
+          });
+          if (toLink.length || toUnlink.length) {
+            try {
+              await Promise.all([
+                ...toLink.map((id) => Schema.linkConsigneToObjective(ctx.db, ctx.user.uid, id, objectiveId)),
+                ...toUnlink.map((id) => Schema.linkConsigneToObjective(ctx.db, ctx.user.uid, id, null)),
+              ]);
+            } catch (linkErr) {
+              goalsLogger.warn("goals.linker.save", linkErr);
+              alert("Impossible de mettre à jour les consignes liées.");
+            }
+          }
+        }
         close();
         if (lastMount) {
           renderGoals(ctx, lastMount);
