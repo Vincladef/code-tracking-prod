@@ -33,7 +33,7 @@ function modal(html) {
   const wrap = document.createElement("div");
   wrap.className = "fixed inset-0 z-50 grid place-items-center bg-black/40 p-4";
   wrap.innerHTML = `
-    <div class="w-[min(680px,92vw)] rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl">
+    <div class="w-[min(680px,92vw)] max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl">
       ${html}
     </div>`;
   wrap.addEventListener("click", (e) => {
