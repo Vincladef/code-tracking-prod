@@ -133,9 +133,15 @@ jobs:
 
           async function main(){
             const ctx = parisContext();
-            if (ctx.hour !== 6){
+            const eventName = process.env.GITHUB_EVENT_NAME;
+            const isManual = eventName === "workflow_dispatch";
+
+            if (ctx.hour !== 6 && !isManual){
               console.log(`skip run: current Paris hour = ${ctx.hour}`);
               return;
+            }
+            if (ctx.hour !== 6 && isManual){
+              console.log(`manual override: event=${eventName}, current Paris hour = ${ctx.hour}`);
             }
             console.log("context", ctx);
             const tokensByUid = await collectTokensByUid();
