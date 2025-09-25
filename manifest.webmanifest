@@ -2,6 +2,7 @@
   "name": "Habitudes & Pratique",
   "short_name": "Habitudes",
   "description": "Suivi quotidien des habitudes et de la pratique.",
+  "gcm_sender_id": "103953800507",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
