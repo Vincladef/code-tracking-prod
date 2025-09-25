@@ -844,7 +844,7 @@
     let permission = "denied";
     try {
       permission = Notification.permission;
-      if (permission === "default") {
+      if (interactive || permission === "default") {
         permission = await Notification.requestPermission();
       }
     } catch (error) {
@@ -1711,6 +1711,7 @@
     try {
       const ss = await appFirestore.getDocs(appFirestore.collection(db, "u"));
       const items = [];
+      const uids = [];
       ss.forEach(d => {
         const data = d.data();
         const uid = d.id;
@@ -1720,6 +1721,7 @@
         const safeUid = escapeHtml(uid);
         const encodedUid = encodeURIComponent(uid);
         const link = `${location.origin}${location.pathname}#/u/${encodedUid}/daily`;
+        uids.push(uid);
         items.push(`
           <div class="rounded-xl border border-gray-200 bg-white p-3">
             <div class="font-medium">${safeName}</div>
@@ -1731,6 +1733,11 @@
                  rel="noopener noreferrer"
                  data-uid="${safeUid}"
                  data-action="open">Ouvrir</a>
+              <button type="button"
+                      class="btn btn-ghost text-sm"
+                      data-uid="${safeUid}"
+                      data-notif-toggle="1"
+                      title="Gérer les notifications de ${safeName}">🔔 Activer les notifications</button>
               <button type="button"
                       class="btn btn-ghost text-sm"
                       data-uid="${safeUid}"
@@ -1748,6 +1755,9 @@
         `);
       });
       list.innerHTML = items.join("") || "<div class='text-sm text-[var(--muted)]'>Aucun utilisateur</div>";
+      uids.forEach((itemUid) => {
+        syncNotificationButtonsForUid(itemUid);
+      });
       appLog("admin:users:load:done", { count: items.length });
 
       if (!list.dataset.bound) {
@@ -1756,6 +1766,12 @@
           if (!actionTarget) return;
           const { uid, action, name } = actionTarget.dataset;
           if (!uid) return;
+          if (actionTarget.hasAttribute("data-notif-toggle")) {
+            e.preventDefault();
+            appLog("admin:users:notifications:toggle", { uid });
+            handleNotificationToggle(uid, actionTarget, { interactive: true });
+            return;
+          }
           if ((action || actionTarget.tagName === "A") && (action || "open") === "open") {
             if (!actionTarget.target || actionTarget.target === "_self") {
               e.preventDefault();
