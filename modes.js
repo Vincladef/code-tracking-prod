@@ -836,6 +836,107 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       ? "Cliquez sur une cellule pour ajouter ou modifier la note correspondante."
       : "Cliquez sur une cellule pour mettre à jour la valeur du jour sélectionné.";
 
+    let latestIterationIso = "";
+    stats.forEach((item) => {
+      if (!item?.lastDateIso) return;
+      if (!latestIterationIso || item.lastDateIso > latestIterationIso) {
+        latestIterationIso = item.lastDateIso;
+      }
+    });
+    const latestIterationDate = latestIterationIso ? toDate(latestIterationIso) : null;
+    const latestIterationRelative = latestIterationDate ? formatRelativeDate(latestIterationDate) : "";
+    const latestIterationFull = latestIterationDate ? fullDateTimeFormatter.format(latestIterationDate) : "";
+    const latestUpdateLabel = latestIterationRelative || latestIterationFull || "Jamais";
+
+    const recentThresholdMs = today.getTime() - 7 * 86400000;
+    const recentConsignes = stats.filter((item) => {
+      if (!item?.lastDateIso) return false;
+      const d = toDate(item.lastDateIso);
+      if (!d) return false;
+      return d.getTime() >= recentThresholdMs;
+    }).length;
+
+    const summaryItems = [
+      { label: "Consignes actives", value: String(stats.length) },
+      { label: isPractice ? "Sessions analysées" : "Jours suivis", value: String(iterationMeta.length) },
+      { label: "Consignes mises à jour (7 j)", value: String(recentConsignes) },
+    ];
+
+    const summaryMarkup = summaryItems.length
+      ? `<div class="practice-dashboard__summary">${summaryItems
+          .map(
+            (item) =>
+              `<div class="practice-dashboard__summary-card"><span class="practice-dashboard__summary-value">${escapeHtml(
+                item.value,
+              )}</span><span class="practice-dashboard__summary-label">${escapeHtml(item.label)}</span></div>`,
+          )
+          .join("")}</div>`
+      : "";
+
+    const highlightStats = stats
+      .filter((item) => {
+        if (!item) return false;
+        if (item.commentDisplay && item.commentDisplay !== "—") return true;
+        if (item.lastFormatted && item.lastFormatted !== "—") return true;
+        return false;
+      })
+      .slice(0, 4);
+
+    const statusIcons = {
+      ok: "✅",
+      mid: "🟡",
+      ko: "⚠️",
+      na: "📌",
+    };
+
+    const insightsMarkup = highlightStats.length
+      ? `<ul class="practice-dashboard__insights-list">${highlightStats
+          .map((stat) => {
+            const icon = statusIcons[stat.statusKind] || "📌";
+            const relative = stat.lastRelative && stat.lastRelative !== "" ? stat.lastRelative : stat.lastDateFull || "Jamais";
+            let detailText = "Aucune observation récente.";
+            if (stat.commentDisplay && stat.commentDisplay !== "—") {
+              detailText = escapeHtml(stat.commentDisplay);
+            } else if (stat.lastFormatted && stat.lastFormatted !== "—") {
+              detailText = `Dernière valeur : ${escapeHtml(stat.lastFormatted)}`;
+            }
+            return `<li class="practice-dashboard__insight"><span class="practice-dashboard__insight-icon" data-status="${escapeHtml(
+              stat.statusKind,
+            )}">${icon}</span><div class="practice-dashboard__insight-content"><span class="practice-dashboard__insight-title">${escapeHtml(
+              stat.name,
+            )}</span><span class="practice-dashboard__insight-meta">${escapeHtml(relative)}</span><p class="practice-dashboard__insight-text">${detailText}</p></div></li>`;
+          })
+          .join("")}</ul>`
+      : '<p class="practice-dashboard__insights-empty">Ajoutez vos premières notes pour voir des recommandations ciblées.</p>';
+
+    const legendMarkup = `
+      <div class="practice-dashboard__legend">
+        <span class="practice-dashboard__legend-title">Statuts des consignes</span>
+        <ul class="practice-dashboard__legend-list">
+          <li class="practice-dashboard__legend-item"><span class="practice-dashboard__legend-dot is-ok" aria-hidden="true"></span><span>Réussite : consigne maîtrisée.</span></li>
+          <li class="practice-dashboard__legend-item"><span class="practice-dashboard__legend-dot is-mid" aria-hidden="true"></span><span>À surveiller : progression en cours.</span></li>
+          <li class="practice-dashboard__legend-item"><span class="practice-dashboard__legend-dot is-ko" aria-hidden="true"></span><span>En difficulté : nécessite un focus.</span></li>
+          <li class="practice-dashboard__legend-item"><span class="practice-dashboard__legend-dot is-na" aria-hidden="true"></span><span>Non évaluée : aucune donnée récente.</span></li>
+        </ul>
+      </div>`;
+
+    const headerEyebrow = providedConsignes
+      ? "Consignes liées"
+      : isPractice
+      ? "Tableau de bord pratique"
+      : "Tableau de bord quotidien";
+    const headerSubtitle = providedConsignes
+      ? "Suivi des consignes sélectionnées et de leur progression."
+      : isPractice
+      ? "Suivi de vos consignes et progression."
+      : "Suivi de vos journées et progression.";
+
+    const chartSubtitleText = providedConsignes
+      ? "Comparez les consignes liées et leur évolution."
+      : isPractice
+      ? "Visualisez la progression de vos sessions récentes."
+      : "Suivez l’évolution de vos journées au fil du temps.";
+
     const viewToggleMarkup = `
       <div class="practice-dashboard__view-toggle" data-view-toggle role="tablist" aria-label="Changer la vue">
         <button type="button" class="practice-dashboard__view-btn is-active" data-view="chart" role="tab" aria-selected="true">Vue graphique</button>
@@ -846,7 +947,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       <div class="goal-modal modal practice-dashboard">
         <div class="goal-modal-card modal-card practice-dashboard__card">
           <div class="practice-dashboard__header">
-            <h2 class="practice-dashboard__title">${safeCategory}</h2>
+            <div class="practice-dashboard__title-group">
+              <span class="practice-dashboard__eyebrow">${escapeHtml(headerEyebrow)}</span>
+              <h2 class="practice-dashboard__title">${safeCategory}</h2>
+              <p class="practice-dashboard__subtitle">${escapeHtml(headerSubtitle)}</p>
+            </div>
             <div class="practice-dashboard__header-actions">
               ${viewToggleMarkup}
               ${categoryFilterMarkup}
@@ -854,23 +959,41 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             </div>
           </div>
           <div class="practice-dashboard__body">
-            <section class="practice-dashboard__section practice-dashboard__section--chart">
-              <div class="practice-dashboard__section-head">
-                <h3 class="practice-dashboard__section-title">${escapeHtml(trendTitle)}</h3>
-              </div>
-              <div class="practice-dashboard__chart-panel">
-                <div class="practice-dashboard__chart-scroll" data-chart-scroll tabindex="0" aria-label="${escapeHtml(chartScrollLabel)}">
-                  <div class="practice-dashboard__chart-card" data-chart-card>
-                    <div class="practice-dashboard__chart-canvas" data-chart-canvas>
-                      <canvas id="practiceCatChart"></canvas>
-                    </div>
+            <div class="practice-dashboard__layout">
+              <section class="practice-dashboard__section practice-dashboard__section--chart">
+                <div class="practice-dashboard__section-head">
+                  <div>
+                    <h3 class="practice-dashboard__section-title">${escapeHtml(trendTitle)}</h3>
+                    <p class="practice-dashboard__section-subtitle">${escapeHtml(chartSubtitleText)}</p>
                   </div>
                 </div>
-                <p class="practice-dashboard__chart-caption" data-chart-caption></p>
-              </div>
-              <div class="practice-dashboard__chart-zoom" data-chart-zoom></div>
-              <div class="practice-dashboard__chart-controls" data-chart-select></div>
-            </section>
+                <div class="practice-dashboard__chart-panel">
+                  <div class="practice-dashboard__chart-scroll" data-chart-scroll tabindex="0" aria-label="${escapeHtml(chartScrollLabel)}">
+                    <div class="practice-dashboard__chart-card" data-chart-card>
+                      <div class="practice-dashboard__chart-canvas" data-chart-canvas>
+                        <canvas id="practiceCatChart"></canvas>
+                      </div>
+                    </div>
+                  </div>
+                  <p class="practice-dashboard__chart-caption" data-chart-caption></p>
+                </div>
+                <div class="practice-dashboard__chart-actions">
+                  <div class="practice-dashboard__chart-zoom" data-chart-zoom></div>
+                  <div class="practice-dashboard__chart-controls" data-chart-select></div>
+                </div>
+              </section>
+              <aside class="practice-dashboard__aside">
+                ${summaryMarkup}
+                <div class="practice-dashboard__insights">
+                  <div class="practice-dashboard__insights-head">
+                    <h3 class="practice-dashboard__insights-title">Points clés</h3>
+                    <p class="practice-dashboard__insights-meta">Mis à jour ${escapeHtml(latestUpdateLabel)}</p>
+                  </div>
+                  ${insightsMarkup}
+                </div>
+                ${legendMarkup}
+              </aside>
+            </div>
             <section class="practice-dashboard__section practice-dashboard__section--table">
               <div class="practice-dashboard__section-head">
                 <h3 class="practice-dashboard__section-title">${escapeHtml(detailsTitle)}</h3>
@@ -888,6 +1011,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               <p class="practice-dashboard__hint">${escapeHtml(tableHintText)}</p>
             </section>
           </div>
+          <footer class="practice-dashboard__footer">
+            <div class="practice-dashboard__footer-actions">
+              <button type="button" class="btn btn-ghost" data-dismiss-dashboard>Annuler</button>
+              <button type="button" class="btn btn-primary" data-primary-action>Enregistrer</button>
+            </div>
+          </footer>
         </div>
       </div>
     `;
@@ -931,7 +1060,13 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     overlay.addEventListener("click", (event) => {
       if (event.target === overlay) close();
     });
-    overlay.querySelector("[data-close]")?.addEventListener("click", close);
+    overlay.querySelectorAll("[data-close]").forEach((button) => {
+      button.addEventListener("click", close);
+    });
+    overlay.querySelectorAll("[data-dismiss-dashboard]").forEach((button) => {
+      button.addEventListener("click", close);
+    });
+    overlay.querySelector("[data-primary-action]")?.addEventListener("click", close);
 
     const tableBody = overlay.querySelector("[data-table-body]");
     const headRow = overlay.querySelector("[data-matrix-head]");
