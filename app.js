@@ -1145,6 +1145,21 @@
 
   async function handleNotificationToggle(uid, trigger, { interactive = false } = {}) {
     if (!uid) return;
+
+    if (interactive) {
+      const { segments } = parseHash(ctx.route || window.location.hash || "#/admin");
+      const routeKey = segments[0] || "admin";
+      const routeUid = segments[1] || null;
+      const activeUid = ctx.user?.uid || null;
+      const managingOwnNotifications = routeKey === "u" && routeUid === uid && activeUid === uid;
+
+      if (!managingOwnNotifications) {
+        appLog("push:toggle:blocked", { uid, routeKey, routeUid, activeUid });
+        alert("Active les notifications depuis l’app de l’utilisateur.");
+        return;
+      }
+    }
+
     const pref = getPushPreference(uid);
     const enabled = !!(pref && pref.enabled && pref.token);
     setButtonLoading(trigger, true);
