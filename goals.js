@@ -516,13 +516,20 @@
 
     const wrap = document.createElement("div");
     wrap.className = "goal-modal";
+    const autosaveKey = [
+      "goal",
+      ctx.user?.uid || "anon",
+      goal?.id ? `edit-${goal.id}` : `new-${monthKey}-${typeInitial}`,
+    ]
+      .map((part) => String(part))
+      .join(":");
     wrap.innerHTML = `
       <div class="goal-modal-card">
         <div class="goal-modal-header">
           <div class="goal-modal-title">${goal ? "Modifier" : "Nouvel"} objectif</div>
           <button class="btn-ghost" type="button" data-close>✕</button>
         </div>
-        <form class="goal-form" id="goal-form">
+        <form class="goal-form" id="goal-form" data-autosave-key="${escapeHtml(autosaveKey)}">
           <div class="goal-field">
             <span class="goal-label">Mois concerné</span>
             <div class="goal-month-pill">${escapeHtml(monthLabel)}</div>
