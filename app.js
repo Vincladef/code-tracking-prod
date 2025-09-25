@@ -835,12 +835,12 @@
     }
   }
 
-  async function enablePushForUid(uid, { interactive = false } = {}) {
-    if (!uid || !ctx.db) return false;
+  async function preparePushToken({ interactive = false } = {}) {
     if (!isPushSupported()) {
       if (interactive) alert("Les notifications ne sont pas disponibles sur ce navigateur.");
-      return false;
+      return null;
     }
+
     let permission = "denied";
     try {
       permission = Notification.permission;
@@ -850,23 +850,24 @@
     } catch (error) {
       console.warn("[push] permission:error", error);
       if (interactive) alert("Impossible de demander l’autorisation de notifications.");
-      return false;
+      return null;
     }
+
     if (permission !== "granted") {
       if (interactive) alert("Permission de notifications refusée.");
-      return false;
+      return null;
     }
 
     const messaging = await ensureMessagingInstance();
     if (!messaging) {
       if (interactive) alert("Impossible d’initialiser le service de notifications Firebase.");
-      return false;
+      return null;
     }
 
     const registration = await ensureServiceWorkerRegistration();
     if (!registration) {
       if (interactive) alert("Impossible d’initialiser le service worker des notifications.");
-      return false;
+      return null;
     }
 
     let token = null;
@@ -878,18 +879,27 @@
     } catch (error) {
       console.warn("[push] getToken", error);
       if (interactive) alert("Impossible de récupérer le jeton de notifications.");
-      return false;
+      return null;
     }
 
     if (!token) {
       if (interactive) alert("Impossible de récupérer le jeton de notifications.");
-      return false;
+      return null;
     }
 
+    return { token, messaging };
+  }
+
+  async function enablePushForUid(uid, { interactive = false } = {}) {
+    if (!uid || !ctx.db) return false;
+
+    const setup = await preparePushToken({ interactive });
+    if (!setup) return false;
+
     try {
-      await Schema.savePushToken(ctx.db, uid, token);
-      setPushPreference(uid, { token, enabled: true, updatedAt: Date.now() });
-      bindForegroundNotifications(messaging);
+      await Schema.savePushToken(ctx.db, uid, setup.token);
+      setPushPreference(uid, { token: setup.token, enabled: true, updatedAt: Date.now() });
+      bindForegroundNotifications(setup.messaging);
       return true;
     } catch (error) {
       console.warn("[push] saveToken", error);
@@ -929,6 +939,141 @@
       if (isPushSupported()) {
         btn.disabled = false;
       }
+    }
+  }
+
+  const ADMIN_PUSH_PREF_KEY = "hp::push::admin";
+  let adminPushPrefsCache = null;
+
+  function loadAdminPushPref() {
+    if (adminPushPrefsCache) return adminPushPrefsCache;
+    const storage = getSafeStorage();
+    if (!storage) return {};
+    try {
+      const raw = storage.getItem(ADMIN_PUSH_PREF_KEY);
+      if (!raw) {
+        adminPushPrefsCache = {};
+        return adminPushPrefsCache;
+      }
+      const parsed = JSON.parse(raw);
+      adminPushPrefsCache = typeof parsed === "object" && parsed ? parsed : {};
+    } catch (error) {
+      console.warn("[push] admin:prefs:parse", error);
+      adminPushPrefsCache = {};
+    }
+    return adminPushPrefsCache;
+  }
+
+  function saveAdminPushPref(next) {
+    adminPushPrefsCache = next || {};
+    const storage = getSafeStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(ADMIN_PUSH_PREF_KEY, JSON.stringify(adminPushPrefsCache));
+    } catch (error) {
+      console.warn("[push] admin:prefs:save", error);
+    }
+  }
+
+  function getAdminPushPreference() {
+    const prefs = loadAdminPushPref();
+    return prefs || {};
+  }
+
+  function setAdminPushPreference(value) {
+    const current = { ...loadAdminPushPref() };
+    adminPushPrefsCache = { ...current, ...value };
+    saveAdminPushPref(adminPushPrefsCache);
+  }
+
+  async function enableAdminPush({ interactive = false } = {}) {
+    if (!ctx.db) return false;
+
+    const setup = await preparePushToken({ interactive });
+    if (!setup) return false;
+
+    try {
+      await Schema.saveAdminPushToken(ctx.db, setup.token, { ownerUid: ctx.user?.uid || null });
+      setAdminPushPreference({ token: setup.token, enabled: true, updatedAt: Date.now() });
+      bindForegroundNotifications(setup.messaging);
+      return true;
+    } catch (error) {
+      console.warn("[push] admin:saveToken", error);
+      if (interactive) alert("Impossible d’enregistrer le jeton de notifications admin.");
+      return false;
+    }
+  }
+
+  async function disableAdminPush({ interactive = false } = {}) {
+    if (!ctx.db) return false;
+    const pref = getAdminPushPreference();
+    const token = pref?.token;
+
+    setAdminPushPreference({ enabled: false });
+    if (!token) return true;
+
+    try {
+      await Schema.disableAdminPushToken(ctx.db, token);
+      setAdminPushPreference({ token: null, updatedAt: Date.now() });
+      return true;
+    } catch (error) {
+      console.warn("[push] admin:disableToken", error);
+      if (interactive) alert("Impossible de désactiver les notifications admin.");
+      return false;
+    }
+  }
+
+  function syncAdminNotificationsButton() {
+    const btn = document.querySelector("[data-admin-notif-toggle]");
+    const status = document.getElementById("admin-notification-status");
+    if (!btn && !status) return;
+
+    const pref = getAdminPushPreference();
+    const enabled = !!(pref && pref.enabled && pref.token);
+
+    if (btn) {
+      btn.dataset.enabled = enabled ? "1" : "0";
+      const label = enabled ? "🔕 Désactiver les notifications admin" : "🔔 Activer les notifications admin";
+      btn.textContent = label;
+      if (!isPushSupported()) {
+        btn.disabled = true;
+        btn.title = "Notifications non disponibles sur cet appareil";
+      } else if (!btn.dataset.loading || btn.dataset.loading === "0") {
+        btn.disabled = false;
+        btn.title = enabled ? "Désactiver les notifications admin" : "Activer les notifications admin";
+      }
+    }
+
+    if (status) {
+      if (!isPushSupported()) {
+        status.textContent = "Les notifications ne sont pas disponibles sur ce navigateur.";
+      } else if (enabled) {
+        status.textContent = "Notifications admin actives sur cet appareil.";
+      } else {
+        status.textContent = "Notifications admin désactivées sur cet appareil.";
+      }
+    }
+  }
+
+  async function handleAdminNotificationToggle(trigger, { interactive = false } = {}) {
+    setButtonLoading(trigger, true);
+    const pref = getAdminPushPreference();
+    const enabled = !!(pref && pref.enabled && pref.token);
+    try {
+      if (enabled) {
+        await disableAdminPush({ interactive });
+      } else {
+        await enableAdminPush({ interactive });
+      }
+    } catch (error) {
+      console.warn("[push] admin:toggle:error", error);
+      if (interactive) alert("Impossible de mettre à jour les notifications admin.");
+    } finally {
+      setButtonLoading(trigger, false);
+      if (trigger && !isPushSupported()) {
+        trigger.disabled = true;
+      }
+      syncAdminNotificationsButton();
     }
   }
 
@@ -1587,6 +1732,13 @@
     if (success) syncNotificationButtonsForUid(targetUid);
   }
 
+  async function ensureAdminPushSubscription({ interactive = false } = {}) {
+    const pref = getAdminPushPreference();
+    if (!pref?.enabled) return;
+    const success = await enableAdminPush({ interactive });
+    if (success) syncAdminNotificationsButton();
+  }
+
   async function initApp({ app, db, user }) {
     // Show the sidebar in user mode
     const sidebar = document.getElementById("sidebar");
@@ -1631,6 +1783,10 @@
     if (pref?.enabled && isPushSupported()) {
       ensurePushSubscriptionForUid(user.uid, { interactive: false }).catch(console.error);
     }
+    const adminPref = getAdminPushPreference();
+    if (adminPref?.enabled && isPushSupported()) {
+      ensureAdminPushSubscription({ interactive: false }).catch(console.error);
+    }
     appLog("app:init:rendered");
     L.groupEnd();
   }
@@ -1660,12 +1816,38 @@
           <input type="text" id="new-user-name" placeholder="Nom de l’utilisateur" required class="w-full" />
           <button class="btn btn-primary" type="submit">Créer l’utilisateur</button>
         </form>
+        <div class="card p-4 space-y-3" id="admin-notifications-card">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="font-semibold">Notifications admin</div>
+              <p class="text-sm text-[var(--muted)]">Recevoir un rappel pour chaque utilisateur.</p>
+            </div>
+            <button type="button"
+                    class="btn btn-ghost text-sm"
+                    data-admin-notif-toggle="1"
+                    data-enabled="0"
+                    title="Activer les notifications admin">🔔 Activer les notifications admin</button>
+          </div>
+          <p class="text-sm text-[var(--muted)]" id="admin-notification-status"></p>
+        </div>
         <div class="card p-4 space-y-3">
           <div class="font-semibold">Utilisateurs existants</div>
           <div id="user-list" class="grid gap-3"></div>
         </div>
       </div>
     `;
+
+    const adminNotifBtn = root.querySelector("[data-admin-notif-toggle]");
+    if (adminNotifBtn) {
+      adminNotifBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        const pref = getAdminPushPreference();
+        const enabled = !!(pref && pref.enabled && pref.token);
+        appLog("admin:notifications:toggle", { action: enabled ? "disable" : "enable" });
+        handleAdminNotificationToggle(adminNotifBtn, { interactive: true });
+      });
+    }
+    syncAdminNotificationsButton();
 
     const form = document.getElementById("new-user-form");
     if (form) {
