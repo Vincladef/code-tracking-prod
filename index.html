@@ -477,7 +477,7 @@
     .goal-modal{
       position:fixed;
       inset:0;
-      background:rgba(15,23,42,.68);
+      background:rgba(15,23,42,.7);
       display:grid;
       place-items:center;
       padding:1rem;
@@ -560,16 +560,41 @@
       align-items:flex-start;
       justify-content:space-between;
       gap:1.5rem;
+      background:#fff;
+      border:1px solid rgba(148,163,184,0.16);
+      border-radius:1.2rem;
+      padding:1.35rem clamp(1.2rem,2vw,1.75rem);
+      box-shadow:0 16px 32px rgba(15,23,42,0.1);
     }
     .practice-dashboard__title-group{ display:flex; flex-direction:column; gap:.4rem; max-width:min(460px,100%); }
     .practice-dashboard__eyebrow{ font-size:.7rem; text-transform:uppercase; letter-spacing:.16em; color:#94a3b8; font-weight:700; }
     .practice-dashboard__title{ font-size:1.5rem; font-weight:700; color:#0f172a; letter-spacing:-.01em; }
     .practice-dashboard__subtitle{ font-size:.95rem; color:#475569; line-height:1.6; }
-    .practice-dashboard__header-actions{ display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; justify-content:flex-end; }
+    .practice-dashboard__header-actions{
+      display:flex;
+      align-items:center;
+      gap:.9rem;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      background:#f8fafc;
+      border-radius:1rem;
+      padding:.75rem clamp(.85rem,2vw,1.15rem);
+      border:1px solid rgba(148,163,184,0.18);
+      box-shadow:0 12px 28px rgba(15,23,42,0.08);
+    }
     .practice-dashboard__close{ border-color:transparent; background:#e2e8f0; color:#0f172a; transition:background .15s ease; }
     .practice-dashboard__close:hover{ background:#cbd5f5; }
     .practice-dashboard__close:focus-visible{ outline:3px solid var(--accent-200); outline-offset:2px; }
-    .practice-dashboard__body{ flex:1 1 auto; overflow-y:auto; padding-right:.25rem; margin-right:-.25rem; display:flex; flex-direction:column; gap:2rem; }
+    .practice-dashboard__body{
+      flex:1 1 auto;
+      overflow-y:auto;
+      padding-right:.25rem;
+      margin-right:-.25rem;
+      padding-bottom:2.5rem;
+      display:flex;
+      flex-direction:column;
+      gap:2rem;
+    }
     .practice-dashboard__section{
       display:flex;
       flex-direction:column;
@@ -583,7 +608,16 @@
     .practice-dashboard__section-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
     .practice-dashboard__section-title{ font-weight:700; font-size:1.15rem; color:#0f172a; letter-spacing:-.01em; }
     .practice-dashboard__section-subtitle{ font-size:.9rem; color:#64748b; margin:0; }
-    .practice-dashboard__chart-panel{ display:flex; flex-direction:column; gap:1.25rem; }
+    .practice-dashboard__chart-panel{
+      display:flex;
+      flex-direction:column;
+      gap:1.25rem;
+      background:#fff;
+      border-radius:1.2rem;
+      padding:1.25rem clamp(1rem,2.2vw,1.75rem);
+      border:1px solid rgba(148,163,184,0.16);
+      box-shadow:0 18px 36px rgba(15,23,42,0.08);
+    }
     .practice-dashboard__chart-scroll{ border-radius:1rem; overflow-x:auto; padding:1rem; cursor:grab; -webkit-overflow-scrolling:touch; touch-action:pan-y; background:#fff; border:1px solid rgba(148,163,184,0.2); box-shadow:0 8px 20px rgba(15,23,42,0.06); scrollbar-color:#94a3b8 rgba(226,232,240,0.65); }
     .practice-dashboard__chart-scroll:focus-visible{ outline:3px solid var(--accent-200); outline-offset:2px; }
     .practice-dashboard__chart-scroll.is-dragging{ cursor:grabbing; user-select:none; }
@@ -595,12 +629,37 @@
       border-radius:1rem;
       background:#fff;
       padding:1.25rem 1.5rem 1.6rem;
-      min-height:260px;
-      box-shadow:0 10px 28px rgba(15,23,42,0.08);
+      min-height:182px;
+      box-shadow:0 10px 24px rgba(15,23,42,0.08);
     }
-    .practice-dashboard__chart-canvas{ position:relative; min-height:240px; min-width:540px; margin:0 auto; }
-    .practice-dashboard__chart-card canvas{ width:100%; height:100%; }
-    .practice-dashboard__chart-caption{ font-size:.82rem; color:#475569; background:#f8fafc; border-radius:.75rem; padding:.65rem .9rem; box-shadow:0 6px 18px rgba(15,23,42,0.05); }
+    .practice-dashboard__chart-canvas{
+      position:relative;
+      min-height:170px;
+      min-width:540px;
+      margin:0 auto;
+      padding:.5rem;
+      background:#fff;
+      border-radius:.85rem;
+      box-shadow:inset 0 0 0 1px rgba(148,163,184,0.12);
+    }
+    .practice-dashboard__chart-card canvas{
+      width:100%;
+      height:100%;
+      display:block;
+      background:#fff;
+      border-radius:.75rem;
+    }
+    .practice-dashboard__chart-caption{
+      font-size:.78rem;
+      color:#475569;
+      background:#fff;
+      border-radius:.85rem;
+      padding:.75rem 1rem;
+      box-shadow:0 10px 26px rgba(15,23,42,0.08);
+      border:1px solid rgba(148,163,184,0.16);
+      max-width:720px;
+      margin:0 auto;
+    }
     .practice-dashboard__chart-caption:empty{ display:none; }
     .practice-dashboard__chart-actions{ display:flex; flex-direction:column; align-items:flex-start; gap:1rem; padding-top:.25rem; }
     .practice-dashboard__chart-controls{ display:flex; flex-direction:column; gap:.65rem; align-items:flex-start; width:100%; }
@@ -672,13 +731,39 @@
     .practice-dashboard__chart-empty{ font-size:.85rem; color:#64748b; }
     .practice-dashboard__empty{ padding:1.5rem; border-radius:1rem; border:1px dashed rgba(148,163,184,0.35); background:#f8fafc; font-size:.9rem; color:#475569; text-align:center; }
     .practice-dashboard__empty-row{ padding:2rem 1rem; text-align:center; font-size:.9rem; color:#94A3B8; }
-    .practice-dashboard__footer{ margin-top:auto; padding-top:1.25rem; border-top:1px solid rgba(148,163,184,0.2); display:flex; align-items:center; justify-content:flex-end; gap:.75rem; }
-    .practice-dashboard__footer-actions{ display:flex; gap:.6rem; }
+    .practice-dashboard__footer{
+      margin-top:auto;
+      padding:1rem clamp(1rem,2.8vw,1.4rem);
+      border-radius:1.1rem;
+      border:1px solid rgba(148,163,184,0.2);
+      background:#fff;
+      box-shadow:0 -12px 30px rgba(15,23,42,0.08);
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:.75rem;
+      position:sticky;
+      bottom:0;
+      z-index:2;
+    }
+    .practice-dashboard__footer-actions{ display:flex; gap:.6rem; align-items:center; }
+    .practice-dashboard__save-button{
+      background:#22c55e;
+      color:#fff;
+      border:none;
+      padding:.65rem 1.4rem;
+      border-radius:.9rem;
+      font-weight:600;
+      box-shadow:0 14px 30px rgba(34,197,94,0.35);
+      transition:background .15s ease, box-shadow .15s ease;
+    }
+    .practice-dashboard__save-button:hover{ background:#16a34a; box-shadow:0 10px 26px rgba(22,163,74,0.32); }
+    .practice-dashboard__save-button:focus-visible{ outline:3px solid rgba(34,197,94,0.35); outline-offset:2px; }
     @media (max-width: 1024px){
       .practice-dashboard__card{ width:min(100%,calc(100vw - 1.5rem)); padding:1.75rem clamp(1.1rem,4vw,2rem); }
       .practice-dashboard__body{ padding-right:0; margin-right:0; gap:1.6rem; }
-      .practice-dashboard__header{ flex-direction:column; align-items:flex-start; gap:1rem; }
-      .practice-dashboard__header-actions{ width:100%; justify-content:space-between; }
+      .practice-dashboard__header{ flex-direction:column; align-items:flex-start; gap:1rem; padding:1.15rem clamp(1rem,3vw,1.35rem); }
+      .practice-dashboard__header-actions{ width:100%; justify-content:space-between; padding:.75rem 1rem; }
     }
     @media (max-width: 768px){
       .practice-dashboard.goal-modal{ padding:0; align-items:stretch; }
@@ -687,8 +772,8 @@
       .practice-dashboard__view-toggle{ width:100%; justify-content:space-between; }
       .practice-dashboard__view-btn{ flex:1 1 auto; text-align:center; }
       .practice-dashboard__filter-select{ width:100%; }
-      .practice-dashboard__chart-card{ min-height:220px; padding:1rem 1.1rem 1.25rem; }
-      .practice-dashboard__chart-canvas{ min-width:min(520px,100%); }
+      .practice-dashboard__chart-card{ min-height:150px; padding:1rem 1.1rem 1.25rem; }
+      .practice-dashboard__chart-canvas{ min-width:min(520px,100%); min-height:140px; }
         .practice-dashboard__chart-actions{ flex-direction:column; align-items:stretch; gap:.75rem; }
         .practice-dashboard__chart-controls{ justify-content:flex-start; }
       .practice-dashboard__table-wrapper{ box-shadow:0 10px 24px rgba(15,23,42,0.08); }
