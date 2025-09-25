@@ -1024,14 +1024,14 @@
   }
 
   function syncAdminNotificationsButton() {
-    const btn = document.querySelector("[data-admin-notif-toggle]");
+    const buttons = queryAll("[data-admin-notif-toggle]");
     const status = document.getElementById("admin-notification-status");
-    if (!btn && !status) return;
+    if (!buttons.length && !status) return;
 
     const pref = getAdminPushPreference();
     const enabled = !!(pref && pref.enabled && pref.token);
 
-    if (btn) {
+    buttons.forEach((btn) => {
       btn.dataset.enabled = enabled ? "1" : "0";
       const label = enabled ? "🔕 Désactiver les notifications admin" : "🔔 Activer les notifications admin";
       btn.textContent = label;
@@ -1042,7 +1042,7 @@
         btn.disabled = false;
         btn.title = enabled ? "Désactiver les notifications admin" : "Activer les notifications admin";
       }
-    }
+    });
 
     if (status) {
       if (!isPushSupported()) {
@@ -1810,43 +1810,71 @@
     const root = document.getElementById("view-root");
     appLog("admin:render");
     root.innerHTML = `
-      <div class="space-y-4">
-        <h2 class="text-xl font-semibold">Admin — Utilisateurs</h2>
-        <form id="new-user-form" class="card p-4 space-y-3 max-w-md" data-autosave-key="admin:new-user">
-          <input type="text" id="new-user-name" placeholder="Nom de l’utilisateur" required class="w-full" />
-          <button class="btn btn-primary" type="submit">Créer l’utilisateur</button>
-        </form>
-        <div class="card p-4 space-y-3" id="admin-notifications-card">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="font-semibold">Notifications admin</div>
-              <p class="text-sm text-[var(--muted)]">Recevoir un rappel pour chaque utilisateur.</p>
+      <div class="space-y-5">
+        <section class="card p-5 space-y-4">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div class="space-y-1">
+              <h2 class="text-xl font-semibold">Admin — Utilisateurs</h2>
+              <p class="text-sm text-[var(--muted)]">Gérez vos profils et vos rappels même sur petit écran.</p>
             </div>
-            <button type="button"
-                    class="btn btn-ghost text-sm"
-                    data-admin-notif-toggle="1"
-                    data-enabled="0"
-                    title="Activer les notifications admin">🔔 Activer les notifications admin</button>
+            <div class="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+              <button type="button"
+                      class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
+                      data-admin-notif-toggle="1"
+                      data-enabled="0"
+                      title="Activer les notifications admin">🔔 Activer les notifications admin</button>
+              <p class="text-xs text-[var(--muted)] sm:text-right" id="admin-notification-status"></p>
+            </div>
           </div>
-          <p class="text-sm text-[var(--muted)]" id="admin-notification-status"></p>
+        </section>
+        <div class="grid gap-4 md:grid-cols-2">
+          <form id="new-user-form" class="card p-4 space-y-3" data-autosave-key="admin:new-user">
+            <div class="space-y-1">
+              <div class="font-semibold">Créer un utilisateur</div>
+              <p class="text-sm text-[var(--muted)]">Ajoutez rapidement une nouvelle fiche depuis votre téléphone.</p>
+            </div>
+            <input type="text" id="new-user-name" placeholder="Nom de l’utilisateur" required class="w-full" />
+            <button class="btn btn-primary w-full sm:w-auto" type="submit">Créer l’utilisateur</button>
+          </form>
+          <section class="card p-4 space-y-3">
+            <div class="font-semibold">Astuces rapides</div>
+            <ul class="space-y-2 text-sm text-[var(--muted)]">
+              <li class="flex items-start gap-2">
+                <span class="mt-0.5">📲</span>
+                <span>Activez les notifications admin pour recevoir un rappel quand un membre doit être suivi.</span>
+              </li>
+              <li class="flex items-start gap-2">
+                <span class="mt-0.5">✏️</span>
+                <span>Renommez les profils pour refléter les surnoms courants et éviter les confusions.</span>
+              </li>
+              <li class="flex items-start gap-2">
+                <span class="mt-0.5">🗑️</span>
+                <span>Supprimez les comptes inactifs afin de garder une vue claire et légère.</span>
+              </li>
+            </ul>
+          </section>
         </div>
-        <div class="card p-4 space-y-3">
-          <div class="font-semibold">Utilisateurs existants</div>
-          <div id="user-list" class="grid gap-3"></div>
-        </div>
+        <section class="card p-4 space-y-4">
+          <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div class="font-semibold">Utilisateurs existants</div>
+            <p class="text-xs text-[var(--muted)] sm:text-right">Utilisez les actions ci-dessous pour gérer chaque profil.</p>
+          </div>
+          <div id="user-list" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"></div>
+        </section>
       </div>
     `;
 
-    const adminNotifBtn = root.querySelector("[data-admin-notif-toggle]");
-    if (adminNotifBtn) {
-      adminNotifBtn.addEventListener("click", (event) => {
-        event.preventDefault();
-        const pref = getAdminPushPreference();
-        const enabled = !!(pref && pref.enabled && pref.token);
-        appLog("admin:notifications:toggle", { action: enabled ? "disable" : "enable" });
-        handleAdminNotificationToggle(adminNotifBtn, { interactive: true });
+    queryAll("[data-admin-notif-toggle]")
+      .filter((btn) => !btn.closest("#user-list"))
+      .forEach((adminNotifBtn) => {
+        adminNotifBtn.addEventListener("click", (event) => {
+          event.preventDefault();
+          const pref = getAdminPushPreference();
+          const enabled = !!(pref && pref.enabled && pref.token);
+          appLog("admin:notifications:toggle", { action: enabled ? "disable" : "enable", source: "header" });
+          handleAdminNotificationToggle(adminNotifBtn, { interactive: true });
+        });
       });
-    }
     syncAdminNotificationsButton();
 
     const form = document.getElementById("new-user-form");
@@ -1905,29 +1933,36 @@
         const link = `${location.origin}${location.pathname}#/u/${encodedUid}/daily`;
         uids.push(uid);
         items.push(`
-          <div class="rounded-xl border border-gray-200 bg-white p-3">
-            <div class="font-medium">${safeName}</div>
-            <div class="text-sm text-[var(--muted)]">UID: ${safeUid}</div>
-            <div class="mt-3 flex flex-wrap items-center gap-2">
-              <a class="btn btn-ghost text-sm"
+          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
+            <div class="flex flex-col gap-1">
+              <div class="font-semibold text-base">${safeName}</div>
+              <div class="text-xs text-[var(--muted)] break-all">UID&nbsp;: ${safeUid}</div>
+            </div>
+            <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <a class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
                  href="${link}"
                  target="_blank"
                  rel="noopener noreferrer"
                  data-uid="${safeUid}"
                  data-action="open">Ouvrir</a>
               <button type="button"
-                      class="btn btn-ghost text-sm"
+                      class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
+                      data-uid="${safeUid}"
+                      data-admin-notif-toggle="1"
+                      title="Gérer les notifications admin pour ${safeName}">🔔 Activer les notifications admin</button>
+              <button type="button"
+                      class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
                       data-uid="${safeUid}"
                       data-notif-toggle="1"
                       title="Gérer les notifications de ${safeName}">🔔 Activer les notifications</button>
               <button type="button"
-                      class="btn btn-ghost text-sm"
+                      class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
                       data-uid="${safeUid}"
                       data-name="${safeName}"
                       data-action="rename"
                       title="Renommer ${safeName}">✏️ Renommer</button>
               <button type="button"
-                      class="btn btn-ghost text-sm text-red-600"
+                      class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto text-red-600"
                       data-uid="${safeUid}"
                       data-name="${safeName}"
                       data-action="delete"
@@ -1937,6 +1972,7 @@
         `);
       });
       list.innerHTML = items.join("") || "<div class='text-sm text-[var(--muted)]'>Aucun utilisateur</div>";
+      syncAdminNotificationsButton();
       uids.forEach((itemUid) => {
         syncNotificationButtonsForUid(itemUid);
       });
@@ -1948,6 +1984,14 @@
           if (!actionTarget) return;
           const { uid, action, name } = actionTarget.dataset;
           if (!uid) return;
+          if (actionTarget.hasAttribute("data-admin-notif-toggle")) {
+            e.preventDefault();
+            const pref = getAdminPushPreference();
+            const enabled = !!(pref && pref.enabled && pref.token);
+            appLog("admin:users:notificationsAdmin:toggle", { uid, action: enabled ? "disable" : "enable" });
+            handleAdminNotificationToggle(actionTarget, { interactive: true });
+            return;
+          }
           if (actionTarget.hasAttribute("data-notif-toggle")) {
             e.preventDefault();
             appLog("admin:users:notifications:toggle", { uid });
