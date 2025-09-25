@@ -249,6 +249,11 @@ function nextVisibleDateFrom(start, days, skips){
   return d.toISOString();
 }
 
+function normalizeParentId(value) {
+  const trimmed = typeof value === "string" ? value.trim() : value;
+  return trimmed ? String(trimmed) : null;
+}
+
 function hydrateConsigne(doc) {
   const data = doc.data();
   return {
@@ -257,6 +262,7 @@ function hydrateConsigne(doc) {
     priority: normalizePriority(data.priority),
     days: normalizeDays(data.days),
     srEnabled: data.srEnabled !== false,
+    parentId: normalizeParentId(data.parentId),
   };
 }
 
@@ -501,12 +507,24 @@ async function fetchConsignes(db, uid, mode) {
   return ss.docs.map((d) => hydrateConsigne(d));
 }
 
+async function listChildConsignes(db, uid, parentId) {
+  if (!parentId) return [];
+  const qy = query(
+    col(db, uid, "consignes"),
+    where("parentId", "==", parentId),
+    where("active", "==", true)
+  );
+  const snap = await getDocs(qy);
+  return snap.docs.map((d) => hydrateConsigne(d));
+}
+
 async function addConsigne(db, uid, payload) {
   const ref = await addDoc(col(db, uid, "consignes"), {
     ...payload,
     srEnabled: payload.srEnabled !== false,
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
+    parentId: normalizeParentId(payload.parentId),
     createdAt: serverTimestamp()
   });
   return ref;
@@ -519,6 +537,7 @@ async function updateConsigne(db, uid, id, payload) {
     srEnabled: payload.srEnabled !== false,
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
+    parentId: normalizeParentId(payload.parentId),
     updatedAt: serverTimestamp()
   });
 }
@@ -533,6 +552,14 @@ async function softDeleteConsigne(db, uid, id) {
     active: false,
     updatedAt: serverTimestamp()
   });
+  const childrenSnap = await getDocs(
+    query(col(db, uid, "consignes"), where("parentId", "==", id))
+  );
+  await Promise.all(
+    childrenSnap.docs.map((docSnap) =>
+      updateDoc(docSnap.ref, { active: false, updatedAt: serverTimestamp() })
+    )
+  );
 }
 
 async function saveResponse(db, uid, consigne, value) {
@@ -952,6 +979,7 @@ Object.assign(Schema, {
   startNewPracticeSession,
   listConsignesByMode,
   fetchConsignes,
+  listChildConsignes,
   addConsigne,
   updateConsigne,
   updateConsigneOrder,
