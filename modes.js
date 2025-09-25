@@ -893,7 +893,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
                 <p class="practice-dashboard__chart-caption" data-chart-caption></p>
               </div>
               <div class="practice-dashboard__chart-actions">
-                <div class="practice-dashboard__chart-zoom" data-chart-zoom></div>
                 <div class="practice-dashboard__chart-controls" data-chart-select></div>
               </div>
             </section>
@@ -978,7 +977,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     const chartScroll = overlay.querySelector("[data-chart-scroll]");
     const chartCaption = overlay.querySelector("[data-chart-caption]");
     const chartSelect = overlay.querySelector("[data-chart-select]");
-    const chartZoom = overlay.querySelector("[data-chart-zoom]");
     const canvas = overlay.querySelector("#practiceCatChart");
     const categorySelectEl = overlay.querySelector("[data-category-select]");
     const chartSection = overlay.querySelector(".practice-dashboard__section--chart");
@@ -1040,7 +1038,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       });
       if (currentView === "chart" && chartInstance) {
         requestAnimationFrame(() => {
-          applyChartWindow(currentZoomValue === "all" ? null : currentZoomValue);
+          applyChartWindow(null);
         });
       }
     }
@@ -1075,14 +1073,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       stat.chartDatasetIndex = null;
     });
 
-    const zoomLabelUnit = isPractice ? "sessions" : "jours";
-    const zoomPresets = [
-      { value: 5, label: `5 dernières ${zoomLabelUnit}` },
-      { value: 10, label: `10 dernières ${zoomLabelUnit}` },
-      { value: 20, label: `20 dernières ${zoomLabelUnit}` },
-      { value: null, label: "Tout l'historique" },
-    ];
-    let currentZoomValue = "all";
     let hasInitializedScrollPosition = false;
 
     if (categorySelectEl) {
@@ -1123,16 +1113,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       }
     }
 
-    function updateZoomButtons() {
-      if (!chartZoom) return;
-      chartZoom.querySelectorAll("[data-zoom]").forEach((button) => {
-        const value = button.getAttribute("data-zoom");
-        const isAll = value === "all";
-        const isActive = currentZoomValue === "all" ? isAll : !isAll && Number(value) === Number(currentZoomValue);
-        button.classList.toggle("is-active", isActive);
-        button.disabled = isActive;
-      });
-    }
 
     function applyChartWindow(windowSize) {
       if (!chartInstance) return;
@@ -1160,10 +1140,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const start = Math.max(0, total - count);
       const visibleMeta = iterationMeta.slice(start);
       const shouldStickToEnd = (() => {
-        if (!chartScroll) return true;
-        if (!hasInitializedScrollPosition) return true;
-        const remaining = chartScroll.scrollWidth - chartScroll.clientWidth - chartScroll.scrollLeft;
-        return remaining < 32;
+        if (!chartScroll) return false;
+        if (!hasInitializedScrollPosition) return false;
+        const maxScroll = Math.max(chartScroll.scrollWidth - chartScroll.clientWidth, 0);
+        if (maxScroll <= 0) return false;
+        const distanceToEnd = maxScroll - chartScroll.scrollLeft;
+        return distanceToEnd < 32;
       })();
       chartInstance.data.labels = visibleMeta.map((meta) => meta.label);
       chartInstance.data.datasets.forEach((dataset) => {
@@ -1199,56 +1181,19 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       if (chartScroll) {
         requestAnimationFrame(() => {
           if (!chartScroll) return;
-          if (shouldStickToEnd) {
-            const maxScroll = chartScroll.scrollWidth - chartScroll.clientWidth;
-            chartScroll.scrollLeft = maxScroll > 0 ? maxScroll : 0;
-          }
+          const maxScroll = Math.max(chartScroll.scrollWidth - chartScroll.clientWidth, 0);
           if (!hasInitializedScrollPosition) {
+            chartScroll.scrollLeft = maxScroll > 0 ? Math.round(maxScroll / 2) : 0;
             hasInitializedScrollPosition = true;
+            return;
+          }
+          if (shouldStickToEnd && maxScroll > 0) {
+            chartScroll.scrollLeft = maxScroll;
           }
         });
       } else if (!hasInitializedScrollPosition) {
         hasInitializedScrollPosition = true;
       }
-    }
-
-    function setZoomValue(nextValue) {
-      currentZoomValue = nextValue === "all" ? "all" : Number(nextValue);
-      const targetWindow = currentZoomValue === "all" ? null : currentZoomValue;
-      applyChartWindow(targetWindow);
-      updateZoomButtons();
-    }
-
-    function renderZoomControls() {
-      if (!chartZoom) return;
-      const total = iterationMeta.length;
-      if (total <= 1) {
-        chartZoom.innerHTML = "";
-        return;
-      }
-      const options = zoomPresets.filter((preset) => preset.value == null || total > preset.value);
-      chartZoom.innerHTML = options
-        .map((preset) => {
-          const value = preset.value == null ? "all" : String(preset.value);
-          return `<button type="button" class="practice-dashboard__zoom-btn" data-zoom="${value}">${escapeHtml(preset.label)}</button>`;
-        })
-        .join("");
-      chartZoom.onclick = (event) => {
-        const target = event.target.closest("[data-zoom]");
-        if (!target) return;
-        const value = target.getAttribute("data-zoom") || "all";
-        if (value === "all" && currentZoomValue === "all") return;
-        if (value !== "all") {
-          const numeric = Number(value);
-          if (!Number.isFinite(numeric) || numeric <= 0 || Number(currentZoomValue) === numeric) {
-            return;
-          }
-          setZoomValue(numeric);
-          return;
-        }
-        setZoomValue("all");
-      };
-      updateZoomButtons();
     }
 
     if (chartScroll) {
@@ -1658,7 +1603,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const dataset = chartInstance.data.datasets[stat.chartDatasetIndex];
       if (!dataset) return;
       dataset.hidden = !input.checked;
-      applyChartWindow(currentZoomValue === "all" ? null : currentZoomValue);
+      applyChartWindow(null);
     });
 
     function updateChartForStat(stat) {
@@ -1701,7 +1646,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           }
         });
       }
-      applyChartWindow(currentZoomValue === "all" ? null : currentZoomValue);
+      applyChartWindow(null);
       renderChartSelector();
       ensureChartAvailability();
     }
@@ -1903,25 +1848,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         textColor: "#475569",
       };
 
-      const zoomHint = iterationMeta.length > 1 ? ` Utilisez les boutons de zoom pour explorer les dernières ${zoomLabelUnit}.` : "";
-      const scrollHint = " Faites défiler horizontalement pour parcourir l’historique complet.";
+      const scrollHint = "Faites défiler horizontalement pour parcourir l’historique complet.";
       if (chartCaption) {
-        if (hasOnlyLikert6) {
-          chartCaption.textContent =
-            "Cochez les consignes à afficher. Les réponses suivent l’échelle : Non → Plutôt non → Neutre → Plutôt oui → Oui." +
-            scrollHint;
-        } else if (hasLikert6) {
-          chartCaption.textContent =
-            "Cochez les consignes à afficher. Les réponses Likert sont affichées avec leurs libellés (Non à Oui)." + scrollHint;
-        } else {
-          chartCaption.textContent =
-            "Cochez les consignes à afficher. Les valeurs sont normalisées quand c’est possible." + scrollHint;
-        }
-        if (zoomHint) {
-          chartCaption.textContent += zoomHint;
-        }
+        chartCaption.textContent = scrollHint;
       }
-      renderZoomControls();
       applyChartWindow(null);
       renderChartSelector();
       resizeHandler = () => {
@@ -1938,9 +1868,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       }
       if (chartSelect) {
         chartSelect.innerHTML = '<p class="practice-dashboard__chart-empty">Aucune consigne numérique à afficher pour le moment.</p>';
-      }
-      if (chartZoom) {
-        chartZoom.innerHTML = "";
       }
       updateChartViewport(0);
     }
