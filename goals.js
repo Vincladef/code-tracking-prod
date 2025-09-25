@@ -574,8 +574,8 @@
     const consigneRawById = new Map(consigneChoices.map((choice) => [choice.id, choice.raw]));
     const initialLinkedIds = new Set((linkedConsignes || []).map((item) => item?.id).filter(Boolean));
     const formatLinkerSummary = (count) => {
-      if (!count) return "Aucune consigne liée";
-      return `${count} consigne${count > 1 ? "s" : ""} liée${count > 1 ? "s" : ""}`;
+      if (!count) return "Pas encore de consigne associée";
+      return `${count} consigne${count > 1 ? "s" : ""} associée${count > 1 ? "s" : ""}`;
     };
     const linkerSummaryInitial = formatLinkerSummary(initialLinkedIds.size);
     const consigneOptionsMarkup = consigneChoices.length
@@ -651,16 +651,17 @@
             </div>
           </div>
           <div class="goal-field goal-linker" data-goal-linker>
-            <span class="goal-label">Consignes liées</span>
+            <span class="goal-label">Consignes associées</span>
             <div class="goal-linker__controls">
-              <button type="button" class="btn btn-ghost goal-linker__toggle" data-linker-toggle aria-expanded="false">Lier objectif à consignes</button>
+              <button type="button" class="btn btn-ghost goal-linker__toggle" data-linker-toggle aria-expanded="false">Gérer les consignes associées</button>
               <span class="goal-linker__summary" data-linker-summary>${escapeHtml(linkerSummaryInitial)}</span>
             </div>
+            <p class="goal-linker__hint">Sélectionne les consignes qui soutiennent au mieux cet objectif.</p>
             <div class="goal-linker__panel" data-linker-panel hidden>
               ${consigneOptionsMarkup}
             </div>
             <div class="goal-linker__footer">
-              <button type="button" class="btn btn-ghost goal-linker__history" data-linker-history ${hasInitialLinkedConsignes ? "" : "hidden"}>Voir l’historique des consignes</button>
+              <button type="button" class="btn btn-ghost goal-linker__history" data-linker-history ${hasInitialLinkedConsignes ? "" : "hidden"}>Consulter l’historique des consignes</button>
             </div>
           </div>
           <div class="goal-actions">
