@@ -774,12 +774,19 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       ? "Cliquez sur une cellule pour ajouter ou modifier la note correspondante."
       : "Cliquez sur une cellule pour mettre à jour la valeur du jour sélectionné.";
 
+    const viewToggleMarkup = `
+      <div class="practice-dashboard__view-toggle" data-view-toggle role="tablist" aria-label="Changer la vue">
+        <button type="button" class="practice-dashboard__view-btn is-active" data-view="chart" role="tab" aria-selected="true">Vue graphique</button>
+        <button type="button" class="practice-dashboard__view-btn" data-view="table" role="tab" aria-selected="false" tabindex="-1">Vue tableau</button>
+      </div>`;
+
     const html = `
       <div class="goal-modal modal practice-dashboard">
         <div class="goal-modal-card modal-card practice-dashboard__card">
           <div class="practice-dashboard__header">
             <h2 class="practice-dashboard__title">${safeCategory}</h2>
             <div class="practice-dashboard__header-actions">
+              ${viewToggleMarkup}
               ${categoryFilterMarkup}
               <button type="button" class="practice-dashboard__close btn btn-ghost" data-close aria-label="Fermer">✕</button>
             </div>
@@ -864,6 +871,95 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     const chartZoom = overlay.querySelector("[data-chart-zoom]");
     const canvas = overlay.querySelector("#practiceCatChart");
     const categorySelectEl = overlay.querySelector("[data-category-select]");
+    const chartSection = overlay.querySelector(".practice-dashboard__section--chart");
+    const tableSection = overlay.querySelector(".practice-dashboard__section--table");
+    const viewToggle = overlay.querySelector("[data-view-toggle]");
+    const viewButtons = viewToggle ? Array.from(viewToggle.querySelectorAll("[data-view]")) : [];
+    const chartViewButton = viewButtons.find((btn) => btn.getAttribute("data-view") === "chart") || null;
+    const tableViewButton = viewButtons.find((btn) => btn.getAttribute("data-view") === "table") || null;
+
+    let chartHasData = false;
+    let currentView = "chart";
+
+    function computeChartHasData() {
+      if (!iterationMeta.length) return false;
+      const datasetCount = chartInstance?.data?.datasets?.length || 0;
+      if (datasetCount > 0) return true;
+      return stats.some((item) => item.hasNumeric);
+    }
+
+    function updateChartButtonState() {
+      if (chartViewButton) {
+        chartViewButton.disabled = !chartHasData;
+        chartViewButton.setAttribute("aria-disabled", chartHasData ? "false" : "true");
+      }
+      if (tableViewButton) {
+        tableViewButton.disabled = false;
+        tableViewButton.setAttribute("aria-disabled", "false");
+      }
+    }
+
+    function ensureChartAvailability() {
+      chartHasData = computeChartHasData();
+      updateChartButtonState();
+      if (!chartHasData && currentView === "chart") {
+        setView("table");
+      }
+    }
+
+    function setView(view) {
+      const desiredView = view === "table" ? "table" : "chart";
+      const effectiveView = desiredView === "chart" && !chartHasData ? "table" : desiredView;
+      currentView = effectiveView;
+      const isChart = currentView === "chart";
+      if (chartSection) {
+        chartSection.hidden = !isChart;
+        chartSection.setAttribute("aria-hidden", (!isChart).toString());
+      }
+      if (tableSection) {
+        const showTable = currentView === "table";
+        tableSection.hidden = !showTable;
+        tableSection.setAttribute("aria-hidden", (!showTable).toString());
+      }
+      viewButtons.forEach((btn) => {
+        const btnView = btn.getAttribute("data-view");
+        const isActive = btnView === currentView;
+        btn.classList.toggle("is-active", isActive);
+        btn.setAttribute("aria-selected", isActive ? "true" : "false");
+        btn.setAttribute("tabindex", isActive ? "0" : "-1");
+      });
+      if (currentView === "chart" && chartInstance) {
+        requestAnimationFrame(() => {
+          applyChartWindow(currentZoomValue === "all" ? null : currentZoomValue);
+        });
+      }
+    }
+
+    if (viewToggle && viewButtons.length) {
+      viewButtons.forEach((btn) => {
+        btn.addEventListener("click", (event) => {
+          const target = event.currentTarget;
+          if (target.disabled) return;
+          const next = target.getAttribute("data-view") || "chart";
+          setView(next);
+        });
+      });
+      viewToggle.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+        const enabledButtons = viewButtons.filter((btn) => !btn.disabled);
+        if (!enabledButtons.length) return;
+        const activeIndex = enabledButtons.findIndex((btn) => btn.getAttribute("data-view") === currentView);
+        if (activeIndex === -1) return;
+        const delta = event.key === "ArrowRight" ? 1 : -1;
+        const nextIndex = (activeIndex + delta + enabledButtons.length) % enabledButtons.length;
+        const nextBtn = enabledButtons[nextIndex];
+        if (!nextBtn) return;
+        nextBtn.focus();
+        const nextView = nextBtn.getAttribute("data-view") || "chart";
+        setView(nextView);
+        event.preventDefault();
+      });
+    }
 
     stats.forEach((stat) => {
       stat.chartDatasetIndex = null;
@@ -1490,6 +1586,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       }
       applyChartWindow(currentZoomValue === "all" ? null : currentZoomValue);
       renderChartSelector();
+      ensureChartAvailability();
     }
 
     const chartStats = stats.filter((stat) => stat.hasNumeric);
@@ -1730,6 +1827,9 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       }
       updateChartViewport(0);
     }
+
+    ensureChartAvailability();
+    setView(chartHasData ? "chart" : "table");
   } catch (err) {
     console.warn("openCategoryDashboard:error", err);
   }
