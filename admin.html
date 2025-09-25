@@ -82,12 +82,37 @@
         return;
       }
 
-      const swUrl = new URL("sw.js", window.location.href);
+      const primarySwUrl = new URL("firebase-messaging-sw.js", window.location.href);
+      const legacySwUrl = new URL("sw.js", window.location.href);
       window.__appSWRegistrationPromise = navigator.serviceWorker
-        .getRegistration(swUrl.href)
-        .then((existing) => existing || navigator.serviceWorker.register(swUrl.href, { scope: "./" }))
+        .getRegistration()
+        .then((existing) => {
+          if (existing) {
+            const scriptUrl =
+              existing.active?.scriptURL ||
+              existing.installing?.scriptURL ||
+              existing.waiting?.scriptURL ||
+              "";
+            const knownSuffixes = ["/firebase-messaging-sw.js", "/sw.js"];
+            if (!knownSuffixes.some((suffix) => scriptUrl.endsWith(suffix))) {
+              existing.update().catch((error) => {
+                console.warn("[sw] update échouée", error);
+              });
+            }
+            return existing;
+          }
+          return navigator.serviceWorker.register(primarySwUrl.href, { scope: "./" });
+        })
         .catch((error) => {
           console.warn("[sw] registration échouée", error);
+          if (primarySwUrl.href !== legacySwUrl.href) {
+            return navigator.serviceWorker
+              .register(legacySwUrl.href, { scope: "./" })
+              .catch((fallbackError) => {
+                console.warn("[sw] registration fallback échouée", fallbackError);
+                return null;
+              });
+          }
           return null;
         });
     })();

@@ -19,6 +19,9 @@
   const DEFAULT_NOTIFICATION_ICON =
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAB6ElEQVR42u3d0U0gQAxDwVRGudccRUANJwTrxLNSGvCb/52Pf59frvfGCAAYAgAHgAPAAeAAuHv/8wAoC94KYkTvxjDCd0MY8bsRjPDdEEb8bgQjfDeEEb8bwYjfjWDE70Yw4ncjGPG7EYz43QhG/G4EAAAgfjOCEb8bAQAAiN+MYMTvRgAAAOI3IwAAAPGbEQAAgPjNCAAAQPxmBAAAAAAA4tciAAAA8ZsRAAAAAAAAAID4nQgAAAAAAAAAQPxOBAAAAAAAAAAAAAAAACB+GwIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAiWxwcAAAAAAAAAAAAAAAAI2uIDAAAAAAAAAASd8QEAAAAAAAAAgs74AADg17Dm+AAAAAAA/g6ujQ8AAO8AQPA+PgAAvAUAwdv4AADwHkA7gtfbAwDAewCtCBJ2jwHQhiBlcwAAyAHQgiBp7zgA1xGkbQ0AAHkAriJI3DkWwDUEqRtHA7iCIHnfeADbEaRvuwLAVgQbdl0DYBuCLZuuArAFwaY91wFIhrBxx7UA0hBs3XA1gAQI27c7AeAVggu7nQHwlxAu7XUOwG9huLrRaQA/xdCwCwAAAAAAAAAAAAAAAADQBuAb8crY5qD79QEAAAAASUVORK5CYII=";
 
+  const PRIMARY_SERVICE_WORKER_FILE = "firebase-messaging-sw.js";
+  const LEGACY_SERVICE_WORKER_FILE = "sw.js";
+
   function getAdminStorage() {
     try {
       return window.sessionStorage;
@@ -769,20 +772,51 @@
     }
     if (!("serviceWorker" in navigator)) return null;
     const basePath = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, "")}`;
-    const swUrl = new URL("sw.js", basePath);
+    const primarySwUrl = new URL(PRIMARY_SERVICE_WORKER_FILE, basePath);
+    const legacySwUrl = new URL(LEGACY_SERVICE_WORKER_FILE, basePath);
     serviceWorkerRegistrationPromise = (async () => {
       try {
-        const existing = await navigator.serviceWorker.getRegistration(swUrl.href);
-        if (existing) return existing;
+        const existing = await navigator.serviceWorker.getRegistration();
+        if (existing) {
+          const scriptUrl =
+            existing.active?.scriptURL ||
+            existing.installing?.scriptURL ||
+            existing.waiting?.scriptURL ||
+            "";
+          const knownSuffixes = [
+            `/${PRIMARY_SERVICE_WORKER_FILE}`,
+            `/${LEGACY_SERVICE_WORKER_FILE}`,
+          ];
+          if (!knownSuffixes.some((suffix) => scriptUrl.endsWith(suffix))) {
+            existing.update().catch((error) => {
+              console.warn("[push] sw:update", error);
+            });
+          }
+          return existing;
+        }
       } catch (error) {
         console.warn("[push] sw:getRegistration", error);
       }
       try {
-        const registration = await navigator.serviceWorker.register(swUrl.href, { scope: "./" });
+        const registration = await navigator.serviceWorker.register(primarySwUrl.href, {
+          scope: "./",
+        });
         window.__appSWRegistrationPromise = Promise.resolve(registration);
         return registration;
       } catch (error) {
         console.warn("[push] sw:register", error);
+        if (primarySwUrl.href !== legacySwUrl.href) {
+          try {
+            const fallbackRegistration = await navigator.serviceWorker.register(
+              legacySwUrl.href,
+              { scope: "./" }
+            );
+            window.__appSWRegistrationPromise = Promise.resolve(fallbackRegistration);
+            return fallbackRegistration;
+          } catch (fallbackError) {
+            console.warn("[push] sw:register:fallback", fallbackError);
+          }
+        }
         return null;
       }
     })();

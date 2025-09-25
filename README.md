@@ -29,12 +29,29 @@ Cette V1 est **100% front** (HTML/JS modules), déployable sur GitHub Pages, ave
 3. L’URL `https://<user>.github.io/code-tracking-prod/` sert d’app.
 
 ## Fonctionnalités couvertes
-- Modes **Journalier** et **Pratique** avec **répétition espacée** (Oui = +1, Plutôt oui = +0.5, sinon 0).  
-  - Journalier : masquage **N jours** (N = score entier).  
+- Modes **Journalier** et **Pratique** avec **répétition espacée** (Oui = +1, Plutôt oui = +0.5, sinon 0).
+  - Journalier : masquage **N jours** (N = score entier).
   - Pratique : masquage **N sessions** (décrémenté à chaque nouvelle session).
-- Priorités (haute, moyenne, basse) + section masquées.  
-- Historique avec filtre et export simple via copier/coller (CSV à venir).  
+- Priorités (haute, moyenne, basse) + section masquées.
+- Historique avec filtre et export simple via copier/coller (CSV à venir).
 - **Objectifs** (hebdo/mensuel/annuel) + saisie + graphe simple + liens vers consignes.
+- Notifications push **Firebase Cloud Messaging** :
+  - Enregistrement des tokens FCM côté client (foreground & background) via `firebase-messaging-sw.js`.
+  - Envoi serveur via les Cloud Functions `dispatchPushNotification` (tokens, UID, topics/conditions) et `manageTopicSubscriptions`.
+  - Nettoyage automatique des tokens expirés ou non enregistrés.
+
+### API Cloud Functions
+
+- `dispatchPushNotification` — `POST https://<region>-<project>.cloudfunctions.net/dispatchPushNotification`
+  - `target`: `{ type: "tokens" | "uid" | "topic" | "condition", ... }`
+  - `notification`, `data`, `webpush`: payloads FCM classiques (toutes les valeurs sont normalisées en chaînes).
+  - `dryRun`: `true` pour un envoi à blanc.
+- `manageTopicSubscriptions` — `POST https://<region>-<project>.cloudfunctions.net/manageTopicSubscriptions`
+  - `action`: `subscribe` (défaut) ou `unsubscribe`
+  - `topic`: identifiant de topic FCM.
+  - `tokens`: tableau de tokens d’enregistrement.
+
+Les réponses renvoient les compteurs `successCount`, `failureCount`, la liste des `invalidTokens`, ainsi que l’identifiant du message pour les topics/conditions.
 
 ## Roadmap rapide
 - Export CSV / PDF (V2).
