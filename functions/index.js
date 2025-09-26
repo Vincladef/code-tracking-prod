@@ -569,8 +569,20 @@ function customObjectiveReminderDate(objective) {
     null;
   const customDate = toDate(raw);
   if (!customDate) return null;
-  customDate.setHours(0, 0, 0, 0);
-  return customDate;
+  const { selectedDate, dateIso } = parisContext(customDate);
+  return { selectedDate, dateIso };
+}
+
+function objectiveDueDateIso(objective) {
+  if (!objective) return null;
+  const custom = customObjectiveReminderDate(objective);
+  if (custom?.dateIso) {
+    return custom.dateIso;
+  }
+  const theoretical = theoreticalObjectiveDate(objective);
+  if (!theoretical) return null;
+  const { dateIso } = parisContext(theoretical);
+  return dateIso;
 }
 
 async function fetchObjectivesByMonth(uid, monthKey) {
@@ -589,7 +601,7 @@ async function fetchObjectivesByMonth(uid, monthKey) {
   }
 }
 
-async function countObjectivesDueToday(uid, context) {
+async function countObjectivesDueToday(uid, context, { fetchObjectivesByMonth: fetcher } = {}) {
   const monthKey = monthKeyFromDate(context.selectedDate);
   const previousMonth = shiftMonthKey(monthKey, -1);
   const targetMonths = new Set([monthKey]);
@@ -598,19 +610,18 @@ async function countObjectivesDueToday(uid, context) {
   }
 
   const objectives = [];
+  const fetch = typeof fetcher === "function" ? fetcher : fetchObjectivesByMonth;
   for (const key of targetMonths) {
-    const rows = await fetchObjectivesByMonth(uid, key);
+    const rows = await fetch(uid, key);
     objectives.push(...rows);
   }
 
-  const dueIso = context.dateIso;
   let count = 0;
   for (const objective of objectives) {
     if (objective.notifyOnTarget === false) continue;
-    const dueDate = customObjectiveReminderDate(objective) || theoreticalObjectiveDate(objective);
-    if (!dueDate) continue;
-    const iso = dueDate.toISOString().slice(0, 10);
-    if (iso === dueIso) {
+    const iso = objectiveDueDateIso(objective);
+    if (!iso) continue;
+    if (iso === context.dateIso) {
       count += 1;
     }
   }
@@ -1522,4 +1533,10 @@ async function sendDailySummaryEmail(context, results) {
 function buildUserDailyLink(uid, dateIso) {
   return `${DAILY_BASE}#/daily?u=${encodeURIComponent(uid)}&d=${dateIso}`;
 }
+
+exports.__testables = {
+  customObjectiveReminderDate,
+  objectiveDueDateIso,
+  countObjectivesDueToday,
+};
 
