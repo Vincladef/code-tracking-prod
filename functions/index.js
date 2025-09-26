@@ -601,7 +601,33 @@ async function fetchObjectivesByMonth(uid, monthKey) {
   }
 }
 
-async function countObjectivesDueToday(uid, context, { fetchObjectivesByMonth: fetcher } = {}) {
+async function fetchObjectivesByReminder(uid, dateIso, fields = ["notifyAt", "notifyDate", "notificationDate"]) {
+  if (!uid || !dateIso) return [];
+  const collectionRef = db.collection("u").doc(uid).collection("objectifs");
+  const seen = new Set();
+  const objectives = [];
+  await Promise.all(
+    fields.map(async (field) => {
+      try {
+        const snap = await collectionRef.where(field, "==", dateIso).get();
+        snap.forEach((doc) => {
+          if (seen.has(doc.id)) return;
+          seen.add(doc.id);
+          objectives.push({ id: doc.id, ...doc.data() });
+        });
+      } catch (error) {
+        functions.logger.warn("fetchObjectivesByReminder:error", { uid, field, dateIso, error });
+      }
+    })
+  );
+  return objectives;
+}
+
+async function countObjectivesDueToday(
+  uid,
+  context,
+  { fetchObjectivesByMonth: fetcher, fetchObjectivesByReminder: reminderFetcher } = {}
+) {
   const baseMonthKey = toStringOrNull(context?.dateIso)?.slice(0, 7);
   const monthKey = baseMonthKey || monthKeyFromDate(context.selectedDate);
   const previousMonth = monthKey ? shiftMonthKey(monthKey, -1) : null;
@@ -613,12 +639,30 @@ async function countObjectivesDueToday(uid, context, { fetchObjectivesByMonth: f
     targetMonths.add(previousMonth);
   }
 
-  const objectives = [];
   const fetch = typeof fetcher === "function" ? fetcher : fetchObjectivesByMonth;
+  const fetchReminder =
+    typeof reminderFetcher === "function" ? reminderFetcher : fetchObjectivesByReminder;
+
+  const objectiveMap = new Map();
+
   for (const key of targetMonths) {
     const rows = await fetch(uid, key);
-    objectives.push(...rows);
+    for (const row of rows) {
+      if (!row || !row.id) continue;
+      objectiveMap.set(row.id, row);
+    }
   }
+
+  const reminderIso = toStringOrNull(context?.dateIso);
+  if (reminderIso) {
+    const reminderRows = await fetchReminder(uid, reminderIso);
+    for (const row of reminderRows) {
+      if (!row || !row.id) continue;
+      objectiveMap.set(row.id, row);
+    }
+  }
+
+  const objectives = Array.from(objectiveMap.values());
 
   let count = 0;
   for (const objective of objectives) {
