@@ -349,29 +349,6 @@ async function disablePushToken(db, uid, token) {
   }, { merge: true });
 }
 
-async function saveAdminPushToken(db, token, extra = {}) {
-  if (!db || !token) return;
-  const ref = doc(collection(db, "adminPushTokens"), token);
-  await setDoc(ref, {
-    token,
-    enabled: true,
-    ua: navigator.userAgent || "",
-    platform: navigator.platform || "",
-    updatedAt: serverTimestamp(),
-    createdAt: serverTimestamp(),
-    ...extra,
-  }, { merge: true });
-}
-
-async function disableAdminPushToken(db, token) {
-  if (!db || !token) return;
-  const ref = doc(collection(db, "adminPushTokens"), token);
-  await setDoc(ref, {
-    enabled: false,
-    updatedAt: serverTimestamp(),
-  }, { merge: true });
-}
-
 // score pour likert -> 0 / 0.5 / 1
 function likertScore(v) {
   return ({ yes: 1, rather_yes: 0.5, medium: 0, rather_no: 0, no: 0, no_answer: 0 })[v] ?? 0;
@@ -1003,8 +980,6 @@ Object.assign(Schema, {
   upsertSRState,
   savePushToken,
   disablePushToken,
-  saveAdminPushToken,
-  disableAdminPushToken,
   likertScore,
   nextCooldownAfterAnswer,
   resetSRForConsigne,
