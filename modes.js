@@ -687,22 +687,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       });
 
     const iterationMetaByKey = new Map(iterationMeta.map((meta) => [meta.iso, meta]));
-    const iterationLabels = iterationMeta.map((meta) => meta.label);
-    const iterationDates = iterationMeta.map((meta) => (meta.dateObj ? meta.dateObj.toISOString() : meta.iso));
-
-    function buildIterationDisplayMeta(windowSize) {
-      if (!iterationMeta.length) return [];
-      let count = iterationMeta.length;
-      if (Number.isFinite(windowSize) && windowSize > 0 && windowSize < iterationMeta.length) {
-        count = Math.floor(windowSize);
-      }
-      const start = Math.max(0, iterationMeta.length - count);
-      return iterationMeta.slice(start).reverse();
-    }
-
-    const defaultWindowSize = iterationMeta.length > 10 ? 10 : null;
-    let currentWindowSize = defaultWindowSize;
-    let iterationDisplayMeta = buildIterationDisplayMeta(currentWindowSize);
 
     const stats = consigneData.map(({ consigne, entries, index }) => {
       const timeline = iterationMeta.map((meta) => {
@@ -776,9 +760,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         typeLabel: typeLabel(consigne.type),
         timeline,
         entries: orderedEntries,
-        chartValues: timeline.map((point) => point.numeric),
-        rawValues: timeline.map((point) => point.rawValue),
-        rawNotes: timeline.map((point) => point.note),
         timelineByKey,
         hasNumeric: numericValues.length > 0,
         averageNumeric,
@@ -887,25 +868,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       dashboardCard.setAttribute("data-dashboard-mode", dashboardMode);
     }
 
-    let chartInstance = null;
-    let resizeHandler = null;
-    const guideLineState = {
-      meta: null,
-      label: "",
-      caption: "",
-      color: "#334155",
-      textColor: "#475569",
-    };
-    let currentChartStartIndex = 0;
     const close = () => {
-      if (chartInstance) {
-        chartInstance.destroy();
-        chartInstance = null;
-      }
-      if (resizeHandler) {
-        window.removeEventListener("resize", resizeHandler);
-        resizeHandler = null;
-      }
       document.removeEventListener("keydown", onKeyDown);
       overlay.remove();
     };
@@ -933,9 +896,18 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         historyContainer.innerHTML = '<p class="practice-dashboard__empty">Aucune consigne à afficher pour le moment.</p>';
         return;
       }
-      historyContainer.innerHTML = stats
+      const statusLabels = {
+        ok: "Positive",
+        mid: "Intermédiaire",
+        ko: "À surveiller",
+        na: "Sans donnée",
+      };
+      const cards = stats
         .map((stat) => {
-          const items = (stat.entries || [])
+          const accentStyle = stat.accentStrong
+            ? ` style="--history-accent:${stat.accentStrong}; --history-soft:${stat.accentSoft}; --history-border:${stat.accentBorder};"`
+            : "";
+          const entries = (stat.entries || [])
             .slice()
             .reverse()
             .map((entry) => {
@@ -945,12 +917,14 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
                 pointIndex = stat.timeline.findIndex((point) => point.dateIso === entry.date);
               }
               if (pointIndex < 0) return "";
+              const statusKind = dotColor(stat.type, entry.value);
+              const statusLabel = statusLabels[statusKind] || "Valeur";
               const dateLabel = meta?.fullLabel || meta?.label || entry.date;
               const relativeLabel = formatRelativeDate(meta?.dateObj || entry.date);
               const valueText = formatValue(stat.type, entry.value);
               const normalizedValue = valueText == null ? "" : String(valueText).trim();
               const safeValue = normalizedValue && normalizedValue !== "—" ? escapeHtml(normalizedValue) : "—";
-              const noteText = entry.note && entry.note.trim()
+              const noteMarkup = entry.note && entry.note.trim()
                 ? `<span class="practice-dashboard__history-note">${escapeHtml(entry.note)}</span>`
                 : "";
               const relativeMarkup = relativeLabel
@@ -959,30 +933,75 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               return `
                 <li class="practice-dashboard__history-item">
                   <button type="button" class="practice-dashboard__history-entry" data-entry data-consigne="${stat.id}" data-index="${pointIndex}">
+                    <span class="practice-dashboard__history-entry-main">
+                      <span class="practice-dashboard__history-dot practice-dashboard__history-dot--${statusKind}" aria-hidden="true"></span>
+                      <span class="practice-dashboard__history-entry-text">
+                        <span class="practice-dashboard__history-value">${safeValue}</span>
+                        ${noteMarkup}
+                      </span>
+                    </span>
                     <span class="practice-dashboard__history-date">
                       <span class="practice-dashboard__history-date-main">${escapeHtml(dateLabel)}</span>
                       ${relativeMarkup}
                     </span>
-                    <span class="practice-dashboard__history-value">${safeValue}</span>
-                    ${noteText}
+                    <span class="sr-only">${escapeHtml(statusLabel)}</span>
                   </button>
                 </li>
               `;
             })
             .filter(Boolean);
-          const entriesMarkup = items.length
-            ? `<ol class="practice-dashboard__history-list">${items.join("")}</ol>`
+          const entriesMarkup = entries.length
+            ? `<ol class="practice-dashboard__history-list">${entries.join("")}</ol>`
             : '<p class="practice-dashboard__empty">Aucune entrée enregistrée pour le moment.</p>';
+          const metaParts = [];
+          if (stat.lastRelative) {
+            metaParts.push(`<span>${escapeHtml(stat.lastRelative)}</span>`);
+          }
+          if (stat.lastDateFull) {
+            metaParts.push(`<span>${escapeHtml(stat.lastDateFull)}</span>`);
+          }
+          const metaMarkup = metaParts.length
+            ? metaParts.join('<span class="practice-dashboard__history-meta-sep" aria-hidden="true">•</span>')
+            : '<span>Aucune donnée récente</span>';
+          const commentMarkup = stat.lastCommentRaw && stat.lastCommentRaw.trim()
+            ? `<p class="practice-dashboard__history-last-note"><span class="practice-dashboard__history-last-note-label">Dernier commentaire :</span> ${escapeHtml(stat.commentDisplay)}</p>`
+            : "";
+          const totalEntries = stat.totalEntries || 0;
+          const entriesLabel = totalEntries > 1 ? `${totalEntries} entrées` : `${totalEntries} entrée`;
           return `
-            <section class="practice-dashboard__history-section" data-id="${stat.id}">
+            <section class="practice-dashboard__history-section" data-id="${stat.id}"${accentStyle}>
               <header class="practice-dashboard__history-header">
-                <h3 class="practice-dashboard__history-heading">${escapeHtml(stat.name)}</h3>
+                <div class="practice-dashboard__history-heading-group">
+                  <h3 class="practice-dashboard__history-heading">${escapeHtml(stat.name)}</h3>
+                  <p class="practice-dashboard__history-meta">${metaMarkup}</p>
+                </div>
+                <div class="practice-dashboard__history-tags">
+                  <span class="practice-dashboard__chip">Priorité ${escapeHtml(stat.priorityLabel)}</span>
+                  <span class="practice-dashboard__chip">${escapeHtml(stat.typeLabel)}</span>
+                  <span class="practice-dashboard__chip">${escapeHtml(entriesLabel)}</span>
+                </div>
               </header>
+              <div class="practice-dashboard__history-summary" role="list">
+                <div class="practice-dashboard__history-summary-item" role="listitem">
+                  <span class="practice-dashboard__history-summary-label">Dernière valeur</span>
+                  <span class="practice-dashboard__history-summary-value">${escapeHtml(stat.lastFormatted || "—")}</span>
+                </div>
+                <div class="practice-dashboard__history-summary-item" role="listitem">
+                  <span class="practice-dashboard__history-summary-label">Moyenne</span>
+                  <span class="practice-dashboard__history-summary-value" title="${escapeHtml(stat.averageTitle)}">${escapeHtml(stat.averageDisplay || "—")}</span>
+                </div>
+                <div class="practice-dashboard__history-summary-item" role="listitem">
+                  <span class="practice-dashboard__history-summary-label">Dernière mise à jour</span>
+                  <span class="practice-dashboard__history-summary-value">${escapeHtml(stat.lastDateShort || "Jamais")}</span>
+                </div>
+              </div>
+              ${commentMarkup}
               ${entriesMarkup}
             </section>
           `;
         })
         .join("");
+      historyContainer.innerHTML = `<div class="practice-dashboard__history-grid">${cards}</div>`;
     }
 
     renderHistory();
@@ -998,504 +1017,18 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       openCellEditor(stat, pointIndex);
     });
 
-    const tableBody = overlay.querySelector("[data-table-body]");
-    const headRow = overlay.querySelector("[data-matrix-head]");
-    const chartCard = overlay.querySelector("[data-chart-card]");
-    const chartCanvasWrapper = overlay.querySelector("[data-chart-canvas]");
-    const chartScroll = overlay.querySelector("[data-chart-scroll]");
-    const chartCaption = overlay.querySelector("[data-chart-caption]");
-    const chartSelect = overlay.querySelector("[data-chart-select]");
-    const canvas = overlay.querySelector("#practiceCatChart");
-    const categorySelectEl = overlay.querySelector("[data-category-select]");
-    const rangeSelectEl = overlay.querySelector("[data-range-select]");
-    const chartSection = overlay.querySelector(".practice-dashboard__section--chart");
-    const tableSection = overlay.querySelector(".practice-dashboard__section--table");
-    const viewToggle = overlay.querySelector("[data-view-toggle]");
-    const viewButtons = viewToggle ? Array.from(viewToggle.querySelectorAll("[data-view]")) : [];
-    const chartViewButton = viewButtons.find((btn) => btn.getAttribute("data-view") === "chart") || null;
-    const tableViewButton = viewButtons.find((btn) => btn.getAttribute("data-view") === "table") || null;
-
-    let chartHasData = false;
-    let currentView = "chart";
-
-    function computeChartHasData() {
-      if (!iterationMeta.length) return false;
-      const datasetCount = chartInstance?.data?.datasets?.length || 0;
-      if (datasetCount > 0) return true;
-      return stats.some((item) => item.hasNumeric);
-    }
-
-    function updateChartCaption(windowSize) {
-      if (!chartCaption) return;
-      const total = iterationMeta.length;
-      const hasData = computeChartHasData();
-      if (!total || !hasData) {
-        chartCaption.textContent = "";
-        return;
-      }
-      const normalized = Number.isFinite(windowSize) && windowSize > 0 ? Math.floor(windowSize) : null;
-      const unit = isPractice ? "session" : "jour";
-      if (!normalized || normalized >= total) {
-        chartCaption.textContent = `Affichage de l’historique complet (${total} ${unit}${total > 1 ? "s" : ""}).`;
-        return;
-      }
-      const lastWord = isPractice
-        ? normalized > 1
-          ? "dernières"
-          : "dernière"
-        : normalized > 1
-        ? "derniers"
-        : "dernier";
-      const plural = normalized > 1 ? "s" : "";
-      chartCaption.textContent = `Affichage des ${normalized} ${lastWord} ${unit}${plural}.`;
-    }
-
-    function updateChartButtonState() {
-      if (chartViewButton) {
-        chartViewButton.disabled = !chartHasData;
-        chartViewButton.setAttribute("aria-disabled", chartHasData ? "false" : "true");
-      }
-      if (tableViewButton) {
-        tableViewButton.disabled = false;
-        tableViewButton.setAttribute("aria-disabled", "false");
-      }
-    }
-
-    function ensureChartAvailability() {
-      chartHasData = computeChartHasData();
-      updateChartButtonState();
-      if (!chartHasData && currentView === "chart") {
-        setView("table");
-      }
-    }
-
-    function setView(view) {
-      const desiredView = view === "table" ? "table" : "chart";
-      const effectiveView = desiredView === "chart" && !chartHasData ? "table" : desiredView;
-      currentView = effectiveView;
-      const isChart = currentView === "chart";
-      if (chartSection) {
-        chartSection.hidden = !isChart;
-        chartSection.setAttribute("aria-hidden", (!isChart).toString());
-      }
-      if (tableSection) {
-        const showTable = currentView === "table";
-        tableSection.hidden = !showTable;
-        tableSection.setAttribute("aria-hidden", (!showTable).toString());
-      }
-      viewButtons.forEach((btn) => {
-        const btnView = btn.getAttribute("data-view");
-        const isActive = btnView === currentView;
-        btn.classList.toggle("is-active", isActive);
-        btn.setAttribute("aria-selected", isActive ? "true" : "false");
-        btn.setAttribute("tabindex", isActive ? "0" : "-1");
-      });
-      if (currentView === "chart" && chartInstance) {
-        requestAnimationFrame(() => {
-          applyChartWindow(currentWindowSize);
-        });
-      }
-    }
-
-    if (viewToggle && viewButtons.length) {
-      viewButtons.forEach((btn) => {
-        btn.addEventListener("click", (event) => {
-          const target = event.currentTarget;
-          if (target.disabled) return;
-          const next = target.getAttribute("data-view") || "chart";
-          setView(next);
-        });
-      });
-      viewToggle.addEventListener("keydown", (event) => {
-        if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
-        const enabledButtons = viewButtons.filter((btn) => !btn.disabled);
-        if (!enabledButtons.length) return;
-        const activeIndex = enabledButtons.findIndex((btn) => btn.getAttribute("data-view") === currentView);
-        if (activeIndex === -1) return;
-        const delta = event.key === "ArrowRight" ? 1 : -1;
-        const nextIndex = (activeIndex + delta + enabledButtons.length) % enabledButtons.length;
-        const nextBtn = enabledButtons[nextIndex];
-        if (!nextBtn) return;
-        nextBtn.focus();
-        const nextView = nextBtn.getAttribute("data-view") || "chart";
-        setView(nextView);
-        event.preventDefault();
-      });
-    }
-
-    stats.forEach((stat) => {
-      stat.chartDatasetIndex = null;
-    });
-
-    let hasInitializedScrollPosition = false;
-
-    if (categorySelectEl) {
-      categorySelectEl.addEventListener("change", (event) => {
-        const value = event.target.value || "__all__";
-        const nextCategory = value === "__all__" ? "" : value;
-        close();
-        window.openCategoryDashboard(ctx, nextCategory, { mode });
-      });
-    }
-
-    function setWindowSizeValue(nextSize) {
-      if (Number.isFinite(nextSize) && nextSize > 0) {
-        currentWindowSize = Math.floor(nextSize);
-      } else {
-        currentWindowSize = null;
-      }
-      iterationDisplayMeta = buildIterationDisplayMeta(currentWindowSize);
-      renderMatrixHead();
-      renderMatrix();
-      hasInitializedScrollPosition = false;
-      applyChartWindow(currentWindowSize);
-      if (rangeSelectEl) {
-        const nextValue = currentWindowSize == null ? "__all__" : String(currentWindowSize);
-        if (rangeSelectEl.value !== nextValue) {
-          rangeSelectEl.value = nextValue;
-        }
-      }
-      updateChartCaption(currentWindowSize);
-    }
-
-    if (rangeSelectEl) {
-      rangeSelectEl.addEventListener("change", (event) => {
-        const value = event.target.value || "__all__";
-        if (value === "__all__") {
-          setWindowSizeValue(null);
-        } else {
-          const parsed = Number(value);
-          setWindowSizeValue(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
-        }
-      });
-    }
-
-    function renderMatrixHead() {
-      if (!headRow) return;
-      const columns = iterationDisplayMeta;
-      headRow.innerHTML = [
-        '<th scope="col" class="practice-dashboard__matrix-head-consigne">Consigne</th>',
-        ...columns.map((meta) => {
-          const title = meta.headerTitle || meta.label;
-          const columnLabel = meta.label || title || "";
-          return `<th scope="col" data-date="${meta.iso}" data-iteration="${meta.index}" data-label="${escapeHtml(columnLabel)}"><span title="${escapeHtml(title)}">${escapeHtml(meta.label)}</span></th>`;
-        }),
-      ].join("");
-    }
-
-    renderMatrixHead();
-
-    function updateChartViewport(visibleCount = iterationMeta.length) {
-      if (!chartCanvasWrapper) return;
-      const baseWidth =
-        visibleCount > 60 ? 18 : visibleCount > 36 ? 24 : visibleCount > 18 ? 32 : 44;
-      const minWidth = Math.max(420, Math.round((visibleCount || 1) * baseWidth));
-      const containerWidth = chartScroll ? chartScroll.clientWidth : 0;
-      const targetWidth = Math.max(minWidth, containerWidth || minWidth);
-      chartCanvasWrapper.style.minWidth = `${targetWidth}px`;
-      chartCanvasWrapper.style.width = `${targetWidth}px`;
-      if (chartInstance) {
-        requestAnimationFrame(() => {
-          if (chartInstance) {
-            chartInstance.resize();
-          }
-        });
-      }
-    }
-
-
-    function applyChartWindow(windowSize) {
-      if (!chartInstance) return;
-      const total = iterationMeta.length;
-      if (!total) {
-        chartInstance.data.labels = [];
-        chartInstance.data.datasets.forEach((dataset) => {
-          dataset.data = [];
-          dataset.rawValues = [];
-          dataset.rawNotes = [];
-          dataset.dates = [];
-        });
-        chartInstance.update();
-        updateChartViewport(0);
-        if (chartScroll) {
-          chartScroll.scrollLeft = 0;
-        }
-        hasInitializedScrollPosition = false;
-        if (chartCaption) {
-          chartCaption.textContent = "";
-        }
-        return;
-      }
-      let count = total;
-      if (Number.isFinite(windowSize) && windowSize > 0 && windowSize < total) {
-        count = Math.floor(windowSize);
-      }
-      const start = Math.max(0, total - count);
-      const visibleMeta = iterationMeta.slice(start);
-      currentChartStartIndex = start;
-      const shouldStickToEnd = (() => {
-        if (!chartScroll) return false;
-        if (!hasInitializedScrollPosition) return false;
-        const maxScroll = Math.max(chartScroll.scrollWidth - chartScroll.clientWidth, 0);
-        if (maxScroll <= 0) return false;
-        const distanceToEnd = maxScroll - chartScroll.scrollLeft;
-        return distanceToEnd < 32;
-      })();
-      const nextLabels = visibleMeta.map((meta) => meta.label);
-      if (Array.isArray(chartInstance.data.labels)) {
-        chartInstance.data.labels.splice(0, chartInstance.data.labels.length, ...nextLabels);
-      } else {
-        chartInstance.data.labels = nextLabels;
-      }
-      chartInstance.data.datasets.forEach((dataset) => {
-        const fullData = Array.isArray(dataset.fullData) ? dataset.fullData : [];
-        const fullRawValues = Array.isArray(dataset.fullRawValues) ? dataset.fullRawValues : [];
-        const fullRawNotes = Array.isArray(dataset.fullRawNotes) ? dataset.fullRawNotes : [];
-        const fullDates = Array.isArray(dataset.fullDates) ? dataset.fullDates : [];
-        const slicedData = fullData.slice(start);
-        const slicedValues = fullRawValues.slice(start);
-        const slicedNotes = fullRawNotes.slice(start);
-        const slicedDates = fullDates.slice(start);
-        if (Array.isArray(dataset.data)) {
-          dataset.data.splice(0, dataset.data.length, ...slicedData);
-        } else {
-          dataset.data = slicedData;
-        }
-        if (Array.isArray(dataset.rawValues)) {
-          dataset.rawValues.splice(0, dataset.rawValues.length, ...slicedValues);
-        } else {
-          dataset.rawValues = slicedValues;
-        }
-        if (Array.isArray(dataset.rawNotes)) {
-          dataset.rawNotes.splice(0, dataset.rawNotes.length, ...slicedNotes);
-        } else {
-          dataset.rawNotes = slicedNotes;
-        }
-        if (Array.isArray(dataset.dates)) {
-          dataset.dates.splice(0, dataset.dates.length, ...slicedDates);
-        } else {
-          dataset.dates = slicedDates;
-        }
-      });
-      const lastMeta = visibleMeta[visibleMeta.length - 1] || null;
-      const guideMeta = lastMeta
-        ? {
-            iso: lastMeta.iso || lastMeta.key || "",
-            label: lastMeta.label || "",
-            fullLabel: lastMeta.fullLabel || "",
-            index: lastMeta.index ?? null,
-            displayIndex: lastMeta.displayIndex ?? null,
-            sessionNumber: lastMeta.sessionNumber ?? null,
-          }
-        : null;
-      guideLineState.meta = guideMeta;
-      if (lastMeta) {
-        if (isPractice) {
-          guideLineState.label = "Dernière session";
-        } else {
-          const todayKey = typeof Schema?.todayKey === "function" ? Schema.todayKey() : null;
-          const metaKey = String(lastMeta.iso || lastMeta.key || "");
-          guideLineState.label = todayKey && metaKey === todayKey ? "Aujourd’hui" : "Dernier jour";
-        }
-      } else {
-        guideLineState.label = "";
-      }
-      guideLineState.caption = guideMeta?.fullLabel || "";
-      guideLineState.color = guideLineState.color || "#334155";
-      guideLineState.textColor = guideLineState.textColor || "#475569";
-      updateChartViewport(visibleMeta.length || 1);
-      chartInstance.update();
-      updateChartCaption(windowSize);
-      if (chartScroll) {
-        requestAnimationFrame(() => {
-          if (!chartScroll) return;
-          const maxScroll = Math.max(chartScroll.scrollWidth - chartScroll.clientWidth, 0);
-          if (!hasInitializedScrollPosition) {
-            chartScroll.scrollLeft = maxScroll > 0 ? maxScroll : 0;
-            hasInitializedScrollPosition = true;
-            return;
-          }
-          if (shouldStickToEnd && maxScroll > 0) {
-            chartScroll.scrollLeft = maxScroll;
-          }
-        });
-      } else if (!hasInitializedScrollPosition) {
-        hasInitializedScrollPosition = true;
-      }
-    }
-
-    if (chartScroll) {
-      let isDragging = false;
-      let dragPointerId = null;
-      let dragStartX = 0;
-      let dragScrollLeft = 0;
-
-      const stopDragging = (event) => {
-        if (!isDragging) return;
-        if (event && dragPointerId != null && event.pointerId != null && event.pointerId !== dragPointerId) {
-          return;
-        }
-        isDragging = false;
-        chartScroll.classList.remove("is-dragging");
-        if (
-          dragPointerId != null &&
-          typeof chartScroll.hasPointerCapture === "function" &&
-          chartScroll.hasPointerCapture(dragPointerId)
-        ) {
-          try {
-            chartScroll.releasePointerCapture(dragPointerId);
-          } catch (releaseError) {
-            /* ignore */
-          }
-        }
-        dragPointerId = null;
-      };
-
-      chartScroll.addEventListener("pointerdown", (event) => {
-        if (event.pointerType === "mouse" && event.button !== 0) return;
-        isDragging = true;
-        dragPointerId = event.pointerId;
-        dragStartX = event.clientX;
-        dragScrollLeft = chartScroll.scrollLeft;
-        chartScroll.classList.add("is-dragging");
-        try {
-          chartScroll.setPointerCapture(event.pointerId);
-        } catch (captureError) {
-          /* ignore */
-        }
-      });
-
-      chartScroll.addEventListener("pointermove", (event) => {
-        if (!isDragging) return;
-        const deltaX = event.clientX - dragStartX;
-        chartScroll.scrollLeft = dragScrollLeft - deltaX;
-      });
-
-      chartScroll.addEventListener("pointerup", stopDragging);
-      chartScroll.addEventListener("pointercancel", stopDragging);
-      chartScroll.addEventListener("pointerleave", stopDragging);
-
-      chartScroll.addEventListener("keydown", (event) => {
-        if (event.defaultPrevented) return;
-        if (event.key === "ArrowLeft") {
-          chartScroll.scrollBy({ left: -80, behavior: "smooth" });
-          event.preventDefault();
-        } else if (event.key === "ArrowRight") {
-          chartScroll.scrollBy({ left: 80, behavior: "smooth" });
-          event.preventDefault();
-        }
-      });
-    }
-
-    function formatCellTooltip(iterationInfo, dateIso, valueText, noteText) {
-      const parts = [];
-      const iterationLabel = iterationInfo?.label;
-      if (iterationLabel) parts.push(iterationLabel);
-      const actualNumber = iterationInfo?.sessionNumber;
-      const displayIndex = iterationInfo?.displayIndex;
-      if (Number.isFinite(actualNumber) && actualNumber !== displayIndex) {
-        parts.push(`Session ${actualNumber}`);
-      }
-      const iso = iterationInfo?.iso || dateIso;
-      const dateObj = iterationInfo?.dateObj || toDate(iso);
-      const fullLabel = iterationInfo?.fullLabel || (dateObj ? fullDateTimeFormatter.format(dateObj) : iso);
-      if (fullLabel && fullLabel !== iterationLabel) parts.push(fullLabel);
-      if (valueText && valueText !== "—") parts.push(`Valeur : ${valueText}`);
-      if (noteText) parts.push(noteText);
-      return parts.join(" • ");
-    }
-
-    function renderMatrix() {
-      if (!tableBody) return;
-      const visibleColumns = iterationDisplayMeta.length;
-      const colSpan = (visibleColumns || iterationMeta.length) + 1;
-      if (!stats.length) {
-        tableBody.innerHTML = `<tr><td colspan="${colSpan}" class="practice-dashboard__empty-row">Aucune consigne pour cette catégorie pour le moment.</td></tr>`;
-        return;
-      }
-      if (!iterationMeta.length) {
-        tableBody.innerHTML = `<tr><td colspan="${colSpan}" class="practice-dashboard__empty-row">Aucune session de pratique enregistrée pour cette catégorie pour le moment.</td></tr>`;
-        return;
-      }
-      tableBody.innerHTML = stats
-        .map((stat) => {
-          const rowHead = `
-            <th scope="row" class="practice-dashboard__matrix-consigne">
-              <span class="practice-dashboard__consigne-name">${escapeHtml(stat.name)}</span>
-              <span class="practice-dashboard__row-meta sr-only">Priorité ${escapeHtml(stat.priorityLabel)}</span>
-            </th>`;
-          const cells = iterationDisplayMeta
-            .map((iterationInfo) => {
-              const point = stat.timelineByKey?.get(iterationInfo.iso) || {
-                dateIso: iterationInfo.iso,
-                rawValue: "",
-                note: "",
-              };
-              const valueText = formatValue(stat.type, point.rawValue);
-              const noteText = (point.note || "").trim();
-              const status = dotColor(stat.type, point.rawValue);
-              const dateIso = point.dateIso || iterationInfo.iso;
-              const tooltip = formatCellTooltip(iterationInfo, dateIso, valueText, noteText);
-              const hasNote = noteText ? ' data-has-note="1"' : "";
-              const isEmpty = !valueText || valueText === "—";
-              const content = isEmpty ? "—" : escapeHtml(valueText);
-              const classes = [
-                "practice-dashboard__cell",
-                `practice-dashboard__cell--${status}`,
-                isEmpty ? "practice-dashboard__cell--empty" : "",
-              ]
-                .filter(Boolean)
-                .join(" ");
-              const compactLabel = iterationInfo.label || iterationInfo.fullLabel || iterationInfo.headerTitle || `Itération ${iterationInfo.displayIndex}`;
-              const verboseLabel = iterationInfo.headerTitle || iterationInfo.fullLabel || compactLabel;
-              const labelAttr = ` data-label="${escapeHtml(compactLabel)}"`;
-              const labelFullAttr = verboseLabel && verboseLabel !== compactLabel ? ` data-label-full="${escapeHtml(verboseLabel)}"` : "";
-              return `<td data-column="${escapeHtml(iterationInfo.iso)}"><button type="button" class="${classes}" data-cell data-consigne="${stat.id}" data-date="${dateIso}" data-iteration="${iterationInfo.index}" title="${escapeHtml(tooltip)}" aria-label="${escapeHtml(tooltip)}"${hasNote}${labelAttr}${labelFullAttr}>${content}</button></td>`;
-            })
-            .join("");
-          return `<tr data-id="${stat.id}">${rowHead}${cells}</tr>`;
-        })
-        .join("");
-    }
-
-    renderMatrix();
-
-    tableBody?.addEventListener("click", (event) => {
-      const target = event.target.closest("[data-cell]");
-      if (!target) return;
-      const consigneId = target.getAttribute("data-consigne");
-      const dateIso = target.getAttribute("data-date");
-      const stat = stats.find((item) => item.id === consigneId);
-      if (!stat) return;
-      const pointIndex = stat.timeline.findIndex((point) => point.dateIso === dateIso);
-      if (pointIndex === -1) return;
-      openCellEditor(stat, pointIndex);
-    });
-
-    function buildValueField(consigne, rawValue, fieldId) {
+    function buildValueField(consigne, value, fieldId) {
       const type = consigne?.type || "short";
-      const value = rawValue ?? "";
-      if (type === "long") {
-        return `<textarea id="${fieldId}" name="value" rows="4" class="practice-editor__textarea" placeholder="Saisir une note">${escapeHtml(String(value))}</textarea>`;
-      }
-      if (type === "short") {
-        return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Saisir une note" value="${escapeHtml(String(value))}">`;
-      }
       if (type === "num") {
-        const numValue = value === "" || value == null ? "" : Number(value);
-        const display = Number.isFinite(numValue) ? numValue : "";
-        return `<input id="${fieldId}" name="value" type="number" min="0" max="10" step="1" class="practice-editor__input" placeholder="0-10" value="${display === "" ? "" : escapeHtml(String(display))}">`;
+        const current = value === "" || value == null ? "" : Number(value);
+        return `<input id="${fieldId}" name="value" type="number" step="0.1" class="practice-editor__input" placeholder="Réponse" value="${Number.isFinite(current) ? escapeHtml(String(current)) : ""}">`;
       }
       if (type === "likert5") {
-        const current = value === "" || value == null ? "" : String(value);
-        return `<select id="${fieldId}" name="value" class="practice-editor__select">
-          <option value="" ${current === "" ? "selected" : ""}>—</option>
-          <option value="0" ${current === "0" ? "selected" : ""}>0</option>
-          <option value="1" ${current === "1" ? "selected" : ""}>1</option>
-          <option value="2" ${current === "2" ? "selected" : ""}>2</option>
-          <option value="3" ${current === "3" ? "selected" : ""}>3</option>
-          <option value="4" ${current === "4" ? "selected" : ""}>4</option>
-        </select>`;
+        const current = value === "" || value == null ? "" : Number(value);
+        const options = [0, 1, 2, 3, 4]
+          .map((n) => `<option value="${n}" ${current === n ? "selected" : ""}>${n}</option>`)
+          .join("");
+        return `<select id="${fieldId}" name="value" class="practice-editor__select"><option value=""></option>${options}</select>`;
       }
       if (type === "likert6") {
         const current = value === "" || value == null ? "" : String(value);
@@ -1517,7 +1050,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
         </select>`;
       }
-      return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Réponse" value="${escapeHtml(String(value))}">`;
+      if (type === "long") {
+        return `<textarea id="${fieldId}" name="value" rows="4" class="practice-editor__textarea" placeholder="Réponse">${escapeHtml(String(value ?? ""))}</textarea>`;
+      }
+      return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Réponse" value="${escapeHtml(String(value ?? ""))}">`;
     }
 
     function readValueFromForm(consigne, form) {
@@ -1545,6 +1081,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
 
     function updateStatAfterEdit(stat, pointIndex, newRawValue, newNote) {
       const point = stat.timeline[pointIndex];
+      if (!point) return;
       const rawValue = newRawValue === null || newRawValue === undefined ? "" : newRawValue;
       const note = newNote ? newNote : "";
       point.rawValue = rawValue;
@@ -1553,28 +1090,60 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       if (stat.timelineByKey) {
         stat.timelineByKey.set(point.dateIso, point);
       }
-      stat.rawValues[pointIndex] = rawValue;
-      stat.rawNotes[pointIndex] = note;
-      stat.chartValues[pointIndex] = point.numeric;
       const meta = iterationMeta[pointIndex];
-      const createdAt = meta?.dateObj || null;
-      const entryIndex = stat.entries.findIndex((entry) => entry.date === point.dateIso);
-      const isRawEmpty =
-        rawValue === "" ||
-        (typeof rawValue === "string" && rawValue.trim() === "");
-      if (isRawEmpty && !note) {
-        if (entryIndex !== -1) stat.entries.splice(entryIndex, 1);
-      } else if (entryIndex !== -1) {
-        stat.entries[entryIndex] = { date: point.dateIso, value: rawValue, note, createdAt };
+      const existingIndex = stat.entries.findIndex((entry) => entry.date === point.dateIso);
+      const existingEntry = existingIndex !== -1 ? stat.entries[existingIndex] : null;
+      const createdAt = existingEntry?.createdAt || meta?.dateObj || null;
+      const hasValue = !(rawValue === "" || (typeof rawValue === "string" && !rawValue.trim()));
+      const hasNote = !!note && note.trim();
+      if (!hasValue && !hasNote) {
+        if (existingIndex !== -1) stat.entries.splice(existingIndex, 1);
+      } else if (existingIndex !== -1) {
+        stat.entries[existingIndex] = { date: point.dateIso, value: rawValue, note, createdAt };
       } else {
         stat.entries.push({ date: point.dateIso, value: rawValue, note, createdAt });
         stat.entries.sort((a, b) => a.date.localeCompare(b.date));
       }
-      stat.hasNumeric = stat.chartValues.some((value) => value != null);
+
+      const numericValues = stat.timeline.map((item) => item.numeric).filter((item) => item != null);
+      stat.hasNumeric = numericValues.length > 0;
+      stat.averageNumeric = numericValues.length
+        ? numericValues.reduce((acc, value) => acc + value, 0) / numericValues.length
+        : null;
+      stat.averageNormalized = normalizeScore(stat.type, stat.averageNumeric);
+      stat.averageDisplay = stat.averageNormalized != null
+        ? percentFormatter.format(stat.averageNormalized)
+        : stat.averageNumeric != null
+        ? numberFormatter.format(stat.averageNumeric)
+        : "—";
+      stat.averageTitle = stat.averageNormalized != null
+        ? stat.type === "likert5"
+          ? "Score converti en pourcentage sur une échelle de 0 à 4."
+          : "Taux moyen de réussite sur la période affichée."
+        : stat.averageNumeric != null
+        ? "Moyenne des valeurs numériques enregistrées."
+        : "Aucune donnée disponible pour le moment.";
+
+      stat.totalEntries = stat.entries.length;
+      const lastEntry = stat.entries[stat.entries.length - 1] || null;
+      const lastDateIso = lastEntry?.date || "";
+      const lastMeta = lastDateIso ? iterationMetaByKey.get(lastDateIso) : null;
+      const lastDateObj = lastEntry?.createdAt || lastMeta?.dateObj || null;
+      const lastValue = lastEntry?.value ?? "";
+      stat.lastDateIso = lastDateIso;
+      stat.lastDateShort = lastDateObj ? shortDateFormatter.format(lastDateObj) : "Jamais";
+      stat.lastDateFull = lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais";
+      stat.lastRelative = formatRelativeDate(lastDateObj || lastDateIso);
+      stat.lastValue = lastValue;
+      stat.lastFormatted = formatValue(stat.type, lastValue);
+      stat.lastCommentRaw = lastEntry?.note ?? "";
+      stat.commentDisplay = truncateText(stat.lastCommentRaw, 180);
+      stat.statusKind = dotColor(stat.type, lastValue);
     }
 
     function openCellEditor(stat, pointIndex) {
       const point = stat.timeline[pointIndex];
+      if (!point) return;
       const consigne = stat.consigne;
       const valueId = `practice-editor-value-${stat.id}-${pointIndex}-${Date.now()}`;
       const valueField = buildValueField(consigne, point.rawValue, valueId);
@@ -1583,7 +1152,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const iterationLabel = iterationInfo?.label || `Itération ${pointIndex + 1}`;
       const dateObj = iterationInfo?.dateObj || toDate(point.dateIso);
       const fullDateLabel = iterationInfo?.fullLabel || (dateObj ? fullDateTimeFormatter.format(dateObj) : point.dateIso);
-      const dateLabel = fullDateLabel && fullDateLabel !== iterationLabel ? `${iterationLabel} — ${fullDateLabel}` : iterationLabel;
+      const dateLabel = fullDateLabel && fullDateLabel !== iterationLabel ? `${iterationLabel} — ${fullDateLabel}` : fullDateLabel || iterationLabel;
       const autosaveKeyParts = [
         "practice-entry",
         ctx.user?.uid || "anon",
@@ -1636,7 +1205,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           try {
             await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, stat.id, point.dateIso);
             updateStatAfterEdit(stat, pointIndex, "", "");
-            renderMatrix();
             renderHistory();
             panel.remove();
           } catch (err) {
@@ -1665,7 +1233,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             });
             updateStatAfterEdit(stat, pointIndex, rawValue, note);
           }
-          renderMatrix();
           renderHistory();
           panel.remove();
         } catch (err) {
@@ -1676,330 +1243,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       });
     }
 
-    function buildChartDataset(stat) {
-      const numericData = stat.timeline.map((point) => point.numeric);
-      const rawValues = stat.timeline.map((point) => point.rawValue);
-      const rawNotes = stat.timeline.map((point) => point.note);
-      const dates = iterationDates.slice();
-      const dataset = {
-        label: stat.name,
-        data: numericData.slice(),
-        rawValues: rawValues.slice(),
-        rawNotes: rawNotes.slice(),
-        consigneType: stat.type,
-        dates,
-        borderColor: stat.accentStrong,
-        backgroundColor: withAlpha(stat.color, 0.18),
-        borderWidth: stat.priority === 1 ? 2 : stat.priority === 2 ? 2 : 1,
-        pointRadius: stat.priority === 1 ? 3 : stat.priority === 2 ? 2 : 1,
-        pointHoverRadius: stat.priority === 1 ? 4 : stat.priority === 2 ? 3 : 2,
-        pointStyle: stat.priority === 1 ? "circle" : stat.priority === 2 ? "rectRounded" : "triangle",
-        tension: 0.3,
-        spanGaps: true,
-      };
-      if (stat.priority === 3) {
-        dataset.borderDash = [6, 4];
-      }
-      dataset.fullData = numericData.slice();
-      dataset.fullRawValues = rawValues.slice();
-      dataset.fullRawNotes = rawNotes.slice();
-      dataset.fullDates = dates.slice();
-      return dataset;
-    }
-
-    function renderChartSelector() {
-      if (!chartSelect) return;
-      if (!chartInstance || !chartInstance.data.datasets.length) {
-        chartSelect.innerHTML = '<p class="practice-dashboard__chart-empty">Aucune consigne numérique à afficher pour le moment.</p>';
-        return;
-      }
-      chartSelect.innerHTML = stats
-        .filter((stat) => stat.chartDatasetIndex != null)
-        .map((stat) => {
-          const dataset = chartInstance.data.datasets[stat.chartDatasetIndex];
-          const checked = dataset ? !dataset.hidden : true;
-          return `<label class="practice-dashboard__chart-option"><input type="checkbox" value="${stat.id}" ${checked ? "checked" : ""}/> <span>${escapeHtml(stat.name)}</span></label>`;
-        })
-        .join("");
-    }
-
-    chartSelect?.addEventListener("change", (event) => {
-      const input = event.target;
-      if (!input || input.tagName !== "INPUT") return;
-      if (input.type !== "checkbox") return;
-      const stat = stats.find((item) => item.id === input.value);
-      if (!stat || stat.chartDatasetIndex == null || !chartInstance) return;
-      const dataset = chartInstance.data.datasets[stat.chartDatasetIndex];
-      if (!dataset) return;
-      dataset.hidden = !input.checked;
-      applyChartWindow(currentWindowSize);
-    });
-
-    function updateChartForStat(stat) {
-      if (!chartInstance) {
-        return;
-      }
-      const hasNumeric = stat.timeline.some((point) => point.numeric != null);
-      stat.hasNumeric = hasNumeric;
-      if (hasNumeric) {
-        if (stat.chartDatasetIndex == null) {
-          const dataset = buildChartDataset(stat);
-          stat.chartDatasetIndex = chartInstance.data.datasets.length;
-          chartInstance.data.datasets.push(dataset);
-        } else {
-          const dataset = chartInstance.data.datasets[stat.chartDatasetIndex];
-          if (dataset) {
-            const numericData = stat.timeline.map((point) => point.numeric);
-            const rawValues = stat.timeline.map((point) => point.rawValue);
-            const rawNotes = stat.timeline.map((point) => point.note);
-            const dates = iterationDates.slice();
-            dataset.data = numericData.slice();
-            dataset.rawValues = rawValues.slice();
-            dataset.rawNotes = rawNotes.slice();
-            dataset.dates = dates;
-            dataset.fullData = numericData.slice();
-            dataset.fullRawValues = rawValues.slice();
-            dataset.fullRawNotes = rawNotes.slice();
-            dataset.fullDates = dates.slice();
-          }
-        }
-      } else if (stat.chartDatasetIndex != null) {
-        chartInstance.data.datasets.splice(stat.chartDatasetIndex, 1);
-        stats.forEach((item) => {
-          if (item.chartDatasetIndex != null) {
-            if (item.id === stat.id) {
-              item.chartDatasetIndex = null;
-            } else if (item.chartDatasetIndex > stat.chartDatasetIndex) {
-              item.chartDatasetIndex -= 1;
-            }
-          }
-        });
-      }
-      applyChartWindow(currentWindowSize);
-      renderChartSelector();
-      ensureChartAvailability();
-    }
-
-    const chartStats = stats.filter((stat) => stat.hasNumeric);
-    if (canvas && chartCard && window.Chart && chartStats.length && iterationMeta.length) {
-      const chartDatasets = chartStats.map((stat, index) => {
-        stat.chartDatasetIndex = index;
-        return buildChartDataset(stat);
-      });
-
-      const guidePlugin = {
-        id: "practiceGuideLine",
-        afterDraw(chart) {
-          const meta = guideLineState.meta;
-          if (!meta) return;
-          const { ctx, chartArea, scales } = chart;
-          const xScale = scales?.x;
-          if (!xScale) return;
-          const labels = chart.data.labels || [];
-          if (!labels.length) return;
-          const index = labels.length - 1;
-          const x = xScale.getPixelForValue(index);
-          if (!Number.isFinite(x)) return;
-          ctx.save();
-          ctx.strokeStyle = guideLineState.color || "#334155";
-          ctx.lineWidth = 1.5;
-          ctx.setLineDash([6, 6]);
-          ctx.beginPath();
-          ctx.moveTo(x, chartArea.top);
-          ctx.lineTo(x, chartArea.bottom);
-          ctx.stroke();
-          ctx.restore();
-          const label = guideLineState.label;
-          if (!label) return;
-          const caption = guideLineState.caption;
-          const textColor = guideLineState.textColor || "#475569";
-          const text = caption ? `${label} · ${caption}` : label;
-          ctx.save();
-          ctx.font = "12px 'Inter', sans-serif";
-          ctx.fillStyle = textColor;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "top";
-          const clampLeft = chartArea.left + 60;
-          const clampRight = chartArea.right - 60;
-          const posX = Math.min(Math.max(x, clampLeft), clampRight);
-          ctx.fillText(text, posX, chartArea.top + 6);
-          ctx.restore();
-        },
-      };
-
-      const typeSet = new Set(chartDatasets.map((dataset) => dataset.consigneType));
-      const hasLikert6 = typeSet.has("likert6");
-      const hasOnlyLikert6 = hasLikert6 && typeSet.size === 1;
-      const hasOnlyLikert5 = typeSet.size === 1 && typeSet.has("likert5");
-      const hasOnlyYesNo = typeSet.size === 1 && typeSet.has("yesno");
-      let yTitle = "Valeur / Score";
-      if (hasOnlyLikert6) {
-        yTitle = "Réponse (échelle Likert)";
-      } else if (hasOnlyLikert5) {
-        yTitle = "Score (0 à 4)";
-      } else if (hasOnlyYesNo) {
-        yTitle = "Réponse";
-      } else if (typeSet.size === 1 && typeSet.has("num")) {
-        yTitle = "Valeur saisie";
-      }
-
-      let suggestedMin;
-      let suggestedMax;
-      let tickStep;
-      if (hasOnlyLikert6) {
-        suggestedMin = 0;
-        suggestedMax = LIKERT6_ORDER.length - 1;
-        tickStep = 1;
-      } else if (hasOnlyLikert5) {
-        suggestedMin = 0;
-        suggestedMax = 4;
-        tickStep = 1;
-      } else if (hasOnlyYesNo) {
-        suggestedMin = 0;
-        suggestedMax = 1;
-        tickStep = 1;
-      }
-
-      const tooltipDateFormatter = new Intl.DateTimeFormat("fr-FR", {
-        day: "2-digit",
-        month: "long",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-
-      const yTicks = {
-        color: "#64748B",
-        callback(value) {
-          if (hasOnlyYesNo) {
-            const numeric = Number(value);
-            if (numeric === 0) return "Non";
-            if (numeric === 1) return "Oui";
-          }
-          if (hasLikert6) {
-            const numeric = Number(value);
-            if (Number.isInteger(numeric)) {
-              const key = LIKERT6_ORDER[numeric];
-              if (key) return LIKERT6_LABELS[key];
-            }
-          }
-          return value;
-        },
-      };
-      if (tickStep) {
-        yTicks.stepSize = tickStep;
-      }
-
-      chartInstance = new Chart(canvas.getContext("2d"), {
-        type: "line",
-        data: {
-          labels: iterationLabels,
-          datasets: chartDatasets,
-        },
-        options: {
-          maintainAspectRatio: false,
-          responsive: true,
-          interaction: { mode: "nearest", intersect: false },
-          scales: {
-            x: {
-              ticks: { color: "#64748B", maxRotation: 0 },
-              grid: { color: "#E2E8F0" },
-            },
-            y: {
-              title: {
-                display: true,
-                text: yTitle,
-                color: "#475569",
-                font: { family: "Inter", weight: "600", size: 12 },
-              },
-              ticks: yTicks,
-              grid: { color: "#E2E8F0" },
-              beginAtZero: suggestedMin === 0,
-              suggestedMin,
-              suggestedMax,
-            },
-          },
-          plugins: {
-            legend: {
-              align: "start",
-              labels: {
-                usePointStyle: true,
-                font: { family: "Inter", size: 12 },
-                color: "#334155",
-              },
-            },
-            tooltip: {
-              backgroundColor: "#0f172a",
-              titleFont: { family: "Inter", weight: "600" },
-              bodyFont: { family: "Inter" },
-              callbacks: {
-                title(context) {
-                  const point = context[0];
-                  if (!point) return "";
-                  const index = point.dataIndex ?? 0;
-                  const info = iterationMeta[currentChartStartIndex + index];
-                  if (info) {
-                    const parts = [info.label];
-                    if (Number.isFinite(info.sessionNumber) && info.sessionNumber !== info.displayIndex) {
-                      parts.push(`Session ${info.sessionNumber}`);
-                    }
-                    if (info.fullLabel && info.fullLabel !== info.label) {
-                      parts.push(info.fullLabel);
-                    }
-                    return parts.join(" — ");
-                  }
-                  const iso = point.dataset?.dates?.[index];
-                  if (!iso) return point.label;
-                  const d = toDate(iso);
-                  return d ? tooltipDateFormatter.format(d) : point.label;
-                },
-                label(context) {
-                  const ds = context.dataset;
-                  const raw = ds.rawValues?.[context.dataIndex];
-                  const formatted = formatValue(ds.consigneType, raw);
-                  return `${ds.label}: ${formatted}`;
-                },
-                footer(context) {
-                  const ds = context[0].dataset;
-                  const note = ds.rawNotes?.[context[0].dataIndex];
-                  if (note) return `Note : ${note}`;
-                  return "";
-                },
-              },
-            },
-          },
-        },
-        plugins: [guidePlugin],
-      });
-
-      updateChartCaption(currentWindowSize);
-      applyChartWindow(currentWindowSize);
-      renderChartSelector();
-      resizeHandler = () => {
-        updateChartViewport(chartInstance?.data?.labels?.length || iterationMeta.length);
-      };
-      window.addEventListener("resize", resizeHandler);
-    } else {
-      if (chartCard) {
-        chartCard.innerHTML =
-          '<div class="practice-dashboard__empty">Aucune donnée suffisante pour afficher le graphique pour cette catégorie.</div>';
-      }
-      if (chartCaption) {
-        chartCaption.textContent = "Ajoutez des réponses pour visualiser l’évolution dans le temps.";
-      }
-      if (chartSelect) {
-        chartSelect.innerHTML = '<p class="practice-dashboard__chart-empty">Aucune consigne numérique à afficher pour le moment.</p>';
-      }
-      updateChartViewport(0);
-    }
-
-    ensureChartAvailability();
-    const prefersCompactView =
-      typeof window !== "undefined" && typeof window.matchMedia === "function"
-        ? window.matchMedia("(max-width: 768px)").matches
-        : false;
-    const initialView = prefersCompactView ? "table" : "chart";
-    setView(initialView);
+    // Tableau de bord réduit à la liste : aucune logique de graphique nécessaire.
   } catch (err) {
     console.warn("openCategoryDashboard:error", err);
   }
@@ -2640,14 +1884,6 @@ function dotColor(type, v){
   return "na";
 }
 
-function dotHTML(kind){
-  const style = kind === "ok" ? "background:#16A34A"
-    : kind === "mid" ? "background:#EAB308"
-    : kind === "ko" ? "background:#DC2626"
-    : "background:#94A3B8";
-  return `<span style="display:inline-block;width:.6rem;height:.6rem;border-radius:999px;${style}"></span>`;
-}
-
 async function openHistory(ctx, consigne) {
   modesLogger.group("ui.history.open", { consigneId: consigne.id, type: consigne.type });
   const qy = modesFirestore.query(
@@ -2660,104 +1896,81 @@ async function openHistory(ctx, consigne) {
   modesLogger.info("ui.history.rows", ss.size);
   const rows = ss.docs.map((d) => ({ id: d.id, ...d.data() }));
 
+  const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const statusLabels = {
+    ok: "Positive",
+    mid: "Intermédiaire",
+    ko: "À surveiller",
+    na: "Sans donnée",
+  };
+
+  function relativeLabel(date) {
+    if (!date || Number.isNaN(date.getTime())) return "";
+    const today = new Date();
+    const diffDays = Math.round((today.getTime() - date.getTime()) / 86400000);
+    if (diffDays <= 0) return "Aujourd’hui";
+    if (diffDays === 1) return "Hier";
+    if (diffDays < 7) return `Il y a ${diffDays} j`;
+    return "";
+  }
+
   const list = rows
     .map((r) => {
-      const createdAt = r.createdAt?.toDate?.() ?? r.createdAt;
-      const date = createdAt ? new Date(createdAt).toLocaleString() : "";
+      const createdAtRaw = r.createdAt?.toDate?.() ?? r.createdAt;
+      const createdAt = createdAtRaw ? new Date(createdAtRaw) : null;
+      const iso = createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "";
+      const dateText = createdAt && !Number.isNaN(createdAt.getTime()) ? dateFormatter.format(createdAt) : "Date inconnue";
+      const relative = createdAt ? relativeLabel(createdAt) : "";
       const formatted = formatValue(consigne.type, r.value);
       const status = dotColor(consigne.type, r.value);
+      const note = r.note && String(r.note).trim();
+      const noteMarkup = note ? `<p class="history-panel__note">${escapeHtml(note)}</p>` : "";
+      const relativeMarkup = relative ? `<span class="history-panel__meta">${escapeHtml(relative)}</span>` : "";
+      const statusLabel = statusLabels[status] || "Valeur";
       return `
-    <li class="py-2">
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-3">
-        <span class="text-xs sm:text-sm text-[var(--muted)]">${escapeHtml(date)}</span>
-        <span class="flex items-center gap-2 text-sm font-medium break-words">
-          ${dotHTML(status)} <span>${escapeHtml(formatted)}</span>
-        </span>
-      </div>
-    </li>
-  `;
+        <li class="history-panel__item">
+          <div class="history-panel__item-row">
+            <span class="history-panel__value">
+              <span class="history-panel__dot history-panel__dot--${status}" aria-hidden="true"></span>
+              <span>${escapeHtml(formatted)}</span>
+              <span class="sr-only">${escapeHtml(statusLabel)}</span>
+            </span>
+            <time class="history-panel__date" datetime="${escapeHtml(iso)}">${escapeHtml(dateText)}</time>
+          </div>
+          ${relativeMarkup ? `<div class="history-panel__meta-row">${relativeMarkup}</div>` : ""}
+          ${noteMarkup}
+        </li>
+      `;
     })
     .join("");
 
-  const canGraph = ["likert6", "likert5", "num", "yesno"].includes(consigne.type);
+  const totalLabel = rows.length === 0 ? "Aucune entrée" : rows.length === 1 ? "1 entrée" : `${rows.length} entrées`;
+
   const html = `
-    <div class="flex items-start justify-between gap-4 mb-4">
-      <div>
-        <h3 class="text-lg font-semibold mb-1">Historique — ${escapeHtml(consigne.text)}</h3>
-        <p class="text-sm text-[var(--muted)]">Dernières réponses</p>
+    <div class="history-panel">
+      <header class="history-panel__header">
+        <div class="history-panel__title">
+          <h3 class="history-panel__heading">Historique — ${escapeHtml(consigne.text)}</h3>
+          <p class="history-panel__subtitle">Dernières réponses enregistrées</p>
+        </div>
+        <div class="history-panel__actions">
+          <span class="history-panel__badge">${escapeHtml(totalLabel)}</span>
+          <button class="btn btn-ghost text-sm" data-close>Fermer</button>
+        </div>
+      </header>
+      <div class="history-panel__body">
+        <ul class="history-panel__list">${list || '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>'}</ul>
       </div>
-      <button class="btn btn-ghost text-sm" data-close>Fermer</button>
     </div>
-    ${canGraph ? `<canvas id="histoChart" height="160" class="mb-4"></canvas>` : ""}
-    <ul class="divide-y divide-gray-100 max-h-[70vh] overflow-y-auto pr-1">${list || '<li class="py-3 text-sm text-[var(--muted)]">Aucune réponse pour l’instant.</li>'}</ul>
   `;
   const panel = drawer(html);
   panel.querySelector('[data-close]')?.addEventListener('click', () => panel.remove());
-
-  if (canGraph && window.Chart) {
-    modesLogger.info("ui.history.chart", { points: rows.length });
-    const canvas = panel.querySelector('#histoChart');
-    if (canvas) {
-      const ctx2 = canvas.getContext('2d');
-      const data = rows.slice().reverse();
-      const values = data.map((r) => {
-        if (consigne.type === 'likert6') return likertToNum(r.value);
-        if (consigne.type === 'likert5') return Number(r.value || 0);
-        if (consigne.type === 'yesno')   return r.value === 'yes' ? 1 : 0;
-        return Number(r.value || 0);
-      });
-      const mean = values.length ? values.reduce((a,b)=>a+b,0) / values.length : 0;
-
-      let color = '#60BFFD';
-      if (consigne.type === 'likert6' || consigne.type === 'likert5'){
-        color = mean < 1.5 ? '#DC2626' : (mean < 2.5 ? '#EAB308' : '#16A34A');
-      } else if (consigne.type === 'yesno'){
-        color = mean < 0.33 ? '#DC2626' : (mean < 0.66 ? '#EAB308' : '#16A34A');
-      } else {
-        color = mean < 4 ? '#DC2626' : (mean < 7 ? '#EAB308' : '#16A34A');
-      }
-
-      new Chart(ctx2, {
-        type: 'line',
-        data: {
-          labels: data.map((r) => {
-            const createdAt = r.createdAt?.toDate?.() ?? r.createdAt;
-            return createdAt ? new Date(createdAt).toLocaleDateString() : '';
-          }),
-          datasets: [
-            {
-              label: 'Valeur',
-              data: values,
-              tension: 0.25,
-              fill: false,
-              borderColor: color,
-              backgroundColor: color,
-              pointRadius: 3,
-              pointHoverRadius: 4
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: {
-              ticks: { color: '#64748B' },
-              grid: { color: '#E2E8F0' }
-            },
-            y: {
-              beginAtZero: true,
-              max: consigne.type === 'likert6' ? 4 : consigne.type === 'likert5' ? 4 : consigne.type === 'yesno' ? 1 : 10,
-              ticks: { color: '#64748B' },
-              grid: { color: '#E2E8F0' }
-            }
-          }
-        }
-      });
-    }
-  } else {
-    modesLogger.info("ui.history.chart.skip", { canGraph, hasChart: !!window.Chart });
-  }
 
   modesLogger.groupEnd();
 
@@ -2777,18 +1990,6 @@ async function openHistory(ctx, consigne) {
       );
     }
     return String(v ?? '—');
-  }
-  function likertToNum(v) {
-    return (
-      {
-        no: 0,
-        rather_no: 1,
-        medium: 2,
-        rather_yes: 3,
-        yes: 4,
-        no_answer: 2
-      }[v] ?? 2
-    );
   }
 }
 
