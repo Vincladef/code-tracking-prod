@@ -599,8 +599,8 @@
     .practice-dashboard__history{ display:flex; flex-direction:column; gap:1.25rem; }
     .practice-dashboard__history-grid{
       display:grid;
-      gap:1.25rem;
-      grid-template-columns:repeat(auto-fit, minmax(280px,1fr));
+      gap:1.75rem;
+      grid-template-columns:repeat(auto-fit, minmax(320px,1fr));
     }
     .practice-dashboard__history-section{
       background:#fff;
@@ -635,8 +635,8 @@
     }
     .practice-dashboard__history-summary{
       display:grid;
-      gap:.75rem;
-      grid-template-columns:repeat(auto-fit, minmax(150px,1fr));
+      gap:1rem;
+      grid-template-columns:repeat(auto-fit, minmax(180px,1fr));
     }
     .practice-dashboard__history-summary-item{
       display:flex;
@@ -686,7 +686,14 @@
     .practice-dashboard__history-entry:focus-visible{ outline:3px solid rgba(99,102,241,0.35); outline-offset:2px; }
     .practice-dashboard__history-entry-main{ display:flex; align-items:flex-start; gap:.65rem; flex:1 1 auto; min-width:0; }
     .practice-dashboard__history-entry-text{ display:flex; flex-direction:column; gap:.3rem; min-width:0; }
-    .practice-dashboard__history-value{ font-size:1.05rem; font-weight:600; color:#0f172a; word-break:break-word; }
+    .practice-dashboard__history-value{
+      font-size:1.05rem;
+      font-weight:600;
+      color:#0f172a;
+      white-space:nowrap;
+      word-break:normal;
+      overflow-wrap:break-word;
+    }
     .practice-dashboard__history-note{ font-size:.85rem; color:#475569; line-height:1.4; word-break:break-word; }
     .practice-dashboard__history-date{ display:flex; flex-direction:column; align-items:flex-end; gap:.25rem; font-size:.78rem; color:#64748b; white-space:nowrap; }
     .practice-dashboard__history-date-main{ font-weight:600; color:#0f172a; }
@@ -709,6 +716,7 @@
       .practice-dashboard__history-grid{ grid-template-columns:1fr; }
       .practice-dashboard__history-entry{ flex-direction:column; align-items:flex-start; }
       .practice-dashboard__history-date{ align-items:flex-start; text-align:left; white-space:normal; }
+      .practice-dashboard__history-value{ white-space:normal; }
       .history-panel__item-row{ flex-direction:column; align-items:flex-start; gap:.5rem; }
       .history-panel__actions{ width:100%; justify-content:space-between; }
       .history-panel__date{ width:100%; }
