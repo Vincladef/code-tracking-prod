@@ -976,141 +976,6 @@
     }
   }
 
-  const ADMIN_PUSH_PREF_KEY = "hp::push::admin";
-  let adminPushPrefsCache = null;
-
-  function loadAdminPushPref() {
-    if (adminPushPrefsCache) return adminPushPrefsCache;
-    const storage = getSafeStorage();
-    if (!storage) return {};
-    try {
-      const raw = storage.getItem(ADMIN_PUSH_PREF_KEY);
-      if (!raw) {
-        adminPushPrefsCache = {};
-        return adminPushPrefsCache;
-      }
-      const parsed = JSON.parse(raw);
-      adminPushPrefsCache = typeof parsed === "object" && parsed ? parsed : {};
-    } catch (error) {
-      console.warn("[push] admin:prefs:parse", error);
-      adminPushPrefsCache = {};
-    }
-    return adminPushPrefsCache;
-  }
-
-  function saveAdminPushPref(next) {
-    adminPushPrefsCache = next || {};
-    const storage = getSafeStorage();
-    if (!storage) return;
-    try {
-      storage.setItem(ADMIN_PUSH_PREF_KEY, JSON.stringify(adminPushPrefsCache));
-    } catch (error) {
-      console.warn("[push] admin:prefs:save", error);
-    }
-  }
-
-  function getAdminPushPreference() {
-    const prefs = loadAdminPushPref();
-    return prefs || {};
-  }
-
-  function setAdminPushPreference(value) {
-    const current = { ...loadAdminPushPref() };
-    adminPushPrefsCache = { ...current, ...value };
-    saveAdminPushPref(adminPushPrefsCache);
-  }
-
-  async function enableAdminPush({ interactive = false } = {}) {
-    if (!ctx.db) return false;
-
-    const setup = await preparePushToken({ interactive });
-    if (!setup) return false;
-
-    try {
-      await Schema.saveAdminPushToken(ctx.db, setup.token, { ownerUid: ctx.user?.uid || null });
-      setAdminPushPreference({ token: setup.token, enabled: true, updatedAt: Date.now() });
-      bindForegroundNotifications(setup.messaging);
-      return true;
-    } catch (error) {
-      console.warn("[push] admin:saveToken", error);
-      if (interactive) alert("Impossible d’enregistrer le jeton de notifications admin.");
-      return false;
-    }
-  }
-
-  async function disableAdminPush({ interactive = false } = {}) {
-    if (!ctx.db) return false;
-    const pref = getAdminPushPreference();
-    const token = pref?.token;
-
-    setAdminPushPreference({ enabled: false });
-    if (!token) return true;
-
-    try {
-      await Schema.disableAdminPushToken(ctx.db, token);
-      setAdminPushPreference({ token: null, updatedAt: Date.now() });
-      return true;
-    } catch (error) {
-      console.warn("[push] admin:disableToken", error);
-      if (interactive) alert("Impossible de désactiver les notifications admin.");
-      return false;
-    }
-  }
-
-  function syncAdminNotificationsButton() {
-    const buttons = queryAll("[data-admin-notif-toggle]");
-    const status = document.getElementById("admin-notification-status");
-    if (!buttons.length && !status) return;
-
-    const pref = getAdminPushPreference();
-    const enabled = !!(pref && pref.enabled && pref.token);
-
-    buttons.forEach((btn) => {
-      btn.dataset.enabled = enabled ? "1" : "0";
-      const label = enabled ? "🔕 Désactiver les notifications admin" : "🔔 Activer les notifications admin";
-      btn.textContent = label;
-      if (!isPushSupported()) {
-        btn.disabled = true;
-        btn.title = "Notifications non disponibles sur cet appareil";
-      } else if (!btn.dataset.loading || btn.dataset.loading === "0") {
-        btn.disabled = false;
-        btn.title = enabled ? "Désactiver les notifications admin" : "Activer les notifications admin";
-      }
-    });
-
-    if (status) {
-      if (!isPushSupported()) {
-        status.textContent = "Les notifications ne sont pas disponibles sur ce navigateur.";
-      } else if (enabled) {
-        status.textContent = "Notifications admin actives sur cet appareil.";
-      } else {
-        status.textContent = "Notifications admin désactivées sur cet appareil.";
-      }
-    }
-  }
-
-  async function handleAdminNotificationToggle(trigger, { interactive = false } = {}) {
-    setButtonLoading(trigger, true);
-    const pref = getAdminPushPreference();
-    const enabled = !!(pref && pref.enabled && pref.token);
-    try {
-      if (enabled) {
-        await disableAdminPush({ interactive });
-      } else {
-        await enableAdminPush({ interactive });
-      }
-    } catch (error) {
-      console.warn("[push] admin:toggle:error", error);
-      if (interactive) alert("Impossible de mettre à jour les notifications admin.");
-    } finally {
-      setButtonLoading(trigger, false);
-      if (trigger && !isPushSupported()) {
-        trigger.disabled = true;
-      }
-      syncAdminNotificationsButton();
-    }
-  }
-
   function syncNotificationButtonsForUid(uid) {
     if (!uid) return;
     const pref = getPushPreference(uid);
@@ -1781,13 +1646,6 @@
     if (success) syncNotificationButtonsForUid(targetUid);
   }
 
-  async function ensureAdminPushSubscription({ interactive = false } = {}) {
-    const pref = getAdminPushPreference();
-    if (!pref?.enabled) return;
-    const success = await enableAdminPush({ interactive });
-    if (success) syncAdminNotificationsButton();
-  }
-
   async function initApp({ app, db, user }) {
     // Show the sidebar in user mode
     const sidebar = document.getElementById("sidebar");
@@ -1832,10 +1690,6 @@
     if (pref?.enabled && isPushSupported()) {
       ensurePushSubscriptionForUid(user.uid, { interactive: false }).catch(console.error);
     }
-    const adminPref = getAdminPushPreference();
-    if (adminPref?.enabled && isPushSupported()) {
-      ensureAdminPushSubscription({ interactive: false }).catch(console.error);
-    }
     appLog("app:init:rendered");
     L.groupEnd();
   }
@@ -1860,20 +1714,10 @@
     appLog("admin:render");
     root.innerHTML = `
       <div class="space-y-5">
-        <section class="card p-5 space-y-4">
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div class="space-y-1">
-              <h2 class="text-xl font-semibold">Admin — Utilisateurs</h2>
-              <p class="text-sm text-[var(--muted)]">Gérez vos profils et vos rappels même sur petit écran.</p>
-            </div>
-            <div class="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
-              <button type="button"
-                      class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
-                      data-admin-notif-toggle="1"
-                      data-enabled="0"
-                      title="Activer les notifications admin">🔔 Activer les notifications admin</button>
-              <p class="text-xs text-[var(--muted)] sm:text-right" id="admin-notification-status"></p>
-            </div>
+        <section class="card p-5 space-y-2">
+          <div class="space-y-1">
+            <h2 class="text-xl font-semibold">Admin — Utilisateurs</h2>
+            <p class="text-sm text-[var(--muted)]">Gérez vos profils et vos rappels même sur petit écran.</p>
           </div>
         </section>
         <div class="grid gap-4 md:grid-cols-2">
@@ -1888,10 +1732,6 @@
           <section class="card p-4 space-y-3">
             <div class="font-semibold">Astuces rapides</div>
             <ul class="space-y-2 text-sm text-[var(--muted)]">
-              <li class="flex items-start gap-2">
-                <span class="mt-0.5">📲</span>
-                <span>Activez les notifications admin pour recevoir un rappel quand un membre doit être suivi.</span>
-              </li>
               <li class="flex items-start gap-2">
                 <span class="mt-0.5">✏️</span>
                 <span>Renommez les profils pour refléter les surnoms courants et éviter les confusions.</span>
@@ -1912,19 +1752,6 @@
         </section>
       </div>
     `;
-
-    queryAll("[data-admin-notif-toggle]")
-      .filter((btn) => !btn.closest("#user-list"))
-      .forEach((adminNotifBtn) => {
-        adminNotifBtn.addEventListener("click", (event) => {
-          event.preventDefault();
-          const pref = getAdminPushPreference();
-          const enabled = !!(pref && pref.enabled && pref.token);
-          appLog("admin:notifications:toggle", { action: enabled ? "disable" : "enable", source: "header" });
-          handleAdminNotificationToggle(adminNotifBtn, { interactive: true });
-        });
-      });
-    syncAdminNotificationsButton();
 
     const form = document.getElementById("new-user-form");
     if (form) {
@@ -1997,11 +1824,6 @@
               <button type="button"
                       class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
                       data-uid="${safeUid}"
-                      data-admin-notif-toggle="1"
-                      title="Gérer les notifications admin pour ${safeName}">🔔 Activer les notifications admin</button>
-              <button type="button"
-                      class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
-                      data-uid="${safeUid}"
                       data-notif-toggle="1"
                       title="Gérer les notifications de ${safeName}">🔔 Activer les notifications</button>
               <button type="button"
@@ -2021,7 +1843,6 @@
         `);
       });
       list.innerHTML = items.join("") || "<div class='text-sm text-[var(--muted)]'>Aucun utilisateur</div>";
-      syncAdminNotificationsButton();
       uids.forEach((itemUid) => {
         syncNotificationButtonsForUid(itemUid);
       });
@@ -2033,14 +1854,6 @@
           if (!actionTarget) return;
           const { uid, action, name } = actionTarget.dataset;
           if (!uid) return;
-          if (actionTarget.hasAttribute("data-admin-notif-toggle")) {
-            e.preventDefault();
-            const pref = getAdminPushPreference();
-            const enabled = !!(pref && pref.enabled && pref.token);
-            appLog("admin:users:notificationsAdmin:toggle", { uid, action: enabled ? "disable" : "enable" });
-            handleAdminNotificationToggle(actionTarget, { interactive: true });
-            return;
-          }
           if (actionTarget.hasAttribute("data-notif-toggle")) {
             e.preventDefault();
             appLog("admin:users:notifications:toggle", { uid });

@@ -1,5 +1,6 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const tls = require("tls");
 
 admin.initializeApp();
 
@@ -20,6 +21,7 @@ const DAILY_BASE = "https://vincladef.github.io/code-tracking-prod/";
 const ICON_DATA_URL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAB6ElEQVR42u3d0U0gQAxDwVRGudccRUANJwTrxLNSGvCb/52Pf59frvfGCAAYAgAHgAPAAeAAuHv/8wAoC94KYkTvxjDCd0MY8bsRjPDdEEb8bgQjfDeEEb8bwYjfjWDE70Yw4ncjGPG7EYz43QhG/G4EAAAgfjOCEb8bAQAAiN+MYMTvRgAAAOI3IwAAAPGbEQAAgPjNCAAAQPxmBAAAAAAA4tciAAAA8ZsRAAAAAAAAAID4nQgAAAAAAAAAQPxOBAAAAAAAAAAAAAAAACB+GwIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAiWxwcAAAAAAAAAAAAAAAAI2uIDAAAAAAAAAASd8QEAAAAAAAAAgs74AADg17Dm+AAAAAAA/g6ujQ8AAO8AQPA+PgAAvAUAwdv4AADwHkA7gtfbAwDAewCtCBJ2jwHQhiBlcwAAyAHQgiBp7zgA1xGkbQ0AAHkAriJI3DkWwDUEqRtHA7iCIHnfeADbEaRvuwLAVgQbdl0DYBuCLZuuArAFwaY91wFIhrBxx7UA0hBs3XA1gAQI27c7AeAVggu7nQHwlxAu7XUOwG9huLrRaQA/xdCwCwAAAAAAAAAAAAAAAADQBuAb8crY5qD79QEAAAAASUVORK5CYII=";
 const BADGE_URL = "https://vincladef.github.io/code-tracking-prod/badge.png";
+const SUMMARY_FALLBACK_RECIPIENTS = ["como.denizot@gmail.com"];
 
 const INVALID_TOKEN_ERRORS = new Set([
   "messaging/registration-token-not-registered",
@@ -299,15 +301,6 @@ async function disableTokenByLookup(token) {
     });
   } catch (error) {
     functions.logger.error("disableTokenByLookup:user", { token, error: error?.message });
-  }
-
-  try {
-    const adminDoc = await db.collection("adminPushTokens").doc(token).get();
-    if (adminDoc.exists) {
-      tasks.push(disableAdminToken(token));
-    }
-  } catch (error) {
-    functions.logger.error("disableTokenByLookup:admin", { token, error: error?.message });
   }
 
   if (tasks.length) {
@@ -653,28 +646,6 @@ function buildReminderBody(firstName, consigneCount, objectiveCount) {
   return `${prefix}tu as ${items.join(", ")} et ${last} aujourd’hui.`;
 }
 
-function buildAdminReminderBody(name, consigneCount, objectiveCount) {
-  const label = name || "Cet utilisateur";
-  const items = [];
-  if (consigneCount > 0) {
-    items.push(`${consigneCount} ${pluralize(consigneCount, "consigne")} à tracker`);
-  }
-  if (objectiveCount > 0) {
-    items.push(`${objectiveCount} ${pluralize(objectiveCount, "objectif")} à compléter`);
-  }
-  if (!items.length) {
-    return `${label} n’a rien à tracker aujourd’hui.`;
-  }
-  if (items.length === 1) {
-    return `${label} a ${items[0]} aujourd’hui.`;
-  }
-  if (items.length === 2) {
-    return `${label} a ${items[0]} et ${items[1]} aujourd’hui.`;
-  }
-  const last = items.pop();
-  return `${label} a ${items.join(", ")} et ${last} aujourd’hui.`;
-}
-
 async function collectPushTokens() {
   const snap = await db.collectionGroup("pushTokens").get();
   const tokensByUid = new Map();
@@ -696,21 +667,6 @@ async function collectPushTokens() {
   return tokensByUid;
 }
 
-async function collectAdminPushTokens() {
-  const snap = await db.collection("adminPushTokens").get();
-  const tokens = [];
-
-  snap.forEach((doc) => {
-    const data = doc.data() || {};
-    if (data.enabled === false) return;
-    const token = data.token || doc.id;
-    if (!token) return;
-    if (!tokens.includes(token)) tokens.push(token);
-  });
-
-  return tokens;
-}
-
 async function disableToken(uid, token) {
   try {
     await db
@@ -724,23 +680,6 @@ async function disableToken(uid, token) {
       );
   } catch (error) {
     functions.logger.error("disableToken:error", { uid, token, error });
-  }
-}
-
-async function disableAdminToken(token) {
-  try {
-    await db
-      .collection("adminPushTokens")
-      .doc(token)
-      .set(
-        {
-          enabled: false,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-  } catch (error) {
-    functions.logger.error("disableAdminToken:error", { token, error });
   }
 }
 
@@ -832,44 +771,6 @@ async function sendReminder(uid, tokens, visibleCount, objectiveCount, context, 
     failureEvent: "sendReminder:failure",
     metadata: { uid },
     onInvalidToken: (token) => disableToken(uid, token),
-  });
-}
-
-async function sendAdminReminder(targetUid, tokens, visibleCount, objectiveCount, context, displayName = "", firstName = "") {
-  const nameLabel = displayName || firstName || `Utilisateur ${targetUid}`;
-  const title = `Admin — ${nameLabel}`;
-  const body = buildAdminReminderBody(nameLabel, visibleCount, objectiveCount);
-  const link = buildUserDailyLink(targetUid, context.dateIso);
-
-  const message = {
-    data: {
-      link,
-      targetUid,
-      role: "admin",
-      consignes: String(visibleCount),
-      objectifs: String(objectiveCount),
-      body,
-      title,
-      displayName: displayName || "",
-      firstName: firstName || "",
-      day: context.dayLabel,
-    },
-    notification: { title, body },
-    webpush: {
-      fcmOptions: { link },
-      notification: {
-        title,
-        body,
-        icon: ICON_DATA_URL,
-        badge: BADGE_URL,
-      },
-    },
-  };
-
-  return sendFcmMulticast(tokens, message, {
-    failureEvent: "sendAdminReminder:failure",
-    metadata: { targetUid },
-    onInvalidToken: (token) => disableAdminToken(token),
   });
 }
 
@@ -1160,21 +1061,26 @@ exports.sendDailyReminders = functions
       functions.logger.info("sendDailyReminders:start", context);
 
       const tokensByUid = await collectPushTokens();
-      const adminTokens = await collectAdminPushTokens();
       const results = [];
 
       for (const [uid, tokens] of tokensByUid.entries()) {
-        try {
-          const visibleCount = await countVisibleConsignes(uid, context);
-          const objectiveCount = await countObjectivesDueToday(uid, context);
-          if (visibleCount < 1 && objectiveCount < 1) {
-            functions.logger.debug("sendDailyReminders:skip", {
-              uid,
-              reason: "no_visible_items",
-            });
-            continue;
-          }
+        const entry = {
+          uid,
+          tokens: tokens.length,
+          visibleCount: 0,
+          objectiveCount: 0,
+          sent: 0,
+          failed: 0,
+          invalidTokens: [],
+          status: "pending",
+          reason: null,
+          error: null,
+          firstName: "",
+          displayName: "",
+          link: buildUserDailyLink(uid, context.dateIso),
+        };
 
+        try {
           let firstName = "";
           let displayName = "";
           try {
@@ -1188,43 +1094,79 @@ exports.sendDailyReminders = functions
             functions.logger.warn("sendDailyReminders:profile:error", { uid, error: profileError });
           }
 
+          entry.firstName = firstName;
+          entry.displayName = displayName;
+
+          entry.visibleCount = await countVisibleConsignes(uid, context);
+          entry.objectiveCount = await countObjectivesDueToday(uid, context);
+
+          if (entry.visibleCount < 1 && entry.objectiveCount < 1) {
+            entry.status = "skipped";
+            entry.reason = "no_visible_items";
+            functions.logger.debug("sendDailyReminders:skip", { uid, reason: "no_visible_items" });
+            results.push(entry);
+            continue;
+          }
+
+          if (!tokens.length) {
+            entry.status = "skipped";
+            entry.reason = "no_tokens";
+            functions.logger.debug("sendDailyReminders:skip", { uid, reason: "no_tokens" });
+            results.push(entry);
+            continue;
+          }
+
           const response = await sendReminder(
             uid,
             tokens,
-            visibleCount,
-            objectiveCount,
+            entry.visibleCount,
+            entry.objectiveCount,
             context,
             firstName
           );
-          let adminResponse = null;
-          if (adminTokens.length) {
-            adminResponse = await sendAdminReminder(
-              uid,
-              adminTokens,
-              visibleCount,
-              objectiveCount,
-              context,
-              displayName,
-              firstName
-            );
+
+          entry.sent = response.successCount;
+          entry.failed = response.failureCount;
+          entry.invalidTokens = response.invalidTokens || [];
+
+          if (entry.sent > 0 && entry.failed > 0) {
+            entry.status = "partial";
+          } else if (entry.sent > 0) {
+            entry.status = "sent";
+          } else if (entry.failed > 0) {
+            entry.status = "failed";
+          } else {
+            entry.status = "skipped";
+            entry.reason = entry.reason || "no_messages";
           }
-          results.push({
-            uid,
-            tokens: tokens.length,
-            visibleCount,
-            objectiveCount,
-            sent: response.successCount,
-            failed: response.failureCount,
-            firstName,
-            adminSent: adminResponse ? adminResponse.successCount : 0,
-            adminFailed: adminResponse ? adminResponse.failureCount : 0,
-          });
+
+          results.push(entry);
         } catch (err) {
+          entry.status = "error";
+          entry.error = err?.message || String(err);
+          results.push(entry);
           functions.logger.error("sendDailyReminders:userError", { uid, err });
         }
       }
 
-      functions.logger.info("sendDailyReminders:done", { recipients: results.length });
+      const breakdown = results.reduce((acc, item) => {
+        const key = item.status || "unknown";
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+
+      functions.logger.info("sendDailyReminders:done", {
+        recipients: results.length,
+        breakdown,
+      });
+
+      try {
+        await sendDailySummaryEmail(context, results);
+      } catch (mailError) {
+        functions.logger.error("sendDailyReminders:mail:error", {
+          message: mailError?.message,
+        });
+      }
 
       res.json({
         ok: true,
@@ -1238,6 +1180,366 @@ exports.sendDailyReminders = functions
       res.status(500).json({ ok: false, error: error.message });
     }
   });
+
+function resolveMailSettings() {
+  const config = functions.config();
+  const mail = config?.mail || {};
+  const host = toStringOrNull(mail.host);
+  const from = toStringOrNull(mail.from);
+  if (!host || !from) {
+    return null;
+  }
+
+  const rawPort = Number(mail.port);
+  const port = Number.isFinite(rawPort) && rawPort > 0 ? rawPort : 465;
+  const secure =
+    mail.secure === true ||
+    mail.secure === "true" ||
+    mail.secure === 1 ||
+    mail.secure === "1" ||
+    port === 465;
+  const user = toStringOrNull(mail.user);
+  const pass = toStringOrNull(mail.pass);
+  const rejectUnauthorized = !(
+    mail.reject_unauthorized === false ||
+    mail.reject_unauthorized === "false" ||
+    mail.rejectUnauthorized === false ||
+    mail.rejectUnauthorized === "false"
+  );
+
+  return {
+    host,
+    port,
+    secure,
+    user,
+    pass,
+    from,
+    rejectUnauthorized,
+  };
+}
+
+function resolveSummaryRecipients() {
+  const config = functions.config();
+  const summaryRaw = toStringOrNull(config?.summary?.recipients);
+  const mailRaw = toStringOrNull(config?.mail?.recipients);
+  const combined = summaryRaw || mailRaw;
+  if (!combined) {
+    return [...SUMMARY_FALLBACK_RECIPIENTS];
+  }
+  return combined
+    .split(/[,;]/)
+    .map((item) => toStringOrNull(item))
+    .filter(Boolean);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function statusLabel(status) {
+  switch (status) {
+    case "sent":
+      return "Envoyé";
+    case "partial":
+      return "Partiel";
+    case "failed":
+      return "Échec";
+    case "skipped":
+      return "Aucun envoi";
+    case "error":
+      return "Erreur";
+    default:
+      return "Inconnu";
+  }
+}
+
+function describeEntryNotes(entry) {
+  const notes = [];
+  if (entry.reason === "no_visible_items") {
+    notes.push("Aucune consigne ni objectif à envoyer");
+  }
+  if (entry.reason === "no_tokens") {
+    notes.push("Aucun token actif");
+  }
+  if (entry.reason === "no_messages") {
+    notes.push("Aucun message généré");
+  }
+  if (Array.isArray(entry.invalidTokens) && entry.invalidTokens.length) {
+    notes.push(`Tokens invalides: ${entry.invalidTokens.join(", ")}`);
+  }
+  if (entry.error) {
+    notes.push(entry.error);
+  }
+  return notes.join(" · ");
+}
+
+function buildDailySummaryEmail(context, results) {
+  const totals = {
+    total: results.length,
+    statuses: { sent: 0, partial: 0, failed: 0, skipped: 0, error: 0 },
+    successMessages: 0,
+    failedMessages: 0,
+  };
+
+  results.forEach((entry) => {
+    totals.successMessages += entry.sent || 0;
+    totals.failedMessages += entry.failed || 0;
+    const status = entry.status || "skipped";
+    if (totals.statuses[status] == null) {
+      totals.statuses[status] = 0;
+    }
+    totals.statuses[status] += 1;
+  });
+
+  const sorted = [...results].sort((a, b) => {
+    const labelA = (a.displayName || a.firstName || a.uid || "").toLowerCase();
+    const labelB = (b.displayName || b.firstName || b.uid || "").toLowerCase();
+    if (labelA < labelB) return -1;
+    if (labelA > labelB) return 1;
+    return 0;
+  });
+
+  const dateLine = `${context.dateIso} (${context.dayLabel})`;
+  const subject = `Résumé notifications ${context.dateIso}`;
+
+  const lines = [
+    `Résumé notifications du ${dateLine}.`,
+    "",
+    `Utilisateurs traités : ${totals.total}`,
+    `Envoyés : ${totals.statuses.sent || 0} | Partiels : ${totals.statuses.partial || 0} | Échecs : ${totals.statuses.failed || 0} | Sans envoi : ${totals.statuses.skipped || 0} | Erreurs : ${totals.statuses.error || 0}`,
+    `Notifications réussies : ${totals.successMessages}`,
+    `Notifications en échec : ${totals.failedMessages}`,
+    "",
+  ];
+
+  if (sorted.length) {
+    lines.push("Détails :");
+    sorted.forEach((entry) => {
+      const name = entry.displayName || entry.firstName || entry.uid;
+      const notes = describeEntryNotes(entry);
+      lines.push(
+        `- ${name} (${entry.uid}) — ${statusLabel(entry.status)}. Consignes : ${entry.visibleCount}. Objectifs : ${entry.objectiveCount}. Succès : ${entry.sent}. Échecs : ${entry.failed}. Tokens : ${entry.tokens}. Lien : ${entry.link}${notes ? `. ${notes}` : ""}`
+      );
+    });
+  } else {
+    lines.push("Aucun utilisateur n’avait de notification à envoyer.");
+  }
+
+  const text = lines.join("\n");
+
+  let html = `<div>`;
+  html += `<p>Résumé notifications du <strong>${escapeHtml(context.dateIso)}</strong> (${escapeHtml(context.dayLabel)}).</p>`;
+  html += `<ul>`;
+  html += `<li>Utilisateurs traités : <strong>${totals.total}</strong></li>`;
+  html += `<li>Statuts — Envoyé : ${totals.statuses.sent || 0}, Partiel : ${totals.statuses.partial || 0}, Échec : ${totals.statuses.failed || 0}, Sans envoi : ${totals.statuses.skipped || 0}, Erreur : ${totals.statuses.error || 0}</li>`;
+  html += `<li>Notifications réussies : ${totals.successMessages}</li>`;
+  html += `<li>Notifications en échec : ${totals.failedMessages}</li>`;
+  html += `</ul>`;
+
+  if (sorted.length) {
+    html += `<table style="border-collapse:collapse;width:100%;font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:14px;margin-top:16px;">`;
+    html += `<thead><tr style="background-color:#f1f5f9;text-align:left;">`;
+    html += `<th style="padding:8px;border:1px solid #e2e8f0;">Utilisateur</th>`;
+    html += `<th style="padding:8px;border:1px solid #e2e8f0;">UID</th>`;
+    html += `<th style="padding:8px;border:1px solid #e2e8f0;">Statut</th>`;
+    html += `<th style="padding:8px;border:1px solid #e2e8f0;text-align:right;">Succès</th>`;
+    html += `<th style="padding:8px;border:1px solid #e2e8f0;text-align:right;">Échecs</th>`;
+    html += `<th style="padding:8px;border:1px solid #e2e8f0;text-align:right;">Consignes</th>`;
+    html += `<th style="padding:8px;border:1px solid #e2e8f0;text-align:right;">Objectifs</th>`;
+    html += `<th style="padding:8px;border:1px solid #e2e8f0;text-align:right;">Tokens</th>`;
+    html += `<th style="padding:8px;border:1px solid #e2e8f0;">Notes</th>`;
+    html += `<th style="padding:8px;border:1px solid #e2e8f0;">Lien</th>`;
+    html += `</tr></thead><tbody>`;
+    sorted.forEach((entry) => {
+      const name = entry.displayName || entry.firstName || entry.uid;
+      const notes = describeEntryNotes(entry);
+      const link = escapeHtml(entry.link);
+      html += `<tr>`;
+      html += `<td style="padding:8px;border:1px solid #e2e8f0;">${escapeHtml(name)}</td>`;
+      html += `<td style="padding:8px;border:1px solid #e2e8f0;font-family:monospace;">${escapeHtml(entry.uid)}</td>`;
+      html += `<td style="padding:8px;border:1px solid #e2e8f0;">${escapeHtml(statusLabel(entry.status))}</td>`;
+      html += `<td style="padding:8px;border:1px solid #e2e8f0;text-align:right;">${entry.sent}</td>`;
+      html += `<td style="padding:8px;border:1px solid #e2e8f0;text-align:right;">${entry.failed}</td>`;
+      html += `<td style="padding:8px;border:1px solid #e2e8f0;text-align:right;">${entry.visibleCount}</td>`;
+      html += `<td style="padding:8px;border:1px solid #e2e8f0;text-align:right;">${entry.objectiveCount}</td>`;
+      html += `<td style="padding:8px;border:1px solid #e2e8f0;text-align:right;">${entry.tokens}</td>`;
+      html += `<td style="padding:8px;border:1px solid #e2e8f0;">${escapeHtml(notes)}</td>`;
+      html += `<td style="padding:8px;border:1px solid #e2e8f0;"><a href="${link}">Ouvrir</a></td>`;
+      html += `</tr>`;
+    });
+    html += `</tbody></table>`;
+  } else {
+    html += `<p>Aucun utilisateur n’avait de notification à envoyer.</p>`;
+  }
+
+  html += `<p style="margin-top:16px;font-size:12px;color:#64748b;">Email automatique généré par sendDailyReminders.</p>`;
+  html += `</div>`;
+
+  return { subject, text, html };
+}
+
+function dotStuff(content) {
+  let output = content.replace(/\r?\n/g, "\r\n");
+  if (output.startsWith(".")) {
+    output = `.${output}`;
+  }
+  return output.replace(/\r\n\./g, "\r\n..");
+}
+
+function buildMimeMessage({ from, to, subject, text, html }) {
+  const recipients = Array.isArray(to) ? to : [to];
+  const boundary = `=_daily_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const headers = [
+    `From: ${from}`,
+    `To: ${recipients.join(", ")}`,
+    `Subject: ${subject}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    `Date: ${new Date().toUTCString()}`,
+  ];
+
+  const parts = [];
+  parts.push(
+    `--${boundary}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${text || ""}\r\n`
+  );
+  parts.push(
+    `--${boundary}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${html || ""}\r\n`
+  );
+  parts.push(`--${boundary}--\r\n`);
+
+  return `${headers.join("\r\n")}\r\n\r\n${parts.join("")}`;
+}
+
+function waitForSmtpResponse(socket) {
+  return new Promise((resolve, reject) => {
+    let buffer = "";
+
+    const cleanup = () => {
+      socket.removeListener("data", onData);
+      socket.removeListener("error", onError);
+    };
+
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+
+    const onData = (chunk) => {
+      buffer += chunk.toString();
+      const lines = buffer.split(/\r?\n/).filter(Boolean);
+      if (!lines.length) return;
+      const last = lines[lines.length - 1];
+      const match = last.match(/^(\d{3})([ -])/);
+      if (!match) return;
+      if (match[2] === "-") return;
+      const code = Number(match[1]);
+      cleanup();
+      resolve({ code, lines });
+    };
+
+    socket.on("data", onData);
+    socket.on("error", onError);
+  });
+}
+
+async function sendSmtpCommand(socket, command, { allow = [] } = {}) {
+  socket.write(`${command}\r\n`);
+  const response = await waitForSmtpResponse(socket);
+  const isOk = response.code < 400 && (allow.length === 0 || allow.includes(response.code));
+  if (!isOk) {
+    throw new Error(`SMTP command failed (${command} => ${response.code})`);
+  }
+  return response;
+}
+
+async function sendSmtpEmail({ host, port, secure, user, pass, from, to, subject, text, html, rejectUnauthorized }) {
+  const recipients = Array.isArray(to) ? to : [to];
+  if (!recipients.length) {
+    throw new Error("No recipients provided for summary email");
+  }
+
+  if ((user && !pass) || (!user && pass)) {
+    functions.logger.warn("smtp:auth:incomplete", { hasUser: !!user, hasPass: !!pass });
+  }
+
+  const socket = await new Promise((resolve, reject) => {
+    const connection = tls.connect({ host, port, rejectUnauthorized }, () => {
+      connection.setEncoding("utf8");
+      connection.removeListener("error", onError);
+      resolve(connection);
+    });
+    const onError = (error) => {
+      connection.removeListener("error", onError);
+      reject(error);
+    };
+    connection.once("error", onError);
+  });
+
+  if (!secure) {
+    functions.logger.warn("smtp:insecure", { host, port });
+  }
+
+  try {
+    await waitForSmtpResponse(socket);
+    await sendSmtpCommand(socket, `EHLO ${host}`);
+
+    if (user && pass) {
+      await sendSmtpCommand(socket, "AUTH LOGIN", { allow: [334] });
+      await sendSmtpCommand(socket, Buffer.from(user).toString("base64"), { allow: [334] });
+      await sendSmtpCommand(socket, Buffer.from(pass).toString("base64"), { allow: [235] });
+    }
+
+    await sendSmtpCommand(socket, `MAIL FROM:<${from}>`);
+    for (const recipient of recipients) {
+      await sendSmtpCommand(socket, `RCPT TO:<${recipient}>`, { allow: [250, 251] });
+    }
+
+    await sendSmtpCommand(socket, "DATA", { allow: [354] });
+    const message = buildMimeMessage({ from, to: recipients, subject, text, html });
+    socket.write(`${dotStuff(message)}\r\n.\r\n`);
+    const finalResponse = await waitForSmtpResponse(socket);
+    if (finalResponse.code >= 400) {
+      throw new Error(`SMTP delivery failed (${finalResponse.code})`);
+    }
+    await sendSmtpCommand(socket, "QUIT", { allow: [221] });
+  } finally {
+    try {
+      socket.end();
+    } catch (error) {
+      functions.logger.debug("smtp:socket:end:error", { message: error?.message });
+    }
+  }
+}
+
+async function sendDailySummaryEmail(context, results) {
+  const settings = resolveMailSettings();
+  if (!settings) {
+    functions.logger.warn("mail:config:missing");
+    return;
+  }
+
+  const recipients = resolveSummaryRecipients();
+  if (!recipients.length) {
+    functions.logger.warn("mail:recipients:missing");
+    return;
+  }
+
+  const { subject, text, html } = buildDailySummaryEmail(context, results);
+  await sendSmtpEmail({
+    ...settings,
+    to: recipients,
+    subject,
+    text,
+    html,
+  });
+  functions.logger.info("mail:summary:sent", { recipients, subject });
+}
+
 function buildUserDailyLink(uid, dateIso) {
   return `${DAILY_BASE}#/daily?u=${encodeURIComponent(uid)}&d=${dateIso}`;
 }
