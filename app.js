@@ -740,6 +740,32 @@
     return String(value || "").replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
   }
 
+  function isStandaloneModeActive() {
+    if (typeof window === "undefined") return false;
+    try {
+      if (typeof window.matchMedia === "function") {
+        const media = window.matchMedia("(display-mode: standalone)");
+        if (media && typeof media.matches === "boolean" && media.matches) {
+          return true;
+        }
+      }
+    } catch (error) {
+      // ignore matchMedia errors, fallback to navigator.standalone
+    }
+    return window.navigator?.standalone === true;
+  }
+
+  function isIosDevice() {
+    if (typeof navigator === "undefined") return false;
+    const platform = navigator.platform || "";
+    const userAgent = navigator.userAgent || "";
+    const maxTouchPoints = Number(navigator.maxTouchPoints || 0);
+    const directMatch = /iPad|iPhone|iPod/.test(platform);
+    const ipadOs13Plus = /MacIntel/.test(platform) && maxTouchPoints > 1;
+    const uaMatch = /iphone|ipad|ipod/i.test(userAgent);
+    return directMatch || ipadOs13Plus || uaMatch;
+  }
+
   function isPushSupported() {
     return typeof window !== "undefined" && "Notification" in window && "serviceWorker" in navigator;
   }
@@ -870,6 +896,20 @@
   }
 
   async function preparePushToken({ interactive = false } = {}) {
+    const requiresHomeScreenInstall = isIosDevice() && !isStandaloneModeActive();
+
+    if (interactive && requiresHomeScreenInstall) {
+      const instructions = [
+        "Pour recevoir les notifications sur iPhone/iPad :",
+        "1. Ouvre Habitudes & Pratique dans Safari.",
+        "2. Appuie sur le bouton « Partager » (carré avec une flèche).",
+        "3. Choisis « Ajouter à l’écran d’accueil ».",
+        "4. Ouvre ensuite l’app depuis l’icône créée puis réessaie d’activer les notifications.",
+      ].join("\n");
+      alert(instructions);
+      return null;
+    }
+
     if (!isPushSupported()) {
       if (interactive) alert("Les notifications ne sont pas disponibles sur ce navigateur.");
       return null;
@@ -980,6 +1020,7 @@
     if (!uid) return;
     const pref = getPushPreference(uid);
     const enabled = !!(pref && pref.enabled && pref.token);
+    const requiresHomeScreenInstall = isIosDevice() && !isStandaloneModeActive();
     const selector = `[data-notif-toggle][data-uid="${cssEscape(uid)}"]`;
     queryAll(selector).forEach((btn) => {
       btn.dataset.enabled = enabled ? "1" : "0";
@@ -988,6 +1029,9 @@
       if (!isPushSupported()) {
         btn.disabled = true;
         btn.title = "Notifications non disponibles sur cet appareil";
+      } else if (requiresHomeScreenInstall) {
+        btn.disabled = false;
+        btn.title = "Installe d’abord l’app sur l’écran d’accueil via Safari.";
       } else if (!btn.dataset.loading || btn.dataset.loading === "0") {
         btn.disabled = false;
         btn.title = enabled ? "Désactiver les notifications" : "Activer les notifications";
@@ -999,6 +1043,9 @@
       if (status) {
         if (!isPushSupported()) {
           status.textContent = "Les notifications ne sont pas disponibles sur ce navigateur.";
+        } else if (requiresHomeScreenInstall) {
+          status.textContent =
+            "Pour activer les notifications sur iPhone/iPad, ajoute d’abord l’app à l’écran d’accueil via Safari (Partager > Ajouter à l’écran d’accueil).";
         } else if (enabled) {
           status.textContent = "Notifications actives sur cet appareil. Utilise le menu ⋮ pour les gérer.";
         } else {
