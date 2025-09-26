@@ -919,8 +919,8 @@
         "Pour recevoir les notifications sur iPhone/iPad :",
         "1. Ouvre Habitudes & Pratique dans Safari.",
         "2. Appuie sur le bouton « Partager » (carré avec une flèche).",
-        "3. Choisis « Ajouter à l’écran d’accueil ».",
-        "4. Ouvre ensuite l’app depuis l’icône créée puis réessaie d’activer les notifications.",
+        "3. Choisis « Ajouter à l’écran d’accueil » pour installer l’app.",
+        "4. Depuis l’icône sur l’écran d’accueil, rouvre l’app puis appuie sur « Activer les notifications ».",
       ].join("\n");
       alert(instructions);
       return null;
@@ -1047,7 +1047,8 @@
         btn.title = "Notifications non disponibles sur cet appareil";
       } else if (requiresHomeScreenInstall) {
         btn.disabled = false;
-        btn.title = "Installe d’abord l’app sur l’écran d’accueil via Safari.";
+        btn.title =
+          "Installe d’abord l’app sur l’écran d’accueil via Safari, puis rouvre-la pour appuyer sur « Activer les notifications ».";
       } else if (!btn.dataset.loading || btn.dataset.loading === "0") {
         btn.disabled = false;
         btn.title = enabled ? "Désactiver les notifications" : "Activer les notifications";
@@ -1061,7 +1062,7 @@
           status.textContent = "Les notifications ne sont pas disponibles sur ce navigateur.";
         } else if (requiresHomeScreenInstall) {
           status.textContent =
-            "Pour activer les notifications sur iPhone/iPad, ajoute d’abord l’app à l’écran d’accueil via Safari (Partager > Ajouter à l’écran d’accueil).";
+            "Pour activer les notifications sur iPhone/iPad, ajoute d’abord l’app à l’écran d’accueil via Safari (Partager > Ajouter à l’écran d’accueil), puis ouvre-la depuis l’icône avant d’appuyer sur « Activer les notifications ».";
         } else if (enabled) {
           status.textContent = "Notifications actives sur cet appareil. Utilise le menu ⋮ pour les gérer.";
         } else {
