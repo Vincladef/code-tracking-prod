@@ -2502,19 +2502,19 @@ async function renderDaily(ctx, root, opts = {}) {
   };
 
   const form = document.createElement("form");
-  form.className = "grid gap-8";
+  form.className = "daily-grid";
   card.appendChild(form);
 
   if (!visible.length) {
     const empty = document.createElement("div");
-    empty.className = "rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]";
+    empty.className = "rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)] daily-grid__item";
     empty.innerText = "Aucune consigne visible pour ce jour.";
     form.appendChild(empty);
   } else {
     categoryGroups.forEach(([cat, info]) => {
       const { groups, total } = info;
       const section = document.createElement("section");
-      section.className = "daily-category";
+      section.className = "daily-category daily-grid__item";
       section.innerHTML = `
         <div class="daily-category__header">
           <div class="daily-category__name">${escapeHtml(cat)}</div>
@@ -2575,7 +2575,7 @@ async function renderDaily(ctx, root, opts = {}) {
   }
 
   const actions = document.createElement("div");
-  actions.className = "flex justify-end";
+  actions.className = "flex justify-end daily-grid__item daily-grid__actions";
   actions.innerHTML = `<button type="submit" class="btn btn-primary">Enregistrer</button>`;
   form.appendChild(actions);
 
