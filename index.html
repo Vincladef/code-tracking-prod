@@ -1090,7 +1090,14 @@
           }
 
           if (isiOS && !isStandalone) {
-            alert("Pour ajouter cette app à l’écran d’accueil, ouvre le menu de partage Safari puis choisis « Ajouter à l’écran d’accueil ».");
+            const message = [
+              "Pour installer l’app sur iPhone/iPad :",
+              "1. Ouvre cette page dans Safari.",
+              "2. Appuie sur le bouton « Partager » (carré avec une flèche).",
+              "3. Choisis « Ajouter à l’écran d’accueil ».",
+              "4. Valide avec « Ajouter », puis lance l’app depuis la nouvelle icône.",
+            ].join("\n");
+            alert(message);
             return;
           }
 
