@@ -1,6 +1,7 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const tls = require("tls");
+const { buildReminderBody } = require("./reminder");
 
 admin.initializeApp();
 
@@ -611,39 +612,12 @@ async function countObjectivesDueToday(uid, context) {
   return count;
 }
 
-function pluralize(count, singular, plural = null) {
-  if (count === 1) return singular;
-  return plural || `${singular}s`;
-}
-
 function extractFirstName(profile = {}) {
   const raw = String(profile.name || profile.displayName || "").trim();
   if (!raw) return "";
   const parts = raw.split(/\s+/).filter(Boolean);
   if (!parts.length) return "";
   return parts[0];
-}
-
-function buildReminderBody(firstName, consigneCount, objectiveCount) {
-  const prefix = firstName ? `${firstName}, ` : "";
-  const items = [];
-  if (consigneCount > 0) {
-    items.push(`${consigneCount} ${pluralize(consigneCount, "consigne")} à tracker`);
-  }
-  if (objectiveCount > 0) {
-    items.push(`${objectiveCount} ${pluralize(objectiveCount, "objectif")} à compléter`);
-  }
-  if (!items.length) {
-    return `${prefix}tu n’as rien à tracker aujourd’hui.`;
-  }
-  if (items.length === 1) {
-    return `${prefix}tu as ${items[0]} aujourd’hui.`;
-  }
-  if (items.length === 2) {
-    return `${prefix}tu as ${items[0]} et ${items[1]} aujourd’hui.`;
-  }
-  const last = items.pop();
-  return `${prefix}tu as ${items.join(", ")} et ${last} aujourd’hui.`;
 }
 
 async function collectPushTokens() {
