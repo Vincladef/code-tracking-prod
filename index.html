@@ -229,6 +229,19 @@
       text-transform:uppercase;
     }
 
+    /* Journalier — grille */
+    .daily-grid {
+      display:grid;
+      gap:1.75rem;
+    }
+    .daily-grid__item {
+      grid-column:1 / -1;
+    }
+    .daily-grid__actions {
+      display:flex;
+      justify-content:flex-end;
+    }
+
     /* Journalier — catégories */
     .daily-category {
       position:relative;
@@ -237,6 +250,8 @@
       border:1px solid rgba(148,163,184,.2);
       padding:1.5rem 1.75rem;
       box-shadow:0 14px 32px rgba(15,23,42,.06);
+      display:flex;
+      flex-direction:column;
     }
     .daily-category__header {
       display:flex;
@@ -274,6 +289,7 @@
     .daily-category__items {
       display:grid;
       gap:1.25rem;
+      flex:1 1 auto;
     }
     .daily-category__low {
       margin-top:.25rem;
@@ -393,6 +409,23 @@
       margin-left:1rem;
       border-color:rgba(148,163,184,.28);
       box-shadow:none;
+    }
+
+    @media (min-width: 1024px) {
+      .daily-grid {
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+        align-items:start;
+        gap:2rem;
+      }
+      .daily-grid__item {
+        grid-column:auto;
+      }
+      .daily-grid__actions {
+        grid-column:1 / -1;
+      }
+      .daily-category {
+        height:100%;
+      }
     }
 
     .priority-surface {
