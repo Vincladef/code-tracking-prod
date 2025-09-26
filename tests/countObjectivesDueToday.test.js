@@ -28,4 +28,25 @@ describe("countObjectivesDueToday", () => {
     expect(count).toBe(2);
     expect(fetcher).toHaveBeenCalled();
   });
+
+  test("counts objectives for the Paris first day of a month", async () => {
+    const context = parisContext(new Date("2024-07-31T22:15:00.000Z"));
+    const monthKey = context.dateIso.slice(0, 7);
+    const previousMonthKey = "2024-07";
+
+    const fetcher = makeFetcher({
+      [monthKey]: [
+        {
+          id: "first-day",
+          notifyAt: "2024-08-01T00:00:00+02:00",
+        },
+      ],
+      [previousMonthKey]: [],
+    });
+
+    const count = await countObjectivesDueToday("user", context, { fetchObjectivesByMonth: fetcher });
+    expect(count).toBe(1);
+    expect(fetcher).toHaveBeenCalledWith("user", monthKey);
+    expect(fetcher).toHaveBeenCalledWith("user", previousMonthKey);
+  });
 });
