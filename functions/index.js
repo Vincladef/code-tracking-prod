@@ -602,9 +602,13 @@ async function fetchObjectivesByMonth(uid, monthKey) {
 }
 
 async function countObjectivesDueToday(uid, context, { fetchObjectivesByMonth: fetcher } = {}) {
-  const monthKey = monthKeyFromDate(context.selectedDate);
-  const previousMonth = shiftMonthKey(monthKey, -1);
-  const targetMonths = new Set([monthKey]);
+  const baseMonthKey = toStringOrNull(context?.dateIso)?.slice(0, 7);
+  const monthKey = baseMonthKey || monthKeyFromDate(context.selectedDate);
+  const previousMonth = monthKey ? shiftMonthKey(monthKey, -1) : null;
+  const targetMonths = new Set();
+  if (monthKey) {
+    targetMonths.add(monthKey);
+  }
   if (previousMonth && previousMonth !== monthKey) {
     targetMonths.add(previousMonth);
   }
