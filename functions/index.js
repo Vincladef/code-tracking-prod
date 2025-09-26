@@ -435,13 +435,18 @@ function parisContext(now = new Date()) {
   const midnightLocal = new Date(parisNow);
   midnightLocal.setHours(0, 0, 0, 0);
   const selectedDate = new Date(midnightLocal.getTime() - offsetMs);
+  const year = parisNow.getFullYear();
+  const month = String(parisNow.getMonth() + 1).padStart(2, "0");
+  const day = String(parisNow.getDate()).padStart(2, "0");
 
   return {
     dayLabel,
     selectedDate,
-    dateIso: selectedDate.toISOString().slice(0, 10),
+    dateIso: `${year}-${month}-${day}`,
   };
 }
+
+exports.parisContext = parisContext;
 
 function monthKeyFromDate(date) {
   const dt = date instanceof Date ? new Date(date.getTime()) : new Date(date);
