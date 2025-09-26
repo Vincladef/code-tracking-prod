@@ -461,6 +461,22 @@
     }
   }
 
+  function rememberInstallTargetFromHash(hash) {
+    const normalized = normalizeInstallTargetHash(hash);
+    if (!normalized || !/^#\/u\//.test(normalized)) {
+      return;
+    }
+    try {
+      if (window.__appInstallTarget && typeof window.__appInstallTarget.save === "function") {
+        window.__appInstallTarget.save(normalized);
+      } else {
+        saveInstallTargetHash(normalized);
+      }
+    } catch (error) {
+      console.warn("[install] target:remember", error);
+    }
+  }
+
   function clearInstallTargetHash() {
     const storage = getSafeStorage();
     if (!storage) return;
@@ -1655,12 +1671,14 @@
     ctx.db = db;
     if (typeof Schema.bindDb === "function") Schema.bindDb(db);
     bindNav();
+    rememberInstallTargetFromHash(location.hash || "");
     if (!location.hash || location.hash === "#") {
       routeToDefault();
     } else {
       handleRoute(); // initial render
     }
     window.addEventListener("hashchange", () => {
+      rememberInstallTargetFromHash(location.hash || "");
       appLog("router:hashchange", { hash: location.hash });
       handleRoute();
     }); // navigation
@@ -1724,10 +1742,12 @@
     bindNav();
 
     ctx.route = location.hash || "#/admin";
+    rememberInstallTargetFromHash(ctx.route);
     appLog("app:init:route", { route: ctx.route });
     syncUserActionsContext();
     window.addEventListener("hashchange", () => {
       ctx.route = location.hash || "#/admin";
+      rememberInstallTargetFromHash(ctx.route);
       appLog("app:init:hashchange", { route: ctx.route });
       render();
     });
