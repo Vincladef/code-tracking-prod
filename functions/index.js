@@ -617,7 +617,7 @@ function pluralize(count, singular, plural = null) {
 }
 
 function extractFirstName(profile = {}) {
-  const raw = String(profile.displayName || profile.name || "").trim();
+  const raw = String(profile.name || profile.displayName || "").trim();
   if (!raw) return "";
   const parts = raw.split(/\s+/).filter(Boolean);
   if (!parts.length) return "";
