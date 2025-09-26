@@ -815,39 +815,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       : effectiveCategory
       ? `Journalier — ${effectiveCategory}`
       : "Journalier — toutes les catégories";
-    const categoryFilterMarkup =
-      !providedConsignes && isDaily && dailyCategories.length > 1
-        ? `<label class="practice-dashboard__filter"><span class="practice-dashboard__filter-label">Catégorie</span><select class="practice-dashboard__filter-select" data-category-select><option value="__all__"${effectiveCategory ? "" : " selected"}>Toutes les catégories</option>${dailyCategories
-            .map(
-              (name) =>
-                `<option value="${escapeHtml(name)}"${name === effectiveCategory ? " selected" : ""}>${escapeHtml(name)}</option>`,
-            )
-            .join("")}</select></label>`
-        : "";
-
-    const trendTitle = customTrendTitle
-      ? customTrendTitle
-      : providedConsignes
-      ? "Progression des consignes liées"
-      : isPractice
-      ? "Tendance des itérations"
-      : "Tendance des jours";
-    const detailsTitle = customDetailsTitle
-      ? customDetailsTitle
-      : providedConsignes
-      ? "Historique par consigne"
-      : isPractice
-      ? "Détails par consigne"
-      : "Détails du journal";
-    const chartScrollLabel = providedConsignes
-      ? "Défilement horizontal du graphique des consignes liées"
-      : isPractice
-      ? "Défilement horizontal du graphique des itérations"
-      : "Défilement horizontal du graphique des jours";
-    const tableHintText = isPractice
-      ? "Cliquez sur une cellule pour ajouter ou modifier la note correspondante."
-      : "Cliquez sur une cellule pour mettre à jour la valeur du jour sélectionné.";
-
     const headerMainTitle = providedConsignes
       ? "Progression"
       : isPractice
@@ -874,91 +841,29 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     })();
     const safeHeaderContext = escapeHtml(headerContextText);
 
-    const chartSubtitleText = providedConsignes
-      ? "Comparez les consignes liées et leur évolution."
+    const historySubtitleText = providedConsignes
+      ? "Historique des consignes sélectionnées."
       : isPractice
-      ? "Visualisez la progression de vos sessions récentes."
-      : "Suivez l’évolution de vos journées au fil du temps.";
-
-    const viewToggleMarkup = `
-      <div class="practice-dashboard__view-toggle" data-view-toggle role="tablist" aria-label="Changer la vue">
-        <button type="button" class="practice-dashboard__view-btn is-active" data-view="chart" role="tab" aria-selected="true">Vue graphique</button>
-        <button type="button" class="practice-dashboard__view-btn" data-view="table" role="tab" aria-selected="false" tabindex="-1">Vue tableau</button>
-      </div>`;
-
-    const rangeOptions = [5, 10, 15, 20];
-    const rangeFilterMarkup = iterationMeta.length > 1
-      ? `<label class="practice-dashboard__filter practice-dashboard__filter--inline"><span class="practice-dashboard__filter-label">Période</span><select class="practice-dashboard__filter-select" data-range-select>` +
-        `${rangeOptions
-          .map((value) => {
-            const disabled = iterationMeta.length < value ? " disabled" : "";
-            const selected = currentWindowSize === value ? " selected" : "";
-            const suffix = value > 1 ? "dernières itérations" : "dernière itération";
-            return `<option value="${value}"${disabled}${selected}>${value} ${suffix}</option>`;
-          })
-          .join("")}` +
-        `<option value="__all__"${currentWindowSize == null ? " selected" : ""}>Tout l’historique</option></select></label>`
-      : "";
+      ? "Historique des sessions de pratique, du plus récent au plus ancien."
+      : "Historique quotidien classé par entrée, du plus récent au plus ancien.";
 
     const html = `
-      <div class="goal-modal modal practice-dashboard">
+      <div class="goal-modal modal practice-dashboard practice-dashboard--minimal">
         <div class="goal-modal-card modal-card practice-dashboard__card">
           <div class="practice-dashboard__header">
             <div class="practice-dashboard__title-group">
               <span class="practice-dashboard__context">${safeHeaderContext}</span>
               <h2 class="practice-dashboard__title">${escapeHtml(headerMainTitle)}</h2>
-              <p class="practice-dashboard__subtitle">${escapeHtml(headerSubtitle)}</p>
+              <p class="practice-dashboard__subtitle">${escapeHtml(historySubtitleText)}</p>
             </div>
-            <div class="practice-dashboard__header-actions">
-              ${viewToggleMarkup}
-              ${rangeFilterMarkup}
-              ${categoryFilterMarkup}
-              <button type="button" class="practice-dashboard__close btn btn-ghost" data-close aria-label="Fermer">✕</button>
-            </div>
+            <button type="button" class="practice-dashboard__close btn btn-ghost" data-close aria-label="Fermer">✕</button>
           </div>
           <div class="practice-dashboard__body">
-            <section class="practice-dashboard__section practice-dashboard__section--chart">
-              <div class="practice-dashboard__section-head">
-                <div>
-                  <h3 class="practice-dashboard__section-title">${escapeHtml(trendTitle)}</h3>
-                  <p class="practice-dashboard__section-subtitle">${escapeHtml(chartSubtitleText)}</p>
-                </div>
-              </div>
-              <div class="practice-dashboard__chart-panel">
-                <div class="practice-dashboard__chart-scroll" data-chart-scroll tabindex="0" aria-label="${escapeHtml(chartScrollLabel)}">
-                  <div class="practice-dashboard__chart-card" data-chart-card>
-                    <div class="practice-dashboard__chart-canvas" data-chart-canvas>
-                      <canvas id="practiceCatChart"></canvas>
-                    </div>
-                  </div>
-                </div>
-                <p class="practice-dashboard__chart-caption" data-chart-caption></p>
-              </div>
-              <div class="practice-dashboard__chart-actions">
-                <div class="practice-dashboard__chart-controls" data-chart-select></div>
-              </div>
-            </section>
-            <section class="practice-dashboard__section practice-dashboard__section--table">
-              <div class="practice-dashboard__section-head">
-                <h3 class="practice-dashboard__section-title">${escapeHtml(detailsTitle)}</h3>
-              </div>
-              <div class="practice-dashboard__table-wrapper">
-                <table class="practice-dashboard__matrix">
-                  <thead>
-                    <tr data-matrix-head>
-                      <th scope="col" class="practice-dashboard__matrix-head-consigne">Consigne</th>
-                    </tr>
-                  </thead>
-                  <tbody data-table-body></tbody>
-                </table>
-              </div>
-              <p class="practice-dashboard__hint">${escapeHtml(tableHintText)}</p>
-            </section>
+            <div class="practice-dashboard__history" data-history></div>
           </div>
           <footer class="practice-dashboard__footer">
             <div class="practice-dashboard__footer-actions">
-              <button type="button" class="btn btn-ghost" data-dismiss-dashboard>Annuler</button>
-              <button type="button" class="btn practice-dashboard__save-button" data-primary-action>Enregistrer</button>
+              <button type="button" class="btn btn-ghost" data-dismiss-dashboard>Fermer</button>
             </div>
           </footer>
         </div>
@@ -1019,6 +924,79 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       button.addEventListener("click", close);
     });
     overlay.querySelector("[data-primary-action]")?.addEventListener("click", close);
+
+    const historyContainer = overlay.querySelector("[data-history]");
+
+    function renderHistory() {
+      if (!historyContainer) return;
+      if (!stats.length) {
+        historyContainer.innerHTML = '<p class="practice-dashboard__empty">Aucune consigne à afficher pour le moment.</p>';
+        return;
+      }
+      historyContainer.innerHTML = stats
+        .map((stat) => {
+          const items = (stat.entries || [])
+            .slice()
+            .reverse()
+            .map((entry) => {
+              const meta = iterationMetaByKey.get(entry.date) || null;
+              let pointIndex = Number.isInteger(meta?.index) ? meta.index : -1;
+              if (pointIndex === -1) {
+                pointIndex = stat.timeline.findIndex((point) => point.dateIso === entry.date);
+              }
+              if (pointIndex < 0) return "";
+              const dateLabel = meta?.fullLabel || meta?.label || entry.date;
+              const relativeLabel = formatRelativeDate(meta?.dateObj || entry.date);
+              const valueText = formatValue(stat.type, entry.value);
+              const normalizedValue = valueText == null ? "" : String(valueText).trim();
+              const safeValue = normalizedValue && normalizedValue !== "—" ? escapeHtml(normalizedValue) : "—";
+              const noteText = entry.note && entry.note.trim()
+                ? `<span class="practice-dashboard__history-note">${escapeHtml(entry.note)}</span>`
+                : "";
+              const relativeMarkup = relativeLabel
+                ? `<span class="practice-dashboard__history-date-sub">${escapeHtml(relativeLabel)}</span>`
+                : "";
+              return `
+                <li class="practice-dashboard__history-item">
+                  <button type="button" class="practice-dashboard__history-entry" data-entry data-consigne="${stat.id}" data-index="${pointIndex}">
+                    <span class="practice-dashboard__history-date">
+                      <span class="practice-dashboard__history-date-main">${escapeHtml(dateLabel)}</span>
+                      ${relativeMarkup}
+                    </span>
+                    <span class="practice-dashboard__history-value">${safeValue}</span>
+                    ${noteText}
+                  </button>
+                </li>
+              `;
+            })
+            .filter(Boolean);
+          const entriesMarkup = items.length
+            ? `<ol class="practice-dashboard__history-list">${items.join("")}</ol>`
+            : '<p class="practice-dashboard__empty">Aucune entrée enregistrée pour le moment.</p>';
+          return `
+            <section class="practice-dashboard__history-section" data-id="${stat.id}">
+              <header class="practice-dashboard__history-header">
+                <h3 class="practice-dashboard__history-heading">${escapeHtml(stat.name)}</h3>
+              </header>
+              ${entriesMarkup}
+            </section>
+          `;
+        })
+        .join("");
+    }
+
+    renderHistory();
+
+    historyContainer?.addEventListener("click", (event) => {
+      const target = event.target.closest("[data-entry]");
+      if (!target) return;
+      const consigneId = target.getAttribute("data-consigne");
+      const pointIndex = Number(target.getAttribute("data-index"));
+      if (!Number.isFinite(pointIndex)) return;
+      const stat = stats.find((item) => item.id === consigneId);
+      if (!stat) return;
+      openCellEditor(stat, pointIndex);
+    });
 
     const tableBody = overlay.querySelector("[data-table-body]");
     const headRow = overlay.querySelector("[data-matrix-head]");
@@ -1659,7 +1637,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, stat.id, point.dateIso);
             updateStatAfterEdit(stat, pointIndex, "", "");
             renderMatrix();
-            updateChartForStat(stat);
+            renderHistory();
             panel.remove();
           } catch (err) {
             console.error("practice-dashboard:clear-cell", err);
@@ -1688,7 +1666,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             updateStatAfterEdit(stat, pointIndex, rawValue, note);
           }
           renderMatrix();
-          updateChartForStat(stat);
+          renderHistory();
           panel.remove();
         } catch (err) {
           console.error("practice-dashboard:save-cell", err);
