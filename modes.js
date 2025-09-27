@@ -2461,28 +2461,28 @@ async function renderDaily(ctx, root, opts = {}) {
     const previous = previousAnswers?.get(item.id);
     const itemCard = document.createElement("div");
     const tone = priorityTone(item.priority);
-    itemCard.className = `daily-consigne priority-surface priority-surface-${tone}`;
+    itemCard.className = `daily-consigne consigne-card card p-3 space-y-3 priority-surface priority-surface-${tone}`;
     if (isChild) {
-      itemCard.classList.add("daily-consigne--child");
+      itemCard.classList.add("daily-consigne--child", "consigne-card--child");
       if (item.parentId) {
         itemCard.dataset.parentId = item.parentId;
       } else {
         delete itemCard.dataset.parentId;
       }
     } else {
-      itemCard.classList.add("daily-consigne--parent");
+      itemCard.classList.add("daily-consigne--parent", "consigne-card--parent");
       delete itemCard.dataset.parentId;
     }
     itemCard.innerHTML = `
-      <div class="daily-consigne__top">
-        <div class="daily-consigne__title">
-          <div class="font-semibold">${escapeHtml(item.text)}</div>
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <h4 class="font-semibold">${escapeHtml(item.text)}</h4>
           ${prioChip(Number(item.priority) || 2)}
           ${srBadge(item)}
         </div>
         ${consigneActions()}
       </div>
-      <div class="daily-consigne__field">${inputForType(item, previous?.value ?? null)}</div>
+      ${inputForType(item, previous?.value ?? null)}
     `;
 
     const bH = itemCard.querySelector(".js-histo");
