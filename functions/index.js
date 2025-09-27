@@ -1081,8 +1081,7 @@ exports.manageTopicSubscriptions = functions
     }
   });
 
-async function sendDailyRemindersHandler() {
-  const context = parisContext();
+async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
   functions.logger.info("sendDailyReminders:start", context);
 
   const tokensByUid = await collectPushTokens();
