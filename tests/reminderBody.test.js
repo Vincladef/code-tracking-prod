@@ -21,8 +21,8 @@ function runTests() {
 
   assertEqual(
     buildReminderBody("", 0, 1),
-    "tu as 0 consignes et 1 objectif à remplir aujourd’hui.",
-    "Le message doit afficher zéro consigne explicitement",
+    "tu as 1 objectif à remplir aujourd’hui.",
+    "Le message doit se concentrer sur les objectifs lorsqu’il n’y a pas de consignes",
   );
 
   assertEqual(
