@@ -51,6 +51,8 @@ Cette V1 est **100% front** (HTML/JS modules), déployable sur GitHub Pages, ave
   - `topic`: identifiant de topic FCM.
   - `tokens`: tableau de tokens d’enregistrement.
 
+- `sendDailyRemindersScheduled` — tâche planifiée (Europe/Paris, 6h00) qui exécute `sendDailyRemindersHandler` sans requête HTTP. Cette fonction remplace les déclenchements manuels quotidiens ; conservez l’endpoint `sendDailyReminders` uniquement si un appel manuel reste nécessaire.
+
 Les réponses renvoient les compteurs `successCount`, `failureCount`, la liste des `invalidTokens`, ainsi que l’identifiant du message pour les topics/conditions.
 
 ## Roadmap rapide

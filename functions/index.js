@@ -1081,6 +1081,127 @@ exports.manageTopicSubscriptions = functions
     }
   });
 
+async function sendDailyRemindersHandler() {
+  const context = parisContext();
+  functions.logger.info("sendDailyReminders:start", context);
+
+  const tokensByUid = await collectPushTokens();
+  const results = [];
+
+  for (const [uid, tokens] of tokensByUid.entries()) {
+    const entry = {
+      uid,
+      tokens: tokens.length,
+      visibleCount: 0,
+      objectiveCount: 0,
+      sent: 0,
+      failed: 0,
+      invalidTokens: [],
+      status: "pending",
+      reason: null,
+      error: null,
+      firstName: "",
+      displayName: "",
+      link: buildUserDailyLink(uid, context.dateIso),
+    };
+
+    try {
+      let firstName = "";
+      let displayName = "";
+      try {
+        const profileSnap = await db.collection("u").doc(uid).get();
+        if (profileSnap.exists) {
+          const profileData = profileSnap.data() || {};
+          firstName = extractFirstName(profileData);
+          displayName = profileData.displayName || profileData.name || firstName || "";
+        }
+      } catch (profileError) {
+        functions.logger.warn("sendDailyReminders:profile:error", { uid, error: profileError });
+      }
+
+      entry.firstName = firstName;
+      entry.displayName = displayName;
+
+      entry.visibleCount = await countVisibleConsignes(uid, context);
+      entry.objectiveCount = await countObjectivesDueToday(uid, context);
+
+      if (entry.visibleCount < 1 && entry.objectiveCount < 1) {
+        entry.status = "skipped";
+        entry.reason = "no_visible_items";
+        functions.logger.debug("sendDailyReminders:skip", { uid, reason: "no_visible_items" });
+        results.push(entry);
+        continue;
+      }
+
+      if (!tokens.length) {
+        entry.status = "skipped";
+        entry.reason = "no_tokens";
+        functions.logger.debug("sendDailyReminders:skip", { uid, reason: "no_tokens" });
+        results.push(entry);
+        continue;
+      }
+
+      const response = await sendReminder(
+        uid,
+        tokens,
+        entry.visibleCount,
+        entry.objectiveCount,
+        context,
+        firstName
+      );
+
+      entry.sent = response.successCount;
+      entry.failed = response.failureCount;
+      entry.invalidTokens = response.invalidTokens || [];
+
+      if (entry.sent > 0 && entry.failed > 0) {
+        entry.status = "partial";
+      } else if (entry.sent > 0) {
+        entry.status = "sent";
+      } else if (entry.failed > 0) {
+        entry.status = "failed";
+      } else {
+        entry.status = "skipped";
+        entry.reason = entry.reason || "no_messages";
+      }
+
+      results.push(entry);
+    } catch (err) {
+      entry.status = "error";
+      entry.error = err?.message || String(err);
+      results.push(entry);
+      functions.logger.error("sendDailyReminders:userError", { uid, err });
+    }
+  }
+
+  const breakdown = results.reduce((acc, item) => {
+    const key = item.status || "unknown";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  functions.logger.info("sendDailyReminders:done", {
+    recipients: results.length,
+    breakdown,
+  });
+
+  try {
+    await sendDailySummaryEmail(context, results);
+  } catch (mailError) {
+    functions.logger.error("sendDailyReminders:mail:error", {
+      message: mailError?.message,
+    });
+  }
+
+  return {
+    ok: true,
+    day: context.dayLabel,
+    date: context.dateIso,
+    recipients: results.length,
+    results,
+  };
+}
+
 exports.sendDailyReminders = functions
   .region("europe-west1")
   .https.onRequest(async (req, res) => {
@@ -1095,127 +1216,24 @@ exports.sendDailyReminders = functions
     res.set("Access-Control-Allow-Origin", "*");
 
     try {
-      const context = parisContext();
-      functions.logger.info("sendDailyReminders:start", context);
-
-      const tokensByUid = await collectPushTokens();
-      const results = [];
-
-      for (const [uid, tokens] of tokensByUid.entries()) {
-        const entry = {
-          uid,
-          tokens: tokens.length,
-          visibleCount: 0,
-          objectiveCount: 0,
-          sent: 0,
-          failed: 0,
-          invalidTokens: [],
-          status: "pending",
-          reason: null,
-          error: null,
-          firstName: "",
-          displayName: "",
-          link: buildUserDailyLink(uid, context.dateIso),
-        };
-
-        try {
-          let firstName = "";
-          let displayName = "";
-          try {
-            const profileSnap = await db.collection("u").doc(uid).get();
-            if (profileSnap.exists) {
-              const profileData = profileSnap.data() || {};
-              firstName = extractFirstName(profileData);
-              displayName = profileData.displayName || profileData.name || firstName || "";
-            }
-          } catch (profileError) {
-            functions.logger.warn("sendDailyReminders:profile:error", { uid, error: profileError });
-          }
-
-          entry.firstName = firstName;
-          entry.displayName = displayName;
-
-          entry.visibleCount = await countVisibleConsignes(uid, context);
-          entry.objectiveCount = await countObjectivesDueToday(uid, context);
-
-          if (entry.visibleCount < 1 && entry.objectiveCount < 1) {
-            entry.status = "skipped";
-            entry.reason = "no_visible_items";
-            functions.logger.debug("sendDailyReminders:skip", { uid, reason: "no_visible_items" });
-            results.push(entry);
-            continue;
-          }
-
-          if (!tokens.length) {
-            entry.status = "skipped";
-            entry.reason = "no_tokens";
-            functions.logger.debug("sendDailyReminders:skip", { uid, reason: "no_tokens" });
-            results.push(entry);
-            continue;
-          }
-
-          const response = await sendReminder(
-            uid,
-            tokens,
-            entry.visibleCount,
-            entry.objectiveCount,
-            context,
-            firstName
-          );
-
-          entry.sent = response.successCount;
-          entry.failed = response.failureCount;
-          entry.invalidTokens = response.invalidTokens || [];
-
-          if (entry.sent > 0 && entry.failed > 0) {
-            entry.status = "partial";
-          } else if (entry.sent > 0) {
-            entry.status = "sent";
-          } else if (entry.failed > 0) {
-            entry.status = "failed";
-          } else {
-            entry.status = "skipped";
-            entry.reason = entry.reason || "no_messages";
-          }
-
-          results.push(entry);
-        } catch (err) {
-          entry.status = "error";
-          entry.error = err?.message || String(err);
-          results.push(entry);
-          functions.logger.error("sendDailyReminders:userError", { uid, err });
-        }
-      }
-
-      const breakdown = results.reduce((acc, item) => {
-        const key = item.status || "unknown";
-        acc[key] = (acc[key] || 0) + 1;
-        return acc;
-      }, {});
-
-      functions.logger.info("sendDailyReminders:done", {
-        recipients: results.length,
-        breakdown,
-      });
-
-      try {
-        await sendDailySummaryEmail(context, results);
-      } catch (mailError) {
-        functions.logger.error("sendDailyReminders:mail:error", {
-          message: mailError?.message,
-        });
-      }
-
-      res.json({
-        ok: true,
-        day: context.dayLabel,
-        date: context.dateIso,
-        recipients: results.length,
-        results,
-      });
+      const response = await sendDailyRemindersHandler();
+      res.json(response);
     } catch (error) {
       functions.logger.error("sendDailyReminders:error", error);
       res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+exports.sendDailyRemindersScheduled = functions
+  .region("europe-west1")
+  .pubsub.schedule("0 6 * * *")
+  .timeZone("Europe/Paris")
+  .onRun(async () => {
+    try {
+      return await sendDailyRemindersHandler();
+    } catch (error) {
+      functions.logger.error("sendDailyRemindersScheduled:error", error);
+      throw error;
     }
   });
 
