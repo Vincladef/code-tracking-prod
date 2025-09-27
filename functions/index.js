@@ -30,6 +30,7 @@ const INVALID_TOKEN_ERRORS = new Set([
 ]);
 
 const DOCUMENT_ID_FIELD = admin.firestore.FieldPath.documentId();
+const REMINDER_DATE_FIELDS = ["notifyAt", "notifyDate", "notificationDate"];
 
 function toStringOrNull(value, { trim = true } = {}) {
   if (value === undefined || value === null) return null;
@@ -601,7 +602,7 @@ async function fetchObjectivesByMonth(uid, monthKey) {
   }
 }
 
-async function fetchObjectivesByReminder(uid, dateIso, fields = ["notifyAt", "notifyDate", "notificationDate"]) {
+async function fetchObjectivesByReminder(uid, dateIso, fields = REMINDER_DATE_FIELDS) {
   if (!uid || !dateIso) return [];
   const collectionRef = db.collection("u").doc(uid).collection("objectifs");
   const seen = new Set();
@@ -811,6 +812,127 @@ async function sendReminder(uid, tokens, visibleCount, objectiveCount, context, 
     onInvalidToken: (token) => disableToken(uid, token),
   });
 }
+
+exports.onObjectiveWrite = functions
+  .region("europe-west1")
+  .firestore.document("u/{uid}/objectifs/{objectiveId}")
+  .onWrite(async (change, context) => {
+    const { uid, objectiveId } = context.params;
+    const logContext = { uid, objectiveId };
+
+    if (!uid) {
+      functions.logger.warn("onObjectiveWrite:missingUid", { params: context.params });
+      return;
+    }
+
+    if (!change.after.exists) {
+      functions.logger.debug("onObjectiveWrite:deleted", logContext);
+      return;
+    }
+
+    if (change.before.exists && change.after.exists && change.before.isEqual(change.after)) {
+      functions.logger.debug("onObjectiveWrite:skip", { ...logContext, reason: "no_changes" });
+      return;
+    }
+
+    try {
+      const afterData = change.after.data() || {};
+      const beforeData = change.before.exists ? change.before.data() || {} : null;
+
+      const currentContext = parisContext();
+      const dueIso = objectiveDueDateIso(afterData);
+      const isDueToday = dueIso === currentContext.dateIso;
+
+      const afterNotify = Boolean(afterData.notifyOnTarget);
+      const beforeNotify = beforeData ? Boolean(beforeData.notifyOnTarget) : false;
+      const notifyActivated = afterNotify && !beforeNotify;
+
+      const reminderIso = (value) => {
+        const dateValue = toDate(value);
+        if (dateValue) {
+          return parisContext(dateValue).dateIso;
+        }
+        return toStringOrNull(value);
+      };
+
+      let dateUpdatedToToday = false;
+      for (const field of REMINDER_DATE_FIELDS) {
+        const afterFieldIso = reminderIso(afterData[field]);
+        if (afterFieldIso !== currentContext.dateIso) continue;
+        const beforeFieldIso = beforeData ? reminderIso(beforeData[field]) : null;
+        if (beforeFieldIso === afterFieldIso) continue;
+        dateUpdatedToToday = true;
+        break;
+      }
+
+      if (!afterNotify) {
+        if (notifyActivated || dateUpdatedToToday) {
+          functions.logger.info("onObjectiveWrite:skip", { ...logContext, reason: "notifications_disabled" });
+        }
+        return;
+      }
+
+      if (!notifyActivated && !dateUpdatedToToday) {
+        if (isDueToday) {
+          functions.logger.info("onObjectiveWrite:alreadyNotified", { ...logContext, reason: "no_trigger" });
+        } else {
+          functions.logger.debug("onObjectiveWrite:skip", { ...logContext, reason: "no_trigger" });
+        }
+        return;
+      }
+
+      if (!isDueToday) {
+        functions.logger.debug("onObjectiveWrite:skip", {
+          ...logContext,
+          reason: "not_due_today",
+          dueDate: dueIso,
+        });
+        return;
+      }
+
+      const tokens = await fetchTokensForUid(uid);
+      if (!tokens.length) {
+        functions.logger.info("onObjectiveWrite:noTokens", logContext);
+        return;
+      }
+
+      const objectiveCount = await countObjectivesDueToday(uid, currentContext);
+      if (objectiveCount < 1) {
+        functions.logger.info("onObjectiveWrite:alreadyNotified", {
+          ...logContext,
+          reason: "no_objectives_due",
+        });
+        return;
+      }
+
+      let firstName = "";
+      try {
+        const profileSnap = await db.collection("u").doc(uid).get();
+        if (profileSnap.exists) {
+          firstName = extractFirstName(profileSnap.data() || {});
+        }
+      } catch (error) {
+        functions.logger.warn("onObjectiveWrite:profile:error", {
+          ...logContext,
+          error: error?.message,
+        });
+      }
+
+      const result = await sendReminder(uid, tokens, 0, objectiveCount, currentContext, firstName);
+      functions.logger.info("onObjectiveWrite:sent", {
+        ...logContext,
+        successCount: result.successCount,
+        failureCount: result.failureCount,
+        invalidTokens: result.invalidTokens?.length || 0,
+      });
+    } catch (error) {
+      functions.logger.error("onObjectiveWrite:error", {
+        ...logContext,
+        error: error?.message,
+      });
+      throw error;
+    }
+  });
 
 exports.dispatchPushNotification = functions
   .region("europe-west1")
