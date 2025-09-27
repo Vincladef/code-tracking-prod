@@ -174,7 +174,7 @@ const todayKey = (d = new Date()) => dayKeyFromDate(d); // YYYY-MM-DD
 
 const PRIORITIES = ["high","medium","low"];
 const MODES = ["daily","practice"];
-const TYPES = ["short","long","likert6","likert5","yesno","num"];
+const TYPES = ["short","long","likert6","likert5","yesno","num","info"];
 
 const LIKERT = ["no_answer","no","rather_no","medium","rather_yes","yes"];
 const LIKERT_POINTS = {
@@ -356,6 +356,13 @@ function likertScore(v) {
 
 // calcule la prochaine “masque” (journalier=jours, pratique=sessions)
 function nextCooldownAfterAnswer(meta, prevState, value) {
+  if (meta?.type === "info") {
+    if (prevState) return prevState;
+    if (meta?.mode === "daily") {
+      return { streak: 0, nextVisibleOn: null };
+    }
+    return { streak: 0, nextAllowedIndex: meta?.sessionIndex ?? 0 };
+  }
   // strict : yes=1 ; rather_yes=0.5 ; neutre/plutôt_non/non/no_answer = 0 (reset)
   let inc = 0;
   if (meta.type === "likert6") inc = likertScore(value);
@@ -625,6 +632,7 @@ async function fetchResponsesForConsigne(db, uid, consigneId, limitCount = 200) 
 }
 
 function valueToNumericPoint(type, value) {
+  if (type === "info") return null;
   if (type === "likert6") return LIKERT_POINTS[value] ?? 0;
   if (type === "likert5") return Number(value) || 0;  // 0..4
   if (type === "yesno")   return value === "yes" ? 1 : 0;

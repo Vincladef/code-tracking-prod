@@ -65,6 +65,9 @@ function pill(text) {
   return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full border text-sm" style="border-color:var(--accent-200); background:var(--accent-50); color:#334155;">${escapeHtml(text)}</span>`;
 }
 
+const INFO_RESPONSE_LABEL = "Pas de réponse requise";
+const INFO_STATIC_BLOCK = `<p class="text-sm text-[var(--muted)]" data-static-info>${INFO_RESPONSE_LABEL}</p>`;
+
 function srBadge(c){
   const enabled = c?.srEnabled !== false;
   const title = enabled ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
@@ -222,6 +225,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (type === "num") return "Numérique";
     if (type === "long") return "Texte long";
     if (type === "short") return "Texte court";
+    if (type === "info") return INFO_RESPONSE_LABEL;
     return "Libre";
   }
 
@@ -235,6 +239,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
   };
 
   function formatValue(type, value) {
+    if (type === "info") return INFO_RESPONSE_LABEL;
     if (value === null || value === undefined || value === "") return "—";
     if (type === "yesno") return value === "yes" ? "Oui" : value === "no" ? "Non" : String(value);
     if (type === "likert5") return String(value);
@@ -1014,11 +1019,15 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       if (!Number.isFinite(pointIndex)) return;
       const stat = stats.find((item) => item.id === consigneId);
       if (!stat) return;
+      if (stat.type === "info") return;
       openCellEditor(stat, pointIndex);
     });
 
     function buildValueField(consigne, value, fieldId) {
       const type = consigne?.type || "short";
+      if (type === "info") {
+        return INFO_STATIC_BLOCK;
+      }
       if (type === "num") {
         const current = value === "" || value == null ? "" : Number(value);
         return `<input id="${fieldId}" name="value" type="number" step="0.1" class="practice-editor__input" placeholder="Réponse" value="${Number.isFinite(current) ? escapeHtml(String(current)) : ""}">`;
@@ -1057,9 +1066,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     }
 
     function readValueFromForm(consigne, form) {
+      const type = consigne?.type || "short";
+      if (type === "info") {
+        return "";
+      }
       const field = form.elements.value;
       if (!field) return "";
-      const type = consigne?.type || "short";
       if (type === "long" || type === "short") {
         return (field.value || "").trim();
       }
@@ -1142,6 +1154,9 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     }
 
     function openCellEditor(stat, pointIndex) {
+      if (stat?.type === "info") {
+        return;
+      }
       const point = stat.timeline[pointIndex];
       if (!point) return;
       const consigne = stat.consigne;
@@ -1332,6 +1347,9 @@ function consigneActions() {
 }
 
 function inputForType(consigne, initialValue = null) {
+  if (consigne.type === "info") {
+    return INFO_STATIC_BLOCK;
+  }
   if (consigne.type === "short") {
     const value = escapeHtml(initialValue ?? "");
     return `<input name="short:${consigne.id}" class="w-full" placeholder="Réponse" value="${value}">`;
@@ -1439,6 +1457,9 @@ function collectAnswers(form, consignes, options = {}) {
   const dayKey = options.dayKey || null;
   const answers = [];
   for (const consigne of consignes) {
+    if (consigne.type === "info") {
+      continue;
+    }
     if (consigne.type === "short") {
       const val = form.querySelector(`[name="short:${consigne.id}"]`)?.value?.trim();
       if (val) answers.push({ consigne, value: val, dayKey });
@@ -1582,6 +1603,7 @@ async function openConsigneForm(ctx, consigne = null) {
           <option value="short"   ${consigne?.type === "short"   ? "selected" : ""}>Texte court</option>
           <option value="long"    ${consigne?.type === "long"    ? "selected" : ""}>Texte long</option>
           <option value="num"     ${consigne?.type === "num"     ? "selected" : ""}>Échelle numérique (1–10)</option>
+          <option value="info"    ${consigne?.type === "info"    ? "selected" : ""}>${INFO_RESPONSE_LABEL}</option>
         </select>
       </label>
 
@@ -1690,6 +1712,7 @@ async function openConsigneForm(ctx, consigne = null) {
             <option value="short" ${item.type === "short" ? "selected" : ""}>Texte court</option>
             <option value="long" ${item.type === "long" ? "selected" : ""}>Texte long</option>
             <option value="num" ${item.type === "num" ? "selected" : ""}>Échelle numérique (1–10)</option>
+            <option value="info" ${item.type === "info" ? "selected" : ""}>${INFO_RESPONSE_LABEL}</option>
           </select>
         </div>
         <div class="subconsigne-row__actions">
@@ -1866,6 +1889,9 @@ async function openConsigneForm(ctx, consigne = null) {
 }
 
 function dotColor(type, v){
+  if (type === "info") {
+    return "na";
+  }
   if (type === "likert6") {
     const map = { yes:"ok", rather_yes:"ok", medium:"mid", rather_no:"ko", no:"ko", no_answer:"na" };
     return map[v] || "na";
@@ -1975,6 +2001,7 @@ async function openHistory(ctx, consigne) {
   modesLogger.groupEnd();
 
   function formatValue(type, v) {
+    if (type === 'info') return INFO_RESPONSE_LABEL;
     if (type === 'yesno') return v === 'yes' ? 'Oui' : 'Non';
     if (type === 'likert5') return String(v ?? '—');
     if (type === 'likert6') {
