@@ -70,7 +70,10 @@ jobs:
             const hour = parisNow.getHours();
             const midnightLocal = new Date(parisNow); midnightLocal.setHours(0,0,0,0);
             const selectedDate = new Date(midnightLocal.getTime() - offset);
-            return { dayLabel, selectedDate, dateIso: selectedDate.toISOString().slice(0,10), hour };
+            const year = parisNow.getFullYear();
+            const month = String(parisNow.getMonth() + 1).padStart(2, "0");
+            const day = String(parisNow.getDate()).padStart(2, "0");
+            return { dayLabel, selectedDate, dateIso: `${year}-${month}-${day}`, hour };
           }
 
           function monthKeyFromDate(date){
@@ -368,7 +371,7 @@ jobs:
             if (ctx.hour !== 6 && isManual){
               console.log(`manual override: event=${eventName}, current Paris hour = ${ctx.hour}`);
             }
-            console.log("context", ctx);
+            console.log("context", { ...ctx, selectedDateUtc: ctx.selectedDate?.toISOString?.() });
             const tokensByUid = await collectTokensByUid();
 
             let totalSent = 0;
