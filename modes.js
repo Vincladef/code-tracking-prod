@@ -66,7 +66,7 @@ function pill(text) {
 }
 
 const INFO_RESPONSE_LABEL = "Pas de réponse requise";
-const INFO_STATIC_BLOCK = `<p class="text-sm text-[var(--muted)]" data-static-info>${INFO_RESPONSE_LABEL}</p>`;
+const INFO_STATIC_BLOCK = `<p class="text-sm text-[var(--muted)]" data-static-info></p>`;
 
 function srBadge(c){
   const enabled = c?.srEnabled !== false;
@@ -225,7 +225,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (type === "num") return "Numérique";
     if (type === "long") return "Texte long";
     if (type === "short") return "Texte court";
-    if (type === "info") return INFO_RESPONSE_LABEL;
+    if (type === "info") return "";
     return "Libre";
   }
 
@@ -239,7 +239,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
   };
 
   function formatValue(type, value) {
-    if (type === "info") return INFO_RESPONSE_LABEL;
+    if (type === "info") return "";
     if (value === null || value === undefined || value === "") return "—";
     if (type === "yesno") return value === "yes" ? "Oui" : value === "no" ? "Non" : String(value);
     if (type === "likert5") return String(value);
@@ -740,12 +740,13 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const accentProgress = withAlpha(baseColor, priority === 1 ? 0.88 : priority === 2 ? 0.66 : 0.45);
       const rowAccent = withAlpha(baseColor, priority === 1 ? 0.65 : priority === 2 ? 0.45 : 0.35);
 
-      const scoreDisplay =
+      const rawScoreDisplay =
         averageNormalized != null
           ? percentFormatter.format(averageNormalized)
           : averageNumeric != null
           ? numberFormatter.format(averageNumeric)
           : "—";
+      const scoreDisplay = consigne.type === "info" ? "" : rawScoreDisplay;
       const scoreTitle =
         averageNormalized != null
           ? consigne.type === "likert5"
@@ -928,7 +929,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               const relativeLabel = formatRelativeDate(meta?.dateObj || entry.date);
               const valueText = formatValue(stat.type, entry.value);
               const normalizedValue = valueText == null ? "" : String(valueText).trim();
-              const safeValue = normalizedValue && normalizedValue !== "—" ? escapeHtml(normalizedValue) : "—";
+              const fallbackValue = stat.type === "info" ? "" : "—";
+              const safeValue = normalizedValue && normalizedValue !== "—" ? escapeHtml(normalizedValue) : fallbackValue;
               const noteMarkup = entry.note && entry.note.trim()
                 ? `<span class="practice-dashboard__history-note">${escapeHtml(entry.note)}</span>`
                 : "";
@@ -973,6 +975,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             : "";
           const totalEntries = stat.totalEntries || 0;
           const entriesLabel = totalEntries > 1 ? `${totalEntries} entrées` : `${totalEntries} entrée`;
+          const typeChip = stat.typeLabel ? `<span class="practice-dashboard__chip">${escapeHtml(stat.typeLabel)}</span>` : "";
           return `
             <section class="practice-dashboard__history-section" data-id="${stat.id}"${accentStyle}>
               <header class="practice-dashboard__history-header">
@@ -982,18 +985,18 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
                 </div>
                 <div class="practice-dashboard__history-tags">
                   <span class="practice-dashboard__chip">Priorité ${escapeHtml(stat.priorityLabel)}</span>
-                  <span class="practice-dashboard__chip">${escapeHtml(stat.typeLabel)}</span>
+                  ${typeChip}
                   <span class="practice-dashboard__chip">${escapeHtml(entriesLabel)}</span>
                 </div>
               </header>
               <div class="practice-dashboard__history-summary" role="list">
                 <div class="practice-dashboard__history-summary-item" role="listitem">
                   <span class="practice-dashboard__history-summary-label">Dernière valeur</span>
-                  <span class="practice-dashboard__history-summary-value">${escapeHtml(stat.lastFormatted || "—")}</span>
+                  <span class="practice-dashboard__history-summary-value">${escapeHtml(stat.lastFormatted || (stat.type === "info" ? "" : "—"))}</span>
                 </div>
                 <div class="practice-dashboard__history-summary-item" role="listitem">
                   <span class="practice-dashboard__history-summary-label">Moyenne</span>
-                  <span class="practice-dashboard__history-summary-value" title="${escapeHtml(stat.averageTitle)}">${escapeHtml(stat.averageDisplay || "—")}</span>
+                  <span class="practice-dashboard__history-summary-value" title="${escapeHtml(stat.averageTitle)}">${escapeHtml(stat.averageDisplay || (stat.type === "info" ? "" : "—"))}</span>
                 </div>
                 <div class="practice-dashboard__history-summary-item" role="listitem">
                   <span class="practice-dashboard__history-summary-label">Dernière mise à jour</span>
@@ -1123,11 +1126,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         ? numericValues.reduce((acc, value) => acc + value, 0) / numericValues.length
         : null;
       stat.averageNormalized = normalizeScore(stat.type, stat.averageNumeric);
-      stat.averageDisplay = stat.averageNormalized != null
+      const updatedAverageDisplay = stat.averageNormalized != null
         ? percentFormatter.format(stat.averageNormalized)
         : stat.averageNumeric != null
         ? numberFormatter.format(stat.averageNumeric)
         : "—";
+      stat.averageDisplay = stat.type === "info" ? "" : updatedAverageDisplay;
       stat.averageTitle = stat.averageNormalized != null
         ? stat.type === "likert5"
           ? "Score converti en pourcentage sur une échelle de 0 à 4."
@@ -2001,7 +2005,7 @@ async function openHistory(ctx, consigne) {
   modesLogger.groupEnd();
 
   function formatValue(type, v) {
-    if (type === 'info') return INFO_RESPONSE_LABEL;
+    if (type === 'info') return '';
     if (type === 'yesno') return v === 'yes' ? 'Oui' : 'Non';
     if (type === 'likert5') return String(v ?? '—');
     if (type === 'likert6') {
