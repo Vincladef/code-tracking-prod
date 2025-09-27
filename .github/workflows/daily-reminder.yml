@@ -47,6 +47,13 @@ jobs:
             const short = key.slice(0,3);
             return DAY_NORMALIZE[short] || null;
           }
+          function toStringOrNull(value, { trim = true } = {}) {
+            if (value === undefined || value === null) return null;
+            const str = String(value);
+            if (!trim) return str;
+            const trimmed = str.trim();
+            return trimmed.length ? trimmed : null;
+          }
           function toDate(v){
             if(!v) return null;
             if(v instanceof Date) return v;
@@ -64,6 +71,224 @@ jobs:
             const midnightLocal = new Date(parisNow); midnightLocal.setHours(0,0,0,0);
             const selectedDate = new Date(midnightLocal.getTime() - offset);
             return { dayLabel, selectedDate, dateIso: selectedDate.toISOString().slice(0,10), hour };
+          }
+
+          function monthKeyFromDate(date){
+            const dt = date instanceof Date ? new Date(date.getTime()) : new Date(date);
+            if (Number.isNaN(dt.getTime())) return "";
+            return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+          }
+
+          function parseMonthKey(monthKey){
+            const [yearStr, monthStr] = String(monthKey || "").split("-");
+            const year = Number(yearStr);
+            const month = Number(monthStr);
+            if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) return null;
+            return { year, month };
+          }
+
+          function shiftMonthKey(baseKey, offset){
+            if (!Number.isFinite(offset)) return baseKey;
+            const parsed = parseMonthKey(baseKey);
+            if (!parsed) return baseKey;
+            const base = new Date(parsed.year, parsed.month - 1 + offset, 1);
+            return monthKeyFromDate(base);
+          }
+
+          function normalizedWeekday(value){
+            return ((value % 7) + 7) % 7;
+          }
+
+          function mondayIndexFromSundayIndex(value){
+            return normalizedWeekday(value + 6);
+          }
+
+          function weekSegmentDaysInMonth(segment, targetYear, targetMonthIndex){
+            if (!segment || !segment.start || !segment.end) return 0;
+            let count = 0;
+            const cursor = new Date(segment.start.getTime());
+            for (let step = 0; step < 7; step += 1){
+              if (cursor.getFullYear() === targetYear && cursor.getMonth() === targetMonthIndex){
+                count += 1;
+              }
+              cursor.setDate(cursor.getDate() + 1);
+            }
+            return count;
+          }
+
+          function monthWeekSegments(monthKey){
+            const parsed = parseMonthKey(monthKey);
+            if (!parsed) return [];
+            const { year, month } = parsed;
+            const totalDays = new Date(year, month, 0).getDate();
+            if (!totalDays) return [];
+            const firstDay = new Date(year, month - 1, 1);
+            const firstWeekday = mondayIndexFromSundayIndex(firstDay.getDay());
+            const baseStartDay = 1 - firstWeekday;
+            const rawSegments = [];
+            for (let index = 1, startDay = baseStartDay; startDay <= totalDays; index += 1, startDay += 7){
+              const endDay = startDay + 6;
+              const start = new Date(year, month - 1, startDay);
+              const end = new Date(year, month - 1, endDay);
+              rawSegments.push({ index, start, end, startDay, endDay });
+            }
+            const monthIndex = month - 1;
+            const filtered = rawSegments.filter(segment => weekSegmentDaysInMonth(segment, year, monthIndex) >= 4);
+            if (!filtered.length) return rawSegments;
+            return filtered.map((segment, idx) => ({ ...segment, index: idx + 1 }));
+          }
+
+          function weekDateRange(monthKey, weekIndex){
+            if (!weekIndex) return null;
+            const segments = monthWeekSegments(monthKey);
+            if (!segments.length) return null;
+            const target = segments.find(segment => segment.index === Number(weekIndex));
+            if (!target) return null;
+            return { start: target.start, end: target.end };
+          }
+
+          function theoreticalObjectiveDate(objective){
+            const explicitEnd = toDate(objective?.endDate);
+            if (explicitEnd){
+              explicitEnd.setHours(0,0,0,0);
+              return explicitEnd;
+            }
+            if (objective?.type === "hebdo"){
+              const range = weekDateRange(objective.monthKey, objective.weekOfMonth || 1);
+              if (range?.end){
+                const end = new Date(range.end.getTime());
+                end.setHours(0,0,0,0);
+                return end;
+              }
+            }
+            if (objective?.type === "mensuel"){
+              const parsed = parseMonthKey(objective.monthKey);
+              if (parsed){
+                const end = new Date(parsed.year, parsed.month, 0);
+                end.setHours(0,0,0,0);
+                return end;
+              }
+            }
+            const fallback = toDate(objective?.startDate);
+            if (fallback){
+              fallback.setHours(0,0,0,0);
+              return fallback;
+            }
+            return null;
+          }
+
+          function customObjectiveReminderDate(objective){
+            if (!objective) return null;
+            const raw = objective.notifyAt ?? objective.notifyDate ?? objective.notificationDate ?? null;
+            const customDate = toDate(raw);
+            if (!customDate) return null;
+            const { selectedDate, dateIso } = parisContext(customDate);
+            return { selectedDate, dateIso };
+          }
+
+          function objectiveDueDateIso(objective){
+            if (!objective) return null;
+            const custom = customObjectiveReminderDate(objective);
+            if (custom?.dateIso) return custom.dateIso;
+            const theoretical = theoreticalObjectiveDate(objective);
+            if (!theoretical) return null;
+            const { dateIso } = parisContext(theoretical);
+            return dateIso;
+          }
+
+          async function fetchObjectivesByMonth(uid, monthKey){
+            if (!uid || !monthKey) return [];
+            try {
+              const snap = await db.collection("u").doc(uid).collection("objectifs").where("monthKey", "==", monthKey).get();
+              return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            } catch (error) {
+              console.warn("fetchObjectivesByMonth:error", { uid, monthKey, error: error?.message });
+              return [];
+            }
+          }
+
+          async function fetchObjectivesByReminder(uid, dateIso, fields = ["notifyAt", "notifyDate", "notificationDate"]){
+            if (!uid || !dateIso) return [];
+            const collectionRef = db.collection("u").doc(uid).collection("objectifs");
+            const seen = new Set();
+            const objectives = [];
+            await Promise.all(fields.map(async field => {
+              try {
+                const snap = await collectionRef.where(field, "==", dateIso).get();
+                snap.forEach(doc => {
+                  if (seen.has(doc.id)) return;
+                  seen.add(doc.id);
+                  objectives.push({ id: doc.id, ...doc.data() });
+                });
+              } catch (error) {
+                console.warn("fetchObjectivesByReminder:error", { uid, field, dateIso, error: error?.message });
+              }
+            }));
+            return objectives;
+          }
+
+          async function countObjectivesDueToday(uid, context){
+            const baseMonthKey = toStringOrNull(context?.dateIso)?.slice(0,7);
+            const monthKey = baseMonthKey || monthKeyFromDate(context.selectedDate);
+            const previousMonth = monthKey ? shiftMonthKey(monthKey, -1) : null;
+            const targetMonths = new Set();
+            if (monthKey) targetMonths.add(monthKey);
+            if (previousMonth && previousMonth !== monthKey) targetMonths.add(previousMonth);
+
+            const objectiveMap = new Map();
+
+            for (const key of targetMonths){
+              const rows = await fetchObjectivesByMonth(uid, key);
+              for (const row of rows){
+                if (!row || !row.id) continue;
+                objectiveMap.set(row.id, row);
+              }
+            }
+
+            const reminderIso = toStringOrNull(context?.dateIso);
+            if (reminderIso){
+              const reminderRows = await fetchObjectivesByReminder(uid, reminderIso);
+              for (const row of reminderRows){
+                if (!row || !row.id) continue;
+                objectiveMap.set(row.id, row);
+              }
+            }
+
+            const objectives = Array.from(objectiveMap.values());
+            let count = 0;
+            for (const objective of objectives){
+              if (objective?.notifyOnTarget === false) continue;
+              const iso = objectiveDueDateIso(objective);
+              if (!iso) continue;
+              if (iso === context.dateIso) count += 1;
+            }
+            return count;
+          }
+
+          function pluralize(count, singular, plural = null){
+            if (count === 1) return singular;
+            return plural || `${singular}s`;
+          }
+
+          function buildReminderBody(firstName, consigneCount, objectiveCount){
+            const prefix = firstName ? `${firstName}, ` : "";
+            if (consigneCount === 0 && objectiveCount === 0){
+              return `${prefix}tu n’as rien à remplir aujourd’hui.`;
+            }
+            const objectiveLabel = pluralize(objectiveCount, "objectif");
+            if (consigneCount === 0){
+              return `${prefix}tu as ${objectiveCount} ${objectiveLabel} à remplir aujourd’hui.`;
+            }
+            const consigneLabel = pluralize(consigneCount, "consigne");
+            return `${prefix}tu as ${consigneCount} ${consigneLabel} et ${objectiveCount} ${objectiveLabel} à remplir aujourd’hui.`;
+          }
+
+          function extractFirstName(profile = {}){
+            const raw = String(profile.name || profile.displayName || "").trim();
+            if (!raw) return "";
+            const parts = raw.split(/\s+/).filter(Boolean);
+            if (!parts.length) return "";
+            return parts[0];
           }
 
           function isInvalidToken(code){
@@ -149,26 +374,41 @@ jobs:
             let totalSent = 0;
             for (const [uid, tokSet] of tokensByUid.entries()){
               const tokens = Array.from(tokSet);
-              const count = await countVisibleDaily(uid, ctx);
-              if (count < 1) {
-                console.log(`skip uid=${uid} (0 visible)`);
+              const visibleCount = await countVisibleDaily(uid, ctx);
+              const objectiveCount = await countObjectivesDueToday(uid, ctx);
+              if (visibleCount < 1 && objectiveCount < 1) {
+                console.log(`skip uid=${uid} reason=no_visible_items,no_objectives`);
                 continue;
               }
 
               const profSnap = await db.doc(`u/${uid}`).get();
               const prof = profSnap.exists ? (profSnap.data() || {}) : {};
+              const firstName = extractFirstName(prof);
               const userName = prof.name || prof.displayName || prof.slug || "toi";
+              const title = firstName ? `${firstName}, rappel du jour 👋` : "Rappel du jour 👋";
+              const body = buildReminderBody(firstName, visibleCount, objectiveCount);
+              const link = "https://vincladef.github.io/code-tracking-prod/#/daily";
 
               const message = {
                 tokens,
                 notification: {
-                  title: `Rappel du jour — ${userName}`,
-                  body: `${userName}, tu as ${count} consigne${count>1?"s":""} à remplir aujourd’hui.`
+                  title,
+                  body
                 },
                 webpush: {
-                  fcmOptions: { link: "https://vincladef.github.io/code-tracking-prod/#/daily" }
+                  fcmOptions: { link }
                 },
-                data: { user: String(userName), count: String(count), day: ctx.dayLabel }
+                data: {
+                  user: String(userName),
+                  firstName: String(firstName || ""),
+                  count: String(visibleCount),
+                  consignes: String(visibleCount),
+                  objectifs: String(objectiveCount),
+                  day: ctx.dayLabel,
+                  body,
+                  title,
+                  link
+                }
               };
 
               const res = await messaging.sendEachForMulticast(message);
@@ -178,7 +418,7 @@ jobs:
                   disableToken(uid, tokens[i]);
                 }
               });
-              console.log(`uid=${uid} -> sent=${res.successCount}, failed=${res.failureCount}`);
+              console.log(`uid=${uid} -> sent=${res.successCount}, failed=${res.failureCount}, visible=${visibleCount}, objectives=${objectiveCount}`);
             }
             console.log("done: sent", totalSent);
           }
