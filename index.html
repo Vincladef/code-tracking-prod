@@ -413,8 +413,9 @@
 
     @media (min-width: 1024px) {
       .daily-grid {
-        grid-template-columns:repeat(auto-fit, minmax(360px, 1fr));
+        grid-template-columns:repeat(auto-fit, minmax(360px, min(420px, 100%)));
         justify-content:center;
+        justify-items:center;
         align-items:start;
         gap:2rem;
       }
