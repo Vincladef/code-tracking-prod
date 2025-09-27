@@ -8,8 +8,11 @@ function buildReminderBody(firstName, consigneCount, objectiveCount) {
   if (consigneCount === 0 && objectiveCount === 0) {
     return `${prefix}tu n’as rien à remplir aujourd’hui.`;
   }
-  const consigneLabel = pluralize(consigneCount, "consigne");
   const objectiveLabel = pluralize(objectiveCount, "objectif");
+  if (consigneCount === 0) {
+    return `${prefix}tu as ${objectiveCount} ${objectiveLabel} à remplir aujourd’hui.`;
+  }
+  const consigneLabel = pluralize(consigneCount, "consigne");
   return `${prefix}tu as ${consigneCount} ${consigneLabel} et ${objectiveCount} ${objectiveLabel} à remplir aujourd’hui.`;
 }
 
