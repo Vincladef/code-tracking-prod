@@ -1998,6 +1998,7 @@ async function renderPractice(ctx, root, _opts = {}) {
   root.innerHTML = "";
   const container = document.createElement("div");
   container.className = "space-y-4";
+  container.classList.add("w-full", "max-w-4xl", "mx-auto");
   root.appendChild(container);
 
   const currentHash = ctx.route || window.location.hash || "#/practice";
@@ -2310,6 +2311,7 @@ async function renderDaily(ctx, root, opts = {}) {
   root.innerHTML = "";
   const container = document.createElement("div");
   container.className = "space-y-4";
+  container.classList.add("w-full", "max-w-4xl", "mx-auto");
   root.appendChild(container);
 
   const currentHash = ctx.route || window.location.hash || "#/daily";
