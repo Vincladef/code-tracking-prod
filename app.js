@@ -409,6 +409,8 @@
 
   const INSTALL_TARGET_STORAGE_KEY = "hp::install::target";
   const INSTALL_TARGET_QUERY_PARAM = "installTarget";
+  let currentInstallShortcutSuffix = "";
+  let currentInstallShortcutTarget = null;
 
   function normalizeInstallTargetHash(hash) {
     if (!hash || typeof hash !== "string") return null;
@@ -516,6 +518,7 @@
     if (!normalized || !/^#\/u\//.test(normalized)) {
       return;
     }
+    currentInstallShortcutTarget = normalized;
     try {
       writeInstallTargetToQuery(normalized);
       if (window.__appInstallTarget && typeof window.__appInstallTarget.save === "function") {
@@ -526,17 +529,25 @@
     } catch (error) {
       console.warn("[install] target:remember", error);
     }
+    syncInstallShortcutManifest("set-target").catch(() => {});
   }
 
   function clearInstallTargetHash() {
+    currentInstallShortcutTarget = null;
     const storage = getSafeStorage();
-    if (!storage) return;
+    if (storage) {
+      try {
+        storage.removeItem(INSTALL_TARGET_STORAGE_KEY);
+      } catch (error) {
+        console.warn("[install] target:clear", error);
+      }
+    }
     try {
-      storage.removeItem(INSTALL_TARGET_STORAGE_KEY);
       writeInstallTargetToQuery(null);
     } catch (error) {
-      console.warn("[install] target:clear", error);
+      console.warn("[install] target:clear:query", error);
     }
+    syncInstallShortcutManifest("clear-target").catch(() => {});
   }
 
   window.__appInstallTarget = {
@@ -579,6 +590,7 @@
     let baseManifestPromise = null;
     let currentBlobUrl = null;
     let lastSuffix = null;
+    let lastTarget = null;
 
     function cleanupBlobUrl() {
       if (!currentBlobUrl) return;
@@ -656,17 +668,43 @@
       return result;
     }
 
-    async function applySuffix(nextSuffix) {
+    function computeStartUrl(baseUrl, normalizedTarget) {
+      const fallbackStart = manifestFallback.start_url || "./";
+      const baseValue = typeof baseUrl === "string" && baseUrl.trim() ? baseUrl.trim() : fallbackStart;
+      const [pathAndQueryPart = "", baseHash = ""] = baseValue.split("#");
+      const [pathPartRaw = "", searchPart = ""] = pathAndQueryPart.split("?");
+      const pathPart = pathPartRaw || (fallbackStart.includes("?") ? fallbackStart.split("?")[0] : fallbackStart) || "./";
+      const searchParams = new URLSearchParams(searchPart || "");
+      if (normalizedTarget) {
+        searchParams.set(INSTALL_TARGET_QUERY_PARAM, normalizedTarget);
+      } else {
+        searchParams.delete(INSTALL_TARGET_QUERY_PARAM);
+      }
+      const searchString = searchParams.toString();
+      const query = searchString ? `?${searchString}` : "";
+      let hash = "";
+      if (normalizedTarget) {
+        hash = normalizedTarget.startsWith("#") ? normalizedTarget : `#${normalizedTarget}`;
+      } else if (baseHash) {
+        hash = `#${baseHash}`;
+      }
+      return `${pathPart}${query}${hash}`;
+    }
+
+    async function applySuffix(nextSuffix, targetUrl) {
       const targetSuffix = (nextSuffix || "").trim();
-      if (lastSuffix === targetSuffix) {
+      const normalizedTarget = normalizeInstallTargetHash(targetUrl) || null;
+      if (lastSuffix === targetSuffix && lastTarget === normalizedTarget) {
         return;
       }
       lastSuffix = targetSuffix;
+      lastTarget = normalizedTarget;
       const baseData = await ensureBaseManifest();
       const manifestSource = baseData || manifestFallback;
       const baseName = manifestSource?.name || BASE_TITLE;
       const baseShortName = manifestSource?.short_name || BASE_SHORT_APP_NAME;
-      if (!targetSuffix) {
+      const baseStartUrl = manifestSource?.start_url || manifestFallback.start_url || "./";
+      if (!targetSuffix && !normalizedTarget) {
         cleanupBlobUrl();
         if (manifestLink && originalHref) {
           manifestLink.setAttribute("href", originalHref);
@@ -679,6 +717,7 @@
       const manifestCopy = JSON.parse(JSON.stringify(manifestSource || {}));
       manifestCopy.name = computeLabel(baseName, targetSuffix, 60);
       manifestCopy.short_name = computeLabel(baseShortName, targetSuffix, 30);
+      manifestCopy.start_url = computeStartUrl(baseStartUrl, normalizedTarget);
       if (appleTitleMeta) {
         appleTitleMeta.setAttribute("content", computeLabel(baseAppleTitle, targetSuffix, 48));
       }
@@ -699,6 +738,29 @@
     return { applySuffix };
   })();
 
+  function syncInstallShortcutManifest(context) {
+    if (!installShortcutManager || typeof installShortcutManager.applySuffix !== "function") {
+      return Promise.resolve();
+    }
+    return installShortcutManager.applySuffix(currentInstallShortcutSuffix, currentInstallShortcutTarget).catch((error) => {
+      if (context) {
+        console.warn(`[install] manifest:${context}`, error);
+      } else {
+        console.warn("[install] manifest", error);
+      }
+      throw error;
+    });
+  }
+
+  const storedInstallShortcutTarget =
+    window.__appInstallTarget && typeof window.__appInstallTarget.load === "function"
+      ? window.__appInstallTarget.load()
+      : null;
+  if (storedInstallShortcutTarget && /^#\/u\//.test(storedInstallShortcutTarget)) {
+    currentInstallShortcutTarget = storedInstallShortcutTarget;
+  }
+  syncInstallShortcutManifest("startup").catch(() => {});
+
   function normalizeInstallSuffix(rawValue) {
     if (typeof rawValue !== "string") {
       return "";
@@ -715,7 +777,8 @@
 
   async function updateInstallShortcutLabel(rawValue) {
     const suffix = normalizeInstallSuffix(rawValue);
-    await installShortcutManager.applySuffix(suffix);
+    currentInstallShortcutSuffix = suffix;
+    await syncInstallShortcutManifest("label");
   }
 
   function safeUpdateInstallShortcutLabel(rawValue, context) {
