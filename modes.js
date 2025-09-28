@@ -2436,7 +2436,7 @@ async function renderDaily(ctx, root, opts = {}) {
           <span aria-hidden="true">→</span>
         </button>
       </div>
-      <div class="ml-auto flex items-center gap-2">${smallBtn("📊 Tableau de bord", "js-dashboard")}${smallBtn("+ Nouvelle consigne", "js-new")}</div>
+      <div class="daily-header-actions flex items-center gap-2">${smallBtn("📊 Tableau de bord", "js-dashboard")}${smallBtn("+ Nouvelle consigne", "js-new")}</div>
     </div>
   `;
   container.appendChild(card);
