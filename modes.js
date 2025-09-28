@@ -2068,7 +2068,7 @@ async function renderPractice(ctx, root, _opts = {}) {
   ].map((part) => String(part)).join(":");
 
   const card = document.createElement("section");
-  card.className = "card p-4 space-y-4";
+  card.className = "card space-y-4 p-3 sm:p-4";
   card.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-2">
@@ -2421,7 +2421,7 @@ async function renderDaily(ctx, root, opts = {}) {
   const isTodaySelected = Schema.todayKey() === selectedKey;
 
   const card = document.createElement("section");
-  card.className = "card p-4 space-y-4";
+  card.className = "card space-y-4 p-3 sm:p-4";
   card.innerHTML = `
     <div class="flex flex-wrap items-center gap-2">
       <div class="day-nav" data-day-nav>
