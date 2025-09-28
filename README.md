@@ -14,7 +14,7 @@ Cette V1 est **100% front** (HTML/JS modules), déployable sur GitHub Pages, ave
 └── firebase.json (optionnel si vous utilisez GitHub Pages)
 ```
 
-## Pré-requis Firebase
+## Pré-requis Firebase !
 1. Créez (ou réutilisez) un projet Firebase.
 2. Activez **Authentication → Sign-in method → Anonymous**.
 3. Activez **Firestore** en mode production.
