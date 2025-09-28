@@ -412,6 +412,66 @@
   let currentInstallShortcutSuffix = "";
   let currentInstallShortcutTarget = null;
 
+  function serializeInstallTargetCookieValue(normalized) {
+    const params = new URLSearchParams();
+    params.set(INSTALL_TARGET_QUERY_PARAM, normalized);
+    return params.toString();
+  }
+
+  function readInstallTargetFromCookie() {
+    if (typeof document === "undefined" || typeof document.cookie !== "string") {
+      return null;
+    }
+    try {
+      const prefix = `${INSTALL_TARGET_STORAGE_KEY}=`;
+      const rawCookie = document.cookie
+        .split(";")
+        .map((part) => part.trim())
+        .find((part) => part.startsWith(prefix));
+      if (!rawCookie) return null;
+      const serialized = rawCookie.slice(prefix.length);
+      if (!serialized) return null;
+      const params = new URLSearchParams(serialized);
+      const rawValue = params.get(INSTALL_TARGET_QUERY_PARAM);
+      const normalized = normalizeInstallTargetHash(rawValue);
+      if (!normalized) {
+        clearInstallTargetCookie();
+      }
+      return normalized;
+    } catch (error) {
+      console.warn("[install] target:cookie:read", error);
+      return null;
+    }
+  }
+
+  function writeInstallTargetCookie(normalized) {
+    if (typeof document === "undefined") {
+      return false;
+    }
+    try {
+      const serialized = serializeInstallTargetCookieValue(normalized);
+      const maxAge = 60 * 60 * 24 * 365; // 1 an
+      const secureFlag = window.location?.protocol === "https:" ? " Secure;" : "";
+      document.cookie = `${INSTALL_TARGET_STORAGE_KEY}=${serialized}; Max-Age=${maxAge}; Path=/; SameSite=Lax;${secureFlag}`;
+      return true;
+    } catch (error) {
+      console.warn("[install] target:cookie:write", error);
+      return false;
+    }
+  }
+
+  function clearInstallTargetCookie() {
+    if (typeof document === "undefined") {
+      return;
+    }
+    try {
+      const secureFlag = window.location?.protocol === "https:" ? " Secure;" : "";
+      document.cookie = `${INSTALL_TARGET_STORAGE_KEY}=; Max-Age=0; Path=/; SameSite=Lax;${secureFlag}`;
+    } catch (error) {
+      console.warn("[install] target:cookie:clear", error);
+    }
+  }
+
   function normalizeInstallTargetHash(hash) {
     if (!hash || typeof hash !== "string") return null;
     const trimmed = hash.trim();
@@ -488,29 +548,39 @@
     const fromQuery = readInstallTargetFromQuery();
     if (fromQuery) return fromQuery;
     const storage = getSafeStorage();
-    if (!storage) return null;
-    try {
-      const raw = storage.getItem(INSTALL_TARGET_STORAGE_KEY);
-      return normalizeInstallTargetHash(raw);
-    } catch (error) {
-      console.warn("[install] target:load", error);
-      return null;
+    if (storage) {
+      try {
+        const raw = storage.getItem(INSTALL_TARGET_STORAGE_KEY);
+        const normalized = normalizeInstallTargetHash(raw);
+        if (normalized) return normalized;
+        if (raw) {
+          storage.removeItem(INSTALL_TARGET_STORAGE_KEY);
+        }
+      } catch (error) {
+        console.warn("[install] target:load", error);
+      }
     }
+    return readInstallTargetFromCookie();
   }
 
   function saveInstallTargetHash(hash) {
     const normalized = normalizeInstallTargetHash(hash);
     if (!normalized) return false;
     writeInstallTargetToQuery(normalized);
+    let persisted = false;
     const storage = getSafeStorage();
-    if (!storage) return false;
-    try {
-      storage.setItem(INSTALL_TARGET_STORAGE_KEY, normalized);
-      return true;
-    } catch (error) {
-      console.warn("[install] target:save", error);
-      return false;
+    if (storage) {
+      try {
+        storage.setItem(INSTALL_TARGET_STORAGE_KEY, normalized);
+        persisted = true;
+      } catch (error) {
+        console.warn("[install] target:save", error);
+      }
     }
+    if (writeInstallTargetCookie(normalized)) {
+      persisted = true;
+    }
+    return persisted;
   }
 
   function rememberInstallTargetFromHash(hash) {
@@ -520,11 +590,15 @@
     }
     currentInstallShortcutTarget = normalized;
     try {
-      writeInstallTargetToQuery(normalized);
-      if (window.__appInstallTarget && typeof window.__appInstallTarget.save === "function") {
+      const persisted = saveInstallTargetHash(normalized);
+      if (
+        window.__appInstallTarget &&
+        typeof window.__appInstallTarget.save === "function" &&
+        window.__appInstallTarget.save !== saveInstallTargetHash
+      ) {
         window.__appInstallTarget.save(normalized);
-      } else {
-        saveInstallTargetHash(normalized);
+      } else if (!persisted) {
+        console.warn("[install] target:remember:persist", "no persistence layer available");
       }
     } catch (error) {
       console.warn("[install] target:remember", error);
@@ -542,6 +616,7 @@
         console.warn("[install] target:clear", error);
       }
     }
+    clearInstallTargetCookie();
     try {
       writeInstallTargetToQuery(null);
     } catch (error) {
