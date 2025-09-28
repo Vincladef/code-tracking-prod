@@ -23,6 +23,12 @@
       const INSTALL_TARGET_STORAGE_KEY = "hp::install::target";
       const INSTALL_TARGET_QUERY_PARAM = "installTarget";
 
+      function serializeInstallTargetCookieValue(normalized) {
+        const params = new URLSearchParams();
+        params.set(INSTALL_TARGET_QUERY_PARAM, normalized);
+        return params.toString();
+      }
+
       function normalizeInstallTarget(hash) {
         if (!hash || typeof hash !== "string") return null;
         const trimmed = hash.trim();
@@ -42,6 +48,59 @@
         }
         const normalizedHash = `#/${segments.filter(Boolean).join("/")}`;
         return searchPart ? `${normalizedHash}?${searchPart}` : normalizedHash;
+      }
+
+      function readInstallTargetCookie() {
+        if (typeof document === "undefined" || typeof document.cookie !== "string") return null;
+        try {
+          const prefix = `${INSTALL_TARGET_STORAGE_KEY}=`;
+          const rawCookie = document.cookie
+            .split(";")
+            .map((part) => part.trim())
+            .find((part) => part.startsWith(prefix));
+          if (!rawCookie) return null;
+          const serialized = rawCookie.slice(prefix.length);
+          if (!serialized) return null;
+          const params = new URLSearchParams(serialized);
+          const rawValue = params.get(INSTALL_TARGET_QUERY_PARAM);
+          const normalized = normalizeInstallTarget(rawValue);
+          if (!normalized) {
+            clearStoredInstallTarget();
+          }
+          return normalized;
+        } catch (error) {
+          console.warn("[install] target:cookie:read", error);
+          return null;
+        }
+      }
+
+      function writeInstallTargetCookie(normalized) {
+        if (typeof document === "undefined") return false;
+        try {
+          const serialized = serializeInstallTargetCookieValue(normalized);
+          const maxAge = 60 * 60 * 24 * 365;
+          const secureFlag = window.location?.protocol === "https:" ? " Secure;" : "";
+          document.cookie = `${INSTALL_TARGET_STORAGE_KEY}=${serialized}; Max-Age=${maxAge}; Path=/; SameSite=Lax;${secureFlag}`;
+          return true;
+        } catch (error) {
+          console.warn("[install] target:cookie:write", error);
+          return false;
+        }
+      }
+
+      function clearStoredInstallTarget() {
+        try {
+          const storage = window.localStorage;
+          storage?.removeItem(INSTALL_TARGET_STORAGE_KEY);
+        } catch (error) {
+          console.warn("[install] target:storage:clear", error);
+        }
+        try {
+          const secureFlag = window.location?.protocol === "https:" ? " Secure;" : "";
+          document.cookie = `${INSTALL_TARGET_STORAGE_KEY}=; Max-Age=0; Path=/; SameSite=Lax;${secureFlag}`;
+        } catch (error) {
+          console.warn("[install] target:cookie:clear", error);
+        }
       }
 
       function readInstallTargetFromQuery() {
@@ -78,13 +137,28 @@
       function readStoredInstallTarget() {
         try {
           const storage = window.localStorage;
-          if (!storage) return null;
-          const raw = storage.getItem(INSTALL_TARGET_STORAGE_KEY);
-          return normalizeInstallTarget(raw);
+          if (storage) {
+            const raw = storage.getItem(INSTALL_TARGET_STORAGE_KEY);
+            const normalized = normalizeInstallTarget(raw);
+            if (normalized) return normalized;
+            if (raw) {
+              storage.removeItem(INSTALL_TARGET_STORAGE_KEY);
+            }
+          }
         } catch (error) {
           console.warn("[install] target:read", error);
-          return null;
         }
+        const fromCookie = readInstallTargetCookie();
+        if (fromCookie) {
+          writeInstallTargetCookie(fromCookie);
+          try {
+            const storage = window.localStorage;
+            storage?.setItem(INSTALL_TARGET_STORAGE_KEY, fromCookie);
+          } catch (error) {
+            console.warn("[install] target:storage:sync", error);
+          }
+        }
+        return fromCookie;
       }
 
       const queryTarget = readInstallTargetFromQuery();
