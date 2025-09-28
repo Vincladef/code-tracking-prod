@@ -353,6 +353,8 @@
     .daily-grid {
       display:grid;
       gap:1.75rem;
+      grid-template-columns:minmax(0, 1fr);
+      justify-items:stretch;
     }
     .daily-grid__item {
       grid-column:1 / -1;
@@ -360,6 +362,7 @@
     .daily-grid__actions {
       display:flex;
       justify-content:flex-end;
+      width:100%;
     }
 
     /* Journalier — catégories */
