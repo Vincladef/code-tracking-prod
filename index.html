@@ -355,9 +355,13 @@
       gap:1.75rem;
       grid-template-columns:minmax(0, 1fr);
       justify-items:stretch;
+      width:100%;
+      box-sizing:border-box;
     }
     .daily-grid__item {
       grid-column:1 / -1;
+      width:100%;
+      box-sizing:border-box;
     }
     .daily-grid__actions {
       display:flex;
@@ -375,6 +379,8 @@
       box-shadow:0 14px 32px rgba(15,23,42,.06);
       display:flex;
       flex-direction:column;
+      width:100%;
+      box-sizing:border-box;
     }
     .daily-category__header {
       display:flex;
@@ -418,6 +424,9 @@
       align-self:center;
     }
     @media (max-width: 480px) {
+      .daily-category {
+        padding:1.25rem 1.35rem;
+      }
       .daily-category__header {
         align-items:flex-start;
         flex-wrap:wrap;
@@ -428,6 +437,11 @@
         text-align:left;
         align-self:flex-start;
         width:100%;
+      }
+      .consigne-card--child {
+        margin-left:0;
+        padding-left:.75rem;
+        border-left:2px solid rgba(148,163,184,.28);
       }
     }
     .daily-category__items {
@@ -490,6 +504,8 @@
       padding:.35rem .85rem .9rem;
       border-radius:.85rem;
       background:rgba(148,163,184,.08);
+      width:100%;
+      box-sizing:border-box;
     }
     .consigne-group__summary {
       list-style:none;
