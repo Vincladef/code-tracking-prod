@@ -53,6 +53,7 @@ window.firestoreAPI = window.firestoreAPI || (firestoreCompat
       updateDoc: (ref, data) => ref.update(data),
       limit: (count) => (ref) => ref.limit(count),
       serverTimestamp: () => firebaseCompat.firestore.FieldValue.serverTimestamp(),
+      deleteField: () => firebaseCompat.firestore.FieldValue.delete(),
     }
   : {
       getFirestore: () => missingFirestoreWarning(),
@@ -69,6 +70,7 @@ window.firestoreAPI = window.firestoreAPI || (firestoreCompat
       updateDoc: () => missingFirestoreWarning(),
       limit: () => missingFirestoreWarning(),
       serverTimestamp: () => missingFirestoreWarning(),
+      deleteField: () => missingFirestoreWarning(),
     });
 
 Schema.firestore = Schema.firestore || window.firestoreAPI;
@@ -87,6 +89,7 @@ const {
   updateDoc,
   limit,
   serverTimestamp,
+  deleteField,
 } = Schema.firestore;
 
 const snapshotExists =
@@ -394,6 +397,46 @@ async function resetSRForConsigne(db, uid, consigneId) {
     nextAllowedIndex: 0,
     nextVisibleOn: today
   });
+}
+
+async function delayConsigne({ db, uid, consigne, mode, amount, sessionIndex }) {
+  if (!db) throw new Error("Firestore manquant");
+  if (!uid) throw new Error("Utilisateur manquant");
+  if (!consigne?.id) throw new Error("Consigne invalide");
+  if (consigne?.srEnabled === false) {
+    throw new Error("SR_DISABLED");
+  }
+
+  const parsed = Number(amount);
+  if (!Number.isFinite(parsed)) {
+    throw new Error("INVALID_AMOUNT");
+  }
+  const rounded = Math.round(parsed);
+  if (rounded < 1) {
+    throw new Error("INVALID_AMOUNT");
+  }
+
+  const canDeleteField = typeof deleteField === "function";
+  const state = { streak: 0 };
+  state.hideUntil = canDeleteField ? deleteField() : null;
+
+  if (mode === "daily") {
+    const skips = Math.max(0, rounded - 1);
+    state.nextVisibleOn = nextVisibleDateFrom(new Date(), consigne?.days || [], skips);
+    state.nextAllowedIndex = canDeleteField ? deleteField() : null;
+  } else if (mode === "practice") {
+    const currentIndex = Number(sessionIndex ?? 0);
+    if (!Number.isFinite(currentIndex)) {
+      throw new Error("INVALID_SESSION_INDEX");
+    }
+    state.nextAllowedIndex = (currentIndex + 1) + rounded;
+    state.nextVisibleOn = canDeleteField ? deleteField() : null;
+  } else {
+    throw new Error("INVALID_MODE");
+  }
+
+  await upsertSRState(db, uid, consigne.id, "consigne", state);
+  return state;
 }
 
 // answers: [{ consigne, value, sessionId?, sessionIndex?, sessionNumber? }]
@@ -991,6 +1034,7 @@ Object.assign(Schema, {
   likertScore,
   nextCooldownAfterAnswer,
   resetSRForConsigne,
+  delayConsigne,
   saveResponses,
   countPracticeSessions,
   fetchPracticeSessions,
