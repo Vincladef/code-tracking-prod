@@ -21,46 +21,90 @@
       })();
 
       const INSTALL_TARGET_STORAGE_KEY = "hp::install::target";
+      const INSTALL_TARGET_QUERY_PARAM = "installTarget";
+
+      function normalizeInstallTarget(hash) {
+        if (!hash || typeof hash !== "string") return null;
+        const trimmed = hash.trim();
+        if (!trimmed) return null;
+        if (/^#\/admin(?:\/|\?|$)/.test(trimmed)) {
+          const [rawPath = "", searchPart = ""] = trimmed.split("?");
+          const segments = rawPath.replace(/^#\/+/g, "").split("/");
+          const normalizedHash = `#/${segments.filter(Boolean).join("/") || "admin"}`;
+          return searchPart ? `${normalizedHash}?${searchPart}` : normalizedHash;
+        }
+        if (!/^#\/u\//.test(trimmed)) return null;
+        const [rawPath = "", searchPart = ""] = trimmed.split("?");
+        const segments = rawPath.replace(/^#\/+/g, "").split("/");
+        if (!segments[1]) return null; // nécessite au moins un UID
+        if (segments.length < 3 || !segments[2]) {
+          segments[2] = "daily";
+        }
+        const normalizedHash = `#/${segments.filter(Boolean).join("/")}`;
+        return searchPart ? `${normalizedHash}?${searchPart}` : normalizedHash;
+      }
+
+      function readInstallTargetFromQuery() {
+        if (typeof URL !== "function") return null;
+        try {
+          const url = new URL(window.location.href);
+          const raw = url.searchParams.get(INSTALL_TARGET_QUERY_PARAM);
+          if (!raw) return null;
+          const normalized = normalizeInstallTarget(raw);
+          if (!normalized) {
+            cleanupInstallTargetQuery();
+            return null;
+          }
+          return normalized;
+        } catch (error) {
+          console.warn("[install] target:query:read", error);
+          return null;
+        }
+      }
+
+      function cleanupInstallTargetQuery() {
+        if (typeof URL !== "function" || typeof window.history?.replaceState !== "function") return;
+        try {
+          const url = new URL(window.location.href);
+          if (!url.searchParams.has(INSTALL_TARGET_QUERY_PARAM)) return;
+          url.searchParams.delete(INSTALL_TARGET_QUERY_PARAM);
+          const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+          window.history.replaceState(null, "", nextUrl);
+        } catch (error) {
+          console.warn("[install] target:query:cleanup", error);
+        }
+      }
 
       function readStoredInstallTarget() {
         try {
           const storage = window.localStorage;
           if (!storage) return null;
           const raw = storage.getItem(INSTALL_TARGET_STORAGE_KEY);
-          if (!raw || typeof raw !== "string") return null;
-          const trimmed = raw.trim();
-          if (!trimmed) return null;
-          if (/^#\/admin(?:\/|\?|$)/.test(trimmed)) {
-            const [rawPath = "", searchPart = ""] = trimmed.split("?");
-            const segments = rawPath.replace(/^#\/+/g, "").split("/");
-            const normalizedHash = `#/${segments.filter(Boolean).join("/") || "admin"}`;
-            return searchPart ? `${normalizedHash}?${searchPart}` : normalizedHash;
-          }
-          if (!/^#\/u\//.test(trimmed)) return null;
-          const [rawPath = "", searchPart = ""] = trimmed.split("?");
-          const segments = rawPath.replace(/^#\/+/g, "").split("/");
-          if (!segments[1]) return null; // nécessite au moins un UID
-          if (segments.length < 3 || !segments[2]) {
-            segments[2] = "daily";
-          }
-          const normalizedHash = `#/${segments.filter(Boolean).join("/")}`;
-          return searchPart ? `${normalizedHash}?${searchPart}` : normalizedHash;
+          return normalizeInstallTarget(raw);
         } catch (error) {
           console.warn("[install] target:read", error);
           return null;
         }
       }
 
-      const storedTarget = readStoredInstallTarget();
+      const queryTarget = readInstallTargetFromQuery();
+      const storedTarget = queryTarget ? null : readStoredInstallTarget();
+      const targetHash = queryTarget || storedTarget || "#/daily";
+
       if (isStandaloneDisplay) {
-        const targetHash = storedTarget || "#/daily";
         const normalized = targetHash.replace(/^#/, "");
         if (window.location.hash !== `#${normalized}`) {
           window.location.hash = normalized;
         }
+        if (queryTarget) {
+          cleanupInstallTargetQuery();
+        }
         return;
       }
 
+      if (queryTarget) {
+        cleanupInstallTargetQuery();
+      }
       const target = new URL("admin.html", window.location.href);
       window.location.replace(target.toString());
     })();
