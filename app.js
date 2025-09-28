@@ -408,6 +408,7 @@
   let foregroundListenerBound = false;
 
   const INSTALL_TARGET_STORAGE_KEY = "hp::install::target";
+  const INSTALL_TARGET_QUERY_PARAM = "installTarget";
 
   function normalizeInstallTargetHash(hash) {
     if (!hash || typeof hash !== "string") return null;
@@ -435,7 +436,55 @@
     return searchPart ? `${normalizedPath}?${searchPart}` : normalizedPath;
   }
 
+  function readInstallTargetFromQuery() {
+    if (typeof window === "undefined" || typeof URL !== "function") {
+      return null;
+    }
+    try {
+      const url = new URL(window.location.href);
+      const raw = url.searchParams.get(INSTALL_TARGET_QUERY_PARAM);
+      if (!raw) return null;
+      const normalized = normalizeInstallTargetHash(raw);
+      if (!normalized) {
+        // Nettoyage du paramètre invalide pour éviter les incohérences
+        writeInstallTargetToQuery(null);
+      }
+      return normalized;
+    } catch (error) {
+      console.warn("[install] target:query:read", error);
+      return null;
+    }
+  }
+
+  function writeInstallTargetToQuery(normalized) {
+    if (typeof window === "undefined" || typeof URL !== "function") {
+      return false;
+    }
+    try {
+      const url = new URL(window.location.href);
+      const current = url.searchParams.get(INSTALL_TARGET_QUERY_PARAM);
+      if (normalized) {
+        if (current === normalized) return true;
+        url.searchParams.set(INSTALL_TARGET_QUERY_PARAM, normalized);
+      } else if (!current) {
+        return true;
+      } else {
+        url.searchParams.delete(INSTALL_TARGET_QUERY_PARAM);
+      }
+      const nextUrl = url.toString();
+      if (nextUrl !== window.location.href && typeof window.history?.replaceState === "function") {
+        window.history.replaceState(null, "", nextUrl);
+      }
+      return true;
+    } catch (error) {
+      console.warn("[install] target:query:write", error);
+      return false;
+    }
+  }
+
   function loadInstallTargetHash() {
+    const fromQuery = readInstallTargetFromQuery();
+    if (fromQuery) return fromQuery;
     const storage = getSafeStorage();
     if (!storage) return null;
     try {
@@ -450,6 +499,7 @@
   function saveInstallTargetHash(hash) {
     const normalized = normalizeInstallTargetHash(hash);
     if (!normalized) return false;
+    writeInstallTargetToQuery(normalized);
     const storage = getSafeStorage();
     if (!storage) return false;
     try {
@@ -467,6 +517,7 @@
       return;
     }
     try {
+      writeInstallTargetToQuery(normalized);
       if (window.__appInstallTarget && typeof window.__appInstallTarget.save === "function") {
         window.__appInstallTarget.save(normalized);
       } else {
@@ -482,6 +533,7 @@
     if (!storage) return;
     try {
       storage.removeItem(INSTALL_TARGET_STORAGE_KEY);
+      writeInstallTargetToQuery(null);
     } catch (error) {
       console.warn("[install] target:clear", error);
     }
