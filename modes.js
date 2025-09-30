@@ -2251,7 +2251,7 @@ async function renderPractice(ctx, root, _opts = {}) {
     };
 
     const grouped = groupConsignes(visible);
-    grouped.forEach((group) => {
+    const renderGroup = (group, target) => {
       const wrapper = document.createElement("div");
       wrapper.className = "consigne-group";
       const parentCard = makeItem(group.consigne, { isChild: false });
@@ -2269,8 +2269,25 @@ async function renderPractice(ctx, root, _opts = {}) {
         details.appendChild(list);
         wrapper.appendChild(details);
       }
-      form.appendChild(wrapper);
-    });
+      target.appendChild(wrapper);
+    };
+
+    const highs = grouped.filter((group) => (group.consigne.priority || 2) <= 2);
+    const lows = grouped.filter((group) => (group.consigne.priority || 2) >= 3);
+
+    highs.forEach((group) => renderGroup(group, form));
+
+    if (lows.length) {
+      const lowDetails = document.createElement("details");
+      lowDetails.className = "daily-category__low";
+      const lowCount = lows.reduce((acc, group) => acc + 1 + group.children.length, 0);
+      lowDetails.innerHTML = `<summary class="daily-category__low-summary">Priorité basse (${lowCount})</summary>`;
+      const lowStack = document.createElement("div");
+      lowStack.className = "daily-category__items daily-category__items--nested";
+      lows.forEach((group) => renderGroup(group, lowStack));
+      lowDetails.appendChild(lowStack);
+      form.appendChild(lowDetails);
+    }
 
     if (typeof window.attachConsignesDragDrop === "function") {
       window.attachConsignesDragDrop(form, ctx);
