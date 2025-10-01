@@ -553,14 +553,14 @@
       cursor:pointer;
     }
     .consigne-card__toggle::after {
-      content:"▸";
+      content:"▾";
       font-size:.75rem;
       margin-left:auto;
       color:var(--muted);
-      transition:transform .2s ease;
+      transition:transform .2s ease, color .2s ease;
     }
-    .consigne-card--active .consigne-card__toggle::after {
-      transform:rotate(90deg);
+    .consigne-card--picker-open .consigne-card__toggle::after {
+      transform:rotate(180deg);
       color:var(--accent-400);
     }
     .consigne-card__toggle:focus-visible {
@@ -573,6 +573,26 @@
       min-width:0;
       word-break:break-word;
     }
+    .consigne-card__value {
+      flex:0 0 auto;
+      display:inline-flex;
+      align-items:center;
+      gap:.25rem;
+      font-size:.85rem;
+      padding:.1rem .4rem;
+      border-radius:.5rem;
+      background:rgba(15,23,42,.06);
+      color:#0f172a;
+      max-width:12rem;
+      white-space:nowrap;
+      text-overflow:ellipsis;
+      overflow:hidden;
+    }
+    .consigne-card__value--placeholder {
+      background:transparent;
+      color:var(--muted);
+      font-weight:500;
+    }
     .consigne-card__aside {
       display:flex;
       align-items:center;
@@ -584,34 +604,20 @@
     .consigne-card__aside > * {
       flex-shrink:0;
     }
-    .consigne-card__content {
-      display:flex;
-      align-items:flex-start;
-      gap:.75rem;
-      min-width:0;
-      flex:1 1 45%;
-      width:100%;
-    }
-    .consigne-card__content[hidden] {
-      display:none !important;
-    }
-    .consigne-card__body {
-      display:flex;
-      flex-direction:column;
-      align-items:stretch;
-      gap:.75rem;
-      width:100%;
-    }
-    .consigne-card__body > * {
-      margin:0;
+    .consigne-card__field-store {
+      display:none;
     }
     @media (max-width: 640px) {
       .consigne-card__header {
         flex-wrap:wrap;
         align-items:flex-start;
+        gap:.5rem;
       }
-      .consigne-card__content {
-        flex:1 1 100%;
+      .consigne-card__value {
+        order:3;
+        width:100%;
+        justify-content:flex-start;
+        max-width:100%;
       }
       .consigne-card__aside {
         margin-left:0;
@@ -642,6 +648,110 @@
       background:var(--accent-50);
       border-color:var(--accent-200);
       color:#0f172a;
+    }
+    .consigne-picker {
+      position:absolute;
+      z-index:60;
+      min-width:13rem;
+      max-width:90vw;
+      padding:.75rem;
+      border-radius:.75rem;
+      border:1px solid rgba(148,163,184,.4);
+      background:#fff;
+      box-shadow:0 18px 40px -22px rgba(15,23,42,.45);
+    }
+    .consigne-picker__options {
+      display:flex;
+      flex-direction:column;
+      gap:.35rem;
+    }
+    .consigne-picker__option {
+      display:flex;
+      align-items:center;
+      justify-content:flex-start;
+      padding:.45rem .65rem;
+      border-radius:.5rem;
+      border:1px solid transparent;
+      background:#f8fafc;
+      color:#0f172a;
+      font-size:.9rem;
+      cursor:pointer;
+      transition:background .15s ease, border-color .15s ease, color .15s ease;
+    }
+    .consigne-picker__option:hover,
+    .consigne-picker__option:focus-visible {
+      outline:none;
+      background:var(--accent-50);
+      border-color:var(--accent-200);
+      color:#0f172a;
+    }
+    .consigne-picker__option.is-active {
+      background:var(--accent-100);
+      border-color:var(--accent-200);
+      color:#0f172a;
+      font-weight:600;
+    }
+    .consigne-picker__range {
+      display:flex;
+      flex-direction:column;
+      gap:.65rem;
+    }
+    .consigne-picker__range-value {
+      font-weight:600;
+      text-align:center;
+      font-size:1rem;
+      color:#0f172a;
+    }
+    .consigne-picker__actions {
+      display:flex;
+      justify-content:flex-end;
+      gap:.5rem;
+      margin-top:.75rem;
+    }
+    .consigne-picker__action {
+      border-radius:.5rem;
+      padding:.45rem .8rem;
+      font-size:.85rem;
+      border:1px solid #cbd5f5;
+      background:#fff;
+      color:#0f172a;
+      cursor:pointer;
+      transition:background .15s ease, color .15s ease, border-color .15s ease;
+    }
+    .consigne-picker__action:hover,
+    .consigne-picker__action:focus-visible {
+      outline:none;
+      background:var(--accent-50);
+      border-color:var(--accent-200);
+    }
+    .consigne-picker__action--primary {
+      background:var(--accent-500);
+      border-color:var(--accent-500);
+      color:#fff;
+    }
+    .consigne-picker__action--primary:hover,
+    .consigne-picker__action--primary:focus-visible {
+      background:var(--accent-600);
+      border-color:var(--accent-600);
+    }
+    .consigne-picker__form {
+      display:flex;
+      flex-direction:column;
+      gap:.75rem;
+    }
+    .consigne-picker__input {
+      width:100%;
+      border-radius:.6rem;
+      border:1px solid rgba(148,163,184,.55);
+      padding:.5rem .65rem;
+      font-size:.9rem;
+      resize:vertical;
+      min-height:2.25rem;
+    }
+    .consigne-picker__input:focus {
+      outline:none;
+      border-color:var(--accent-400);
+      box-shadow:0 0 0 3px rgba(96,165,250,.25);
     }
     .consigne-menu__panel {
       position:absolute;
