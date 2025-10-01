@@ -513,26 +513,155 @@
       display:grid;
       gap:1.1rem;
     }
-    .daily-consigne__actions {
+    .consigne-card__header {
       display:flex;
-      flex:0 0 auto;
       align-items:center;
-      gap:.25rem;
-      font-size:.78rem;
+      gap:.75rem;
+      flex-wrap:wrap;
     }
-    .daily-consigne__actions .btn {
-      padding:.25rem .6rem;
+    .consigne-card__toggle {
+      display:flex;
+      align-items:center;
+      gap:.5rem;
+      flex:1 1 auto;
+      min-width:0;
+      background:none;
       border:none;
-      background:transparent;
-      color:var(--muted);
-      font-size:.78rem;
-      font-weight:500;
+      padding:0;
+      font:inherit;
+      font-weight:600;
+      color:inherit;
+      text-align:left;
+      cursor:pointer;
     }
-    .daily-consigne__actions .btn:hover,
-    .daily-consigne__actions .btn:focus-visible {
-      color:var(--text);
-      background:var(--accent-50);
+    .consigne-card__toggle::after {
+      content:"▸";
+      font-size:.75rem;
+      margin-left:auto;
+      color:var(--muted);
+      transition:transform .2s ease;
+    }
+    .consigne-card--open .consigne-card__toggle::after {
+      transform:rotate(90deg);
+      color:var(--accent-400);
+    }
+    .consigne-card__toggle:focus-visible {
+      outline:2px solid var(--accent-400);
+      outline-offset:2px;
       border-radius:.5rem;
+    }
+    .consigne-card__title {
+      flex:1 1 auto;
+      min-width:0;
+      word-break:break-word;
+    }
+    .consigne-card__aside {
+      display:flex;
+      align-items:center;
+      gap:.4rem;
+      flex:0 0 auto;
+      margin-left:auto;
+    }
+    .consigne-card__content {
+      overflow:hidden;
+      transition:height .2s ease, opacity .2s ease;
+    }
+    .consigne-card__toolbar {
+      display:flex;
+      justify-content:flex-end;
+    }
+    .consigne-card__body {
+      margin-top:.75rem;
+      display:grid;
+      gap:.75rem;
+    }
+    .consigne-card__body > * {
+      margin:0;
+    }
+    .consigne-menu {
+      position:relative;
+    }
+    .consigne-menu__trigger {
+      width:2rem;
+      height:2rem;
+      border-radius:999px;
+      border:1px solid #e2e8f0;
+      background:#fff;
+      color:#475569;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      font-size:1.15rem;
+      line-height:1;
+      transition:background .15s ease, border-color .15s ease, color .15s ease;
+    }
+    .consigne-menu__trigger:hover,
+    .consigne-menu__trigger:focus-visible {
+      outline:none;
+      background:var(--accent-50);
+      border-color:var(--accent-200);
+      color:#0f172a;
+    }
+    .consigne-menu__panel {
+      position:absolute;
+      right:0;
+      top:calc(100% + .4rem);
+      min-width:11.5rem;
+      max-width:min(92vw, 16rem);
+      background:#fff;
+      border:1px solid #e2e8f0;
+      border-radius:.85rem;
+      box-shadow:0 20px 40px rgba(15,23,42,.16);
+      padding:.4rem;
+      display:flex;
+      flex-direction:column;
+      gap:.15rem;
+      z-index:30;
+      animation:consigne-menu-in .16s ease;
+    }
+    .consigne-menu__item {
+      width:100%;
+      text-align:left;
+      background:none;
+      border:none;
+      padding:.55rem .75rem;
+      border-radius:.65rem;
+      font:inherit;
+      color:inherit;
+      cursor:pointer;
+      transition:background .15s ease, color .15s ease;
+      display:flex;
+      align-items:center;
+      gap:.4rem;
+    }
+    .consigne-menu__item:hover,
+    .consigne-menu__item:focus-visible {
+      outline:none;
+      background:var(--accent-50);
+      color:#0f172a;
+    }
+    .consigne-menu__item:disabled,
+    .consigne-menu__item.is-disabled {
+      opacity:.55;
+      cursor:not-allowed;
+    }
+    @keyframes consigne-menu-in {
+      from {
+        opacity:0;
+        transform:translateY(-4px) scale(.98);
+      }
+      to {
+        opacity:1;
+        transform:translateY(0) scale(1);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .consigne-card__content {
+        transition:none;
+      }
+      .consigne-menu__panel {
+        animation:none;
+      }
     }
 
     .consigne-group {
