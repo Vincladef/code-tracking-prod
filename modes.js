@@ -2664,20 +2664,37 @@ async function renderPractice(ctx, root, _opts = {}) {
       const wrapper = document.createElement("div");
       wrapper.className = "consigne-group";
       const parentCard = makeItem(group.consigne, { isChild: false });
-      wrapper.appendChild(parentCard);
       if (group.children.length) {
-        const details = document.createElement("details");
-        details.className = "consigne-group__children";
-        details.innerHTML = `<summary class="consigne-group__summary">${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}</summary>`;
-        const list = document.createElement("div");
-        list.className = "consigne-group__list";
-        group.children.forEach((child) => {
-          const childCard = makeItem(child, { isChild: true });
-          list.appendChild(childCard);
-        });
-        details.appendChild(list);
-        wrapper.appendChild(details);
+        parentCard.classList.add("consigne-card--has-children");
+        const aside = parentCard.querySelector(".consigne-card__aside");
+        if (aside) {
+          const badge = document.createElement("span");
+          badge.className = "consigne-card__child-count";
+          badge.textContent = `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`;
+          aside.prepend(badge);
+        }
+        const body = parentCard.querySelector(".consigne-card__body")
+          || parentCard.querySelector(".consigne-card__content");
+        if (body) {
+          const childrenContainer = document.createElement("div");
+          childrenContainer.className = "consigne-card__children";
+          const label = document.createElement("div");
+          label.className = "consigne-card__children-label";
+          label.textContent = group.children.length > 1
+            ? `Sous-consignes (${group.children.length})`
+            : "Sous-consigne (1)";
+          const list = document.createElement("div");
+          list.className = "consigne-card__children-list";
+          group.children.forEach((child) => {
+            const childCard = makeItem(child, { isChild: true });
+            list.appendChild(childCard);
+          });
+          childrenContainer.appendChild(label);
+          childrenContainer.appendChild(list);
+          body.appendChild(childrenContainer);
+        }
       }
+      wrapper.appendChild(parentCard);
       target.appendChild(wrapper);
     };
 
@@ -3087,20 +3104,37 @@ async function renderDaily(ctx, root, opts = {}) {
     const wrapper = document.createElement("div");
     wrapper.className = "consigne-group";
     const parentCard = renderItemCard(group.consigne, { isChild: false });
-    wrapper.appendChild(parentCard);
     if (group.children.length) {
-      const details = document.createElement("details");
-      details.className = "consigne-group__children";
-      details.innerHTML = `<summary class="consigne-group__summary">${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}</summary>`;
-      const list = document.createElement("div");
-      list.className = "consigne-group__list";
-      group.children.forEach((child) => {
-        const childCard = renderItemCard(child, { isChild: true });
-        list.appendChild(childCard);
-      });
-      details.appendChild(list);
-      wrapper.appendChild(details);
+      parentCard.classList.add("consigne-card--has-children");
+      const aside = parentCard.querySelector(".consigne-card__aside");
+      if (aside) {
+        const badge = document.createElement("span");
+        badge.className = "consigne-card__child-count";
+        badge.textContent = `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`;
+        aside.prepend(badge);
+      }
+      const body = parentCard.querySelector(".consigne-card__body")
+        || parentCard.querySelector(".consigne-card__content");
+      if (body) {
+        const childrenContainer = document.createElement("div");
+        childrenContainer.className = "consigne-card__children";
+        const label = document.createElement("div");
+        label.className = "consigne-card__children-label";
+        label.textContent = group.children.length > 1
+          ? `Sous-consignes (${group.children.length})`
+          : "Sous-consigne (1)";
+        const list = document.createElement("div");
+        list.className = "consigne-card__children-list";
+        group.children.forEach((child) => {
+          const childCard = renderItemCard(child, { isChild: true });
+          list.appendChild(childCard);
+        });
+        childrenContainer.appendChild(label);
+        childrenContainer.appendChild(list);
+        body.appendChild(childrenContainer);
+      }
     }
+    wrapper.appendChild(parentCard);
     target.appendChild(wrapper);
   };
 

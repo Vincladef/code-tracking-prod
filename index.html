@@ -438,13 +438,11 @@
         align-self:flex-start;
         width:100%;
       }
-      .consigne-group__children {
+      .consigne-card__children {
         padding-inline:0;
       }
-      .consigne-card--child {
-        margin-left:0;
-        padding-left:.75rem;
-        border-left:2px solid rgba(148,163,184,.28);
+      .consigne-card__children-list {
+        padding-left:.65rem;
       }
     }
     @media (max-width: 360px) {
@@ -456,8 +454,11 @@
       .daily-category {
         padding:.9rem .6rem 1rem;
       }
-      .consigne-group__children {
-        padding:.25rem .55rem .7rem;
+      .consigne-card__children {
+        padding:.25rem 0 .65rem;
+      }
+      .consigne-card__children-list {
+        padding-left:.5rem;
       }
       .consigne-card {
         padding:.75rem .8rem;
@@ -687,43 +688,45 @@
       display:grid;
       gap:.5rem;
     }
-    .consigne-group__children {
-      margin-top:-.25rem;
-      padding:.35rem .85rem .9rem;
-      border-radius:.85rem;
-      background:rgba(148,163,184,.08);
-      width:100%;
-      box-sizing:border-box;
+    .consigne-card__children {
+      margin-top:1rem;
+      padding-top:.85rem;
+      border-top:1px dashed rgba(148,163,184,.35);
+      display:grid;
+      gap:.75rem;
     }
-    .consigne-group__summary {
-      list-style:none;
-      cursor:pointer;
+    .consigne-card__children-label {
       font-size:.8rem;
       font-weight:600;
       color:var(--muted);
       display:flex;
       align-items:center;
-      gap:.4rem;
-      padding:.35rem 0;
+      gap:.35rem;
     }
-    .consigne-group__summary::before {
-      content:"▸";
-      font-size:.75rem;
-      transition:transform .2s ease;
-    }
-    .consigne-group__children[open] .consigne-group__summary::before {
-      transform:rotate(90deg);
-    }
-    .consigne-group__summary::-webkit-details-marker {
-      display:none;
-    }
-    .consigne-group__list {
+    .consigne-card__children-list {
       display:grid;
       gap:.75rem;
-      margin-top:.5rem;
+      padding-left:1rem;
+      border-left:2px solid rgba(148,163,184,.2);
+    }
+    .consigne-card__children-list > .consigne-card {
+      margin:0;
+    }
+    .consigne-card__child-count {
+      display:inline-flex;
+      align-items:center;
+      gap:.25rem;
+      padding:.15rem .5rem;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,.35);
+      background:rgba(148,163,184,.12);
+      font-size:.72rem;
+      font-weight:600;
+      color:#475569;
+      line-height:1.1;
     }
     .consigne-card--child {
-      margin-left:1rem;
+      margin-left:0;
       border-color:rgba(148,163,184,.28);
       box-shadow:none;
     }
