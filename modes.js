@@ -95,7 +95,9 @@ function priorityLabelFromTone(tone) {
 function prioChip(p) {
   const tone = priorityTone(p);
   const lbl = priorityLabelFromTone(tone);
-  return `<span class="sr-only" data-priority="${tone}">Priorité ${lbl}</span>`;
+  const accessible = `<span class="sr-only" data-priority="${tone}">Priorité ${lbl}</span>`;
+  if (tone !== "high") return accessible;
+  return `<span class="priority-chip" data-priority="${tone}" aria-hidden="true">⭐</span>${accessible}`;
 }
 
 const LIKERT_STATUS_CLASSES = [
