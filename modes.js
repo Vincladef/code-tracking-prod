@@ -2460,14 +2460,14 @@ async function renderPractice(ctx, root, _opts = {}) {
             <span class="consigne-card__title">${escapeHtml(c.text)}</span>
             ${prioChip(Number(c.priority) || 2)}
           </button>
+          <div class="consigne-card__content" data-consigne-content hidden>
+            <div class="consigne-card__body">
+              ${inputForType(c)}
+            </div>
+          </div>
           <div class="consigne-card__aside">
             ${srBadge(c)}
             ${consigneActions()}
-          </div>
-        </div>
-        <div class="consigne-card__content" data-consigne-content hidden>
-          <div class="consigne-card__body">
-            ${inputForType(c)}
           </div>
         </div>
       `;
@@ -2902,14 +2902,14 @@ async function renderDaily(ctx, root, opts = {}) {
           <span class="consigne-card__title">${escapeHtml(item.text)}</span>
           ${prioChip(Number(item.priority) || 2)}
         </button>
+        <div class="consigne-card__content" data-consigne-content hidden>
+          <div class="consigne-card__body">
+            ${inputForType(item, previous?.value ?? null)}
+          </div>
+        </div>
         <div class="consigne-card__aside">
           ${srBadge(item)}
           ${consigneActions()}
-        </div>
-      </div>
-      <div class="consigne-card__content" data-consigne-content hidden>
-        <div class="consigne-card__body">
-          ${inputForType(item, previous?.value ?? null)}
         </div>
       </div>
     `;
