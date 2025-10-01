@@ -102,8 +102,12 @@ function prioChip(p) {
 
 const LIKERT_STATUS_CLASSES = [
   "consigne-card--likert-positive",
-  "consigne-card--likert-neutral",
   "consigne-card--likert-negative",
+  "consigne-card--likert-positive-strong",
+  "consigne-card--likert-positive-soft",
+  "consigne-card--likert-neutral",
+  "consigne-card--likert-negative-soft",
+  "consigne-card--likert-negative-strong",
 ];
 const LIKERT_STATUS_TYPES = ["likert5", "likert6", "yesno"];
 const LIKERT_STATUS_FIELD_SELECTOR = LIKERT_STATUS_TYPES.map(
@@ -133,19 +137,24 @@ function likertStatusKind(type, rawValue) {
   if (normalizedType === "likert5") {
     const num = Number(value);
     if (!Number.isFinite(num)) return null;
-    if (num >= 3) return "positive";
-    if (num <= 1) return "negative";
-    return "neutral";
+    if (num >= 4) return "positive-strong";
+    if (num === 3) return "positive-soft";
+    if (num === 2) return "neutral";
+    if (num === 1) return "negative-soft";
+    if (num <= 0) return "negative-strong";
+    return null;
   }
   if (normalizedType === "likert6") {
-    if (value === "yes" || value === "rather_yes") return "positive";
+    if (value === "yes") return "positive-strong";
+    if (value === "rather_yes") return "positive-soft";
     if (value === "medium" || value === "no_answer") return "neutral";
-    if (value === "rather_no" || value === "no") return "negative";
+    if (value === "rather_no") return "negative-soft";
+    if (value === "no") return "negative-strong";
     return null;
   }
   if (normalizedType === "yesno") {
-    if (value === "yes") return "positive";
-    if (value === "no") return "negative";
+    if (value === "yes") return "positive-strong";
+    if (value === "no") return "negative-strong";
     return null;
   }
   return null;
