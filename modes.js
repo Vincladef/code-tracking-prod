@@ -110,6 +110,9 @@ const LIKERT_STATUS_FIELD_SELECTOR = LIKERT_STATUS_TYPES.map(
   (type) => `select[name^='${type}:']`
 ).join(", ");
 
+const consigneFieldStates = new WeakMap();
+let activeConsignePicker = null;
+
 function resolveLikertFieldType(field) {
   if (!field) return null;
   const datasetType = field.dataset?.likertType || field.dataset?.fieldType;
@@ -1452,159 +1455,482 @@ function preventDragConflicts(target) {
   target.addEventListener("touchstart", stop, { passive: true });
 }
 
-function initializeCollapsibleCard(card, { defaultOpen = false } = {}) {
-  const toggle = card.querySelector("[data-consigne-toggle]");
-  const content = card.querySelector("[data-consigne-content]");
-  if (!toggle || !content) return { isExpanded: () => false, setExpanded: () => {} };
-  const contentId = content.id || `consigne-content-${Math.random().toString(36).slice(2, 10)}`;
-  content.id = contentId;
-  toggle.setAttribute("aria-controls", contentId);
-  let expanded = Boolean(defaultOpen);
-  toggle.setAttribute("aria-expanded", expanded.toString());
-  card.classList.toggle("consigne-card--active", expanded);
-  content.hidden = !expanded;
-
-  let focusTimeoutId = null;
-
-  const findFirstInteractiveField = () => {
-    const interactiveElements = content.querySelectorAll(
-      "input, textarea, select, [contenteditable]"
-    );
-    for (const el of interactiveElements) {
-      if (el.getAttribute && el.getAttribute("contenteditable") === "false") {
-        continue;
-      }
-      if (el.matches && el.matches("input[type='hidden']")) {
-        continue;
-      }
-      if (el.disabled) continue;
-      if (typeof el.focus !== "function") continue;
-      return el;
-    }
-    return null;
-  };
-
-  const shouldAutoOpenLikertSelect = (select) => {
-    if (!select || select.disabled || select.multiple) return false;
-    const name = select.name || "";
-    return /^(likert5|likert6|yesno):/.test(name);
-  };
-
-  const triggerNativeSelectOpen = (select) => {
-    if (!shouldAutoOpenLikertSelect(select)) return;
-    const triggerMouseSequence = () => {
-      const rect = select.getBoundingClientRect?.();
-      const baseInit = {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        clientX: rect ? rect.left + rect.width / 2 : undefined,
-        clientY: rect ? rect.top + rect.height / 2 : undefined,
-      };
-      if (typeof PointerEvent === "function") {
-        try {
-          select.dispatchEvent?.(
-            new PointerEvent("pointerdown", { ...baseInit, pointerType: "mouse" })
-          );
-        } catch (err) {
-          // Older browsers might not support PointerEvent; ignore failures.
-        }
-      }
-      try {
-        select.dispatchEvent?.(new MouseEvent("mousedown", baseInit));
-        select.dispatchEvent?.(new MouseEvent("mouseup", baseInit));
-        select.dispatchEvent?.(new MouseEvent("click", baseInit));
-      } catch (err) {
-        // Ignore errors thrown by programmatic event dispatch.
-      }
+function fieldDefinitionForConsigne(consigne, initialValue = null) {
+  const id = consigne?.id;
+  const type = consigne?.type;
+  if (!id || !type) {
+    return { kind: "unknown", name: null, value: initialValue ?? "" };
+  }
+  if (type === "info") {
+    return { kind: "info", name: null, value: null };
+  }
+  if (type === "short") {
+    return {
+      kind: "text",
+      name: `short:${id}`,
+      value: initialValue != null ? String(initialValue) : "",
+      placeholder: "Réponse",
     };
+  }
+  if (type === "long") {
+    return {
+      kind: "textarea",
+      name: `long:${id}`,
+      value: initialValue != null ? String(initialValue) : "",
+      placeholder: "Réponse",
+    };
+  }
+  if (type === "num") {
+    const numericValue = Number(initialValue);
+    const value = Number.isFinite(numericValue) ? numericValue : 5;
+    return {
+      kind: "range",
+      name: `num:${id}`,
+      value,
+      min: 1,
+      max: 10,
+      step: 1,
+    };
+  }
+  if (type === "likert6") {
+    const current = initialValue != null ? String(initialValue) : "";
+    return {
+      kind: "select",
+      name: `likert6:${id}`,
+      value: current,
+      likertType: "likert6",
+      options: [
+        { value: "", label: "— choisir —" },
+        { value: "yes", label: "Oui" },
+        { value: "rather_yes", label: "Plutôt oui" },
+        { value: "medium", label: "Neutre" },
+        { value: "rather_no", label: "Plutôt non" },
+        { value: "no", label: "Non" },
+        { value: "no_answer", label: "Pas de réponse" },
+      ],
+    };
+  }
+  if (type === "likert5") {
+    const current = initialValue != null ? String(initialValue) : "";
+    return {
+      kind: "select",
+      name: `likert5:${id}`,
+      value: current,
+      likertType: "likert5",
+      options: [
+        { value: "", label: "— choisir —" },
+        { value: "0", label: "0" },
+        { value: "1", label: "1" },
+        { value: "2", label: "2" },
+        { value: "3", label: "3" },
+        { value: "4", label: "4" },
+      ],
+    };
+  }
+  if (type === "yesno") {
+    const current = initialValue != null ? String(initialValue) : "";
+    return {
+      kind: "select",
+      name: `yesno:${id}`,
+      value: current,
+      likertType: "yesno",
+      options: [
+        { value: "", label: "— choisir —" },
+        { value: "yes", label: "Oui" },
+        { value: "no", label: "Non" },
+      ],
+    };
+  }
+  return {
+    kind: "unknown",
+    name: `${type}:${id}`,
+    value: initialValue != null ? String(initialValue) : "",
+  };
+}
 
-    triggerMouseSequence();
+function createConsigneFieldStore(consigne, initialValue = null) {
+  const definition = fieldDefinitionForConsigne(consigne, initialValue);
+  const container = document.createElement("div");
+  container.className = "consigne-card__field-store";
+  container.hidden = true;
+  let field = null;
 
-    try {
-      select.click?.();
-    } catch (err) {
-      // Some browsers might restrict programmatic clicks; ignore.
+  if (definition.kind === "select") {
+    field = document.createElement("select");
+    field.name = definition.name;
+    field.hidden = true;
+    field.tabIndex = -1;
+    field.setAttribute("aria-hidden", "true");
+    if (definition.likertType) {
+      field.dataset.likertType = definition.likertType;
     }
-
-    if (typeof KeyboardEvent === "function") {
-      try {
-        const keyboardEvent = new KeyboardEvent("keydown", {
-          key: "ArrowDown",
-          code: "ArrowDown",
-          keyCode: 40,
-          which: 40,
-          bubbles: true,
-          cancelable: true,
-        });
-        select.dispatchEvent?.(keyboardEvent);
-      } catch (err) {
-        // KeyboardEvent constructor may not be supported on very old browsers.
+    (definition.options || []).forEach((option) => {
+      const opt = document.createElement("option");
+      opt.value = option.value;
+      opt.textContent = option.label;
+      if (option.value === definition.value) {
+        opt.selected = true;
       }
+      field.appendChild(opt);
+    });
+  } else if (definition.kind === "range") {
+    field = document.createElement("input");
+    field.type = "range";
+    field.name = definition.name;
+    field.min = definition.min;
+    field.max = definition.max;
+    field.step = definition.step;
+    field.value = definition.value;
+    field.hidden = true;
+    field.tabIndex = -1;
+    field.setAttribute("aria-hidden", "true");
+  } else if (definition.kind === "text") {
+    field = document.createElement("input");
+    field.type = "text";
+    field.name = definition.name;
+    field.value = definition.value;
+    field.hidden = true;
+    field.tabIndex = -1;
+    field.setAttribute("aria-hidden", "true");
+  } else if (definition.kind === "textarea") {
+    field = document.createElement("textarea");
+    field.name = definition.name;
+    field.value = definition.value;
+    field.hidden = true;
+    field.tabIndex = -1;
+    field.setAttribute("aria-hidden", "true");
+  } else if (definition.kind !== "info") {
+    field = document.createElement("input");
+    field.type = "text";
+    field.name = definition.name;
+    field.value = definition.value;
+    field.hidden = true;
+    field.tabIndex = -1;
+    field.setAttribute("aria-hidden", "true");
+  }
+
+  if (field) {
+    container.appendChild(field);
+  }
+
+  return { definition, container, field };
+}
+
+function formatConsigneValue(definition, rawValue) {
+  if (!definition) return "";
+  if (definition.kind === "info") {
+    return INFO_RESPONSE_LABEL;
+  }
+  if (definition.kind === "select") {
+    const value = rawValue != null ? String(rawValue) : "";
+    const match = (definition.options || []).find((opt) => opt.value === value);
+    return match ? match.label : "— choisir —";
+  }
+  if (definition.kind === "range") {
+    if (rawValue == null || rawValue === "") return "—";
+    return String(rawValue);
+  }
+  if (definition.kind === "text" || definition.kind === "textarea") {
+    const value = rawValue != null ? String(rawValue).trim() : "";
+    return value || "—";
+  }
+  if (rawValue == null || rawValue === "") {
+    return "—";
+  }
+  return String(rawValue).trim();
+}
+
+function updateConsigneValueDisplay(card) {
+  const state = consigneFieldStates.get(card);
+  if (!state) return;
+  const { definition, field } = state;
+  const display = card.querySelector("[data-consigne-value]");
+  if (!display) return;
+  const value = field ? field.value : definition.value;
+  const label = formatConsigneValue(definition, value);
+  display.textContent = label;
+  const isPlaceholder =
+    (value == null || value === "") && definition.kind !== "info";
+  display.classList.toggle("consigne-card__value--placeholder", Boolean(isPlaceholder));
+}
+
+function applyConsigneValue(card, value, { emit = true } = {}) {
+  const state = consigneFieldStates.get(card);
+  if (!state) return;
+  const nextValue = value != null ? value : "";
+  state.definition.value = nextValue;
+  if (state.field) {
+    state.field.value = nextValue;
+    if (emit) {
+      state.field.dispatchEvent(new Event("input", { bubbles: true }));
+      state.field.dispatchEvent(new Event("change", { bubbles: true }));
     }
+  }
+  updateConsigneValueDisplay(card);
+  syncLikertStatusForCard(card);
+}
+
+function closeActiveConsignePicker({ restoreFocus = false } = {}) {
+  if (!activeConsignePicker) return;
+  const { element, card, toggle, cleanup } = activeConsignePicker;
+  if (cleanup) {
+    cleanup();
+  }
+  element.remove();
+  card.classList.remove("consigne-card--picker-open");
+  toggle.setAttribute("aria-expanded", "false");
+  if (restoreFocus) {
+    try {
+      toggle.focus({ preventScroll: true });
+    } catch (err) {
+      toggle.focus();
+    }
+  }
+  activeConsignePicker = null;
+}
+
+function openConsignePicker(card) {
+  const state = consigneFieldStates.get(card);
+  if (!state) return;
+  if (state.definition.kind === "info") {
+    return;
+  }
+  const toggle = card.querySelector("[data-consigne-toggle]");
+  if (!toggle) return;
+
+  if (activeConsignePicker && activeConsignePicker.card === card) {
+    closeActiveConsignePicker();
+  }
+
+  closeActiveConsignePicker();
+
+  const picker = document.createElement("div");
+  picker.className = "consigne-picker";
+  picker.role = "dialog";
+  picker.tabIndex = -1;
+  const titleText = card.querySelector(".consigne-card__title")?.textContent?.trim();
+  if (titleText) {
+    picker.setAttribute("aria-label", `Réponses possibles pour ${titleText}`);
+  }
+
+  const currentValue = state.field ? state.field.value : state.definition.value;
+  let pendingValue = currentValue ?? "";
+
+  const commit = (val) => {
+    applyConsigneValue(card, val);
   };
 
-  const scheduleAutoFocus = () => {
-    clearTimeout(focusTimeoutId);
-    focusTimeoutId = setTimeout(() => {
-      focusTimeoutId = null;
-      const field = findFirstInteractiveField();
-      if (!field) return;
-      if (document.activeElement === field) return;
+  if (state.definition.kind === "select") {
+    const list = document.createElement("div");
+    list.className = "consigne-picker__options";
+    (state.definition.options || []).forEach((option) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "consigne-picker__option";
+      btn.textContent = option.label;
+      if (String(option.value) === String(currentValue ?? "")) {
+        btn.classList.add("is-active");
+      }
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        commit(option.value);
+        closeActiveConsignePicker({ restoreFocus: true });
+      });
+      list.appendChild(btn);
+    });
+    picker.appendChild(list);
+  } else if (state.definition.kind === "range") {
+    const wrapper = document.createElement("div");
+    wrapper.className = "consigne-picker__range";
+    const label = document.createElement("div");
+    label.className = "consigne-picker__range-value";
+    label.textContent = String(pendingValue || state.definition.min || 0);
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = state.definition.min;
+    slider.max = state.definition.max;
+    slider.step = state.definition.step || 1;
+    slider.value = pendingValue || state.definition.value || state.definition.min;
+    slider.addEventListener("input", () => {
+      pendingValue = slider.value;
+      label.textContent = String(pendingValue);
+    });
+    wrapper.appendChild(label);
+    wrapper.appendChild(slider);
+    picker.appendChild(wrapper);
+
+    const actions = document.createElement("div");
+    actions.className = "consigne-picker__actions";
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "consigne-picker__action consigne-picker__action--primary";
+    saveBtn.textContent = "Enregistrer";
+    saveBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      commit(pendingValue);
+      closeActiveConsignePicker({ restoreFocus: true });
+    });
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "consigne-picker__action";
+    cancelBtn.textContent = "Annuler";
+    cancelBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeActiveConsignePicker({ restoreFocus: true });
+    });
+    actions.appendChild(saveBtn);
+    actions.appendChild(cancelBtn);
+    picker.appendChild(actions);
+  } else {
+    const wrapper = document.createElement("form");
+    wrapper.className = "consigne-picker__form";
+    let field;
+    if (state.definition.kind === "textarea") {
+      field = document.createElement("textarea");
+      field.rows = 3;
+    } else {
+      field = document.createElement("input");
+      field.type = "text";
+    }
+    field.className = "consigne-picker__input";
+    field.value = pendingValue;
+    if (state.definition.placeholder) {
+      field.placeholder = state.definition.placeholder;
+    }
+    field.addEventListener("input", () => {
+      pendingValue = field.value;
+    });
+    wrapper.appendChild(field);
+    const actions = document.createElement("div");
+    actions.className = "consigne-picker__actions";
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "submit";
+    saveBtn.className = "consigne-picker__action consigne-picker__action--primary";
+    saveBtn.textContent = "Enregistrer";
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "consigne-picker__action";
+    cancelBtn.textContent = "Annuler";
+    cancelBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeActiveConsignePicker({ restoreFocus: true });
+    });
+    actions.appendChild(saveBtn);
+    actions.appendChild(cancelBtn);
+    wrapper.appendChild(actions);
+    wrapper.addEventListener("submit", (event) => {
+      event.preventDefault();
+      commit(field.value);
+      closeActiveConsignePicker({ restoreFocus: true });
+    });
+    picker.appendChild(wrapper);
+    requestAnimationFrame(() => {
       try {
         field.focus({ preventScroll: true });
       } catch (err) {
         field.focus();
       }
-      if (field.tagName === "SELECT") {
-        requestAnimationFrame(() => {
-          triggerNativeSelectOpen(field);
-        });
-      }
-    }, 80);
-  };
+    });
+  }
 
-  const setExpanded = (next, { skipFocus = false, source = null } = {}) => {
-    const value = Boolean(next);
-    if (value === expanded) return;
-    expanded = value;
-    toggle.setAttribute("aria-expanded", expanded.toString());
-    card.classList.toggle("consigne-card--active", expanded);
-    content.hidden = !expanded;
-    if (!expanded) {
-      clearTimeout(focusTimeoutId);
-      focusTimeoutId = null;
+  document.body.appendChild(picker);
+
+  const rect = toggle.getBoundingClientRect();
+  const pickerRect = picker.getBoundingClientRect();
+  const offsetX = rect.left + window.scrollX;
+  let left = offsetX;
+  if (left + pickerRect.width > window.innerWidth + window.scrollX - 16) {
+    left = window.innerWidth + window.scrollX - pickerRect.width - 16;
+  }
+  if (left < 16) left = 16;
+  picker.style.left = `${left}px`;
+  picker.style.top = `${rect.bottom + window.scrollY + 8}px`;
+
+  card.classList.add("consigne-card--picker-open");
+  toggle.setAttribute("aria-expanded", "true");
+
+  const onDocClick = (event) => {
+    if (picker.contains(event.target) || toggle.contains(event.target)) {
       return;
     }
-    if (skipFocus || source !== "toggle") return;
-    scheduleAutoFocus();
+    closeActiveConsignePicker({ restoreFocus: false });
   };
 
-  const pointerBlock = (event) => {
-    event.stopPropagation();
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeActiveConsignePicker({ restoreFocus: true });
+    }
   };
+
+  document.addEventListener("mousedown", onDocClick);
+  const touchOptions = { passive: true };
+  document.addEventListener("touchstart", onDocClick, touchOptions);
+  document.addEventListener("keydown", onKeyDown);
+
+  activeConsignePicker = {
+    card,
+    element: picker,
+    toggle,
+    cleanup() {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("touchstart", onDocClick, touchOptions);
+      document.removeEventListener("keydown", onKeyDown);
+    },
+  };
+}
+
+function initializeCollapsibleCard(card, { defaultOpen = false } = {}) {
+  const toggle = card.querySelector("[data-consigne-toggle]");
+  if (!toggle) return { isExpanded: () => false, setExpanded: () => {} };
+
+  const open = () => {
+    openConsignePicker(card);
+  };
+
+  toggle.setAttribute("aria-expanded", "false");
 
   toggle.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    setExpanded(!expanded, { source: "toggle" });
+    open();
   });
+
   toggle.addEventListener("keydown", (event) => {
-    if (event.key === "ArrowDown" && !expanded) {
+    if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      setExpanded(true, { source: "toggle" });
-    } else if (event.key === "ArrowUp" && expanded) {
+      open();
+    } else if (event.key === "Escape") {
       event.preventDefault();
-      setExpanded(false, { source: "toggle" });
+      closeActiveConsignePicker({ restoreFocus: true });
     }
   });
-  toggle.addEventListener("pointerdown", pointerBlock);
-  toggle.addEventListener("mousedown", pointerBlock);
-  toggle.addEventListener("touchstart", pointerBlock, { passive: true });
+
+  toggle.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+  toggle.addEventListener("mousedown", (event) => {
+    event.stopPropagation();
+  });
+  toggle.addEventListener("touchstart", (event) => {
+    event.stopPropagation();
+  }, { passive: true });
+
+  if (defaultOpen) {
+    requestAnimationFrame(() => {
+      open();
+    });
+  }
 
   return {
-    isExpanded: () => expanded,
-    setExpanded,
+    isExpanded: () => card.classList.contains("consigne-card--picker-open"),
+    setExpanded: (next) => {
+      if (next) {
+        open();
+      } else {
+        closeActiveConsignePicker({ restoreFocus: false });
+      }
+    },
   };
 }
 
@@ -2511,7 +2837,7 @@ async function renderPractice(ctx, root, _opts = {}) {
     const makeItem = (c, { isChild = false } = {}) => {
       const tone = priorityTone(c.priority);
       const el = document.createElement("div");
-      el.className = `consigne-card card p-3 space-y-3 priority-surface priority-surface-${tone}`;
+      el.className = `consigne-card card p-3 priority-surface priority-surface-${tone}`;
       el.dataset.id = c.id;
       if (isChild) {
         el.classList.add("consigne-card--child");
@@ -2530,13 +2856,9 @@ async function renderPractice(ctx, root, _opts = {}) {
         <div class="consigne-card__header">
           <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
             <span class="consigne-card__title">${escapeHtml(c.text)}</span>
+            <span class="consigne-card__value" data-consigne-value></span>
             ${prioChip(Number(c.priority) || 2)}
           </button>
-          <div class="consigne-card__content" data-consigne-content hidden>
-            <div class="consigne-card__body">
-              ${inputForType(c)}
-            </div>
-          </div>
           <div class="consigne-card__aside">
             ${srBadge(c)}
             ${consigneActions()}
@@ -2544,7 +2866,18 @@ async function renderPractice(ctx, root, _opts = {}) {
         </div>
       `;
 
-      const collapse = initializeCollapsibleCard(el);
+      const fieldState = createConsigneFieldStore(c);
+      if (fieldState.container.childNodes.length) {
+        el.appendChild(fieldState.container);
+      }
+      consigneFieldStates.set(el, fieldState);
+      if (fieldState.field) {
+        fieldState.field.addEventListener("input", () => updateConsigneValueDisplay(el));
+        fieldState.field.addEventListener("change", () => updateConsigneValueDisplay(el));
+      }
+      updateConsigneValueDisplay(el);
+
+      initializeCollapsibleCard(el);
       const menu = setupContextMenu(el.querySelector("[data-menu-root]"));
       const attachAction = (selector, handler) => {
         const btn = el.querySelector(selector);
@@ -2642,19 +2975,6 @@ async function renderPractice(ctx, root, _opts = {}) {
         updateDelayState(c?.srEnabled !== false);
       };
 
-      el
-        .querySelectorAll("input, textarea, select, [contenteditable]")
-        .forEach((field) => {
-          if (field.getAttribute && field.getAttribute("contenteditable") === "false") {
-            return;
-          }
-          field.addEventListener("focus", () => {
-            if (!collapse.isExpanded()) {
-              collapse.setExpanded(true, { skipFocus: true });
-            }
-          });
-        });
-
       enhanceLikertStatus(el);
 
       return el;
@@ -2674,31 +2994,27 @@ async function renderPractice(ctx, root, _opts = {}) {
           badge.textContent = `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`;
           aside.prepend(badge);
         }
-        const content = parentCard.querySelector(".consigne-card__content");
-        const body = parentCard.querySelector(".consigne-card__body");
-        const targetContainer = content || body || parentCard;
-        if (targetContainer) {
-          const childrenContainer = document.createElement("div");
-          childrenContainer.className = "consigne-card__children";
-          const label = document.createElement("div");
-          label.className = "consigne-card__children-label";
-          label.textContent = group.children.length > 1
-            ? `Sous-consignes (${group.children.length})`
-            : "Sous-consigne (1)";
-          const list = document.createElement("div");
-          list.className = "consigne-card__children-list";
-          group.children.forEach((child) => {
-            const childCard = makeItem(child, { isChild: true });
-            list.appendChild(childCard);
-          });
-          childrenContainer.appendChild(label);
-          childrenContainer.appendChild(list);
-          if (content && body) {
-            content.appendChild(childrenContainer);
-          } else {
-            targetContainer.appendChild(childrenContainer);
-          }
+        const existingContainer = parentCard.querySelector(".consigne-card__children");
+        const childrenContainer = existingContainer || document.createElement("div");
+        childrenContainer.className = "consigne-card__children";
+        if (!existingContainer) {
+          parentCard.appendChild(childrenContainer);
+        } else {
+          childrenContainer.innerHTML = "";
         }
+        const label = document.createElement("div");
+        label.className = "consigne-card__children-label";
+        label.textContent = group.children.length > 1
+          ? `Sous-consignes (${group.children.length})`
+          : "Sous-consigne (1)";
+        const list = document.createElement("div");
+        list.className = "consigne-card__children-list";
+        group.children.forEach((child) => {
+          const childCard = makeItem(child, { isChild: true });
+          list.appendChild(childCard);
+        });
+        childrenContainer.appendChild(label);
+        childrenContainer.appendChild(list);
       }
       wrapper.appendChild(parentCard);
       target.appendChild(wrapper);
@@ -2961,7 +3277,7 @@ async function renderDaily(ctx, root, opts = {}) {
     const previous = previousAnswers?.get(item.id);
     const itemCard = document.createElement("div");
     const tone = priorityTone(item.priority);
-    itemCard.className = `consigne-card card p-3 space-y-3 priority-surface priority-surface-${tone}`;
+    itemCard.className = `consigne-card card p-3 priority-surface priority-surface-${tone}`;
     if (isChild) {
       itemCard.classList.add("consigne-card--child");
       if (item.parentId) {
@@ -2977,13 +3293,9 @@ async function renderDaily(ctx, root, opts = {}) {
       <div class="consigne-card__header">
         <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
           <span class="consigne-card__title">${escapeHtml(item.text)}</span>
+          <span class="consigne-card__value" data-consigne-value></span>
           ${prioChip(Number(item.priority) || 2)}
         </button>
-        <div class="consigne-card__content" data-consigne-content hidden>
-          <div class="consigne-card__body">
-            ${inputForType(item, previous?.value ?? null)}
-          </div>
-        </div>
         <div class="consigne-card__aside">
           ${srBadge(item)}
           ${consigneActions()}
@@ -2991,7 +3303,18 @@ async function renderDaily(ctx, root, opts = {}) {
       </div>
     `;
 
-    const collapse = initializeCollapsibleCard(itemCard);
+    const fieldState = createConsigneFieldStore(item, previous?.value ?? null);
+    if (fieldState.container.childNodes.length) {
+      itemCard.appendChild(fieldState.container);
+    }
+    consigneFieldStates.set(itemCard, fieldState);
+    if (fieldState.field) {
+      fieldState.field.addEventListener("input", () => updateConsigneValueDisplay(itemCard));
+      fieldState.field.addEventListener("change", () => updateConsigneValueDisplay(itemCard));
+    }
+    updateConsigneValueDisplay(itemCard);
+
+    initializeCollapsibleCard(itemCard);
     const menu = setupContextMenu(itemCard.querySelector("[data-menu-root]"));
     const attachAction = (selector, handler) => {
       const btn = itemCard.querySelector(selector);
@@ -3086,19 +3409,6 @@ async function renderDaily(ctx, root, opts = {}) {
       updateDelayState(item.srEnabled !== false);
     };
 
-    itemCard
-      .querySelectorAll("input, textarea, select, [contenteditable]")
-      .forEach((field) => {
-        if (field.getAttribute && field.getAttribute("contenteditable") === "false") {
-          return;
-        }
-        field.addEventListener("focus", () => {
-          if (!collapse.isExpanded()) {
-            collapse.setExpanded(true, { skipFocus: true });
-          }
-        });
-      });
-
     enhanceLikertStatus(itemCard);
 
     return itemCard;
@@ -3117,26 +3427,27 @@ async function renderDaily(ctx, root, opts = {}) {
         badge.textContent = `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`;
         aside.prepend(badge);
       }
-      const body = parentCard.querySelector(".consigne-card__body")
-        || parentCard.querySelector(".consigne-card__content");
-      if (body) {
-        const childrenContainer = document.createElement("div");
-        childrenContainer.className = "consigne-card__children";
-        const label = document.createElement("div");
-        label.className = "consigne-card__children-label";
-        label.textContent = group.children.length > 1
-          ? `Sous-consignes (${group.children.length})`
-          : "Sous-consigne (1)";
-        const list = document.createElement("div");
-        list.className = "consigne-card__children-list";
-        group.children.forEach((child) => {
-          const childCard = renderItemCard(child, { isChild: true });
-          list.appendChild(childCard);
-        });
-        childrenContainer.appendChild(label);
-        childrenContainer.appendChild(list);
-        body.appendChild(childrenContainer);
+      const existingChildren = parentCard.querySelector(".consigne-card__children");
+      const childrenContainer = existingChildren || document.createElement("div");
+      childrenContainer.className = "consigne-card__children";
+      if (!existingChildren) {
+        parentCard.appendChild(childrenContainer);
+      } else {
+        childrenContainer.innerHTML = "";
       }
+      const label = document.createElement("div");
+      label.className = "consigne-card__children-label";
+      label.textContent = group.children.length > 1
+        ? `Sous-consignes (${group.children.length})`
+        : "Sous-consigne (1)";
+      const list = document.createElement("div");
+      list.className = "consigne-card__children-list";
+      group.children.forEach((child) => {
+        const childCard = renderItemCard(child, { isChild: true });
+        list.appendChild(childCard);
+      });
+      childrenContainer.appendChild(label);
+      childrenContainer.appendChild(list);
     }
     wrapper.appendChild(parentCard);
     target.appendChild(wrapper);
