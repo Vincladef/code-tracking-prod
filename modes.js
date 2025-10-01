@@ -1438,73 +1438,6 @@ function preventDragConflicts(target) {
   target.addEventListener("touchstart", stop, { passive: true });
 }
 
-function elementHasTransition(element) {
-  if (!element || typeof window === "undefined" || typeof window.getComputedStyle !== "function") {
-    return false;
-  }
-  const style = window.getComputedStyle(element);
-  const parseTimes = (value) => value
-    .split(",")
-    .map((part) => part.trim())
-    .map((part) => {
-      if (!part) return 0;
-      if (part.endsWith("ms")) return parseFloat(part);
-      if (part.endsWith("s")) return parseFloat(part) * 1000;
-      const numeric = parseFloat(part);
-      return Number.isFinite(numeric) ? numeric * 1000 : 0;
-    });
-  const durations = parseTimes(style.transitionDuration || "");
-  return durations.some((time) => time > 0);
-}
-
-function animateCollapsible(content, expanded) {
-  if (!content) return;
-  const clean = () => {
-    content.style.height = "";
-    content.style.opacity = "";
-    content.style.overflow = "";
-  };
-  if (expanded) {
-    content.hidden = false;
-    content.style.overflow = "hidden";
-    content.style.height = "0px";
-    content.style.opacity = "0";
-    const openHandler = (event) => {
-      if (event.target !== content || event.propertyName !== "height") return;
-      clean();
-      content.removeEventListener("transitionend", openHandler);
-    };
-    content.addEventListener("transitionend", openHandler);
-    requestAnimationFrame(() => {
-      const fullHeight = content.scrollHeight;
-      content.style.height = `${fullHeight}px`;
-      content.style.opacity = "1";
-      if (!elementHasTransition(content)) {
-        openHandler({ target: content, propertyName: "height" });
-      }
-    });
-  } else {
-    const fullHeight = content.scrollHeight;
-    content.style.overflow = "hidden";
-    content.style.height = `${fullHeight}px`;
-    content.style.opacity = "1";
-    const closeHandler = (event) => {
-      if (event.target !== content || event.propertyName !== "height") return;
-      content.hidden = true;
-      clean();
-      content.removeEventListener("transitionend", closeHandler);
-    };
-    content.addEventListener("transitionend", closeHandler);
-    requestAnimationFrame(() => {
-      content.style.height = "0px";
-      content.style.opacity = "0";
-      if (!elementHasTransition(content)) {
-        closeHandler({ target: content, propertyName: "height" });
-      }
-    });
-  }
-}
-
 function initializeCollapsibleCard(card, { defaultOpen = false } = {}) {
   const toggle = card.querySelector("[data-consigne-toggle]");
   const content = card.querySelector("[data-consigne-content]");
@@ -1514,10 +1447,8 @@ function initializeCollapsibleCard(card, { defaultOpen = false } = {}) {
   toggle.setAttribute("aria-controls", contentId);
   let expanded = Boolean(defaultOpen);
   toggle.setAttribute("aria-expanded", expanded.toString());
-  card.classList.toggle("consigne-card--open", expanded);
-  if (!expanded) {
-    content.hidden = true;
-  }
+  card.classList.toggle("consigne-card--active", expanded);
+  content.hidden = !expanded;
 
   let focusTimeoutId = null;
 
@@ -1566,8 +1497,8 @@ function initializeCollapsibleCard(card, { defaultOpen = false } = {}) {
     if (value === expanded) return;
     expanded = value;
     toggle.setAttribute("aria-expanded", expanded.toString());
-    card.classList.toggle("consigne-card--open", expanded);
-    animateCollapsible(content, expanded);
+    card.classList.toggle("consigne-card--active", expanded);
+    content.hidden = !expanded;
     if (!expanded) {
       clearTimeout(focusTimeoutId);
       focusTimeoutId = null;
