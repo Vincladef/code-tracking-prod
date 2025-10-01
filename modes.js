@@ -2674,9 +2674,10 @@ async function renderPractice(ctx, root, _opts = {}) {
           badge.textContent = `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`;
           aside.prepend(badge);
         }
-        const body = parentCard.querySelector(".consigne-card__body")
-          || parentCard.querySelector(".consigne-card__content");
-        if (body) {
+        const content = parentCard.querySelector(".consigne-card__content");
+        const body = parentCard.querySelector(".consigne-card__body");
+        const targetContainer = content || body || parentCard;
+        if (targetContainer) {
           const childrenContainer = document.createElement("div");
           childrenContainer.className = "consigne-card__children";
           const label = document.createElement("div");
@@ -2692,7 +2693,11 @@ async function renderPractice(ctx, root, _opts = {}) {
           });
           childrenContainer.appendChild(label);
           childrenContainer.appendChild(list);
-          body.appendChild(childrenContainer);
+          if (content && body) {
+            content.appendChild(childrenContainer);
+          } else {
+            targetContainer.appendChild(childrenContainer);
+          }
         }
       }
       wrapper.appendChild(parentCard);

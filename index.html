@@ -597,9 +597,9 @@
     }
     .consigne-card__body {
       display:flex;
-      align-items:flex-start;
+      flex-direction:column;
+      align-items:stretch;
       gap:.75rem;
-      flex-wrap:wrap;
       width:100%;
     }
     .consigne-card__body > * {
@@ -712,6 +712,7 @@
       border-top:1px dashed rgba(148,163,184,.35);
       display:grid;
       gap:.75rem;
+      width:100%;
     }
     .consigne-card__children-label {
       font-size:.8rem;
