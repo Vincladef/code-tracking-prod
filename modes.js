@@ -105,25 +105,42 @@ const LIKERT_STATUS_CLASSES = [
   "consigne-card--likert-neutral",
   "consigne-card--likert-negative",
 ];
+const LIKERT_STATUS_TYPES = ["likert5", "likert6", "yesno"];
+const LIKERT_STATUS_FIELD_SELECTOR = LIKERT_STATUS_TYPES.map(
+  (type) => `select[name^='${type}:']`
+).join(", ");
+
+function resolveLikertFieldType(field) {
+  if (!field) return null;
+  const datasetType = field.dataset?.likertType || field.dataset?.fieldType;
+  if (datasetType && LIKERT_STATUS_TYPES.includes(datasetType)) {
+    return datasetType;
+  }
+  const name = String(field.name || "");
+  if (!name) return null;
+  const [prefix] = name.split(":", 1);
+  return LIKERT_STATUS_TYPES.includes(prefix) ? prefix : null;
+}
 
 function likertStatusKind(type, rawValue) {
   if (!type) return null;
   const value = String(rawValue ?? "").trim();
   if (!value) return null;
-  if (type === "likert5") {
+  const normalizedType = String(type).toLowerCase();
+  if (normalizedType === "likert5") {
     const num = Number(value);
     if (!Number.isFinite(num)) return null;
     if (num >= 3) return "positive";
     if (num <= 1) return "negative";
     return "neutral";
   }
-  if (type === "likert6") {
+  if (normalizedType === "likert6") {
     if (value === "yes" || value === "rather_yes") return "positive";
     if (value === "medium" || value === "no_answer") return "neutral";
     if (value === "rather_no" || value === "no") return "negative";
     return null;
   }
-  if (type === "yesno") {
+  if (normalizedType === "yesno") {
     if (value === "yes") return "positive";
     if (value === "no") return "negative";
     return null;
@@ -140,24 +157,19 @@ function applyLikertStatusClass(card, status) {
 
 function syncLikertStatusForCard(card) {
   if (!card) return;
-  const field = card.querySelector(
-    "select[name^='likert5:'], select[name^='likert6:'], select[name^='yesno:']"
-  );
+  const field = card.querySelector(LIKERT_STATUS_FIELD_SELECTOR);
   if (!field) {
     applyLikertStatusClass(card, null);
     return;
   }
-  const name = String(field.name || "");
-  const type = name.includes(":") ? name.split(":", 1)[0] : name;
+  const type = resolveLikertFieldType(field) || String(field.name || "");
   const status = likertStatusKind(type, field.value);
   applyLikertStatusClass(card, status);
 }
 
 function enhanceLikertStatus(card) {
   if (!card) return;
-  const fields = card.querySelectorAll(
-    "select[name^='likert5:'], select[name^='likert6:'], select[name^='yesno:']"
-  );
+  const fields = card.querySelectorAll(LIKERT_STATUS_FIELD_SELECTOR);
   if (!fields.length) return;
   fields.forEach((field) => {
     field.addEventListener("change", () => {
