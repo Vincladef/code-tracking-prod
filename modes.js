@@ -2462,12 +2462,10 @@ async function renderPractice(ctx, root, _opts = {}) {
           </button>
           <div class="consigne-card__aside">
             ${srBadge(c)}
+            ${consigneActions()}
           </div>
         </div>
         <div class="consigne-card__content" data-consigne-content hidden>
-          <div class="consigne-card__toolbar">
-            ${consigneActions()}
-          </div>
           <div class="consigne-card__body">
             ${inputForType(c)}
           </div>
@@ -2906,12 +2904,10 @@ async function renderDaily(ctx, root, opts = {}) {
         </button>
         <div class="consigne-card__aside">
           ${srBadge(item)}
+          ${consigneActions()}
         </div>
       </div>
       <div class="consigne-card__content" data-consigne-content hidden>
-        <div class="consigne-card__toolbar">
-          ${consigneActions()}
-        </div>
         <div class="consigne-card__body">
           ${inputForType(item, previous?.value ?? null)}
         </div>

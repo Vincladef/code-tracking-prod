@@ -576,9 +576,13 @@
     .consigne-card__aside {
       display:flex;
       align-items:center;
-      gap:.4rem;
+      gap:.5rem;
       flex:0 0 auto;
       margin-left:auto;
+      justify-content:flex-end;
+    }
+    .consigne-card__aside > * {
+      flex-shrink:0;
     }
     .consigne-card__content {
       position:absolute;
@@ -604,10 +608,6 @@
       opacity:1;
       pointer-events:auto;
       transform:translateY(0);
-    }
-    .consigne-card__toolbar {
-      display:flex;
-      justify-content:flex-end;
     }
     .consigne-card__body {
       margin-top:.75rem;
