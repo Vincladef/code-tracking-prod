@@ -284,6 +284,8 @@
       header h1{ font-size:1rem; }
       .install-banner{ flex-direction:column; align-items:flex-start; text-align:left; }
       .install-banner__action{ padding-top:.25rem; }
+      .day-nav{ min-width:0; width:100%; }
+      .daily-header-actions{ margin-left:0; width:100%; justify-content:flex-start; flex-wrap:wrap; }
     }
 
     /* utilitaire pour masquer la scrollbar (déjà utilisé ci-dessus) */
@@ -351,13 +353,20 @@
     .daily-grid {
       display:grid;
       gap:1.75rem;
+      grid-template-columns:minmax(0, 1fr);
+      justify-items:stretch;
+      width:100%;
+      box-sizing:border-box;
     }
     .daily-grid__item {
       grid-column:1 / -1;
+      width:100%;
+      box-sizing:border-box;
     }
     .daily-grid__actions {
       display:flex;
       justify-content:flex-end;
+      width:100%;
     }
 
     /* Journalier — catégories */
@@ -370,6 +379,8 @@
       box-shadow:0 14px 32px rgba(15,23,42,.06);
       display:flex;
       flex-direction:column;
+      width:100%;
+      box-sizing:border-box;
     }
     .daily-category__header {
       display:flex;
@@ -379,6 +390,7 @@
       padding-bottom:.9rem;
       margin-bottom:1.1rem;
       border-bottom:1px solid rgba(148,163,184,.25);
+      flex-wrap:nowrap;
     }
     .daily-category__name {
       font-weight:700;
@@ -388,6 +400,9 @@
       display:flex;
       align-items:center;
       gap:.5rem;
+      flex:1 1 auto;
+      min-width:0;
+      word-break:break-word;
     }
     .daily-category__name::before {
       content:"";
@@ -403,6 +418,71 @@
       padding:.2rem .4rem;
       text-transform:uppercase;
       letter-spacing:.08em;
+      margin-left:auto;
+      flex:0 0 auto;
+      text-align:right;
+      align-self:center;
+    }
+    @media (max-width: 480px) {
+      .daily-category {
+        padding:1.1rem .85rem 1.3rem;
+      }
+      .daily-category__header {
+        align-items:flex-start;
+        flex-wrap:wrap;
+        gap:.75rem;
+      }
+      .daily-category__count {
+        margin-left:0;
+        text-align:left;
+        align-self:flex-start;
+        width:100%;
+      }
+      .consigne-group__children {
+        padding-inline:0;
+      }
+      .consigne-card--child {
+        margin-left:0;
+        padding-left:.75rem;
+        border-left:2px solid rgba(148,163,184,.28);
+      }
+    }
+    @media (max-width: 360px) {
+      html,
+      body {
+        font-size:clamp(14px, 4vw, 15px);
+        line-height:1.45;
+      }
+      .daily-category {
+        padding:.9rem .6rem 1rem;
+      }
+      .consigne-group__children {
+        padding:.25rem .55rem .7rem;
+      }
+      .consigne-card {
+        padding:.75rem .8rem;
+      }
+      .tab {
+        padding:.4rem .65rem;
+        font-size:.78rem;
+        gap:.4rem;
+      }
+      .day-nav {
+        padding:.25rem .4rem;
+        gap:.35rem;
+        min-width:11.5rem;
+        width:clamp(11.5rem, 72vw, 15rem);
+      }
+      .day-nav-label {
+        font-size:.85rem;
+      }
+      .day-nav-today {
+        font-size:.65rem;
+      }
+      .daily-category__name {
+        font-size:1rem;
+        gap:.4rem;
+      }
     }
     .daily-category__items {
       display:grid;
@@ -464,6 +544,8 @@
       padding:.35rem .85rem .9rem;
       border-radius:.85rem;
       background:rgba(148,163,184,.08);
+      width:100%;
+      box-sizing:border-box;
     }
     .consigne-group__summary {
       list-style:none;

@@ -1345,6 +1345,7 @@ function consigneActions() {
     <div class="daily-consigne__actions" role="group" aria-label="Actions">
       ${smallBtn("Historique", "js-histo")}
       ${smallBtn("Modifier", "js-edit")}
+      ${smallBtn("Décaler", "js-delay")}
       ${smallBtn("Supprimer", "js-del")}
     </div>
   `;
@@ -2067,7 +2068,7 @@ async function renderPractice(ctx, root, _opts = {}) {
   ].map((part) => String(part)).join(":");
 
   const card = document.createElement("section");
-  card.className = "card p-4 space-y-4";
+  card.className = "card space-y-4 p-3 sm:p-4";
   card.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-2">
@@ -2186,21 +2187,71 @@ async function renderPractice(ctx, root, _opts = {}) {
           renderPractice(ctx, root);
         }
       };
+      const delayBtn = el.querySelector(".js-delay");
+      const updateDelayState = (enabled) => {
+        if (!delayBtn) return;
+        delayBtn.disabled = !enabled;
+        delayBtn.classList.toggle("opacity-50", !enabled);
+        delayBtn.title = enabled
+          ? "Décaler la prochaine itération"
+          : "Active la répétition espacée pour décaler";
+      };
+      if (delayBtn) {
+        updateDelayState(c?.srEnabled !== false);
+        delayBtn.onclick = async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (delayBtn.disabled) {
+            showToast("Active la répétition espacée pour utiliser le décalage.");
+            return;
+          }
+          const raw = prompt("Décaler de combien d'itérations ?", "1");
+          if (raw === null) return;
+          const value = Number(String(raw).replace(",", "."));
+          const rounded = Math.round(value);
+          if (!Number.isFinite(value) || !Number.isFinite(rounded) || rounded < 1) {
+            showToast("Entre un entier positif.");
+            return;
+          }
+          const amount = rounded;
+          delayBtn.disabled = true;
+          try {
+            await Schema.delayConsigne({
+              db: ctx.db,
+              uid: ctx.user.uid,
+              consigne: c,
+              mode: "practice",
+              amount,
+              sessionIndex,
+            });
+            showToast(`Consigne décalée de ${amount} itération${amount > 1 ? "s" : ""}.`);
+            renderPractice(ctx, root);
+          } catch (err) {
+            console.error(err);
+            showToast("Impossible de décaler la consigne.");
+            updateDelayState(c?.srEnabled !== false);
+          } finally {
+            updateDelayState(c?.srEnabled !== false);
+          }
+        };
+      }
       const srT = el.querySelector(".js-sr-toggle");
       if (srT) srT.onclick = async (e) => {
         e.preventDefault(); e.stopPropagation();
         const on = srT.getAttribute("data-enabled") === "1";
         await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { srEnabled: !on });
+        c.srEnabled = !on;
         srT.setAttribute("data-enabled", on ? "0" : "1");
         srT.setAttribute("aria-pressed", (!on).toString());
         srT.title = (!on) ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
         srT.classList.toggle("opacity-50", on);
+        updateDelayState(c?.srEnabled !== false);
       };
       return el;
     };
 
     const grouped = groupConsignes(visible);
-    grouped.forEach((group) => {
+    const renderGroup = (group, target) => {
       const wrapper = document.createElement("div");
       wrapper.className = "consigne-group";
       const parentCard = makeItem(group.consigne, { isChild: false });
@@ -2218,8 +2269,25 @@ async function renderPractice(ctx, root, _opts = {}) {
         details.appendChild(list);
         wrapper.appendChild(details);
       }
-      form.appendChild(wrapper);
-    });
+      target.appendChild(wrapper);
+    };
+
+    const highs = grouped.filter((group) => (group.consigne.priority || 2) <= 2);
+    const lows = grouped.filter((group) => (group.consigne.priority || 2) >= 3);
+
+    highs.forEach((group) => renderGroup(group, form));
+
+    if (lows.length) {
+      const lowDetails = document.createElement("details");
+      lowDetails.className = "daily-category__low";
+      const lowCount = lows.reduce((acc, group) => acc + 1 + group.children.length, 0);
+      lowDetails.innerHTML = `<summary class="daily-category__low-summary">Priorité basse (${lowCount})</summary>`;
+      const lowStack = document.createElement("div");
+      lowStack.className = "daily-category__items daily-category__items--nested";
+      lows.forEach((group) => renderGroup(group, lowStack));
+      lowDetails.appendChild(lowStack);
+      form.appendChild(lowDetails);
+    }
 
     if (typeof window.attachConsignesDragDrop === "function") {
       window.attachConsignesDragDrop(form, ctx);
@@ -2370,7 +2438,7 @@ async function renderDaily(ctx, root, opts = {}) {
   const isTodaySelected = Schema.todayKey() === selectedKey;
 
   const card = document.createElement("section");
-  card.className = "card p-4 space-y-4";
+  card.className = "card space-y-4 p-3 sm:p-4";
   card.innerHTML = `
     <div class="flex flex-wrap items-center gap-2">
       <div class="day-nav" data-day-nav>
@@ -2385,7 +2453,7 @@ async function renderDaily(ctx, root, opts = {}) {
           <span aria-hidden="true">→</span>
         </button>
       </div>
-      <div class="ml-auto flex items-center gap-2">${smallBtn("📊 Tableau de bord", "js-dashboard")}${smallBtn("+ Nouvelle consigne", "js-new")}</div>
+      <div class="daily-header-actions flex items-center gap-2">${smallBtn("📊 Tableau de bord", "js-dashboard")}${smallBtn("+ Nouvelle consigne", "js-new")}</div>
     </div>
   `;
   container.appendChild(card);
@@ -2498,16 +2566,64 @@ async function renderDaily(ctx, root, opts = {}) {
         renderDaily(ctx, root, { day: currentDay });
       }
     };
+    const delayBtn = itemCard.querySelector(".js-delay");
+    const updateDelayState = (enabled) => {
+      if (!delayBtn) return;
+      delayBtn.disabled = !enabled;
+      delayBtn.classList.toggle("opacity-50", !enabled);
+      delayBtn.title = enabled
+        ? "Décaler la prochaine apparition"
+        : "Active la répétition espacée pour décaler";
+    };
+    if (delayBtn) {
+      updateDelayState(item?.srEnabled !== false);
+      delayBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (delayBtn.disabled) {
+          showToast("Active la répétition espacée pour utiliser le décalage.");
+          return;
+        }
+        const raw = prompt("Décaler de combien de jours ?", "1");
+        if (raw === null) return;
+        const value = Number(String(raw).replace(",", "."));
+        const rounded = Math.round(value);
+        if (!Number.isFinite(value) || !Number.isFinite(rounded) || rounded < 1) {
+          showToast("Entre un entier positif.");
+          return;
+        }
+        const amount = rounded;
+        delayBtn.disabled = true;
+        try {
+          await Schema.delayConsigne({
+            db: ctx.db,
+            uid: ctx.user.uid,
+            consigne: item,
+            mode: "daily",
+            amount,
+          });
+          showToast(`Consigne décalée de ${amount} jour${amount > 1 ? "s" : ""}.`);
+          renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
+        } catch (err) {
+          console.error(err);
+          showToast("Impossible de décaler la consigne.");
+        } finally {
+          updateDelayState(item?.srEnabled !== false);
+        }
+      };
+    }
     const srT = itemCard.querySelector(".js-sr-toggle");
     if (srT) srT.onclick = async (e) => {
       e.preventDefault();
       e.stopPropagation();
       const on = srT.getAttribute("data-enabled") === "1";
       await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { srEnabled: !on });
+      item.srEnabled = !on;
       srT.setAttribute("data-enabled", on ? "0" : "1");
       srT.setAttribute("aria-pressed", (!on).toString());
       srT.title = (!on) ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
       srT.classList.toggle("opacity-50", on);
+      updateDelayState(item.srEnabled !== false);
     };
 
     return itemCard;
