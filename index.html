@@ -513,6 +513,22 @@
       display:grid;
       gap:1.1rem;
     }
+    .consigne-card {
+      position:relative;
+      transition:background-color .2s ease, border-color .2s ease, background-image .2s ease;
+    }
+    .consigne-card--likert-positive {
+      background-image:linear-gradient(rgba(22,163,74,.14), rgba(22,163,74,.14));
+      border-color:rgba(22,163,74,.35);
+    }
+    .consigne-card--likert-neutral {
+      background-image:linear-gradient(rgba(234,179,8,.16), rgba(234,179,8,.16));
+      border-color:rgba(202,138,4,.35);
+    }
+    .consigne-card--likert-negative {
+      background-image:linear-gradient(rgba(239,68,68,.16), rgba(239,68,68,.16));
+      border-color:rgba(220,38,38,.4);
+    }
     .consigne-card__header {
       display:flex;
       align-items:center;
