@@ -1342,13 +1342,254 @@ async function categorySelect(ctx, mode, currentName = "") {
 
 function consigneActions() {
   return `
-    <div class="daily-consigne__actions" role="group" aria-label="Actions">
-      ${smallBtn("Historique", "js-histo")}
-      ${smallBtn("Modifier", "js-edit")}
-      ${smallBtn("Décaler", "js-delay")}
-      ${smallBtn("Supprimer", "js-del")}
+    <div class="consigne-menu" data-menu-root>
+      <button type="button"
+              class="consigne-menu__trigger"
+              aria-haspopup="true"
+              aria-expanded="false"
+              title="Options"
+              data-menu-trigger>
+        ⋮<span class="sr-only">Ouvrir le menu des actions</span>
+      </button>
+      <div class="consigne-menu__panel" role="menu" hidden data-menu-panel>
+        <button type="button" class="consigne-menu__item js-histo" role="menuitem" data-menu-action="history">Historique</button>
+        <button type="button" class="consigne-menu__item js-edit" role="menuitem" data-menu-action="edit">Modifier</button>
+        <button type="button" class="consigne-menu__item js-delay" role="menuitem" data-menu-action="delay">Décaler</button>
+        <button type="button" class="consigne-menu__item js-del" role="menuitem" data-menu-action="delete">Supprimer</button>
+      </div>
     </div>
   `;
+}
+
+function preventDragConflicts(target) {
+  if (!target) return;
+  const stop = (event) => {
+    event.stopPropagation();
+  };
+  target.addEventListener("pointerdown", stop);
+  target.addEventListener("mousedown", stop);
+  target.addEventListener("touchstart", stop, { passive: true });
+}
+
+function elementHasTransition(element) {
+  if (!element || typeof window === "undefined" || typeof window.getComputedStyle !== "function") {
+    return false;
+  }
+  const style = window.getComputedStyle(element);
+  const parseTimes = (value) => value
+    .split(",")
+    .map((part) => part.trim())
+    .map((part) => {
+      if (!part) return 0;
+      if (part.endsWith("ms")) return parseFloat(part);
+      if (part.endsWith("s")) return parseFloat(part) * 1000;
+      const numeric = parseFloat(part);
+      return Number.isFinite(numeric) ? numeric * 1000 : 0;
+    });
+  const durations = parseTimes(style.transitionDuration || "");
+  return durations.some((time) => time > 0);
+}
+
+function animateCollapsible(content, expanded) {
+  if (!content) return;
+  const clean = () => {
+    content.style.height = "";
+    content.style.opacity = "";
+  };
+  if (expanded) {
+    content.hidden = false;
+    content.style.height = "0px";
+    content.style.opacity = "0";
+    const openHandler = (event) => {
+      if (event.target !== content || event.propertyName !== "height") return;
+      clean();
+      content.removeEventListener("transitionend", openHandler);
+    };
+    content.addEventListener("transitionend", openHandler);
+    requestAnimationFrame(() => {
+      const fullHeight = content.scrollHeight;
+      content.style.height = `${fullHeight}px`;
+      content.style.opacity = "1";
+      if (!elementHasTransition(content)) {
+        openHandler({ target: content, propertyName: "height" });
+      }
+    });
+  } else {
+    const fullHeight = content.scrollHeight;
+    content.style.height = `${fullHeight}px`;
+    content.style.opacity = "1";
+    const closeHandler = (event) => {
+      if (event.target !== content || event.propertyName !== "height") return;
+      content.hidden = true;
+      clean();
+      content.removeEventListener("transitionend", closeHandler);
+    };
+    content.addEventListener("transitionend", closeHandler);
+    requestAnimationFrame(() => {
+      content.style.height = "0px";
+      content.style.opacity = "0";
+      if (!elementHasTransition(content)) {
+        closeHandler({ target: content, propertyName: "height" });
+      }
+    });
+  }
+}
+
+function initializeCollapsibleCard(card, { defaultOpen = false } = {}) {
+  const toggle = card.querySelector("[data-consigne-toggle]");
+  const content = card.querySelector("[data-consigne-content]");
+  if (!toggle || !content) return { isExpanded: () => false, setExpanded: () => {} };
+  const contentId = content.id || `consigne-content-${Math.random().toString(36).slice(2, 10)}`;
+  content.id = contentId;
+  toggle.setAttribute("aria-controls", contentId);
+  let expanded = Boolean(defaultOpen);
+  toggle.setAttribute("aria-expanded", expanded.toString());
+  card.classList.toggle("consigne-card--open", expanded);
+  if (!expanded) {
+    content.hidden = true;
+  }
+
+  const setExpanded = (next) => {
+    const value = Boolean(next);
+    if (value === expanded) return;
+    expanded = value;
+    toggle.setAttribute("aria-expanded", expanded.toString());
+    card.classList.toggle("consigne-card--open", expanded);
+    animateCollapsible(content, expanded);
+  };
+
+  const pointerBlock = (event) => {
+    event.stopPropagation();
+  };
+
+  toggle.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setExpanded(!expanded);
+  });
+  toggle.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" && !expanded) {
+      event.preventDefault();
+      setExpanded(true);
+    } else if (event.key === "ArrowUp" && expanded) {
+      event.preventDefault();
+      setExpanded(false);
+    }
+  });
+  toggle.addEventListener("pointerdown", pointerBlock);
+  toggle.addEventListener("mousedown", pointerBlock);
+  toggle.addEventListener("touchstart", pointerBlock, { passive: true });
+
+  return {
+    isExpanded: () => expanded,
+    setExpanded,
+  };
+}
+
+function setupContextMenu(root) {
+  if (!root) return { close: () => {}, isOpen: () => false };
+  const trigger = root.querySelector("[data-menu-trigger]");
+  const panel = root.querySelector("[data-menu-panel]");
+  if (!trigger || !panel) return { close: () => {}, isOpen: () => false };
+  preventDragConflicts(trigger);
+  preventDragConflicts(panel);
+  let open = false;
+  let docPointerHandler = null;
+  let docKeyHandler = null;
+  const items = () => Array.from(panel.querySelectorAll("[data-menu-action]"));
+
+  const closeMenu = () => {
+    if (!open) return;
+    open = false;
+    panel.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    root.classList.remove("consigne-menu--open");
+    if (docPointerHandler) {
+      document.removeEventListener("pointerdown", docPointerHandler, true);
+      document.removeEventListener("mousedown", docPointerHandler, true);
+      document.removeEventListener("touchstart", docPointerHandler, true);
+      docPointerHandler = null;
+    }
+    if (docKeyHandler) {
+      document.removeEventListener("keydown", docKeyHandler, true);
+      docKeyHandler = null;
+    }
+  };
+
+  const focusFirstItem = () => {
+    const [first] = items();
+    if (first) {
+      first.focus();
+    }
+  };
+
+  const openMenu = () => {
+    if (open) return;
+    open = true;
+    panel.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    root.classList.add("consigne-menu--open");
+    focusFirstItem();
+    docPointerHandler = (event) => {
+      if (!root.contains(event.target)) {
+        closeMenu();
+      }
+    };
+    document.addEventListener("pointerdown", docPointerHandler, true);
+    document.addEventListener("mousedown", docPointerHandler, true);
+    document.addEventListener("touchstart", docPointerHandler, true);
+    docKeyHandler = (event) => {
+      if (event.key === "Escape") {
+        closeMenu();
+        trigger.focus();
+      }
+    };
+    document.addEventListener("keydown", docKeyHandler, true);
+  };
+
+  trigger.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (open) closeMenu();
+    else openMenu();
+  });
+
+  trigger.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (!open) openMenu();
+      focusFirstItem();
+    } else if (event.key === "Escape" && open) {
+      event.preventDefault();
+      closeMenu();
+    }
+  });
+
+  panel.addEventListener("keydown", (event) => {
+    const list = items();
+    if (!list.length) return;
+    const currentIndex = list.indexOf(document.activeElement);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      const next = list[(currentIndex + 1) % list.length] || list[0];
+      next.focus();
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      const prev = list[(currentIndex - 1 + list.length) % list.length] || list[list.length - 1];
+      prev.focus();
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      list[0].focus();
+    } else if (event.key === "End") {
+      event.preventDefault();
+      list[list.length - 1].focus();
+    }
+  });
+
+  return {
+    close: closeMenu,
+    isOpen: () => open,
+  };
 }
 
 function inputForType(consigne, initialValue = null) {
@@ -2164,49 +2405,80 @@ async function renderPractice(ctx, root, _opts = {}) {
         el.draggable = true;
       }
       el.innerHTML = `
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex flex-wrap items-center gap-2">
-            <h4 class="font-semibold">${escapeHtml(c.text)}</h4>
-            ${prioChip(Number(c.priority)||2)}
+        <div class="consigne-card__header">
+          <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
+            <span class="consigne-card__title">${escapeHtml(c.text)}</span>
+            ${prioChip(Number(c.priority) || 2)}
+          </button>
+          <div class="consigne-card__aside">
             ${srBadge(c)}
           </div>
-          ${consigneActions()}
         </div>
-        ${inputForType(c)}
+        <div class="consigne-card__content" data-consigne-content hidden>
+          <div class="consigne-card__toolbar">
+            ${consigneActions()}
+          </div>
+          <div class="consigne-card__body">
+            ${inputForType(c)}
+          </div>
+        </div>
       `;
-      const bH = el.querySelector(".js-histo");
-      const bE = el.querySelector(".js-edit");
-      const bD = el.querySelector(".js-del");
-      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c); };
-      bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
-      bD.onclick = async (e) => {
-        e.preventDefault(); e.stopPropagation();
+
+      const collapse = initializeCollapsibleCard(el);
+      const menu = setupContextMenu(el.querySelector("[data-menu-root]"));
+      const attachAction = (selector, handler) => {
+        const btn = el.querySelector(selector);
+        if (!btn) return;
+        preventDragConflicts(btn);
+        btn.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          menu.close();
+          await handler();
+        });
+      };
+
+      attachAction("[data-menu-action='history']", () => {
+        Schema.D.info("ui.history.click", c.id);
+        openHistory(ctx, c);
+      });
+      attachAction("[data-menu-action='edit']", () => {
+        Schema.D.info("ui.editConsigne.click", c.id);
+        openConsigneForm(ctx, c);
+      });
+      attachAction("[data-menu-action='delete']", async () => {
         if (confirm("Supprimer cette consigne ? (historique conservé)")) {
           Schema.D.info("ui.deleteConsigne.confirm", c.id);
           await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, c.id);
           renderPractice(ctx, root);
         }
-      };
-      const delayBtn = el.querySelector(".js-delay");
+      });
+
+      const delayBtn = el.querySelector("[data-menu-action='delay']");
       const updateDelayState = (enabled) => {
         if (!delayBtn) return;
         delayBtn.disabled = !enabled;
-        delayBtn.classList.toggle("opacity-50", !enabled);
+        delayBtn.classList.toggle("is-disabled", !enabled);
         delayBtn.title = enabled
           ? "Décaler la prochaine itération"
           : "Active la répétition espacée pour décaler";
       };
       if (delayBtn) {
+        preventDragConflicts(delayBtn);
         updateDelayState(c?.srEnabled !== false);
-        delayBtn.onclick = async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
+        delayBtn.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
           if (delayBtn.disabled) {
+            menu.close();
             showToast("Active la répétition espacée pour utiliser le décalage.");
             return;
           }
+          menu.close();
           const raw = prompt("Décaler de combien d'itérations ?", "1");
-          if (raw === null) return;
+          if (raw === null) {
+            return;
+          }
           const value = Number(String(raw).replace(",", "."));
           const rounded = Math.round(value);
           if (!Number.isFinite(value) || !Number.isFinite(rounded) || rounded < 1) {
@@ -2233,11 +2505,13 @@ async function renderPractice(ctx, root, _opts = {}) {
           } finally {
             updateDelayState(c?.srEnabled !== false);
           }
-        };
+        });
       }
+
       const srT = el.querySelector(".js-sr-toggle");
-      if (srT) srT.onclick = async (e) => {
-        e.preventDefault(); e.stopPropagation();
+      if (srT) srT.onclick = async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         const on = srT.getAttribute("data-enabled") === "1";
         await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { srEnabled: !on });
         c.srEnabled = !on;
@@ -2247,6 +2521,15 @@ async function renderPractice(ctx, root, _opts = {}) {
         srT.classList.toggle("opacity-50", on);
         updateDelayState(c?.srEnabled !== false);
       };
+
+      el.querySelectorAll("input, textarea, select").forEach((field) => {
+        field.addEventListener("focus", () => {
+          if (!collapse.isExpanded()) {
+            collapse.setExpanded(true);
+          }
+        });
+      });
+
       return el;
     };
 
@@ -2542,50 +2825,80 @@ async function renderDaily(ctx, root, opts = {}) {
       delete itemCard.dataset.parentId;
     }
     itemCard.innerHTML = `
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex flex-wrap items-center gap-2">
-          <h4 class="font-semibold">${escapeHtml(item.text)}</h4>
+      <div class="consigne-card__header">
+        <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
+          <span class="consigne-card__title">${escapeHtml(item.text)}</span>
           ${prioChip(Number(item.priority) || 2)}
+        </button>
+        <div class="consigne-card__aside">
           ${srBadge(item)}
         </div>
-        ${consigneActions()}
       </div>
-      ${inputForType(item, previous?.value ?? null)}
+      <div class="consigne-card__content" data-consigne-content hidden>
+        <div class="consigne-card__toolbar">
+          ${consigneActions()}
+        </div>
+        <div class="consigne-card__body">
+          ${inputForType(item, previous?.value ?? null)}
+        </div>
+      </div>
     `;
 
-    const bH = itemCard.querySelector(".js-histo");
-    const bE = itemCard.querySelector(".js-edit");
-    const bD = itemCard.querySelector(".js-del");
-    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item); };
-    bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
-    bD.onclick = async (e) => {
-      e.preventDefault(); e.stopPropagation();
+    const collapse = initializeCollapsibleCard(itemCard);
+    const menu = setupContextMenu(itemCard.querySelector("[data-menu-root]"));
+    const attachAction = (selector, handler) => {
+      const btn = itemCard.querySelector(selector);
+      if (!btn) return;
+      preventDragConflicts(btn);
+      btn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        menu.close();
+        await handler();
+      });
+    };
+
+    attachAction("[data-menu-action='history']", () => {
+      Schema.D.info("ui.history.click", item.id);
+      openHistory(ctx, item);
+    });
+    attachAction("[data-menu-action='edit']", () => {
+      Schema.D.info("ui.editConsigne.click", item.id);
+      openConsigneForm(ctx, item);
+    });
+    attachAction("[data-menu-action='delete']", async () => {
       if (confirm("Supprimer cette consigne ? (historique conservé)")) {
         Schema.D.info("ui.deleteConsigne.confirm", item.id);
         await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, item.id);
-        renderDaily(ctx, root, { day: currentDay });
+        renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
       }
-    };
-    const delayBtn = itemCard.querySelector(".js-delay");
+    });
+
+    const delayBtn = itemCard.querySelector("[data-menu-action='delay']");
     const updateDelayState = (enabled) => {
       if (!delayBtn) return;
       delayBtn.disabled = !enabled;
-      delayBtn.classList.toggle("opacity-50", !enabled);
+      delayBtn.classList.toggle("is-disabled", !enabled);
       delayBtn.title = enabled
         ? "Décaler la prochaine apparition"
         : "Active la répétition espacée pour décaler";
     };
     if (delayBtn) {
+      preventDragConflicts(delayBtn);
       updateDelayState(item?.srEnabled !== false);
-      delayBtn.onclick = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+      delayBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         if (delayBtn.disabled) {
+          menu.close();
           showToast("Active la répétition espacée pour utiliser le décalage.");
           return;
         }
+        menu.close();
         const raw = prompt("Décaler de combien de jours ?", "1");
-        if (raw === null) return;
+        if (raw === null) {
+          return;
+        }
         const value = Number(String(raw).replace(",", "."));
         const rounded = Math.round(value);
         if (!Number.isFinite(value) || !Number.isFinite(rounded) || rounded < 1) {
@@ -2610,12 +2923,12 @@ async function renderDaily(ctx, root, opts = {}) {
         } finally {
           updateDelayState(item?.srEnabled !== false);
         }
-      };
+      });
     }
     const srT = itemCard.querySelector(".js-sr-toggle");
-    if (srT) srT.onclick = async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+    if (srT) srT.onclick = async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       const on = srT.getAttribute("data-enabled") === "1";
       await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { srEnabled: !on });
       item.srEnabled = !on;
@@ -2625,6 +2938,14 @@ async function renderDaily(ctx, root, opts = {}) {
       srT.classList.toggle("opacity-50", on);
       updateDelayState(item.srEnabled !== false);
     };
+
+    itemCard.querySelectorAll("input, textarea, select").forEach((field) => {
+      field.addEventListener("focus", () => {
+        if (!collapse.isExpanded()) {
+          collapse.setExpanded(true);
+        }
+      });
+    });
 
     return itemCard;
   };
