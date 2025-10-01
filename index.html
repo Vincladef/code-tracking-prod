@@ -461,7 +461,10 @@
         padding-left:.5rem;
       }
       .consigne-card {
-        padding:.75rem .8rem;
+        padding:.7rem .75rem;
+      }
+      .consigne-card--compact {
+        padding:.55rem .65rem;
       }
       .tab {
         padding:.4rem .65rem;
@@ -516,14 +519,25 @@
     }
     .consigne-card {
       position:relative;
-      transition:background-color .2s ease, border-color .2s ease, background-image .2s ease;
+      background:var(--card-bg);
+      border:1px solid rgba(148,163,184,.26);
+      border-radius:.85rem;
+      padding:.75rem 1rem;
+      box-shadow:0 1px 2px rgba(15,23,42,.08);
+      transition:background-color .2s ease, border-color .2s ease, background-image .2s ease, box-shadow .2s ease;
       overflow:visible;
+    }
+    .consigne-card--compact {
+      padding:.6rem .85rem;
+      border-radius:.7rem;
+      box-shadow:0 1px 0 rgba(15,23,42,.08);
     }
     .consigne-card__header {
       display:flex;
       align-items:center;
-      gap:.75rem;
+      gap:.5rem;
       flex-wrap:nowrap;
+      min-height:2.5rem;
     }
     .consigne-card__toggle {
       display:flex;
@@ -802,7 +816,12 @@
 
     .consigne-group {
       display:grid;
-      gap:.5rem;
+      gap:.4rem;
+      padding:.35rem 0;
+      border-bottom:1px solid rgba(148,163,184,.2);
+    }
+    .consigne-group:last-child {
+      border-bottom:none;
     }
     .consigne-card__children {
       margin-top:1rem;

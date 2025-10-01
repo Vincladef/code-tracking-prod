@@ -2846,7 +2846,7 @@ async function renderPractice(ctx, root, _opts = {}) {
     const makeItem = (c, { isChild = false } = {}) => {
       const tone = priorityTone(c.priority);
       const el = document.createElement("div");
-      el.className = `consigne-card card p-3 priority-surface priority-surface-${tone}`;
+      el.className = `consigne-card priority-surface priority-surface-${tone}`;
       el.dataset.id = c.id;
       if (isChild) {
         el.classList.add("consigne-card--child");
@@ -2857,7 +2857,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         }
         el.draggable = false;
       } else {
-        el.classList.add("consigne-card--parent");
+        el.classList.add("consigne-card--parent", "consigne-card--compact");
         delete el.dataset.parentId;
         el.draggable = true;
       }
@@ -3286,7 +3286,7 @@ async function renderDaily(ctx, root, opts = {}) {
     const previous = previousAnswers?.get(item.id);
     const itemCard = document.createElement("div");
     const tone = priorityTone(item.priority);
-    itemCard.className = `consigne-card card p-3 priority-surface priority-surface-${tone}`;
+    itemCard.className = `consigne-card priority-surface priority-surface-${tone}`;
     if (isChild) {
       itemCard.classList.add("consigne-card--child");
       if (item.parentId) {
@@ -3295,7 +3295,7 @@ async function renderDaily(ctx, root, opts = {}) {
         delete itemCard.dataset.parentId;
       }
     } else {
-      itemCard.classList.add("consigne-card--parent");
+      itemCard.classList.add("consigne-card--parent", "consigne-card--compact");
       delete itemCard.dataset.parentId;
     }
     itemCard.innerHTML = `
