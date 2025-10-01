@@ -1462,9 +1462,11 @@ function animateCollapsible(content, expanded) {
   const clean = () => {
     content.style.height = "";
     content.style.opacity = "";
+    content.style.overflow = "";
   };
   if (expanded) {
     content.hidden = false;
+    content.style.overflow = "hidden";
     content.style.height = "0px";
     content.style.opacity = "0";
     const openHandler = (event) => {
@@ -1483,6 +1485,7 @@ function animateCollapsible(content, expanded) {
     });
   } else {
     const fullHeight = content.scrollHeight;
+    content.style.overflow = "hidden";
     content.style.height = `${fullHeight}px`;
     content.style.opacity = "1";
     const closeHandler = (event) => {
