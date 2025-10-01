@@ -1516,13 +1516,62 @@ function initializeCollapsibleCard(card, { defaultOpen = false } = {}) {
     content.hidden = true;
   }
 
-  const setExpanded = (next) => {
+  let focusTimeoutId = null;
+
+  const findFirstInteractiveField = () => {
+    const interactiveElements = content.querySelectorAll(
+      "input, textarea, select, [contenteditable]"
+    );
+    for (const el of interactiveElements) {
+      if (el.getAttribute && el.getAttribute("contenteditable") === "false") {
+        continue;
+      }
+      if (el.matches && el.matches("input[type='hidden']")) {
+        continue;
+      }
+      if (el.disabled) continue;
+      if (typeof el.focus !== "function") continue;
+      return el;
+    }
+    return null;
+  };
+
+  const scheduleAutoFocus = () => {
+    clearTimeout(focusTimeoutId);
+    focusTimeoutId = setTimeout(() => {
+      focusTimeoutId = null;
+      const field = findFirstInteractiveField();
+      if (!field) return;
+      if (document.activeElement === field) return;
+      try {
+        field.focus({ preventScroll: true });
+      } catch (err) {
+        field.focus();
+      }
+      if (field.tagName === "SELECT") {
+        try {
+          field.showPicker?.();
+        } catch (err) {
+          // Some browsers throw when showPicker is unsupported; ignore.
+        }
+      }
+    }, 80);
+  };
+
+  const setExpanded = (next, { skipFocus = false, source = null } = {}) => {
     const value = Boolean(next);
     if (value === expanded) return;
     expanded = value;
     toggle.setAttribute("aria-expanded", expanded.toString());
     card.classList.toggle("consigne-card--open", expanded);
     animateCollapsible(content, expanded);
+    if (!expanded) {
+      clearTimeout(focusTimeoutId);
+      focusTimeoutId = null;
+      return;
+    }
+    if (skipFocus || source !== "toggle") return;
+    scheduleAutoFocus();
   };
 
   const pointerBlock = (event) => {
@@ -1532,15 +1581,15 @@ function initializeCollapsibleCard(card, { defaultOpen = false } = {}) {
   toggle.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    setExpanded(!expanded);
+    setExpanded(!expanded, { source: "toggle" });
   });
   toggle.addEventListener("keydown", (event) => {
     if (event.key === "ArrowDown" && !expanded) {
       event.preventDefault();
-      setExpanded(true);
+      setExpanded(true, { source: "toggle" });
     } else if (event.key === "ArrowUp" && expanded) {
       event.preventDefault();
-      setExpanded(false);
+      setExpanded(false, { source: "toggle" });
     }
   });
   toggle.addEventListener("pointerdown", pointerBlock);
@@ -2589,13 +2638,18 @@ async function renderPractice(ctx, root, _opts = {}) {
         updateDelayState(c?.srEnabled !== false);
       };
 
-      el.querySelectorAll("input, textarea, select").forEach((field) => {
-        field.addEventListener("focus", () => {
-          if (!collapse.isExpanded()) {
-            collapse.setExpanded(true);
+      el
+        .querySelectorAll("input, textarea, select, [contenteditable]")
+        .forEach((field) => {
+          if (field.getAttribute && field.getAttribute("contenteditable") === "false") {
+            return;
           }
+          field.addEventListener("focus", () => {
+            if (!collapse.isExpanded()) {
+              collapse.setExpanded(true, { skipFocus: true });
+            }
+          });
         });
-      });
 
       enhanceLikertStatus(el);
 
@@ -3008,13 +3062,18 @@ async function renderDaily(ctx, root, opts = {}) {
       updateDelayState(item.srEnabled !== false);
     };
 
-    itemCard.querySelectorAll("input, textarea, select").forEach((field) => {
-      field.addEventListener("focus", () => {
-        if (!collapse.isExpanded()) {
-          collapse.setExpanded(true);
+    itemCard
+      .querySelectorAll("input, textarea, select, [contenteditable]")
+      .forEach((field) => {
+        if (field.getAttribute && field.getAttribute("contenteditable") === "false") {
+          return;
         }
+        field.addEventListener("focus", () => {
+          if (!collapse.isExpanded()) {
+            collapse.setExpanded(true, { skipFocus: true });
+          }
+        });
       });
-    });
 
     enhanceLikertStatus(itemCard);
 
