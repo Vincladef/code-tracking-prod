@@ -1470,6 +1470,66 @@ function initializeCollapsibleCard(card, { defaultOpen = false } = {}) {
     return null;
   };
 
+  const shouldAutoOpenLikertSelect = (select) => {
+    if (!select || select.disabled || select.multiple) return false;
+    const name = select.name || "";
+    return /^(likert5|likert6|yesno):/.test(name);
+  };
+
+  const triggerNativeSelectOpen = (select) => {
+    if (!shouldAutoOpenLikertSelect(select)) return;
+    const triggerMouseSequence = () => {
+      const rect = select.getBoundingClientRect?.();
+      const baseInit = {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: rect ? rect.left + rect.width / 2 : undefined,
+        clientY: rect ? rect.top + rect.height / 2 : undefined,
+      };
+      if (typeof PointerEvent === "function") {
+        try {
+          select.dispatchEvent?.(
+            new PointerEvent("pointerdown", { ...baseInit, pointerType: "mouse" })
+          );
+        } catch (err) {
+          // Older browsers might not support PointerEvent; ignore failures.
+        }
+      }
+      try {
+        select.dispatchEvent?.(new MouseEvent("mousedown", baseInit));
+        select.dispatchEvent?.(new MouseEvent("mouseup", baseInit));
+        select.dispatchEvent?.(new MouseEvent("click", baseInit));
+      } catch (err) {
+        // Ignore errors thrown by programmatic event dispatch.
+      }
+    };
+
+    triggerMouseSequence();
+
+    try {
+      select.click?.();
+    } catch (err) {
+      // Some browsers might restrict programmatic clicks; ignore.
+    }
+
+    if (typeof KeyboardEvent === "function") {
+      try {
+        const keyboardEvent = new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          code: "ArrowDown",
+          keyCode: 40,
+          which: 40,
+          bubbles: true,
+          cancelable: true,
+        });
+        select.dispatchEvent?.(keyboardEvent);
+      } catch (err) {
+        // KeyboardEvent constructor may not be supported on very old browsers.
+      }
+    }
+  };
+
   const scheduleAutoFocus = () => {
     clearTimeout(focusTimeoutId);
     focusTimeoutId = setTimeout(() => {
@@ -1483,11 +1543,9 @@ function initializeCollapsibleCard(card, { defaultOpen = false } = {}) {
         field.focus();
       }
       if (field.tagName === "SELECT") {
-        try {
-          field.showPicker?.();
-        } catch (err) {
-          // Some browsers throw when showPicker is unsupported; ignore.
-        }
+        requestAnimationFrame(() => {
+          triggerNativeSelectOpen(field);
+        });
       }
     }, 80);
   };
