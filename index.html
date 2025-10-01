@@ -535,7 +535,7 @@
       display:flex;
       align-items:center;
       gap:.75rem;
-      flex-wrap:wrap;
+      flex-wrap:nowrap;
     }
     .consigne-card__toggle {
       display:flex;
@@ -578,44 +578,46 @@
       align-items:center;
       gap:.5rem;
       flex:0 0 auto;
-      margin-left:auto;
       justify-content:flex-end;
+      margin-left:auto;
     }
     .consigne-card__aside > * {
       flex-shrink:0;
     }
     .consigne-card__content {
-      position:absolute;
-      left:0;
-      right:0;
-      top:calc(100% + .5rem);
-      display:none;
-      visibility:hidden;
-      opacity:0;
-      pointer-events:none;
-      transition:opacity .2s ease, transform .2s ease;
-      transform:translateY(-.25rem);
-      z-index:20;
-      background:var(--card-bg);
-      border:1px solid rgba(148,163,184,.35);
-      border-radius:1rem;
-      box-shadow:0 18px 40px rgba(15,23,42,.18);
-      padding:.75rem;
+      display:flex;
+      align-items:flex-start;
+      gap:.75rem;
+      min-width:0;
+      flex:1 1 45%;
+      width:100%;
     }
-    .consigne-card--active .consigne-card__content {
-      display:block;
-      visibility:visible;
-      opacity:1;
-      pointer-events:auto;
-      transform:translateY(0);
+    .consigne-card__content[hidden] {
+      display:none !important;
     }
     .consigne-card__body {
-      margin-top:.75rem;
-      display:grid;
+      display:flex;
+      align-items:flex-start;
       gap:.75rem;
+      flex-wrap:wrap;
+      width:100%;
     }
     .consigne-card__body > * {
       margin:0;
+    }
+    @media (max-width: 640px) {
+      .consigne-card__header {
+        flex-wrap:wrap;
+        align-items:flex-start;
+      }
+      .consigne-card__content {
+        flex:1 1 100%;
+      }
+      .consigne-card__aside {
+        margin-left:0;
+        width:100%;
+        justify-content:flex-end;
+      }
     }
     .consigne-menu {
       position:relative;
@@ -695,9 +697,6 @@
       }
     }
     @media (prefers-reduced-motion: reduce) {
-      .consigne-card__content {
-        transition:none;
-      }
       .consigne-menu__panel {
         animation:none;
       }
