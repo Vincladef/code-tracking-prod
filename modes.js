@@ -98,6 +98,73 @@ function prioChip(p) {
   return `<span class="sr-only" data-priority="${tone}">Priorité ${lbl}</span>`;
 }
 
+const LIKERT_STATUS_CLASSES = [
+  "consigne-card--likert-positive",
+  "consigne-card--likert-neutral",
+  "consigne-card--likert-negative",
+];
+
+function likertStatusKind(type, rawValue) {
+  if (!type) return null;
+  const value = String(rawValue ?? "").trim();
+  if (!value) return null;
+  if (type === "likert5") {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return null;
+    if (num >= 3) return "positive";
+    if (num <= 1) return "negative";
+    return "neutral";
+  }
+  if (type === "likert6") {
+    if (value === "yes" || value === "rather_yes") return "positive";
+    if (value === "medium" || value === "no_answer") return "neutral";
+    if (value === "rather_no" || value === "no") return "negative";
+    return null;
+  }
+  if (type === "yesno") {
+    if (value === "yes") return "positive";
+    if (value === "no") return "negative";
+    return null;
+  }
+  return null;
+}
+
+function applyLikertStatusClass(card, status) {
+  if (!card) return;
+  LIKERT_STATUS_CLASSES.forEach((cls) => card.classList.remove(cls));
+  if (!status) return;
+  card.classList.add(`consigne-card--likert-${status}`);
+}
+
+function syncLikertStatusForCard(card) {
+  if (!card) return;
+  const field = card.querySelector(
+    "select[name^='likert5:'], select[name^='likert6:'], select[name^='yesno:']"
+  );
+  if (!field) {
+    applyLikertStatusClass(card, null);
+    return;
+  }
+  const name = String(field.name || "");
+  const type = name.includes(":") ? name.split(":", 1)[0] : name;
+  const status = likertStatusKind(type, field.value);
+  applyLikertStatusClass(card, status);
+}
+
+function enhanceLikertStatus(card) {
+  if (!card) return;
+  const fields = card.querySelectorAll(
+    "select[name^='likert5:'], select[name^='likert6:'], select[name^='yesno:']"
+  );
+  if (!fields.length) return;
+  fields.forEach((field) => {
+    field.addEventListener("change", () => {
+      syncLikertStatusForCard(card);
+    });
+  });
+  syncLikertStatusForCard(card);
+}
+
 function smallBtn(label, cls = "") {
   return `<button type="button" class="btn btn-ghost text-sm ${cls}">${label}</button>`;
 }
@@ -2530,6 +2597,8 @@ async function renderPractice(ctx, root, _opts = {}) {
         });
       });
 
+      enhanceLikertStatus(el);
+
       return el;
     };
 
@@ -2946,6 +3015,8 @@ async function renderDaily(ctx, root, opts = {}) {
         }
       });
     });
+
+    enhanceLikertStatus(itemCard);
 
     return itemCard;
   };
