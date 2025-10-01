@@ -1925,6 +1925,24 @@ function initializeCollapsibleCard(card, { defaultOpen = false } = {}) {
     event.stopPropagation();
   }, { passive: true });
 
+  const metaToggle = card.querySelector("[data-consigne-meta]");
+  if (metaToggle) {
+    metaToggle.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      open();
+    });
+    metaToggle.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
+    metaToggle.addEventListener("mousedown", (event) => {
+      event.stopPropagation();
+    });
+    metaToggle.addEventListener("touchstart", (event) => {
+      event.stopPropagation();
+    }, { passive: true });
+  }
+
   if (defaultOpen) {
     requestAnimationFrame(() => {
       open();
@@ -2865,9 +2883,11 @@ async function renderPractice(ctx, root, _opts = {}) {
         <div class="consigne-card__header">
           <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
             <span class="consigne-card__title">${escapeHtml(c.text)}</span>
+          </button>
+          <div class="consigne-card__meta" data-consigne-meta>
             <span class="consigne-card__value" data-consigne-value></span>
             ${prioChip(Number(c.priority) || 2)}
-          </button>
+          </div>
           <div class="consigne-card__aside">
             ${srBadge(c)}
             ${consigneActions()}
@@ -3302,9 +3322,11 @@ async function renderDaily(ctx, root, opts = {}) {
       <div class="consigne-card__header">
         <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
           <span class="consigne-card__title">${escapeHtml(item.text)}</span>
+        </button>
+        <div class="consigne-card__meta" data-consigne-meta>
           <span class="consigne-card__value" data-consigne-value></span>
           ${prioChip(Number(item.priority) || 2)}
-        </button>
+        </div>
         <div class="consigne-card__aside">
           ${srBadge(item)}
           ${consigneActions()}

@@ -533,17 +533,21 @@
       box-shadow:0 1px 0 rgba(15,23,42,.08);
     }
     .consigne-card__header {
-      display:flex;
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto auto;
+      grid-template-areas:"title meta aside";
       align-items:center;
-      gap:.5rem;
-      flex-wrap:nowrap;
+      column-gap:.75rem;
+      row-gap:.35rem;
       min-height:2.5rem;
     }
     .consigne-card__toggle {
+      grid-area:title;
       display:flex;
       align-items:center;
       gap:.5rem;
-      flex:1 1 auto;
+      justify-content:flex-start;
+      width:100%;
       min-width:0;
       background:none;
       border:none;
@@ -575,8 +579,16 @@
       min-width:0;
       word-break:break-word;
     }
+    .consigne-card__meta {
+      grid-area:meta;
+      display:flex;
+      align-items:center;
+      justify-content:flex-start;
+      gap:.4rem;
+      min-width:0;
+      cursor:pointer;
+    }
     .consigne-card__value {
-      flex:0 0 auto;
       display:inline-flex;
       align-items:center;
       gap:.25rem;
@@ -596,12 +608,12 @@
       font-weight:500;
     }
     .consigne-card__aside {
+      grid-area:aside;
       display:flex;
       align-items:center;
       gap:.5rem;
-      flex:0 0 auto;
       justify-content:flex-end;
-      margin-left:auto;
+      justify-self:end;
     }
     .consigne-card__aside > * {
       flex-shrink:0;
@@ -611,20 +623,21 @@
     }
     @media (max-width: 640px) {
       .consigne-card__header {
-        flex-wrap:wrap;
+        grid-template-columns:minmax(0,1fr) auto;
+        grid-template-areas:
+          "title aside"
+          "meta aside";
         align-items:flex-start;
-        gap:.5rem;
+      }
+      .consigne-card__meta {
+        flex-direction:column;
+        align-items:flex-start;
+        gap:.35rem;
       }
       .consigne-card__value {
-        order:3;
         width:100%;
-        justify-content:flex-start;
         max-width:100%;
-      }
-      .consigne-card__aside {
-        margin-left:0;
-        width:100%;
-        justify-content:flex-end;
+        justify-content:flex-start;
       }
     }
     .consigne-menu {
