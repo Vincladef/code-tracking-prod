@@ -1654,7 +1654,7 @@ function updateConsigneValueDisplay(card) {
   const state = consigneFieldStates.get(card);
   if (!state) return;
   const { definition, field } = state;
-  const display = card.querySelector(".consigne-card__inline-meta [data-consigne-value]")
+  const display = card.querySelector("[data-consigne-meta] [data-consigne-value]")
     || card.querySelector("[data-consigne-value]");
   if (!display) return;
   const value = field ? field.value : definition.value;
@@ -2884,16 +2884,18 @@ async function renderPractice(ctx, root, _opts = {}) {
       }
       el.innerHTML = `
         <div class="consigne-card__header">
-          <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
-            <span class="consigne-card__title">${escapeHtml(c.text)}</span>
-            <span class="consigne-card__inline-meta" data-consigne-meta>
-              <span class="consigne-card__value" data-consigne-value></span>
-              ${priority.accessible}
-            </span>
-          </button>
-          <div class="consigne-card__inline-tools">
-            ${srBadge(c)}
-            ${consigneActions()}
+          <div class="consigne-card__header-row">
+            <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
+              <span class="consigne-card__title">${escapeHtml(c.text)}</span>
+              <span class="consigne-card__inline-meta" data-consigne-meta>
+                <span class="consigne-card__value" data-consigne-value></span>
+                ${priority.accessible}
+              </span>
+            </button>
+            <div class="consigne-card__inline-actions" data-consigne-inline-actions>
+              ${srBadge(c)}
+              ${consigneActions()}
+            </div>
           </div>
         </div>
       `;
@@ -3026,7 +3028,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       const parentCard = makeItem(group.consigne, { isChild: false });
       if (group.children.length) {
         parentCard.classList.add("consigne-card--has-children");
-        const tools = parentCard.querySelector(".consigne-card__inline-tools");
+        const tools = parentCard.querySelector(".consigne-card__inline-actions");
         if (tools) {
           const badge = document.createElement("span");
           badge.className = "consigne-card__child-count";
@@ -3331,16 +3333,18 @@ async function renderDaily(ctx, root, opts = {}) {
     }
     itemCard.innerHTML = `
       <div class="consigne-card__header">
-        <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
-          <span class="consigne-card__title">${escapeHtml(item.text)}</span>
-          <span class="consigne-card__inline-meta" data-consigne-meta>
-            <span class="consigne-card__value" data-consigne-value></span>
-            ${priority.accessible}
-          </span>
-        </button>
-        <div class="consigne-card__inline-tools">
-          ${srBadge(item)}
-          ${consigneActions()}
+        <div class="consigne-card__header-row">
+          <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
+            <span class="consigne-card__title">${escapeHtml(item.text)}</span>
+            <span class="consigne-card__inline-meta" data-consigne-meta>
+              <span class="consigne-card__value" data-consigne-value></span>
+              ${priority.accessible}
+            </span>
+          </button>
+          <div class="consigne-card__inline-actions" data-consigne-inline-actions>
+            ${srBadge(item)}
+            ${consigneActions()}
+          </div>
         </div>
       </div>
     `;
@@ -3469,7 +3473,7 @@ async function renderDaily(ctx, root, opts = {}) {
     const parentCard = renderItemCard(group.consigne, { isChild: false });
     if (group.children.length) {
       parentCard.classList.add("consigne-card--has-children");
-      const tools = parentCard.querySelector(".consigne-card__inline-tools");
+      const tools = parentCard.querySelector(".consigne-card__inline-actions");
       if (tools) {
         const badge = document.createElement("span");
         badge.className = "consigne-card__child-count";
