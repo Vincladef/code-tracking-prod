@@ -1813,10 +1813,13 @@ function openConsignePicker(card) {
   } else {
     const wrapper = document.createElement("form");
     wrapper.className = "consigne-picker__form";
+    const isTextarea = state.definition.kind === "textarea";
+    const fieldWrapper = document.createElement("div");
+    fieldWrapper.className = "consigne-picker__field";
     let field;
-    if (state.definition.kind === "textarea") {
+    if (isTextarea) {
       field = document.createElement("textarea");
-      field.rows = 3;
+      field.rows = state.definition.rows || 3;
     } else {
       field = document.createElement("input");
       field.type = "text";
@@ -1826,12 +1829,54 @@ function openConsignePicker(card) {
     if (state.definition.placeholder) {
       field.placeholder = state.definition.placeholder;
     }
+    const maxLengthCandidate = state.definition.maxLength ?? state.field?.maxLength;
+    const maxLength = Number.isFinite(Number(maxLengthCandidate)) && Number(maxLengthCandidate) > 0
+      ? Number(maxLengthCandidate)
+      : null;
+    if (maxLength) {
+      field.maxLength = maxLength;
+    }
+    const counter = document.createElement("div");
+    counter.className = "consigne-picker__counter";
+    counter.setAttribute("aria-live", "polite");
+    const updateCounter = () => {
+      const length = field.value.length;
+      const lengthLabel = length > 1 ? "caractères" : "caractère";
+      if (maxLength) {
+        const maxLabel = maxLength > 1 ? "caractères" : "caractère";
+        counter.textContent = `${length} ${lengthLabel} / ${maxLength} ${maxLabel}`;
+      } else {
+        counter.textContent = `${length} ${lengthLabel}`;
+      }
+    };
+    const autoResize = () => {
+      if (!isTextarea) return;
+      field.style.height = "auto";
+      let minHeight = 0;
+      try {
+        const styles = window.getComputedStyle(field);
+        minHeight = parseFloat(styles.minHeight) || 0;
+      } catch (err) {
+        minHeight = 0;
+      }
+      const nextHeight = Math.max(field.scrollHeight, minHeight);
+      field.style.height = `${nextHeight}px`;
+    };
     field.addEventListener("input", () => {
       pendingValue = field.value;
+      if (isTextarea) {
+        autoResize();
+      }
+      updateCounter();
     });
-    wrapper.appendChild(field);
+    fieldWrapper.appendChild(field);
+    wrapper.appendChild(fieldWrapper);
+    const footer = document.createElement("div");
+    footer.className = "consigne-picker__footer";
+    footer.appendChild(counter);
+    updateCounter();
     const actions = document.createElement("div");
-    actions.className = "consigne-picker__actions";
+    actions.className = "consigne-picker__actions consigne-picker__actions--inline";
     const saveBtn = document.createElement("button");
     saveBtn.type = "submit";
     saveBtn.className = "consigne-picker__action consigne-picker__action--primary";
@@ -1846,20 +1891,26 @@ function openConsignePicker(card) {
     });
     actions.appendChild(saveBtn);
     actions.appendChild(cancelBtn);
-    wrapper.appendChild(actions);
+    footer.appendChild(actions);
+    wrapper.appendChild(footer);
     wrapper.addEventListener("submit", (event) => {
       event.preventDefault();
       commit(field.value);
       closeActiveConsignePicker({ restoreFocus: true });
     });
     picker.appendChild(wrapper);
-    requestAnimationFrame(() => {
+    const initializeField = () => {
+      if (isTextarea) {
+        autoResize();
+      }
+      updateCounter();
       try {
         field.focus({ preventScroll: true });
       } catch (err) {
         field.focus();
       }
-    });
+    };
+    requestAnimationFrame(initializeField);
   }
 
   document.body.appendChild(picker);

@@ -710,10 +710,11 @@
       justify-content:flex-end;
       gap:.5rem;
       margin-top:.75rem;
+      flex-wrap:wrap;
     }
     .consigne-picker__action {
-      border-radius:.5rem;
-      padding:.45rem .8rem;
+      border-radius:.65rem;
+      padding:.4rem .75rem;
       font-size:.85rem;
       border:1px solid #cbd5f5;
       background:#fff;
@@ -740,16 +741,45 @@
     .consigne-picker__form {
       display:flex;
       flex-direction:column;
-      gap:.75rem;
+      gap:1rem;
+      width:min(26rem, 88vw);
+      font-size:1rem;
+      line-height:1.55;
+    }
+    .consigne-picker__field {
+      display:flex;
+      flex-direction:column;
+      gap:.35rem;
     }
     .consigne-picker__input {
       width:100%;
-      border-radius:.6rem;
+      border-radius:.85rem;
       border:1px solid rgba(148,163,184,.55);
-      padding:.5rem .65rem;
-      font-size:.9rem;
-      resize:vertical;
-      min-height:2.25rem;
+      padding:.75rem .9rem;
+      font-size:1rem;
+      line-height:1.5;
+      min-height:3.25rem;
+      resize:none;
+      font-family:inherit;
+      transition:border-color .15s ease, box-shadow .15s ease;
+      background-color:#f8fafc;
+    }
+    textarea.consigne-picker__input {
+      overflow:hidden;
+    }
+    .consigne-picker__footer {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:.75rem;
+      flex-wrap:wrap;
+    }
+    .consigne-picker__counter {
+      font-size:.8rem;
+      color:#64748b;
+    }
+    .consigne-picker__actions--inline {
+      margin-top:0;
     }
     .consigne-picker__input:focus {
       outline:none;
