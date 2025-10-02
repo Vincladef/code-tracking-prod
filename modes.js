@@ -70,12 +70,16 @@ const INFO_STATIC_BLOCK = `<p class="text-sm text-[var(--muted)]" data-static-in
 
 function srBadge(c){
   const enabled = c?.srEnabled !== false;
-  const title = enabled ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
-  const cls = enabled ? "" : "opacity-50";
+  const labelOn = "Désactiver la répétition espacée";
+  const labelOff = "Activer la répétition espacée";
+  const action = enabled ? labelOn : labelOff;
   return `<button type="button"
-            class="inline-flex items-center px-2 py-0.5 rounded-full border text-xs text-[var(--muted)] js-sr-toggle ${cls}"
+            class="consigne-menu__item consigne-menu__item--sr js-sr-toggle"
+            role="menuitem"
             data-id="${c.id}" data-enabled="${enabled ? 1 : 0}"
-            aria-pressed="${enabled}" title="${title}">⏳</button>`;
+            data-label-on="${labelOn}"
+            data-label-off="${labelOff}"
+            aria-pressed="${enabled}" title="${action}">⏳ <span data-sr-label>${action}</span></button>`;
 }
 
 function priorityTone(p) {
@@ -1434,7 +1438,8 @@ async function categorySelect(ctx, mode, currentName = "") {
   `;
 }
 
-function consigneActions() {
+function consigneActions({ includeSR = false, consigne = null } = {}) {
+  const srToggle = includeSR && consigne ? srBadge(consigne) : "";
   return `
     <div class="consigne-menu" data-menu-root>
       <button type="button"
@@ -1446,6 +1451,7 @@ function consigneActions() {
         ⋮<span class="sr-only">Ouvrir le menu des actions</span>
       </button>
       <div class="consigne-menu__panel" role="menu" hidden data-menu-panel>
+        ${srToggle}
         <button type="button" class="consigne-menu__item js-histo" role="menuitem" data-menu-action="history">Historique</button>
         <button type="button" class="consigne-menu__item js-edit" role="menuitem" data-menu-action="edit">Modifier</button>
         <button type="button" class="consigne-menu__item js-delay" role="menuitem" data-menu-action="delay">Décaler</button>
@@ -1654,15 +1660,19 @@ function updateConsigneValueDisplay(card) {
   const state = consigneFieldStates.get(card);
   if (!state) return;
   const { definition, field } = state;
-  const display = card.querySelector("[data-consigne-meta] [data-consigne-value]")
-    || card.querySelector("[data-consigne-value]");
-  if (!display) return;
   const value = field ? field.value : definition.value;
   const label = formatConsigneValue(definition, value);
-  display.textContent = label;
   const isPlaceholder =
     (value == null || value === "") && definition.kind !== "info";
-  display.classList.toggle("consigne-card__value--placeholder", Boolean(isPlaceholder));
+  const toggle = card.querySelector("[data-consigne-toggle]");
+  if (!toggle) return;
+  if (!isPlaceholder) {
+    toggle.setAttribute("data-value-label", label);
+    toggle.setAttribute("title", label);
+  } else {
+    toggle.removeAttribute("data-value-label");
+    toggle.removeAttribute("title");
+  }
 }
 
 function applyConsigneValue(card, value, { emit = true } = {}) {
@@ -1926,24 +1936,6 @@ function initializeCollapsibleCard(card, { defaultOpen = false } = {}) {
   toggle.addEventListener("touchstart", (event) => {
     event.stopPropagation();
   }, { passive: true });
-
-  const metaToggle = card.querySelector("[data-consigne-meta]");
-  if (metaToggle) {
-    metaToggle.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      open();
-    });
-    metaToggle.addEventListener("pointerdown", (event) => {
-      event.stopPropagation();
-    });
-    metaToggle.addEventListener("mousedown", (event) => {
-      event.stopPropagation();
-    });
-    metaToggle.addEventListener("touchstart", (event) => {
-      event.stopPropagation();
-    }, { passive: true });
-  }
 
   if (defaultOpen) {
     requestAnimationFrame(() => {
@@ -2886,16 +2878,12 @@ async function renderPractice(ctx, root, _opts = {}) {
         <div class="consigne-card__header">
           <div class="consigne-card__header-row">
             <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
-              <span class="consigne-card__title">${escapeHtml(c.text)}</span>
-              <span class="consigne-card__inline-meta" data-consigne-meta>
-                <span class="consigne-card__value" data-consigne-value></span>
-                ${priority.accessible}
+              <span class="consigne-card__title">
+                <span class="consigne-card__title-text">${escapeHtml(c.text)}</span>
               </span>
+              ${priority.accessible}
             </button>
-            <div class="consigne-card__inline-actions" data-consigne-inline-actions>
-              ${srBadge(c)}
-              ${consigneActions()}
-            </div>
+            ${consigneActions({ includeSR: true, consigne: c })}
           </div>
         </div>
       `;
@@ -3011,8 +2999,11 @@ async function renderPractice(ctx, root, _opts = {}) {
         c.srEnabled = !on;
         srT.setAttribute("data-enabled", on ? "0" : "1");
         srT.setAttribute("aria-pressed", (!on).toString());
-        srT.title = (!on) ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
-        srT.classList.toggle("opacity-50", on);
+        const label = (!on) ? srT.dataset.labelOn : srT.dataset.labelOff;
+        const labelSlot = srT.querySelector("[data-sr-label]");
+        if (labelSlot) labelSlot.textContent = label;
+        srT.title = label;
+        menu.close();
         updateDelayState(c?.srEnabled !== false);
       };
 
@@ -3028,12 +3019,12 @@ async function renderPractice(ctx, root, _opts = {}) {
       const parentCard = makeItem(group.consigne, { isChild: false });
       if (group.children.length) {
         parentCard.classList.add("consigne-card--has-children");
-        const tools = parentCard.querySelector(".consigne-card__inline-actions");
-        if (tools) {
+        const titleNode = parentCard.querySelector(".consigne-card__title");
+        if (titleNode) {
           const badge = document.createElement("span");
           badge.className = "consigne-card__child-count";
           badge.textContent = `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`;
-          tools.prepend(badge);
+          titleNode.appendChild(badge);
         }
         const existingContainer = parentCard.querySelector(".consigne-card__children");
         const childrenContainer = existingContainer || document.createElement("div");
@@ -3335,16 +3326,12 @@ async function renderDaily(ctx, root, opts = {}) {
       <div class="consigne-card__header">
         <div class="consigne-card__header-row">
           <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
-            <span class="consigne-card__title">${escapeHtml(item.text)}</span>
-            <span class="consigne-card__inline-meta" data-consigne-meta>
-              <span class="consigne-card__value" data-consigne-value></span>
-              ${priority.accessible}
+            <span class="consigne-card__title">
+              <span class="consigne-card__title-text">${escapeHtml(item.text)}</span>
             </span>
+            ${priority.accessible}
           </button>
-          <div class="consigne-card__inline-actions" data-consigne-inline-actions>
-            ${srBadge(item)}
-            ${consigneActions()}
-          </div>
+          ${consigneActions({ includeSR: true, consigne: item })}
         </div>
       </div>
     `;
@@ -3457,8 +3444,11 @@ async function renderDaily(ctx, root, opts = {}) {
       item.srEnabled = !on;
       srT.setAttribute("data-enabled", on ? "0" : "1");
       srT.setAttribute("aria-pressed", (!on).toString());
-      srT.title = (!on) ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
-      srT.classList.toggle("opacity-50", on);
+      const label = (!on) ? srT.dataset.labelOn : srT.dataset.labelOff;
+      const labelSlot = srT.querySelector("[data-sr-label]");
+      if (labelSlot) labelSlot.textContent = label;
+      srT.title = label;
+      menu.close();
       updateDelayState(item.srEnabled !== false);
     };
 
@@ -3473,12 +3463,12 @@ async function renderDaily(ctx, root, opts = {}) {
     const parentCard = renderItemCard(group.consigne, { isChild: false });
     if (group.children.length) {
       parentCard.classList.add("consigne-card--has-children");
-      const tools = parentCard.querySelector(".consigne-card__inline-actions");
-      if (tools) {
+      const titleNode = parentCard.querySelector(".consigne-card__title");
+      if (titleNode) {
         const badge = document.createElement("span");
         badge.className = "consigne-card__child-count";
         badge.textContent = `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`;
-        tools.prepend(badge);
+        titleNode.appendChild(badge);
       }
       const existingChildren = parentCard.querySelector(".consigne-card__children");
       const childrenContainer = existingChildren || document.createElement("div");
