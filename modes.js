@@ -108,8 +108,7 @@ function prioChip(p) {
   const tone = priorityTone(p);
   const lbl = priorityLabelFromTone(tone);
   const accessible = `<span class="sr-only" data-priority="${tone}">Priorité ${lbl}</span>`;
-  const symbol =
-    tone === "high" ? `<span class="priority-chip" data-priority="${tone}" aria-hidden="true">⭐</span>` : "";
+  const symbol = "";
   return { tone, symbol, accessible };
 }
 
@@ -2988,22 +2987,6 @@ async function renderPractice(ctx, root, _opts = {}) {
       }
       updateConsigneValueDisplay(el);
 
-      if (tone === "high" && priority.symbol) {
-        const title = el.querySelector(".consigne-card__title");
-        if (title) {
-          const { container, label } = normalizeTitleNodes(title);
-          const target = container ?? label ?? title;
-          [container, label]
-            .filter(Boolean)
-            .forEach((node) => {
-              node.querySelectorAll(".priority-chip").forEach((chip) => chip.remove());
-            });
-          if (target) {
-            target.insertAdjacentHTML("afterbegin", priority.symbol);
-          }
-        }
-      }
-
       initializeCollapsibleCard(el);
       const menu = setupContextMenu(el.querySelector("[data-menu-root]"));
       const attachAction = (selector, handler) => {
@@ -3455,22 +3438,6 @@ async function renderDaily(ctx, root, opts = {}) {
       fieldState.field.addEventListener("change", () => updateConsigneValueDisplay(itemCard));
     }
     updateConsigneValueDisplay(itemCard);
-
-    if (tone === "high" && priority.symbol) {
-      const title = itemCard.querySelector(".consigne-card__title");
-      if (title) {
-        const { container, label } = normalizeTitleNodes(title);
-        const target = container ?? label ?? title;
-        [container, label]
-          .filter(Boolean)
-          .forEach((node) => {
-            node.querySelectorAll(".priority-chip").forEach((chip) => chip.remove());
-          });
-        if (target) {
-          target.insertAdjacentHTML("afterbegin", priority.symbol);
-        }
-      }
-    }
 
     initializeCollapsibleCard(itemCard);
     const menu = setupContextMenu(itemCard.querySelector("[data-menu-root]"));
