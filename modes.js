@@ -3108,7 +3108,11 @@ async function renderPractice(ctx, root, _opts = {}) {
         if (titleNode) {
           const badge = document.createElement("span");
           badge.className = "consigne-card__child-count";
-          badge.textContent = `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`;
+          badge.textContent = `${group.children.length}`;
+          badge.setAttribute(
+            "aria-label",
+            `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`
+          );
           titleNode.appendChild(badge);
         }
         const existingContainer = parentCard.querySelector(".consigne-card__children");
@@ -3556,7 +3560,11 @@ async function renderDaily(ctx, root, opts = {}) {
       if (titleNode) {
         const badge = document.createElement("span");
         badge.className = "consigne-card__child-count";
-        badge.textContent = `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`;
+        badge.textContent = `${group.children.length}`;
+        badge.setAttribute(
+          "aria-label",
+          `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`
+        );
         titleNode.appendChild(badge);
       }
       const existingChildren = parentCard.querySelector(".consigne-card__children");
