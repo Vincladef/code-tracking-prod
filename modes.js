@@ -2867,7 +2867,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       const priority = prioChip(Number(c.priority) || 2);
       const tone = priority.tone;
       const el = document.createElement("div");
-      el.className = `consigne-card priority-surface priority-surface-${tone}`;
+      el.className = `consigne-card consigne-card--stacked priority-surface priority-surface-${tone}`;
       el.dataset.id = c.id;
       if (isChild) {
         el.classList.add("consigne-card--child");
@@ -3319,7 +3319,7 @@ async function renderDaily(ctx, root, opts = {}) {
     const priority = prioChip(Number(item.priority) || 2);
     const itemCard = document.createElement("div");
     const tone = priority.tone;
-    itemCard.className = `consigne-card priority-surface priority-surface-${tone}`;
+    itemCard.className = `consigne-card consigne-card--stacked priority-surface priority-surface-${tone}`;
     if (isChild) {
       itemCard.classList.add("consigne-card--child");
       if (item.parentId) {
