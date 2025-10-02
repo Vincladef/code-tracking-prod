@@ -2961,7 +2961,9 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (tone === "high" && priority.symbol) {
         const title = el.querySelector(".consigne-card__title");
         if (title) {
-          title.insertAdjacentHTML("afterbegin", priority.symbol);
+          const label = title.querySelector(".consigne-card__title-text");
+          const target = label ?? title;
+          target.insertAdjacentHTML("afterbegin", priority.symbol);
         }
       }
 
@@ -3418,7 +3420,9 @@ async function renderDaily(ctx, root, opts = {}) {
     if (tone === "high" && priority.symbol) {
       const title = itemCard.querySelector(".consigne-card__title");
       if (title) {
-        title.insertAdjacentHTML("afterbegin", priority.symbol);
+        const label = title.querySelector(".consigne-card__title-text");
+        const target = label ?? title;
+        target.insertAdjacentHTML("afterbegin", priority.symbol);
       }
     }
 
