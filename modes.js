@@ -96,8 +96,9 @@ function prioChip(p) {
   const tone = priorityTone(p);
   const lbl = priorityLabelFromTone(tone);
   const accessible = `<span class="sr-only" data-priority="${tone}">Priorité ${lbl}</span>`;
-  if (tone !== "high") return accessible;
-  return `<span class="priority-chip" data-priority="${tone}" aria-hidden="true">⭐</span>${accessible}`;
+  const symbol =
+    tone === "high" ? `<span class="priority-chip" data-priority="${tone}" aria-hidden="true">⭐</span>` : "";
+  return { tone, symbol, accessible };
 }
 
 const LIKERT_STATUS_CLASSES = [
@@ -2863,7 +2864,8 @@ async function renderPractice(ctx, root, _opts = {}) {
     form.innerHTML = "";
 
     const makeItem = (c, { isChild = false } = {}) => {
-      const tone = priorityTone(c.priority);
+      const priority = prioChip(Number(c.priority) || 2);
+      const tone = priority.tone;
       const el = document.createElement("div");
       el.className = `consigne-card priority-surface priority-surface-${tone}`;
       el.dataset.id = c.id;
@@ -2886,7 +2888,7 @@ async function renderPractice(ctx, root, _opts = {}) {
             <span class="consigne-card__title">${escapeHtml(c.text)}</span>
             <span class="consigne-card__inline-meta" data-consigne-meta>
               <span class="consigne-card__value" data-consigne-value></span>
-              ${prioChip(Number(c.priority) || 2)}
+              ${priority.accessible}
             </span>
           </button>
           <div class="consigne-card__inline-tools">
@@ -2906,6 +2908,13 @@ async function renderPractice(ctx, root, _opts = {}) {
         fieldState.field.addEventListener("change", () => updateConsigneValueDisplay(el));
       }
       updateConsigneValueDisplay(el);
+
+      if (tone === "high" && priority.symbol) {
+        const title = el.querySelector(".consigne-card__title");
+        if (title) {
+          title.insertAdjacentHTML("afterbegin", priority.symbol);
+        }
+      }
 
       initializeCollapsibleCard(el);
       const menu = setupContextMenu(el.querySelector("[data-menu-root]"));
@@ -3305,8 +3314,9 @@ async function renderDaily(ctx, root, opts = {}) {
 
   const renderItemCard = (item, { isChild = false } = {}) => {
     const previous = previousAnswers?.get(item.id);
+    const priority = prioChip(Number(item.priority) || 2);
     const itemCard = document.createElement("div");
-    const tone = priorityTone(item.priority);
+    const tone = priority.tone;
     itemCard.className = `consigne-card priority-surface priority-surface-${tone}`;
     if (isChild) {
       itemCard.classList.add("consigne-card--child");
@@ -3325,7 +3335,7 @@ async function renderDaily(ctx, root, opts = {}) {
           <span class="consigne-card__title">${escapeHtml(item.text)}</span>
           <span class="consigne-card__inline-meta" data-consigne-meta>
             <span class="consigne-card__value" data-consigne-value></span>
-            ${prioChip(Number(item.priority) || 2)}
+            ${priority.accessible}
           </span>
         </button>
         <div class="consigne-card__inline-tools">
@@ -3345,6 +3355,13 @@ async function renderDaily(ctx, root, opts = {}) {
       fieldState.field.addEventListener("change", () => updateConsigneValueDisplay(itemCard));
     }
     updateConsigneValueDisplay(itemCard);
+
+    if (tone === "high" && priority.symbol) {
+      const title = itemCard.querySelector(".consigne-card__title");
+      if (title) {
+        title.insertAdjacentHTML("afterbegin", priority.symbol);
+      }
+    }
 
     initializeCollapsibleCard(itemCard);
     const menu = setupContextMenu(itemCard.querySelector("[data-menu-root]"));
