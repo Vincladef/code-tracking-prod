@@ -3128,10 +3128,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         });
         childrenContainer.appendChild(label);
         childrenContainer.appendChild(list);
-        const childSection = document.createElement("div");
-        childSection.className = "consigne-group__children";
-        childSection.appendChild(childrenContainer);
-        wrapper.appendChild(childSection);
+        parentCard.appendChild(childrenContainer);
       }
       target.appendChild(wrapper);
     };
@@ -3570,10 +3567,7 @@ async function renderDaily(ctx, root, opts = {}) {
       });
       childrenContainer.appendChild(label);
       childrenContainer.appendChild(list);
-      const childSection = document.createElement("div");
-      childSection.className = "consigne-group__children";
-      childSection.appendChild(childrenContainer);
-      wrapper.appendChild(childSection);
+      parentCard.appendChild(childrenContainer);
     }
     target.appendChild(wrapper);
   };
