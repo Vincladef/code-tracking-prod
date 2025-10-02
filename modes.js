@@ -3104,17 +3104,6 @@ async function renderPractice(ctx, root, _opts = {}) {
       const parentCard = makeItem(group.consigne, { isChild: false });
       if (group.children.length) {
         parentCard.classList.add("consigne-card--has-children");
-        const titleNode = parentCard.querySelector(".consigne-card__title");
-        if (titleNode) {
-          const badge = document.createElement("span");
-          badge.className = "consigne-card__child-count";
-          badge.textContent = `${group.children.length}`;
-          badge.setAttribute(
-            "aria-label",
-            `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`
-          );
-          titleNode.appendChild(badge);
-        }
         const existingContainer = parentCard.querySelector(".consigne-card__children");
         const isDetailsElement =
           typeof HTMLDetailsElement !== "undefined" && existingContainer instanceof HTMLDetailsElement;
@@ -3556,17 +3545,6 @@ async function renderDaily(ctx, root, opts = {}) {
     const parentCard = renderItemCard(group.consigne, { isChild: false });
     if (group.children.length) {
       parentCard.classList.add("consigne-card--has-children");
-      const titleNode = parentCard.querySelector(".consigne-card__title");
-      if (titleNode) {
-        const badge = document.createElement("span");
-        badge.className = "consigne-card__child-count";
-        badge.textContent = `${group.children.length}`;
-        badge.setAttribute(
-          "aria-label",
-          `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`
-        );
-        titleNode.appendChild(badge);
-      }
       const existingChildren = parentCard.querySelector(".consigne-card__children");
       const hasDetailsElement =
         typeof HTMLDetailsElement !== "undefined" && existingChildren instanceof HTMLDetailsElement;
