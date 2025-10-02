@@ -3090,14 +3090,19 @@ async function renderPractice(ctx, root, _opts = {}) {
           titleNode.appendChild(badge);
         }
         const existingContainer = parentCard.querySelector(".consigne-card__children");
-        const childrenContainer = existingContainer || document.createElement("div");
+        const isDetailsElement =
+          typeof HTMLDetailsElement !== "undefined" && existingContainer instanceof HTMLDetailsElement;
+        const childrenContainer = isDetailsElement
+          ? existingContainer
+          : document.createElement("details");
         childrenContainer.className = "consigne-card__children";
+        childrenContainer.removeAttribute("open");
         if (!existingContainer) {
           parentCard.appendChild(childrenContainer);
         } else {
           childrenContainer.innerHTML = "";
         }
-        const label = document.createElement("div");
+        const label = document.createElement("summary");
         label.className = "consigne-card__children-label";
         label.textContent = group.children.length > 1
           ? `Sous-consignes (${group.children.length})`
@@ -3538,14 +3543,19 @@ async function renderDaily(ctx, root, opts = {}) {
         titleNode.appendChild(badge);
       }
       const existingChildren = parentCard.querySelector(".consigne-card__children");
-      const childrenContainer = existingChildren || document.createElement("div");
+      const hasDetailsElement =
+        typeof HTMLDetailsElement !== "undefined" && existingChildren instanceof HTMLDetailsElement;
+      const childrenContainer = hasDetailsElement
+        ? existingChildren
+        : document.createElement("details");
       childrenContainer.className = "consigne-card__children";
+      childrenContainer.removeAttribute("open");
       if (!existingChildren) {
         parentCard.appendChild(childrenContainer);
       } else {
         childrenContainer.innerHTML = "";
       }
-      const label = document.createElement("div");
+      const label = document.createElement("summary");
       label.className = "consigne-card__children-label";
       label.textContent = group.children.length > 1
         ? `Sous-consignes (${group.children.length})`
