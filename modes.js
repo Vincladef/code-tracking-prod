@@ -1653,7 +1653,8 @@ function updateConsigneValueDisplay(card) {
   const state = consigneFieldStates.get(card);
   if (!state) return;
   const { definition, field } = state;
-  const display = card.querySelector("[data-consigne-value]");
+  const display = card.querySelector(".consigne-card__inline-meta [data-consigne-value]")
+    || card.querySelector("[data-consigne-value]");
   if (!display) return;
   const value = field ? field.value : definition.value;
   const label = formatConsigneValue(definition, value);
@@ -2883,12 +2884,12 @@ async function renderPractice(ctx, root, _opts = {}) {
         <div class="consigne-card__header">
           <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
             <span class="consigne-card__title">${escapeHtml(c.text)}</span>
+            <span class="consigne-card__inline-meta" data-consigne-meta>
+              <span class="consigne-card__value" data-consigne-value></span>
+              ${prioChip(Number(c.priority) || 2)}
+            </span>
           </button>
-          <div class="consigne-card__meta" data-consigne-meta>
-            <span class="consigne-card__value" data-consigne-value></span>
-            ${prioChip(Number(c.priority) || 2)}
-          </div>
-          <div class="consigne-card__aside">
+          <div class="consigne-card__inline-tools">
             ${srBadge(c)}
             ${consigneActions()}
           </div>
@@ -3016,12 +3017,12 @@ async function renderPractice(ctx, root, _opts = {}) {
       const parentCard = makeItem(group.consigne, { isChild: false });
       if (group.children.length) {
         parentCard.classList.add("consigne-card--has-children");
-        const aside = parentCard.querySelector(".consigne-card__aside");
-        if (aside) {
+        const tools = parentCard.querySelector(".consigne-card__inline-tools");
+        if (tools) {
           const badge = document.createElement("span");
           badge.className = "consigne-card__child-count";
           badge.textContent = `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`;
-          aside.prepend(badge);
+          tools.prepend(badge);
         }
         const existingContainer = parentCard.querySelector(".consigne-card__children");
         const childrenContainer = existingContainer || document.createElement("div");
@@ -3322,12 +3323,12 @@ async function renderDaily(ctx, root, opts = {}) {
       <div class="consigne-card__header">
         <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
           <span class="consigne-card__title">${escapeHtml(item.text)}</span>
+          <span class="consigne-card__inline-meta" data-consigne-meta>
+            <span class="consigne-card__value" data-consigne-value></span>
+            ${prioChip(Number(item.priority) || 2)}
+          </span>
         </button>
-        <div class="consigne-card__meta" data-consigne-meta>
-          <span class="consigne-card__value" data-consigne-value></span>
-          ${prioChip(Number(item.priority) || 2)}
-        </div>
-        <div class="consigne-card__aside">
+        <div class="consigne-card__inline-tools">
           ${srBadge(item)}
           ${consigneActions()}
         </div>
@@ -3451,12 +3452,12 @@ async function renderDaily(ctx, root, opts = {}) {
     const parentCard = renderItemCard(group.consigne, { isChild: false });
     if (group.children.length) {
       parentCard.classList.add("consigne-card--has-children");
-      const aside = parentCard.querySelector(".consigne-card__aside");
-      if (aside) {
+      const tools = parentCard.querySelector(".consigne-card__inline-tools");
+      if (tools) {
         const badge = document.createElement("span");
         badge.className = "consigne-card__child-count";
         badge.textContent = `${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}`;
-        aside.prepend(badge);
+        tools.prepend(badge);
       }
       const existingChildren = parentCard.querySelector(".consigne-card__children");
       const childrenContainer = existingChildren || document.createElement("div");
