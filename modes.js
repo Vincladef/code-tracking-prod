@@ -72,14 +72,22 @@ function srBadge(c){
   const enabled = c?.srEnabled !== false;
   const labelOn = "Désactiver la répétition espacée";
   const labelOff = "Activer la répétition espacée";
+  const shortOn = "⏳ on";
+  const shortOff = "⏳ off";
   const action = enabled ? labelOn : labelOff;
+  const visual = enabled ? shortOn : shortOff;
   return `<button type="button"
             class="consigne-menu__item consigne-menu__item--sr js-sr-toggle"
             role="menuitem"
             data-id="${c.id}" data-enabled="${enabled ? 1 : 0}"
-            data-label-on="${labelOn}"
-            data-label-off="${labelOff}"
-            aria-pressed="${enabled}" title="${action}">⏳ <span data-sr-label>${action}</span></button>`;
+            data-label-on="${shortOn}"
+            data-label-off="${shortOff}"
+            data-a11y-on="${labelOn}"
+            data-a11y-off="${labelOff}"
+            aria-pressed="${enabled}" aria-label="${action}" title="${action}">
+              <span aria-hidden="true" data-sr-visual>${visual}</span>
+              <span class="sr-only" data-sr-label>${action}</span>
+            </button>`;
 }
 
 function priorityTone(p) {
@@ -2999,10 +3007,14 @@ async function renderPractice(ctx, root, _opts = {}) {
         c.srEnabled = !on;
         srT.setAttribute("data-enabled", on ? "0" : "1");
         srT.setAttribute("aria-pressed", (!on).toString());
-        const label = (!on) ? srT.dataset.labelOn : srT.dataset.labelOff;
+        const visualLabel = (!on) ? srT.dataset.labelOn : srT.dataset.labelOff;
+        const a11yLabel = (!on) ? srT.dataset.a11yOn : srT.dataset.a11yOff;
+        const visualSlot = srT.querySelector("[data-sr-visual]");
+        if (visualSlot) visualSlot.textContent = visualLabel;
         const labelSlot = srT.querySelector("[data-sr-label]");
-        if (labelSlot) labelSlot.textContent = label;
-        srT.title = label;
+        if (labelSlot) labelSlot.textContent = a11yLabel;
+        srT.title = a11yLabel;
+        srT.setAttribute("aria-label", a11yLabel);
         menu.close();
         updateDelayState(c?.srEnabled !== false);
       };
@@ -3444,10 +3456,14 @@ async function renderDaily(ctx, root, opts = {}) {
       item.srEnabled = !on;
       srT.setAttribute("data-enabled", on ? "0" : "1");
       srT.setAttribute("aria-pressed", (!on).toString());
-      const label = (!on) ? srT.dataset.labelOn : srT.dataset.labelOff;
+      const visualLabel = (!on) ? srT.dataset.labelOn : srT.dataset.labelOff;
+      const a11yLabel = (!on) ? srT.dataset.a11yOn : srT.dataset.a11yOff;
+      const visualSlot = srT.querySelector("[data-sr-visual]");
+      if (visualSlot) visualSlot.textContent = visualLabel;
       const labelSlot = srT.querySelector("[data-sr-label]");
-      if (labelSlot) labelSlot.textContent = label;
-      srT.title = label;
+      if (labelSlot) labelSlot.textContent = a11yLabel;
+      srT.title = a11yLabel;
+      srT.setAttribute("aria-label", a11yLabel);
       menu.close();
       updateDelayState(item.srEnabled !== false);
     };
