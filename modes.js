@@ -113,6 +113,34 @@ function prioChip(p) {
   return { tone, symbol, accessible };
 }
 
+function normalizeTitleNodes(title) {
+  if (!title) return { container: null, label: null };
+
+  let container = title.querySelector(".consigne-card__title-text");
+  if (!container) {
+    container = document.createElement("span");
+    container.className = "consigne-card__title-text";
+    while (title.firstChild) {
+      container.appendChild(title.firstChild);
+    }
+    title.appendChild(container);
+  }
+
+  let label = container.querySelector(".consigne-card__title-label");
+  if (!label) {
+    label = document.createElement("span");
+    label.className = "consigne-card__title-label";
+    while (container.firstChild) {
+      label.appendChild(container.firstChild);
+    }
+    container.appendChild(label);
+  } else if (label.parentNode !== container) {
+    container.appendChild(label);
+  }
+
+  return { container, label };
+}
+
 const LIKERT_STATUS_CLASSES = [
   "consigne-card--likert-positive",
   "consigne-card--likert-negative",
@@ -2963,10 +2991,16 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (tone === "high" && priority.symbol) {
         const title = el.querySelector(".consigne-card__title");
         if (title) {
-          const container = title.querySelector(".consigne-card__title-text");
-          const label = title.querySelector(".consigne-card__title-label");
+          const { container, label } = normalizeTitleNodes(title);
           const target = container ?? label ?? title;
-          target.insertAdjacentHTML("afterbegin", priority.symbol);
+          [container, label]
+            .filter(Boolean)
+            .forEach((node) => {
+              node.querySelectorAll(".priority-chip").forEach((chip) => chip.remove());
+            });
+          if (target) {
+            target.insertAdjacentHTML("afterbegin", priority.symbol);
+          }
         }
       }
 
@@ -3425,10 +3459,16 @@ async function renderDaily(ctx, root, opts = {}) {
     if (tone === "high" && priority.symbol) {
       const title = itemCard.querySelector(".consigne-card__title");
       if (title) {
-        const container = title.querySelector(".consigne-card__title-text");
-        const label = title.querySelector(".consigne-card__title-label");
+        const { container, label } = normalizeTitleNodes(title);
         const target = container ?? label ?? title;
-        target.insertAdjacentHTML("afterbegin", priority.symbol);
+        [container, label]
+          .filter(Boolean)
+          .forEach((node) => {
+            node.querySelectorAll(".priority-chip").forEach((chip) => chip.remove());
+          });
+        if (target) {
+          target.insertAdjacentHTML("afterbegin", priority.symbol);
+        }
       }
     }
 
