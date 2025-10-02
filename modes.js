@@ -2938,7 +2938,9 @@ async function renderPractice(ctx, root, _opts = {}) {
           <div class="consigne-card__header-row">
             <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
               <span class="consigne-card__title">
-                <span class="consigne-card__title-text">${escapeHtml(c.text)}</span>
+                <span class="consigne-card__title-text">
+                  <span class="consigne-card__title-label">${escapeHtml(c.text)}</span>
+                </span>
               </span>
               ${priority.accessible}
             </button>
@@ -2961,8 +2963,9 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (tone === "high" && priority.symbol) {
         const title = el.querySelector(".consigne-card__title");
         if (title) {
-          const label = title.querySelector(".consigne-card__title-text");
-          const target = label ?? title;
+          const container = title.querySelector(".consigne-card__title-text");
+          const label = title.querySelector(".consigne-card__title-label");
+          const target = container ?? label ?? title;
           target.insertAdjacentHTML("afterbegin", priority.symbol);
         }
       }
@@ -3397,7 +3400,9 @@ async function renderDaily(ctx, root, opts = {}) {
         <div class="consigne-card__header-row">
           <button type="button" class="consigne-card__toggle" data-consigne-toggle aria-expanded="false">
             <span class="consigne-card__title">
-              <span class="consigne-card__title-text">${escapeHtml(item.text)}</span>
+              <span class="consigne-card__title-text">
+                <span class="consigne-card__title-label">${escapeHtml(item.text)}</span>
+              </span>
             </span>
             ${priority.accessible}
           </button>
@@ -3420,8 +3425,9 @@ async function renderDaily(ctx, root, opts = {}) {
     if (tone === "high" && priority.symbol) {
       const title = itemCard.querySelector(".consigne-card__title");
       if (title) {
-        const label = title.querySelector(".consigne-card__title-text");
-        const target = label ?? title;
+        const container = title.querySelector(".consigne-card__title-text");
+        const label = title.querySelector(".consigne-card__title-label");
+        const target = container ?? label ?? title;
         target.insertAdjacentHTML("afterbegin", priority.symbol);
       }
     }
