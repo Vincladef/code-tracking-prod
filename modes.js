@@ -3102,9 +3102,11 @@ async function renderPractice(ctx, root, _opts = {}) {
       const wrapper = document.createElement("div");
       wrapper.className = "consigne-group";
       const parentCard = makeItem(group.consigne, { isChild: false });
+      wrapper.appendChild(parentCard);
       if (group.children.length) {
         parentCard.classList.add("consigne-card--has-children");
         const existingContainer = parentCard.querySelector(".consigne-card__children");
+        if (existingContainer?.parentNode) existingContainer.parentNode.removeChild(existingContainer);
         const isDetailsElement =
           typeof HTMLDetailsElement !== "undefined" && existingContainer instanceof HTMLDetailsElement;
         const childrenContainer = isDetailsElement
@@ -3112,11 +3114,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           : document.createElement("details");
         childrenContainer.className = "consigne-card__children";
         childrenContainer.removeAttribute("open");
-        if (!existingContainer) {
-          parentCard.appendChild(childrenContainer);
-        } else {
-          childrenContainer.innerHTML = "";
-        }
+        childrenContainer.innerHTML = "";
         const label = document.createElement("summary");
         label.className = "consigne-card__children-label";
         label.textContent = group.children.length > 1
@@ -3130,8 +3128,11 @@ async function renderPractice(ctx, root, _opts = {}) {
         });
         childrenContainer.appendChild(label);
         childrenContainer.appendChild(list);
+        const childSection = document.createElement("div");
+        childSection.className = "consigne-group__children";
+        childSection.appendChild(childrenContainer);
+        wrapper.appendChild(childSection);
       }
-      wrapper.appendChild(parentCard);
       target.appendChild(wrapper);
     };
 
@@ -3543,9 +3544,11 @@ async function renderDaily(ctx, root, opts = {}) {
     const wrapper = document.createElement("div");
     wrapper.className = "consigne-group";
     const parentCard = renderItemCard(group.consigne, { isChild: false });
+    wrapper.appendChild(parentCard);
     if (group.children.length) {
       parentCard.classList.add("consigne-card--has-children");
       const existingChildren = parentCard.querySelector(".consigne-card__children");
+      if (existingChildren?.parentNode) existingChildren.parentNode.removeChild(existingChildren);
       const hasDetailsElement =
         typeof HTMLDetailsElement !== "undefined" && existingChildren instanceof HTMLDetailsElement;
       const childrenContainer = hasDetailsElement
@@ -3553,11 +3556,7 @@ async function renderDaily(ctx, root, opts = {}) {
         : document.createElement("details");
       childrenContainer.className = "consigne-card__children";
       childrenContainer.removeAttribute("open");
-      if (!existingChildren) {
-        parentCard.appendChild(childrenContainer);
-      } else {
-        childrenContainer.innerHTML = "";
-      }
+      childrenContainer.innerHTML = "";
       const label = document.createElement("summary");
       label.className = "consigne-card__children-label";
       label.textContent = group.children.length > 1
@@ -3571,8 +3570,11 @@ async function renderDaily(ctx, root, opts = {}) {
       });
       childrenContainer.appendChild(label);
       childrenContainer.appendChild(list);
+      const childSection = document.createElement("div");
+      childSection.className = "consigne-group__children";
+      childSection.appendChild(childrenContainer);
+      wrapper.appendChild(childSection);
     }
-    wrapper.appendChild(parentCard);
     target.appendChild(wrapper);
   };
 
