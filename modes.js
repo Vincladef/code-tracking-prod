@@ -67,9 +67,14 @@ function modal(html) {
   const cleanupFns = [];
   const viewport = window.visualViewport;
   const VIEWPORT_MARGIN_BOTTOM = 32;
+  const SAFE_PADDING = 16;
   const docEl = document.documentElement;
   const previousSafeHeight = docEl?.style?.getPropertyValue("--viewport-safe-height") ?? null;
   const hadInlineSafeHeight = Boolean(previousSafeHeight && previousSafeHeight.trim() !== "");
+  const originalWrapAlignItems = wrap.style.alignItems;
+  const originalWrapJustifyContent = wrap.style.justifyContent;
+  const originalModalMarginTop = modalEl?.style?.marginTop;
+  const originalModalPaddingBottom = modalEl?.style?.paddingBottom;
 
   const updateFromViewport = () => {
     if (!modalEl) return;
@@ -80,6 +85,20 @@ function modal(html) {
     modalEl.style.maxHeight = `${maxHeight}px`;
     modalEl.style.transform = viewport ? `translate3d(${offsetLeft}px, ${offsetTop}px, 0)` : "";
     docEl?.style?.setProperty("--viewport-safe-height", `${maxHeight}px`);
+
+    const keyboardVisible = viewport ? height < window.innerHeight : false;
+    if (keyboardVisible) {
+      wrap.style.alignItems = "flex-start";
+      wrap.style.justifyContent = "flex-start";
+      modalEl.style.marginTop = `${offsetTop + SAFE_PADDING}px`;
+      const hiddenBottom = Math.max(0, window.innerHeight - (height + offsetTop));
+      modalEl.style.paddingBottom = `${hiddenBottom + SAFE_PADDING}px`;
+    } else {
+      wrap.style.alignItems = originalWrapAlignItems;
+      wrap.style.justifyContent = originalWrapJustifyContent;
+      modalEl.style.marginTop = originalModalMarginTop;
+      modalEl.style.paddingBottom = originalModalPaddingBottom;
+    }
   };
 
   if (viewport) {
@@ -111,6 +130,12 @@ function modal(html) {
     if (docEl) {
       if (hadInlineSafeHeight) docEl.style.setProperty("--viewport-safe-height", previousSafeHeight);
       else docEl.style.removeProperty("--viewport-safe-height");
+    }
+    wrap.style.alignItems = originalWrapAlignItems;
+    wrap.style.justifyContent = originalWrapJustifyContent;
+    if (modalEl) {
+      modalEl.style.marginTop = originalModalMarginTop;
+      modalEl.style.paddingBottom = originalModalPaddingBottom;
     }
     originalRemove();
   };
