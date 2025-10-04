@@ -78,7 +78,13 @@ const LIKERT6_LABELS = {
   no_answer: "Pas de réponse",
 };
 
-function formatConsigneValue(type, value) {
+function formatConsigneValue(type, value, options = {}) {
+  const context = options.context || "default";
+  if (context === "status") {
+    if (type === "info") return INFO_RESPONSE_LABEL;
+    if (value === null || value === undefined || value === "") return "Sans donnée";
+    return "Réponse enregistrée";
+  }
   if (type === "info") return "";
   if (value === null || value === undefined || value === "") return "—";
   if (type === "yesno") {
@@ -1570,7 +1576,7 @@ function inputForType(consigne, initialValue = null) {
       : 5;
     const safeValue = Number.isFinite(sliderValue) ? sliderValue : 5;
     return `
-      <input type="range" min="1" max="10" value="${safeValue}" name="num:${consigne.id}" class="w-full">
+      <input type="range" min="1" max="10" value="${safeValue}" data-default-value="${safeValue}" name="num:${consigne.id}" class="w-full">
       <div class="text-sm opacity-70 mt-1" data-meter="num:${consigne.id}">${safeValue}</div>
       <script>(()=>{const slider=document.currentScript.previousElementSibling.previousElementSibling;const label=document.currentScript.previousElementSibling;const sync=()=>{if(label&&slider){label.textContent=slider.value;}};if(slider){sync();slider.addEventListener('input',sync);}})();</script>
     `;
@@ -2152,7 +2158,10 @@ function normalizeFormattedValue(type, formatted) {
 function updateConsigneStatusUI(row, consigne, rawValue) {
   if (!row || !consigne) return;
   const status = dotColor(consigne.type, rawValue);
-  const formatted = normalizeFormattedValue(consigne.type, formatConsigneValue(consigne.type, rawValue));
+  const formatted = normalizeFormattedValue(
+    consigne.type,
+    formatConsigneValue(consigne.type, rawValue, { context: "status" })
+  );
   const statusHolder = row.querySelector("[data-status]");
   const dot = row.querySelector("[data-status-dot]");
   const text = row.querySelector("[data-status-text]");
@@ -2209,6 +2218,123 @@ function readConsigneCurrentValue(consigne, scope) {
   }
   const input = scope.querySelector(`[name$=":${id}"]`);
   return input ? input.value : "";
+}
+
+function enhanceRangeMeters(scope) {
+  if (!scope) return;
+  const sliders = scope.querySelectorAll('input[type="range"][name^="num:"]');
+  sliders.forEach((slider) => {
+    const meter = scope.querySelector(`[data-meter="${slider.name}"]`);
+    if (!meter) return;
+    const sync = () => {
+      meter.textContent = slider.value;
+    };
+    slider.addEventListener("input", sync);
+    slider.addEventListener("change", sync);
+    sync();
+  });
+}
+
+function findConsigneInputFields(row, consigne) {
+  if (!row || !consigne) return [];
+  const holder = row.querySelector("[data-consigne-input-holder]");
+  if (!holder) return [];
+  return Array.from(holder.querySelectorAll(`[name$=":${consigne.id}"]`));
+}
+
+function setConsigneRowValue(row, consigne, value) {
+  const fields = findConsigneInputFields(row, consigne);
+  if (!fields.length) {
+    updateConsigneStatusUI(row, consigne, value);
+    return;
+  }
+  const normalizedValue = value === null || value === undefined ? "" : value;
+  fields.forEach((field) => {
+    let stringValue = normalizedValue;
+    if (field.type === "range") {
+      const defaultValue = field.getAttribute("data-default-value") || field.defaultValue || field.min || "";
+      stringValue = normalizedValue === "" ? defaultValue : normalizedValue;
+    }
+    if (field.tagName === "SELECT" || field.tagName === "TEXTAREA" || field.tagName === "INPUT") {
+      field.value = stringValue === "" ? "" : String(stringValue);
+    } else {
+      field.value = stringValue === "" ? "" : String(stringValue);
+    }
+    if (field.type === "range") {
+      const meter = row.querySelector(`[data-meter="${field.name}"]`);
+      if (meter) meter.textContent = field.value;
+    }
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    field.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+function attachConsigneEditor(row, consigne, options = {}) {
+  if (!row || !consigne) return;
+  const trigger = options.trigger || row.querySelector("[data-consigne-open]");
+  if (!trigger) return;
+  const variant = options.variant === "drawer" ? "drawer" : "modal";
+  enhanceRangeMeters(row.querySelector("[data-consigne-input-holder]"));
+  const openEditor = () => {
+    const currentValue = readConsigneCurrentValue(consigne, row);
+    const title = consigne.text || consigne.titre || consigne.name || consigne.id;
+    const description = consigne.description || consigne.details || consigne.helper || "";
+    const actionsMarkup = consigne.type === "info"
+      ? `<div class="flex justify-end"><button type="button" class="btn" data-consigne-editor-cancel>Fermer</button></div>`
+      : `<div class="flex justify-end gap-2">
+          <button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>
+          <button type="button" class="btn btn-primary" data-consigne-editor-validate>Valider</button>
+        </div>`;
+    const markup = `
+      <div class="space-y-4">
+        <header class="space-y-1">
+          <h2 class="text-lg font-semibold">${escapeHtml(title)}</h2>
+          ${description ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(description)}</p>` : ""}
+        </header>
+        <div class="space-y-3" data-consigne-editor-body>
+          ${inputForType(consigne, currentValue)}
+        </div>
+        ${actionsMarkup}
+      </div>
+    `;
+    const overlay = (variant === "drawer" ? drawer : modal)(markup);
+    const body = overlay.querySelector("[data-consigne-editor-body]");
+    enhanceRangeMeters(body);
+    const focusTarget = body?.querySelector("input, select, textarea");
+    if (focusTarget) {
+      focusTarget.focus({ preventScroll: true });
+    }
+    const closeOverlay = () => {
+      overlay.remove();
+      if (typeof options.onClose === "function") {
+        options.onClose();
+      }
+    };
+    const cancelBtn = overlay.querySelector("[data-consigne-editor-cancel]");
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        closeOverlay();
+      });
+    }
+    const validateBtn = overlay.querySelector("[data-consigne-editor-validate]");
+    if (validateBtn) {
+      validateBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        const newValue = readConsigneCurrentValue(consigne, overlay);
+        setConsigneRowValue(row, consigne, newValue);
+        if (typeof options.onSubmit === "function") {
+          options.onSubmit(newValue);
+        }
+        closeOverlay();
+      });
+    }
+  };
+  trigger.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openEditor();
+  });
 }
 
 function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
@@ -2469,12 +2595,14 @@ async function renderPractice(ctx, root, _opts = {}) {
         delete row.dataset.parentId;
         row.draggable = true;
       }
-      const bodyId = `practice-consigne-${c.id}`;
-      const initialSummary = normalizeFormattedValue(c.type, "");
+      const initialSummary = normalizeFormattedValue(
+        c.type,
+        formatConsigneValue(c.type, null, { context: "status" })
+      );
       row.innerHTML = `
         <div class="consigne-row__header">
           <div class="consigne-row__main">
-            <button type="button" class="consigne-row__toggle" aria-expanded="false" aria-controls="${bodyId}">
+            <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
               <span class="consigne-row__title">${escapeHtml(c.text)}</span>
               ${prioChip(Number(c.priority) || 2)}
             </button>
@@ -2488,30 +2616,12 @@ async function renderPractice(ctx, root, _opts = {}) {
             ${consigneActions()}
           </div>
         </div>
-        <div class="consigne-row__body" id="${bodyId}" hidden>
-          ${inputForType(c)}
-        </div>
+        <div data-consigne-input-holder hidden></div>
       `;
-      const toggleBtn = row.querySelector(".consigne-row__toggle");
-      const body = row.querySelector(".consigne-row__body");
-      const updateOpenState = (open) => {
-        if (!toggleBtn || !body) return;
-        if (open) {
-          row.classList.add("is-open");
-          body.removeAttribute("hidden");
-          toggleBtn.setAttribute("aria-expanded", "true");
-        } else {
-          row.classList.remove("is-open");
-          body.setAttribute("hidden", "");
-          toggleBtn.setAttribute("aria-expanded", "false");
-        }
-      };
-      if (toggleBtn) {
-        toggleBtn.addEventListener("click", () => {
-          const next = !row.classList.contains("is-open");
-          updateOpenState(next);
-        });
-        updateOpenState(false);
+      const holder = row.querySelector("[data-consigne-input-holder]");
+      if (holder) {
+        holder.innerHTML = inputForType(c);
+        enhanceRangeMeters(holder);
       }
       const bH = row.querySelector(".js-histo");
       const bE = row.querySelector(".js-edit");
@@ -2594,6 +2704,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           },
         },
       }));
+      attachConsigneEditor(row, c, { variant: "drawer" });
       bindConsigneRowValue(row, c, {
         onChange: (value) => {
           if (value === null || value === undefined) {
@@ -2903,13 +3014,12 @@ async function renderDaily(ctx, root, opts = {}) {
       row.classList.add("consigne-row--parent");
       delete row.dataset.parentId;
     }
-    const bodyId = `daily-consigne-${item.id}`;
-    const initialFormatted = formatConsigneValue(item.type, initialValue);
-    const initialSummary = normalizeFormattedValue(item.type, initialFormatted);
+    const statusLabel = formatConsigneValue(item.type, initialValue, { context: "status" });
+    const initialSummary = normalizeFormattedValue(item.type, statusLabel);
     row.innerHTML = `
       <div class="consigne-row__header">
         <div class="consigne-row__main">
-          <button type="button" class="consigne-row__toggle" aria-expanded="false" aria-controls="${bodyId}">
+          <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
             <span class="consigne-row__title">${escapeHtml(item.text)}</span>
             ${prioChip(Number(item.priority) || 2)}
           </button>
@@ -2923,31 +3033,12 @@ async function renderDaily(ctx, root, opts = {}) {
           ${consigneActions()}
         </div>
       </div>
-      <div class="consigne-row__body" id="${bodyId}" hidden>
-        ${inputForType(item, previous?.value ?? null)}
-      </div>
+      <div data-consigne-input-holder hidden></div>
     `;
-
-    const toggleBtn = row.querySelector(".consigne-row__toggle");
-    const body = row.querySelector(".consigne-row__body");
-    const updateOpenState = (open) => {
-      if (!toggleBtn || !body) return;
-      if (open) {
-        row.classList.add("is-open");
-        body.removeAttribute("hidden");
-        toggleBtn.setAttribute("aria-expanded", "true");
-      } else {
-        row.classList.remove("is-open");
-        body.setAttribute("hidden", "");
-        toggleBtn.setAttribute("aria-expanded", "false");
-      }
-    };
-    if (toggleBtn) {
-      toggleBtn.addEventListener("click", () => {
-        const next = !row.classList.contains("is-open");
-        updateOpenState(next);
-      });
-      updateOpenState(false);
+    const holder = row.querySelector("[data-consigne-input-holder]");
+    if (holder) {
+      holder.innerHTML = inputForType(item, previous?.value ?? null);
+      enhanceRangeMeters(holder);
     }
     const bH = row.querySelector(".js-histo");
     const bE = row.querySelector(".js-edit");
@@ -3030,6 +3121,7 @@ async function renderDaily(ctx, root, opts = {}) {
       },
     }));
 
+    attachConsigneEditor(row, item, { variant: "modal" });
     bindConsigneRowValue(row, item, {
       initialValue,
       onChange: (value) => {
