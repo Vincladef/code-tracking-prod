@@ -8,6 +8,19 @@ const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+function autoGrowTextarea(el) {
+  if (!(el instanceof HTMLTextAreaElement)) return;
+  if (el.dataset.autoGrowBound === "true") return;
+  const resize = () => {
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+  el.addEventListener("input", resize);
+  el.addEventListener("change", resize);
+  el.dataset.autoGrowBound = "true";
+  resize();
+}
+
 // --- Normalisation du jour (LUN..DIM ou mon..sun) ---
 const DAY_ALIAS = Schema.DAY_ALIAS || { mon: "LUN", tue: "MAR", wed: "MER", thu: "JEU", fri: "VEN", sat: "SAM", sun: "DIM" };
 const DAY_VALUES = Schema.DAY_VALUES || new Set(["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"]);
@@ -2376,6 +2389,9 @@ function attachConsigneEditor(row, consigne, options = {}) {
       </div>
     `;
     const overlay = (variant === "drawer" ? drawer : modal)(markup);
+    overlay.querySelectorAll("textarea").forEach((textarea) => {
+      autoGrowTextarea(textarea);
+    });
     const uniqueIdBase = `${Date.now()}-${Math.round(Math.random() * 10000)}`;
     const dialogNode = variant === "drawer" ? overlay.querySelector("aside") : overlay.firstElementChild;
     if (dialogNode) {
