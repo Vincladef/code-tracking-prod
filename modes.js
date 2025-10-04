@@ -78,13 +78,7 @@ const LIKERT6_LABELS = {
   no_answer: "Pas de réponse",
 };
 
-function formatConsigneValue(type, value, options = {}) {
-  const context = options.context || "default";
-  if (context === "status") {
-    if (type === "info") return INFO_RESPONSE_LABEL;
-    if (value === null || value === undefined || value === "") return "Sans donnée";
-    return "Réponse enregistrée";
-  }
+function formatConsigneValue(type, value, _options = {}) {
   if (type === "info") return "";
   if (value === null || value === undefined || value === "") return "—";
   if (type === "yesno") {
@@ -2149,22 +2143,12 @@ const STATUS_LABELS = {
   na: "Sans donnée",
 };
 
-function normalizeFormattedValue(type, formatted) {
-  if (formatted && formatted !== "") return formatted;
-  if (type === "info") return INFO_RESPONSE_LABEL;
-  return "—";
-}
-
 function updateConsigneStatusUI(row, consigne, rawValue) {
   if (!row || !consigne) return;
   const status = dotColor(consigne.type, rawValue);
-  const formatted = normalizeFormattedValue(
-    consigne.type,
-    formatConsigneValue(consigne.type, rawValue, { context: "status" })
-  );
   const statusHolder = row.querySelector("[data-status]");
   const dot = row.querySelector("[data-status-dot]");
-  const text = row.querySelector("[data-status-text]");
+  const mark = row.querySelector("[data-status-mark]");
   const live = row.querySelector("[data-status-live]");
   row.dataset.status = status;
   if (statusHolder) {
@@ -2174,12 +2158,22 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
   if (dot) {
     dot.className = `consigne-row__dot consigne-row__dot--${status}`;
   }
-  if (text) {
-    text.textContent = formatted;
+  if (mark) {
+    mark.classList.toggle("consigne-row__mark--checked", status !== "na");
   }
   if (live) {
+    const hasValue = !(rawValue === null || rawValue === undefined || rawValue === "");
+    const formattedValue = (() => {
+      if (consigne.type === "info") return INFO_RESPONSE_LABEL;
+      if (!hasValue) return "Sans donnée";
+      const result = formatConsigneValue(consigne.type, rawValue);
+      if (result === null || result === undefined || result === "" || result === "—") {
+        return "Réponse enregistrée";
+      }
+      return result;
+    })();
     const label = STATUS_LABELS[status] || "Valeur";
-    live.textContent = `${label}: ${formatted}`;
+    live.textContent = `${label}: ${formattedValue}`;
   }
 }
 
@@ -2595,10 +2589,6 @@ async function renderPractice(ctx, root, _opts = {}) {
         delete row.dataset.parentId;
         row.draggable = true;
       }
-      const initialSummary = normalizeFormattedValue(
-        c.type,
-        formatConsigneValue(c.type, null, { context: "status" })
-      );
       row.innerHTML = `
         <div class="consigne-row__header">
           <div class="consigne-row__main">
@@ -2610,7 +2600,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           <div class="consigne-row__meta">
             <span class="consigne-row__status" data-status="na">
               <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
-              <span class="consigne-row__summary" data-status-text>${initialSummary}</span>
+              <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
               <span class="sr-only" data-status-live aria-live="polite"></span>
             </span>
             ${consigneActions()}
@@ -3014,8 +3004,6 @@ async function renderDaily(ctx, root, opts = {}) {
       row.classList.add("consigne-row--parent");
       delete row.dataset.parentId;
     }
-    const statusLabel = formatConsigneValue(item.type, initialValue, { context: "status" });
-    const initialSummary = normalizeFormattedValue(item.type, statusLabel);
     row.innerHTML = `
       <div class="consigne-row__header">
         <div class="consigne-row__main">
@@ -3027,7 +3015,7 @@ async function renderDaily(ctx, root, opts = {}) {
         <div class="consigne-row__meta">
           <span class="consigne-row__status" data-status="na">
             <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
-            <span class="consigne-row__summary" data-status-text>${initialSummary}</span>
+            <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
             <span class="sr-only" data-status-live aria-live="polite"></span>
           </span>
           ${consigneActions()}
