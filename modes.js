@@ -46,13 +46,63 @@ function modal(html) {
   const wrap = document.createElement("div");
   wrap.className = "fixed inset-0 z-50 grid place-items-center bg-black/40 p-4";
   wrap.innerHTML = `
-    <div class="w-[min(680px,92vw)] max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl">
+    <div class="w-[min(680px,92vw)] overflow-y-auto rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl" data-modal-content style="max-height:var(--viewport-safe-height, calc(100vh - 2rem));">
       ${html}
     </div>`;
+  const modalEl = wrap.querySelector("[data-modal-content]");
+  const cleanupFns = [];
+  const viewport = window.visualViewport;
+  const VIEWPORT_MARGIN_BOTTOM = 32;
+  const docEl = document.documentElement;
+  const previousSafeHeight = docEl?.style?.getPropertyValue("--viewport-safe-height") ?? null;
+  const hadInlineSafeHeight = Boolean(previousSafeHeight && previousSafeHeight.trim() !== "");
+
+  const updateFromViewport = () => {
+    if (!modalEl) return;
+    const height = viewport ? viewport.height : window.innerHeight;
+    const offsetTop = viewport ? viewport.offsetTop : 0;
+    const offsetLeft = viewport ? viewport.offsetLeft : 0;
+    const maxHeight = Math.max(0, height - VIEWPORT_MARGIN_BOTTOM);
+    modalEl.style.maxHeight = `${maxHeight}px`;
+    modalEl.style.transform = viewport ? `translate3d(${offsetLeft}px, ${offsetTop}px, 0)` : "";
+    docEl?.style?.setProperty("--viewport-safe-height", `${maxHeight}px`);
+  };
+
+  if (viewport) {
+    const updateHandler = () => updateFromViewport();
+    viewport.addEventListener("resize", updateHandler);
+    viewport.addEventListener("scroll", updateHandler);
+    cleanupFns.push(() => viewport.removeEventListener("resize", updateHandler));
+    cleanupFns.push(() => viewport.removeEventListener("scroll", updateHandler));
+  } else {
+    const windowUpdateHandler = () => updateFromViewport();
+    window.addEventListener("resize", windowUpdateHandler);
+    cleanupFns.push(() => window.removeEventListener("resize", windowUpdateHandler));
+  }
+
   wrap.addEventListener("click", (e) => {
     if (e.target === wrap) wrap.remove();
   });
+
+  const originalRemove = wrap.remove.bind(wrap);
+  wrap.remove = () => {
+    while (cleanupFns.length) {
+      const fn = cleanupFns.pop();
+      try {
+        fn();
+      } catch (error) {
+        modesLogger?.warn?.("modal:cleanup", error);
+      }
+    }
+    if (docEl) {
+      if (hadInlineSafeHeight) docEl.style.setProperty("--viewport-safe-height", previousSafeHeight);
+      else docEl.style.removeProperty("--viewport-safe-height");
+    }
+    originalRemove();
+  };
+
   document.body.appendChild(wrap);
+  updateFromViewport();
   return wrap;
 }
 
