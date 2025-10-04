@@ -1,6 +1,8 @@
 (() => {
   const STORAGE_PREFIX = "hp::autosave::";
   const SAVE_DEBOUNCE_MS = 800;
+  const RESTORE_DEBOUNCE_MS = 120;
+  const DOCUMENT_FRAGMENT_NODE = 11;
   const trackedForms = new WeakMap();
   let formCounter = 0;
 
@@ -32,6 +34,9 @@
       if (!state) return;
       if (typeof state.scheduleSave?.cancel === "function") {
         state.scheduleSave.cancel();
+      }
+      if (typeof state.scheduleRestore?.cancel === "function") {
+        state.scheduleRestore.cancel();
       }
       try {
         storage.removeItem(state.key);
@@ -403,7 +408,16 @@
       key,
       scheduleSave,
       restoring: false,
+      scheduleRestore: null,
     };
+
+    state.scheduleRestore = debounce(() => {
+      if (state.restoring) return;
+      const storedState = loadState(state.key);
+      if (storedState) {
+        restoreForm(form, state, storedState);
+      }
+    }, RESTORE_DEBOUNCE_MS);
 
     const handleInput = (event) => {
       if (event && event.target && event.target.form && event.target.form !== form) return;
@@ -452,6 +466,22 @@
   }
 
   function handleMutations(mutations) {
+    const formsToRestore = new Set();
+
+    const collectTrackedForm = (node) => {
+      if (!node) return;
+      if (node instanceof HTMLFormElement) return;
+      if (node.nodeType === DOCUMENT_FRAGMENT_NODE) {
+        Array.from(node.childNodes || []).forEach((child) => collectTrackedForm(child));
+        return;
+      }
+      if (!(node instanceof Element)) return;
+      const form = node.closest("form");
+      if (form && trackedForms.has(form)) {
+        formsToRestore.add(form);
+      }
+    };
+
     mutations.forEach((mutation) => {
       if (mutation.type === "childList") {
         mutation.addedNodes.forEach((node) => {
@@ -461,12 +491,28 @@
             const forms = node.querySelectorAll("form");
             forms.forEach((form) => registerForm(form));
           }
+          collectTrackedForm(node);
         });
+        collectTrackedForm(mutation.target);
       } else if (mutation.type === "attributes" && mutation.attributeName === "data-autosave-key") {
         const target = mutation.target;
         if (target instanceof HTMLFormElement) {
           updateFormKey(target);
         }
+      }
+    });
+
+    formsToRestore.forEach((form) => {
+      const state = trackedForms.get(form);
+      if (!state) return;
+      if (typeof state.scheduleRestore === "function") {
+        state.scheduleRestore();
+        return;
+      }
+      if (state.restoring) return;
+      const stored = loadState(state.key);
+      if (stored) {
+        restoreForm(form, state, stored);
       }
     });
   }
