@@ -94,16 +94,6 @@ function formatConsigneValue(type, value) {
   return String(value);
 }
 
-function srBadge(c){
-  const enabled = c?.srEnabled !== false;
-  const title = enabled ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
-  const cls = enabled ? "" : "opacity-50";
-  return `<button type="button"
-            class="inline-flex items-center px-2 py-0.5 rounded-full border text-xs text-[var(--muted)] js-sr-toggle ${cls}"
-            data-id="${c.id}" data-enabled="${enabled ? 1 : 0}"
-            aria-pressed="${enabled}" title="${title}">⏳</button>`;
-}
-
 function priorityTone(p) {
   const n = Number(p);
   if (!Number.isFinite(n)) return "medium";
@@ -1366,6 +1356,7 @@ function consigneActions() {
         ${actionBtn("Historique", "js-histo")}
         ${actionBtn("Modifier", "js-edit")}
         ${actionBtn("Décaler", "js-delay")}
+        ${actionBtn("Activer la répétition espacée", "js-sr-toggle")}
         ${actionBtn("Supprimer", "js-del text-red-600")}
       </div>
     </div>
@@ -1469,9 +1460,10 @@ function onDocumentKeydownConsigneActions(event) {
   }
 }
 
-function setupConsigneActionMenus(scope = document) {
+function setupConsigneActionMenus(scope = document, configure) {
   $$(CONSIGNE_ACTION_SELECTOR, scope).forEach((actionsRoot) => {
     if (actionsRoot.dataset.actionsMenuReady === "1") return;
+    const config = typeof configure === "function" ? configure(actionsRoot) : configure || {};
     const { trigger, panel } = getConsigneActionElements(actionsRoot);
     if (!trigger || !panel) return;
     actionsRoot.dataset.actionsMenuReady = "1";
@@ -1496,6 +1488,57 @@ function setupConsigneActionMenus(scope = document) {
         event.stopPropagation();
       }
     });
+
+    const srToggleBtn = actionsRoot.querySelector(".js-sr-toggle");
+    const srToggleConfig = config?.srToggle;
+    if (srToggleBtn && srToggleConfig) {
+      const resolveEnabled = () => {
+        if (typeof srToggleConfig.getEnabled === "function") {
+          try {
+            return Boolean(srToggleConfig.getEnabled());
+          } catch (err) {
+            console.error(err);
+            return true;
+          }
+        }
+        return true;
+      };
+      const updateButton = (enabled) => {
+        const nextEnabled = Boolean(enabled);
+        srToggleBtn.dataset.enabled = nextEnabled ? "1" : "0";
+        srToggleBtn.setAttribute("aria-pressed", nextEnabled ? "true" : "false");
+        const title = nextEnabled
+          ? "Désactiver la répétition espacée"
+          : "Activer la répétition espacée";
+        srToggleBtn.textContent = title;
+        srToggleBtn.title = title;
+      };
+      updateButton(resolveEnabled());
+      srToggleBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const current = resolveEnabled();
+        const next = !current;
+        srToggleBtn.disabled = true;
+        try {
+          const result = await srToggleConfig.onToggle?.(next, {
+            event,
+            current,
+            next,
+            update: updateButton,
+            close: () => closeConsigneActionMenu(actionsRoot),
+            actionsRoot,
+          });
+          const finalState = typeof result === "boolean" ? result : next;
+          updateButton(finalState);
+        } catch (err) {
+          updateButton(current);
+        } finally {
+          srToggleBtn.disabled = false;
+          closeConsigneActionMenu(actionsRoot);
+        }
+      });
+    }
   });
 }
 
@@ -2409,7 +2452,6 @@ async function renderPractice(ctx, root, _opts = {}) {
       row.innerHTML = `
         <div class="consigne-row__header">
           <div class="consigne-row__main">
-            <span class="consigne-row__sr">${srBadge(c)}</span>
             <button type="button" class="consigne-row__toggle" aria-expanded="false" aria-controls="${bodyId}">
               <span class="consigne-row__title">${escapeHtml(c.text)}</span>
               ${prioChip(Number(c.priority) || 2)}
@@ -2449,7 +2491,6 @@ async function renderPractice(ctx, root, _opts = {}) {
         });
         updateOpenState(false);
       }
-      setupConsigneActionMenus(row);
       const bH = row.querySelector(".js-histo");
       const bE = row.querySelector(".js-edit");
       const bD = row.querySelector(".js-del");
@@ -2464,6 +2505,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           renderPractice(ctx, root);
         }
       };
+      let srEnabled = c?.srEnabled !== false;
       const delayBtn = row.querySelector(".js-delay");
       const updateDelayState = (enabled) => {
         if (!delayBtn) return;
@@ -2474,7 +2516,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           : "Active la répétition espacée pour décaler";
       };
       if (delayBtn) {
-        updateDelayState(c?.srEnabled !== false);
+        updateDelayState(srEnabled);
         delayBtn.onclick = async (e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -2508,23 +2550,28 @@ async function renderPractice(ctx, root, _opts = {}) {
             console.error(err);
             showToast("Impossible de décaler la consigne.");
           } finally {
-            updateDelayState(c?.srEnabled !== false);
+            updateDelayState(srEnabled);
           }
         };
       }
-      const srT = row.querySelector(".js-sr-toggle");
-      if (srT) srT.onclick = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const on = srT.getAttribute("data-enabled") === "1";
-        await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { srEnabled: !on });
-        c.srEnabled = !on;
-        srT.setAttribute("data-enabled", on ? "0" : "1");
-        srT.setAttribute("aria-pressed", (!on).toString());
-        srT.title = (!on) ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
-        srT.classList.toggle("opacity-50", on);
-        updateDelayState(c?.srEnabled !== false);
-      };
+      setupConsigneActionMenus(row, () => ({
+        srToggle: {
+          getEnabled: () => srEnabled,
+          onToggle: async (next) => {
+            try {
+              await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { srEnabled: next });
+              srEnabled = next;
+              c.srEnabled = next;
+              updateDelayState(srEnabled);
+              return srEnabled;
+            } catch (err) {
+              console.error(err);
+              showToast("Impossible de mettre à jour la répétition espacée.");
+              return srEnabled;
+            }
+          },
+        },
+      }));
       bindConsigneRowValue(row, c, {
         onChange: (value) => {
           if (value === null || value === undefined) {
@@ -2840,7 +2887,6 @@ async function renderDaily(ctx, root, opts = {}) {
     row.innerHTML = `
       <div class="consigne-row__header">
         <div class="consigne-row__main">
-          <span class="consigne-row__sr">${srBadge(item)}</span>
           <button type="button" class="consigne-row__toggle" aria-expanded="false" aria-controls="${bodyId}">
             <span class="consigne-row__title">${escapeHtml(item.text)}</span>
             ${prioChip(Number(item.priority) || 2)}
@@ -2881,8 +2927,6 @@ async function renderDaily(ctx, root, opts = {}) {
       });
       updateOpenState(false);
     }
-
-    setupConsigneActionMenus(row);
     const bH = row.querySelector(".js-histo");
     const bE = row.querySelector(".js-edit");
     const bD = row.querySelector(".js-del");
@@ -2897,6 +2941,7 @@ async function renderDaily(ctx, root, opts = {}) {
         renderDaily(ctx, root, { day: currentDay });
       }
     };
+    let srEnabled = item?.srEnabled !== false;
     const delayBtn = row.querySelector(".js-delay");
     const updateDelayState = (enabled) => {
       if (!delayBtn) return;
@@ -2907,7 +2952,7 @@ async function renderDaily(ctx, root, opts = {}) {
         : "Active la répétition espacée pour décaler";
     };
     if (delayBtn) {
-      updateDelayState(item?.srEnabled !== false);
+      updateDelayState(srEnabled);
       delayBtn.onclick = async (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -2940,23 +2985,28 @@ async function renderDaily(ctx, root, opts = {}) {
           console.error(err);
           showToast("Impossible de décaler la consigne.");
         } finally {
-          updateDelayState(item?.srEnabled !== false);
+          updateDelayState(srEnabled);
         }
       };
     }
-    const srT = row.querySelector(".js-sr-toggle");
-    if (srT) srT.onclick = async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const on = srT.getAttribute("data-enabled") === "1";
-      await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { srEnabled: !on });
-      item.srEnabled = !on;
-      srT.setAttribute("data-enabled", on ? "0" : "1");
-      srT.setAttribute("aria-pressed", (!on).toString());
-      srT.title = (!on) ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
-      srT.classList.toggle("opacity-50", on);
-      updateDelayState(item.srEnabled !== false);
-    };
+    setupConsigneActionMenus(row, () => ({
+      srToggle: {
+        getEnabled: () => srEnabled,
+        onToggle: async (next) => {
+          try {
+            await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { srEnabled: next });
+            srEnabled = next;
+            item.srEnabled = next;
+            updateDelayState(srEnabled);
+            return srEnabled;
+          } catch (err) {
+            console.error(err);
+            showToast("Impossible de mettre à jour la répétition espacée.");
+            return srEnabled;
+          }
+        },
+      },
+    }));
 
     bindConsigneRowValue(row, item, {
       initialValue,
