@@ -1063,7 +1063,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         </select>`;
       }
       if (type === "long") {
-        return `<textarea id="${fieldId}" name="value" rows="4" class="practice-editor__textarea" placeholder="Réponse">${escapeHtml(String(value ?? ""))}</textarea>`;
+        return `<textarea id="${fieldId}" name="value" class="consigne-editor__textarea" placeholder="Réponse">${escapeHtml(String(value ?? ""))}</textarea>`;
       }
       return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Réponse" value="${escapeHtml(String(value ?? ""))}">`;
     }
@@ -1195,7 +1195,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           </div>
           <div class="practice-editor__section">
             <label class="practice-editor__label" for="${valueId}-note">Commentaire</label>
-            <textarea id="${valueId}-note" name="note" rows="3" class="practice-editor__textarea" placeholder="Ajouter un commentaire">${escapeHtml(noteValue)}</textarea>
+            <textarea id="${valueId}-note" name="note" class="consigne-editor__textarea" placeholder="Ajouter un commentaire">${escapeHtml(noteValue)}</textarea>
           </div>
           <div class="practice-editor__actions">
             <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
@@ -1565,7 +1565,7 @@ function inputForType(consigne, initialValue = null) {
   }
   if (consigne.type === "long") {
     const value = escapeHtml(initialValue ?? "");
-    return `<textarea name="long:${consigne.id}" rows="3" class="w-full" placeholder="Réponse">${value}</textarea>`;
+    return `<textarea name="long:${consigne.id}" class="consigne-editor__textarea" placeholder="Réponse">${value}</textarea>`;
   }
   if (consigne.type === "num") {
     const sliderValue = initialValue != null && initialValue !== ""
