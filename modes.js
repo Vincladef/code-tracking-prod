@@ -78,6 +78,8 @@ const LIKERT6_LABELS = {
   no_answer: "Pas de réponse",
 };
 
+const NOTE_IGNORED_VALUES = new Set(["no_answer"]);
+
 function formatConsigneValue(type, value, _options = {}) {
   if (type === "info") return "";
   if (value === null || value === undefined || value === "") return "—";
@@ -903,6 +905,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         mid: "Intermédiaire",
         "ko-soft": "Plutôt négatif",
         "ko-strong": "Très négatif",
+        note: "Réponse notée",
         na: "Sans donnée",
       };
       const cards = stats
@@ -2094,9 +2097,36 @@ async function openConsigneForm(ctx, consigne = null) {
   };
 }
 
+function extractTextualNote(value) {
+  if (value == null) return "";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return "";
+    if (NOTE_IGNORED_VALUES.has(trimmed)) return "";
+    return trimmed;
+  }
+  if (typeof value === "object") {
+    const candidates = ["note", "comment", "remark", "text", "message"];
+    for (const key of candidates) {
+      const candidate = value[key];
+      if (typeof candidate === "string") {
+        const trimmed = candidate.trim();
+        if (trimmed.length === 0) continue;
+        if (NOTE_IGNORED_VALUES.has(trimmed)) continue;
+        return trimmed;
+      }
+    }
+  }
+  return "";
+}
+
+function hasTextualNote(value) {
+  return extractTextualNote(value).length > 0;
+}
+
 function dotColor(type, v){
   if (type === "info") {
-    return "na";
+    return hasTextualNote(v) ? "note" : "na";
   }
   if (type === "likert6") {
     const map = {
@@ -2105,7 +2135,7 @@ function dotColor(type, v){
       medium: "mid",
       rather_no: "ko-soft",
       no: "ko-strong",
-      no_answer: "na",
+      no_answer: "note",
     };
     return map[v] || "na";
   }
@@ -2131,6 +2161,12 @@ function dotColor(type, v){
     if (n >= 4) return "mid";
     return "ko-strong";
   }
+  if (type === "short" || type === "long") {
+    return hasTextualNote(v) ? "note" : "na";
+  }
+  if (hasTextualNote(v)) {
+    return "note";
+  }
   return "na";
 }
 
@@ -2140,6 +2176,7 @@ const STATUS_LABELS = {
   mid: "Intermédiaire",
   "ko-soft": "Plutôt négatif",
   "ko-strong": "Très négatif",
+  note: "Réponse notée",
   na: "Sans donnée",
 };
 
@@ -2159,11 +2196,23 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
     dot.className = `consigne-row__dot consigne-row__dot--${status}`;
   }
   if (mark) {
-    mark.classList.toggle("consigne-row__mark--checked", status !== "na");
+    const isAnswered = status !== "na";
+    mark.classList.toggle("consigne-row__mark--checked", isAnswered);
   }
   if (live) {
-    const hasValue = !(rawValue === null || rawValue === undefined || rawValue === "");
+    const textualNote = extractTextualNote(rawValue);
+    const isNoteStatus = status === "note";
+    const baseHasValue = !(rawValue === null || rawValue === undefined || rawValue === "");
+    const hasValue = isNoteStatus ? textualNote.length > 0 || baseHasValue : baseHasValue;
     const formattedValue = (() => {
+      if (isNoteStatus) {
+        if (textualNote) return textualNote;
+        const fallback = formatConsigneValue(consigne.type, rawValue);
+        if (fallback === null || fallback === undefined || fallback === "" || fallback === "—") {
+          return "Réponse enregistrée";
+        }
+        return fallback;
+      }
       if (consigne.type === "info") return INFO_RESPONSE_LABEL;
       if (!hasValue) return "Sans donnée";
       const result = formatConsigneValue(consigne.type, rawValue);
@@ -2452,6 +2501,7 @@ async function openHistory(ctx, consigne) {
     ok: "Positive",
     mid: "Intermédiaire",
     ko: "À surveiller",
+    note: "Réponse notée",
     na: "Sans donnée",
   };
 

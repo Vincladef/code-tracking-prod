@@ -704,6 +704,16 @@
       --consigne-status-color:#c81e1e;
       --consigne-status-dot-shadow:rgba(185,28,28,.26);
     }
+    .consigne-row[data-status="note"],
+    .consigne-row__status[data-status="note"],
+    .consigne-status--note {
+      --consigne-status-bg:#e0f2fe;
+      --consigne-status-border:rgba(59,130,246,.28);
+      --consigne-status-text:#1d4ed8;
+      --consigne-status-accent:#1d4ed8;
+      --consigne-status-color:#3b82f6;
+      --consigne-status-dot-shadow:rgba(59,130,246,.24);
+    }
     .consigne-row[data-status="na"],
     .consigne-row__status[data-status="na"],
     .consigne-status--na {
@@ -733,6 +743,10 @@
     .consigne-row__dot--ko-strong {
       background:#c81e1e;
       box-shadow:0 0 0 3px rgba(185,28,28,.26);
+    }
+    .consigne-row__dot--note {
+      background:#3b82f6;
+      box-shadow:0 0 0 3px rgba(59,130,246,.24);
     }
     .consigne-row__dot--na {
       background:#94a3b8;
@@ -1172,6 +1186,7 @@
     .practice-dashboard__history-dot--mid{ background:#eab308; }
     .practice-dashboard__history-dot--ko-soft{ background:#f87171; }
     .practice-dashboard__history-dot--ko-strong{ background:#dc2626; }
+    .practice-dashboard__history-dot--note{ background:#3b82f6; }
     .practice-dashboard__history-dot--na{ background:#94a3b8; }
     .practice-dashboard__empty{ padding:1rem; border-radius:.9rem; border:1px dashed rgba(148,163,184,0.5); background:#f8fafc; font-size:.9rem; color:#64748b; text-align:center; }
     .practice-dashboard__footer{ padding:1rem clamp(1.4rem,4vw,2rem); border-top:1px solid rgba(148,163,184,0.2); background:#fff; display:flex; justify-content:flex-end; }
@@ -1222,6 +1237,7 @@
     .history-panel__dot--ok{ background:#16a34a; }
     .history-panel__dot--mid{ background:#eab308; }
     .history-panel__dot--ko{ background:#dc2626; }
+    .history-panel__dot--note{ background:#3b82f6; }
     .history-panel__dot--na{ background:#94a3b8; }
     .history-panel__date{ font-size:.8rem; color:#475569; }
     .history-panel__meta-row{ font-size:.75rem; color:#64748b; }
