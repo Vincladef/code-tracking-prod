@@ -898,9 +898,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         return;
       }
       const statusLabels = {
-        ok: "Positive",
+        "ok-strong": "Très positif",
+        "ok-soft": "Plutôt positif",
         mid: "Intermédiaire",
-        ko: "À surveiller",
+        "ko-soft": "Plutôt négatif",
+        "ko-strong": "Très négatif",
         na: "Sans donnée",
       };
       const cards = stats
@@ -2097,27 +2099,47 @@ function dotColor(type, v){
     return "na";
   }
   if (type === "likert6") {
-    const map = { yes:"ok", rather_yes:"ok", medium:"mid", rather_no:"ko", no:"ko", no_answer:"na" };
+    const map = {
+      yes: "ok-strong",
+      rather_yes: "ok-soft",
+      medium: "mid",
+      rather_no: "ko-soft",
+      no: "ko-strong",
+      no_answer: "na",
+    };
     return map[v] || "na";
   }
   if (type === "likert5") {
     const n = Number(v);
-    return n >= 3 ? "ok" : n === 2 ? "mid" : "ko";
+    if (!Number.isFinite(n)) return "na";
+    if (n >= 5) return "ok-strong";
+    if (n === 4) return "ok-soft";
+    if (n === 3) return "mid";
+    if (n === 2) return "ko-soft";
+    if (n <= 1) return "ko-strong";
+    return "na";
   }
   if (type === "yesno") {
-    return v === "yes" ? "ok" : "ko";
+    if (v === "yes") return "ok-strong";
+    if (v === "no") return "ko-strong";
+    return "na";
   }
   if (type === "num") {
-    const n = Number(v) || 0;
-    return n >= 7 ? "ok" : n >= 4 ? "mid" : "ko";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "na";
+    if (n >= 7) return "ok-strong";
+    if (n >= 4) return "mid";
+    return "ko-strong";
   }
   return "na";
 }
 
 const STATUS_LABELS = {
-  ok: "Positive",
+  "ok-strong": "Très positif",
+  "ok-soft": "Plutôt positif",
   mid: "Intermédiaire",
-  ko: "À surveiller",
+  "ko-soft": "Plutôt négatif",
+  "ko-strong": "Très négatif",
   na: "Sans donnée",
 };
 
