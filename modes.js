@@ -2270,6 +2270,10 @@ function attachConsigneEditor(row, consigne, options = {}) {
   const variant = options.variant === "drawer" ? "drawer" : "modal";
   enhanceRangeMeters(row.querySelector("[data-consigne-input-holder]"));
   const openEditor = () => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (trigger && typeof trigger.setAttribute === "function") {
+      trigger.setAttribute("aria-expanded", "true");
+    }
     const currentValue = readConsigneCurrentValue(consigne, row);
     const title = consigne.text || consigne.titre || consigne.name || consigne.id;
     const description = consigne.description || consigne.details || consigne.helper || "";
@@ -2283,7 +2287,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
       <div class="space-y-4">
         <header class="space-y-1">
           <h2 class="text-lg font-semibold">${escapeHtml(title)}</h2>
-          ${description ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(description)}</p>` : ""}
+          ${description ? `<p class="text-sm text-slate-600 whitespace-pre-line" data-consigne-editor-description>${escapeHtml(description)}</p>` : ""}
         </header>
         <div class="space-y-3" data-consigne-editor-body>
           ${inputForType(consigne, currentValue)}
@@ -2292,18 +2296,81 @@ function attachConsigneEditor(row, consigne, options = {}) {
       </div>
     `;
     const overlay = (variant === "drawer" ? drawer : modal)(markup);
+    const uniqueIdBase = `${Date.now()}-${Math.round(Math.random() * 10000)}`;
+    const dialogNode = variant === "drawer" ? overlay.querySelector("aside") : overlay.firstElementChild;
+    if (dialogNode) {
+      dialogNode.setAttribute("role", "dialog");
+      dialogNode.setAttribute("aria-modal", "true");
+      const heading = dialogNode.querySelector("h2");
+      if (heading && !heading.id) {
+        heading.id = `consigne-editor-title-${uniqueIdBase}`;
+      }
+      if (heading && heading.id) {
+        dialogNode.setAttribute("aria-labelledby", heading.id);
+        dialogNode.removeAttribute("aria-label");
+      } else {
+        dialogNode.setAttribute("aria-label", String(title || ""));
+      }
+      const descriptionEl = dialogNode.querySelector("[data-consigne-editor-description]");
+      if (descriptionEl && !descriptionEl.id) {
+        descriptionEl.id = `consigne-editor-desc-${uniqueIdBase}`;
+      }
+      if (descriptionEl && descriptionEl.id) {
+        dialogNode.setAttribute("aria-describedby", descriptionEl.id);
+      } else {
+        dialogNode.removeAttribute("aria-describedby");
+      }
+    }
     const body = overlay.querySelector("[data-consigne-editor-body]");
     enhanceRangeMeters(body);
     const focusTarget = body?.querySelector("input, select, textarea");
     if (focusTarget) {
-      focusTarget.focus({ preventScroll: true });
+      try {
+        focusTarget.focus({ preventScroll: true });
+      } catch (err) {
+        focusTarget.focus();
+      }
     }
+    let isClosed = false;
     const closeOverlay = () => {
+      if (isClosed) return;
+      isClosed = true;
+      document.removeEventListener("keydown", onKeyDown, true);
       overlay.remove();
+      if (trigger && typeof trigger.setAttribute === "function") {
+        trigger.setAttribute("aria-expanded", "false");
+      }
+      if (trigger && typeof trigger.focus === "function" && document.contains(trigger)) {
+        try {
+          trigger.focus({ preventScroll: true });
+        } catch (err) {
+          trigger.focus();
+        }
+      } else if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        previouslyFocused.focus();
+      }
       if (typeof options.onClose === "function") {
         options.onClose();
       }
     };
+    const background = variant === "drawer" ? overlay.firstElementChild : overlay;
+    if (background) {
+      background.addEventListener("click", (event) => {
+        const isDrawerBg = variant === "drawer" && event.target === background;
+        const isModalBg = variant !== "drawer" && event.target === overlay;
+        if (isDrawerBg || isModalBg) {
+          event.preventDefault();
+          closeOverlay();
+        }
+      });
+    }
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeOverlay();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
     const cancelBtn = overlay.querySelector("[data-consigne-editor-cancel]");
     if (cancelBtn) {
       cancelBtn.addEventListener("click", (event) => {
@@ -2329,6 +2396,9 @@ function attachConsigneEditor(row, consigne, options = {}) {
     event.stopPropagation();
     openEditor();
   });
+  if (trigger && typeof trigger.setAttribute === "function") {
+    trigger.setAttribute("aria-expanded", "false");
+  }
 }
 
 function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
@@ -3109,7 +3179,7 @@ async function renderDaily(ctx, root, opts = {}) {
       },
     }));
 
-    attachConsigneEditor(row, item, { variant: "modal" });
+    attachConsigneEditor(row, item, { variant: "drawer" });
     bindConsigneRowValue(row, item, {
       initialValue,
       onChange: (value) => {
