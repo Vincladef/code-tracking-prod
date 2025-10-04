@@ -1273,7 +1273,7 @@ window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx
   let dragWrapper = null;
 
   container.addEventListener('dragstart', (e) => {
-    const el = e.target.closest('.consigne-card');
+    const el = e.target.closest('.consigne-row');
     if (!el || el.dataset.parentId) return;
     dragId = el.dataset.id;
     dragWrapper = el.closest('.consigne-group') || el;
@@ -1283,9 +1283,9 @@ window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx
   container.addEventListener('dragover', (e) => {
     if (!dragId || !dragWrapper) return;
     e.preventDefault();
-    let over = e.target.closest('.consigne-card');
+    let over = e.target.closest('.consigne-row');
     if (!over || over.dataset.parentId) {
-      over = e.target.closest('.consigne-group')?.querySelector('.consigne-card');
+      over = e.target.closest('.consigne-group')?.querySelector('.consigne-row');
     }
     if (!over || over.dataset.id === dragId || over.dataset.parentId) return;
     const overWrapper = over.closest('.consigne-group') || over;
@@ -1300,7 +1300,7 @@ window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx
   container.addEventListener('drop', async (e) => {
     if (!dragId) return;
     e.preventDefault();
-    const cards = [...container.querySelectorAll('.consigne-card:not([data-parent-id])')];
+    const cards = [...container.querySelectorAll('.consigne-row:not([data-parent-id])')];
     try {
       await Promise.all(cards.map((el, idx) =>
         Schema.updateConsigneOrder(ctx.db, ctx.user.uid, el.dataset.id, (idx+1)*10)
@@ -2067,6 +2067,109 @@ function dotColor(type, v){
   return "na";
 }
 
+const STATUS_LABELS = {
+  ok: "Positive",
+  mid: "Intermédiaire",
+  ko: "À surveiller",
+  na: "Sans donnée",
+};
+
+function normalizeFormattedValue(type, formatted) {
+  if (formatted && formatted !== "") return formatted;
+  if (type === "info") return INFO_RESPONSE_LABEL;
+  return "—";
+}
+
+function updateConsigneStatusUI(row, consigne, rawValue) {
+  if (!row || !consigne) return;
+  const status = dotColor(consigne.type, rawValue);
+  const formatted = normalizeFormattedValue(consigne.type, formatValue(consigne.type, rawValue));
+  const statusHolder = row.querySelector("[data-status]");
+  const dot = row.querySelector("[data-status-dot]");
+  const text = row.querySelector("[data-status-text]");
+  const live = row.querySelector("[data-status-live]");
+  row.dataset.status = status;
+  if (statusHolder) {
+    statusHolder.dataset.status = status;
+    statusHolder.setAttribute("data-status", status);
+  }
+  if (dot) {
+    dot.className = `consigne-row__dot consigne-row__dot--${status}`;
+  }
+  if (text) {
+    text.textContent = formatted;
+  }
+  if (live) {
+    const label = STATUS_LABELS[status] || "Valeur";
+    live.textContent = `${label}: ${formatted}`;
+  }
+}
+
+function readConsigneCurrentValue(consigne, scope) {
+  if (!consigne || !scope) return "";
+  const id = consigne.id;
+  const type = consigne.type;
+  if (type === "info") return "";
+  if (type === "short") {
+    const input = scope.querySelector(`[name="short:${id}"]`);
+    return input ? input.value.trim() : "";
+  }
+  if (type === "long") {
+    const textarea = scope.querySelector(`[name="long:${id}"]`);
+    return textarea ? textarea.value.trim() : "";
+  }
+  if (type === "num") {
+    const range = scope.querySelector(`[name="num:${id}"]`);
+    if (!range || range.value === "" || range.value == null) return "";
+    const num = Number(range.value);
+    return Number.isFinite(num) ? num : "";
+  }
+  if (type === "likert5") {
+    const select = scope.querySelector(`[name="likert5:${id}"]`);
+    if (!select || select.value === "" || select.value == null) return "";
+    const num = Number(select.value);
+    return Number.isFinite(num) ? num : "";
+  }
+  if (type === "yesno") {
+    const select = scope.querySelector(`[name="yesno:${id}"]`);
+    return select ? select.value : "";
+  }
+  if (type === "likert6") {
+    const select = scope.querySelector(`[name="likert6:${id}"]`);
+    return select ? select.value : "";
+  }
+  const input = scope.querySelector(`[name$=":${id}"]`);
+  return input ? input.value : "";
+}
+
+function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
+  if (!row || !consigne) return;
+  const emit = (value) => {
+    if (onChange) onChange(value);
+    updateConsigneStatusUI(row, consigne, value);
+  };
+  const read = () => readConsigneCurrentValue(consigne, row);
+  if (initialValue !== undefined) {
+    emit(initialValue);
+  } else {
+    emit(read());
+  }
+  const raf = typeof requestAnimationFrame === "function"
+    ? requestAnimationFrame
+    : (cb) => setTimeout(cb, 16);
+  const fields = Array.from(row.querySelectorAll(`[name$=":${consigne.id}"]`));
+  if (fields.length) {
+    const handler = () => emit(read());
+    fields.forEach((field) => {
+      field.addEventListener("input", handler);
+      field.addEventListener("change", handler);
+    });
+    raf(() => emit(read()));
+  } else {
+    raf(() => emit(read()));
+  }
+}
+
 async function openHistory(ctx, consigne) {
   modesLogger.group("ui.history.open", { consigneId: consigne.id, type: consigne.type });
   const qy = modesFirestore.query(
@@ -2299,37 +2402,71 @@ async function renderPractice(ctx, root, _opts = {}) {
 
     const makeItem = (c, { isChild = false } = {}) => {
       const tone = priorityTone(c.priority);
-      const el = document.createElement("div");
-      el.className = `consigne-card card p-3 space-y-3 priority-surface priority-surface-${tone}`;
-      el.dataset.id = c.id;
+      const row = document.createElement("div");
+      row.className = `consigne-row priority-surface priority-surface-${tone}`;
+      row.dataset.id = c.id;
       if (isChild) {
-        el.classList.add("consigne-card--child");
+        row.classList.add("consigne-row--child");
         if (c.parentId) {
-          el.dataset.parentId = c.parentId;
+          row.dataset.parentId = c.parentId;
         } else {
-          delete el.dataset.parentId;
+          delete row.dataset.parentId;
         }
-        el.draggable = false;
+        row.draggable = false;
       } else {
-        el.classList.add("consigne-card--parent");
-        delete el.dataset.parentId;
-        el.draggable = true;
+        row.classList.add("consigne-row--parent");
+        delete row.dataset.parentId;
+        row.draggable = true;
       }
-      el.innerHTML = `
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex flex-wrap items-center gap-2">
-            <h4 class="font-semibold">${escapeHtml(c.text)}</h4>
-            ${prioChip(Number(c.priority)||2)}
-            ${srBadge(c)}
+      const bodyId = `practice-consigne-${c.id}`;
+      const initialSummary = normalizeFormattedValue(c.type, "");
+      row.innerHTML = `
+        <div class="consigne-row__header">
+          <div class="consigne-row__main">
+            <span class="consigne-row__sr">${srBadge(c)}</span>
+            <button type="button" class="consigne-row__toggle" aria-expanded="false" aria-controls="${bodyId}">
+              <span class="consigne-row__title">${escapeHtml(c.text)}</span>
+              ${prioChip(Number(c.priority) || 2)}
+            </button>
           </div>
-          ${consigneActions()}
+          <div class="consigne-row__meta">
+            <span class="consigne-row__status" data-status="na">
+              <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+              <span class="consigne-row__summary" data-status-text>${initialSummary}</span>
+              <span class="sr-only" data-status-live aria-live="polite"></span>
+            </span>
+            ${consigneActions()}
+          </div>
         </div>
-        ${inputForType(c)}
+        <div class="consigne-row__body" id="${bodyId}" hidden>
+          ${inputForType(c)}
+        </div>
       `;
-      setupConsigneActionMenus(el);
-      const bH = el.querySelector(".js-histo");
-      const bE = el.querySelector(".js-edit");
-      const bD = el.querySelector(".js-del");
+      const toggleBtn = row.querySelector(".consigne-row__toggle");
+      const body = row.querySelector(".consigne-row__body");
+      const updateOpenState = (open) => {
+        if (!toggleBtn || !body) return;
+        if (open) {
+          row.classList.add("is-open");
+          body.removeAttribute("hidden");
+          toggleBtn.setAttribute("aria-expanded", "true");
+        } else {
+          row.classList.remove("is-open");
+          body.setAttribute("hidden", "");
+          toggleBtn.setAttribute("aria-expanded", "false");
+        }
+      };
+      if (toggleBtn) {
+        toggleBtn.addEventListener("click", () => {
+          const next = !row.classList.contains("is-open");
+          updateOpenState(next);
+        });
+        updateOpenState(false);
+      }
+      setupConsigneActionMenus(row);
+      const bH = row.querySelector(".js-histo");
+      const bE = row.querySelector(".js-edit");
+      const bD = row.querySelector(".js-del");
       bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c); };
       bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
       bD.onclick = async (e) => {
@@ -2341,7 +2478,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           renderPractice(ctx, root);
         }
       };
-      const delayBtn = el.querySelector(".js-delay");
+      const delayBtn = row.querySelector(".js-delay");
       const updateDelayState = (enabled) => {
         if (!delayBtn) return;
         delayBtn.disabled = !enabled;
@@ -2384,15 +2521,15 @@ async function renderPractice(ctx, root, _opts = {}) {
           } catch (err) {
             console.error(err);
             showToast("Impossible de décaler la consigne.");
-            updateDelayState(c?.srEnabled !== false);
           } finally {
             updateDelayState(c?.srEnabled !== false);
           }
         };
       }
-      const srT = el.querySelector(".js-sr-toggle");
+      const srT = row.querySelector(".js-sr-toggle");
       if (srT) srT.onclick = async (e) => {
-        e.preventDefault(); e.stopPropagation();
+        e.preventDefault();
+        e.stopPropagation();
         const on = srT.getAttribute("data-enabled") === "1";
         await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { srEnabled: !on });
         c.srEnabled = !on;
@@ -2402,7 +2539,16 @@ async function renderPractice(ctx, root, _opts = {}) {
         srT.classList.toggle("opacity-50", on);
         updateDelayState(c?.srEnabled !== false);
       };
-      return el;
+      bindConsigneRowValue(row, c, {
+        onChange: (value) => {
+          if (value === null || value === undefined) {
+            delete row.dataset.currentValue;
+          } else {
+            row.dataset.currentValue = String(value);
+          }
+        },
+      });
+      return row;
     };
 
     const grouped = groupConsignes(visible);
@@ -2678,40 +2824,82 @@ async function renderDaily(ctx, root, opts = {}) {
     return [cat, { groups, total }];
   });
 
-  const previousAnswers = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
+  const previousAnswersRaw = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
+  const previousAnswers = previousAnswersRaw instanceof Map
+    ? previousAnswersRaw
+    : new Map(previousAnswersRaw || []);
 
   const renderItemCard = (item, { isChild = false } = {}) => {
-    const previous = previousAnswers?.get(item.id);
-    const itemCard = document.createElement("div");
+    const previous = previousAnswers.get(item.id);
+    const hasPrevValue = previous && Object.prototype.hasOwnProperty.call(previous, "value");
+    const initialValue = hasPrevValue ? previous.value : null;
+    const row = document.createElement("div");
     const tone = priorityTone(item.priority);
-    itemCard.className = `consigne-card card p-3 space-y-3 priority-surface priority-surface-${tone}`;
+    row.className = `consigne-row priority-surface priority-surface-${tone}`;
+    row.dataset.id = item.id;
     if (isChild) {
-      itemCard.classList.add("consigne-card--child");
+      row.classList.add("consigne-row--child");
       if (item.parentId) {
-        itemCard.dataset.parentId = item.parentId;
+        row.dataset.parentId = item.parentId;
       } else {
-        delete itemCard.dataset.parentId;
+        delete row.dataset.parentId;
       }
     } else {
-      itemCard.classList.add("consigne-card--parent");
-      delete itemCard.dataset.parentId;
+      row.classList.add("consigne-row--parent");
+      delete row.dataset.parentId;
     }
-    itemCard.innerHTML = `
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex flex-wrap items-center gap-2">
-          <h4 class="font-semibold">${escapeHtml(item.text)}</h4>
-          ${prioChip(Number(item.priority) || 2)}
-          ${srBadge(item)}
+    const bodyId = `daily-consigne-${item.id}`;
+    const initialFormatted = formatValue(item.type, initialValue);
+    const initialSummary = normalizeFormattedValue(item.type, initialFormatted);
+    row.innerHTML = `
+      <div class="consigne-row__header">
+        <div class="consigne-row__main">
+          <span class="consigne-row__sr">${srBadge(item)}</span>
+          <button type="button" class="consigne-row__toggle" aria-expanded="false" aria-controls="${bodyId}">
+            <span class="consigne-row__title">${escapeHtml(item.text)}</span>
+            ${prioChip(Number(item.priority) || 2)}
+          </button>
         </div>
-        ${consigneActions()}
+        <div class="consigne-row__meta">
+          <span class="consigne-row__status" data-status="na">
+            <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+            <span class="consigne-row__summary" data-status-text>${initialSummary}</span>
+            <span class="sr-only" data-status-live aria-live="polite"></span>
+          </span>
+          ${consigneActions()}
+        </div>
       </div>
-      ${inputForType(item, previous?.value ?? null)}
+      <div class="consigne-row__body" id="${bodyId}" hidden>
+        ${inputForType(item, previous?.value ?? null)}
+      </div>
     `;
 
-    setupConsigneActionMenus(itemCard);
-    const bH = itemCard.querySelector(".js-histo");
-    const bE = itemCard.querySelector(".js-edit");
-    const bD = itemCard.querySelector(".js-del");
+    const toggleBtn = row.querySelector(".consigne-row__toggle");
+    const body = row.querySelector(".consigne-row__body");
+    const updateOpenState = (open) => {
+      if (!toggleBtn || !body) return;
+      if (open) {
+        row.classList.add("is-open");
+        body.removeAttribute("hidden");
+        toggleBtn.setAttribute("aria-expanded", "true");
+      } else {
+        row.classList.remove("is-open");
+        body.setAttribute("hidden", "");
+        toggleBtn.setAttribute("aria-expanded", "false");
+      }
+    };
+    if (toggleBtn) {
+      toggleBtn.addEventListener("click", () => {
+        const next = !row.classList.contains("is-open");
+        updateOpenState(next);
+      });
+      updateOpenState(false);
+    }
+
+    setupConsigneActionMenus(row);
+    const bH = row.querySelector(".js-histo");
+    const bE = row.querySelector(".js-edit");
+    const bD = row.querySelector(".js-del");
     bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item); };
     bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
     bD.onclick = async (e) => {
@@ -2723,7 +2911,7 @@ async function renderDaily(ctx, root, opts = {}) {
         renderDaily(ctx, root, { day: currentDay });
       }
     };
-    const delayBtn = itemCard.querySelector(".js-delay");
+    const delayBtn = row.querySelector(".js-delay");
     const updateDelayState = (enabled) => {
       if (!delayBtn) return;
       delayBtn.disabled = !enabled;
@@ -2770,7 +2958,7 @@ async function renderDaily(ctx, root, opts = {}) {
         }
       };
     }
-    const srT = itemCard.querySelector(".js-sr-toggle");
+    const srT = row.querySelector(".js-sr-toggle");
     if (srT) srT.onclick = async (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -2784,7 +2972,20 @@ async function renderDaily(ctx, root, opts = {}) {
       updateDelayState(item.srEnabled !== false);
     };
 
-    return itemCard;
+    bindConsigneRowValue(row, item, {
+      initialValue,
+      onChange: (value) => {
+        const base = previousAnswers.get(item.id) || { consigneId: item.id };
+        previousAnswers.set(item.id, { ...base, value });
+        if (value === null || value === undefined || value === "") {
+          delete row.dataset.currentValue;
+        } else {
+          row.dataset.currentValue = String(value);
+        }
+      },
+    });
+
+    return row;
   };
 
   const renderGroup = (group, target) => {
