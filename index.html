@@ -209,6 +209,12 @@
       --text:    #334155; /* slate-700 */
       --muted:   #94A3B8; /* slate-400 */
       --ring:    var(--accent-400);
+      --viewport-safe-height: calc(100vh - 2rem);
+    }
+    @supports (height: 100dvh) {
+      :root {
+        --viewport-safe-height: calc(100dvh - 2rem);
+      }
     }
     /* Pratique = vert doux */
     [data-section="practice"]{
