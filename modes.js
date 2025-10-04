@@ -68,6 +68,32 @@ function pill(text) {
 const INFO_RESPONSE_LABEL = "Pas de réponse requise";
 const INFO_STATIC_BLOCK = `<p class="text-sm text-[var(--muted)]" data-static-info></p>`;
 
+const LIKERT6_ORDER = ["no", "rather_no", "medium", "rather_yes", "yes"];
+const LIKERT6_LABELS = {
+  no: "Non",
+  rather_no: "Plutôt non",
+  medium: "Neutre",
+  rather_yes: "Plutôt oui",
+  yes: "Oui",
+  no_answer: "Pas de réponse",
+};
+
+function formatConsigneValue(type, value) {
+  if (type === "info") return "";
+  if (value === null || value === undefined || value === "") return "—";
+  if (type === "yesno") {
+    if (value === "yes") return "Oui";
+    if (value === "no") return "Non";
+    return String(value);
+  }
+  if (type === "likert5") return String(value);
+  if (type === "likert6") {
+    const mapped = LIKERT6_LABELS[String(value)];
+    return mapped || String(value);
+  }
+  return String(value);
+}
+
 function srBadge(c){
   const enabled = c?.srEnabled !== false;
   const title = enabled ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
@@ -227,27 +253,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (type === "short") return "Texte court";
     if (type === "info") return "";
     return "Libre";
-  }
-
-  const LIKERT6_ORDER = ["no", "rather_no", "medium", "rather_yes", "yes"];
-  const LIKERT6_LABELS = {
-    no: "Non",
-    rather_no: "Plutôt non",
-    medium: "Neutre",
-    rather_yes: "Plutôt oui",
-    yes: "Oui",
-  };
-
-  function formatValue(type, value) {
-    if (type === "info") return "";
-    if (value === null || value === undefined || value === "") return "—";
-    if (type === "yesno") return value === "yes" ? "Oui" : value === "no" ? "Non" : String(value);
-    if (type === "likert5") return String(value);
-    if (type === "likert6") {
-      if (value === "no_answer") return "Pas de réponse";
-      return LIKERT6_LABELS[value] || String(value);
-    }
-    return String(value);
   }
 
   function likert6NumericPoint(value) {
@@ -777,7 +782,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         lastDateFull: lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais",
         lastRelative: formatRelativeDate(lastDateObj || lastDateIso),
         lastValue,
-        lastFormatted: formatValue(consigne.type, lastValue),
+        lastFormatted: formatConsigneValue(consigne.type, lastValue),
         lastCommentRaw: lastNote,
         commentDisplay: truncateText(lastNote, 180),
         statusKind: dotColor(consigne.type, lastValue),
@@ -927,7 +932,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               const statusLabel = statusLabels[statusKind] || "Valeur";
               const dateLabel = meta?.fullLabel || meta?.label || entry.date;
               const relativeLabel = formatRelativeDate(meta?.dateObj || entry.date);
-              const valueText = formatValue(stat.type, entry.value);
+              const valueText = formatConsigneValue(stat.type, entry.value);
               const normalizedValue = valueText == null ? "" : String(valueText).trim();
               const fallbackValue = stat.type === "info" ? "" : "—";
               const safeValue = normalizedValue && normalizedValue !== "—" ? escapeHtml(normalizedValue) : fallbackValue;
@@ -1151,7 +1156,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       stat.lastDateFull = lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais";
       stat.lastRelative = formatRelativeDate(lastDateObj || lastDateIso);
       stat.lastValue = lastValue;
-      stat.lastFormatted = formatValue(stat.type, lastValue);
+      stat.lastFormatted = formatConsigneValue(stat.type, lastValue);
       stat.lastCommentRaw = lastEntry?.note ?? "";
       stat.commentDisplay = truncateText(stat.lastCommentRaw, 180);
       stat.statusKind = dotColor(stat.type, lastValue);
@@ -2083,7 +2088,7 @@ function normalizeFormattedValue(type, formatted) {
 function updateConsigneStatusUI(row, consigne, rawValue) {
   if (!row || !consigne) return;
   const status = dotColor(consigne.type, rawValue);
-  const formatted = normalizeFormattedValue(consigne.type, formatValue(consigne.type, rawValue));
+  const formatted = normalizeFormattedValue(consigne.type, formatConsigneValue(consigne.type, rawValue));
   const statusHolder = row.querySelector("[data-status]");
   const dot = row.querySelector("[data-status-dot]");
   const text = row.querySelector("[data-status-text]");
@@ -2213,7 +2218,7 @@ async function openHistory(ctx, consigne) {
       const iso = createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "";
       const dateText = createdAt && !Number.isNaN(createdAt.getTime()) ? dateFormatter.format(createdAt) : "Date inconnue";
       const relative = createdAt ? relativeLabel(createdAt) : "";
-      const formatted = formatValue(consigne.type, r.value);
+      const formatted = formatConsigneValue(consigne.type, r.value);
       const status = dotColor(consigne.type, r.value);
       const note = r.note && String(r.note).trim();
       const noteMarkup = note ? `<p class="history-panel__note">${escapeHtml(note)}</p>` : "";
@@ -2260,24 +2265,6 @@ async function openHistory(ctx, consigne) {
 
   modesLogger.groupEnd();
 
-  function formatValue(type, v) {
-    if (type === 'info') return '';
-    if (type === 'yesno') return v === 'yes' ? 'Oui' : 'Non';
-    if (type === 'likert5') return String(v ?? '—');
-    if (type === 'likert6') {
-      return (
-        {
-          no: 'Non',
-          rather_no: 'Plutôt non',
-          medium: 'Neutre',
-          rather_yes: 'Plutôt oui',
-          yes: 'Oui',
-          no_answer: 'Pas de réponse'
-        }[v] || v || '—'
-      );
-    }
-    return String(v ?? '—');
-  }
 }
 
 async function renderPractice(ctx, root, _opts = {}) {
@@ -2849,7 +2836,7 @@ async function renderDaily(ctx, root, opts = {}) {
       delete row.dataset.parentId;
     }
     const bodyId = `daily-consigne-${item.id}`;
-    const initialFormatted = formatValue(item.type, initialValue);
+    const initialFormatted = formatConsigneValue(item.type, initialValue);
     const initialSummary = normalizeFormattedValue(item.type, initialFormatted);
     row.innerHTML = `
       <div class="consigne-row__header">
