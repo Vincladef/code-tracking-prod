@@ -2180,6 +2180,32 @@ const STATUS_LABELS = {
   na: "Sans donnée",
 };
 
+const consigneRowUpdateTimers = new WeakMap();
+const CONSIGNE_ROW_UPDATE_DURATION = 900;
+
+function clearConsigneRowUpdateHighlight(row) {
+  if (!row) return;
+  const timer = consigneRowUpdateTimers.get(row);
+  if (timer) {
+    clearTimeout(timer);
+    consigneRowUpdateTimers.delete(row);
+  }
+  row.classList.remove("consigne-row--updated");
+}
+
+function triggerConsigneRowUpdateHighlight(row) {
+  if (!row) return;
+  clearConsigneRowUpdateHighlight(row);
+  // Force a reflow to ensure the animation restarts if triggered rapidly.
+  void row.offsetWidth;
+  row.classList.add("consigne-row--updated");
+  const timeoutId = setTimeout(() => {
+    row.classList.remove("consigne-row--updated");
+    consigneRowUpdateTimers.delete(row);
+  }, CONSIGNE_ROW_UPDATE_DURATION);
+  consigneRowUpdateTimers.set(row, timeoutId);
+}
+
 function updateConsigneStatusUI(row, consigne, rawValue) {
   if (!row || !consigne) return;
   const status = dotColor(consigne.type, rawValue);
@@ -2223,6 +2249,11 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
     })();
     const label = STATUS_LABELS[status] || "Valeur";
     live.textContent = `${label}: ${formattedValue}`;
+  }
+  if (status === "na") {
+    clearConsigneRowUpdateHighlight(row);
+  } else {
+    triggerConsigneRowUpdateHighlight(row);
   }
 }
 
