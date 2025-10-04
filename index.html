@@ -530,6 +530,23 @@
     ul.consigne-list > li {
       margin:0;
     }
+    @keyframes consigne-row-updated-pulse {
+      0% {
+        background:rgba(62, 166, 235, .18);
+        box-shadow:0 0 0 0 rgba(62, 166, 235, .45);
+      }
+      60% {
+        background:rgba(62, 166, 235, .08);
+        box-shadow:0 0 0 12px rgba(62, 166, 235, 0);
+      }
+      100% {
+        background:transparent;
+        box-shadow:0 0 0 0 rgba(62, 166, 235, 0);
+      }
+    }
+    .consigne-row--updated {
+      animation:consigne-row-updated-pulse .9s ease-out;
+    }
     .consigne-row {
       position:relative;
       display:flex;
