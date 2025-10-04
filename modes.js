@@ -73,6 +73,7 @@ function modal(html) {
   const hadInlineSafeHeight = Boolean(previousSafeHeight && previousSafeHeight.trim() !== "");
   const originalWrapAlignItems = wrap.style.alignItems;
   const originalWrapJustifyContent = wrap.style.justifyContent;
+  const originalWrapPaddingBottom = wrap.style.paddingBottom;
   const originalModalMarginTop = modalEl?.style?.marginTop;
   const originalModalPaddingBottom = modalEl?.style?.paddingBottom;
 
@@ -92,10 +93,12 @@ function modal(html) {
       wrap.style.justifyContent = "flex-start";
       modalEl.style.marginTop = `${offsetTop + SAFE_PADDING}px`;
       const hiddenBottom = Math.max(0, window.innerHeight - (height + offsetTop));
-      modalEl.style.paddingBottom = `${hiddenBottom + SAFE_PADDING}px`;
+      wrap.style.paddingBottom = `${hiddenBottom + SAFE_PADDING}px`;
+      modalEl.style.paddingBottom = originalModalPaddingBottom;
     } else {
       wrap.style.alignItems = originalWrapAlignItems;
       wrap.style.justifyContent = originalWrapJustifyContent;
+      wrap.style.paddingBottom = originalWrapPaddingBottom;
       modalEl.style.marginTop = originalModalMarginTop;
       modalEl.style.paddingBottom = originalModalPaddingBottom;
     }
@@ -133,6 +136,7 @@ function modal(html) {
     }
     wrap.style.alignItems = originalWrapAlignItems;
     wrap.style.justifyContent = originalWrapJustifyContent;
+    wrap.style.paddingBottom = originalWrapPaddingBottom;
     if (modalEl) {
       modalEl.style.marginTop = originalModalMarginTop;
       modalEl.style.paddingBottom = originalModalPaddingBottom;
