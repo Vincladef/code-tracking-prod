@@ -1341,14 +1341,166 @@ async function categorySelect(ctx, mode, currentName = "") {
 }
 
 function consigneActions() {
+  const actionBtn = (label, cls = "") => `
+    <button type="button" class="btn btn-ghost text-sm text-left ${cls}" role="menuitem">${label}</button>
+  `;
   return `
-    <div class="daily-consigne__actions" role="group" aria-label="Actions">
-      ${smallBtn("Historique", "js-histo")}
-      ${smallBtn("Modifier", "js-edit")}
-      ${smallBtn("Décaler", "js-delay")}
-      ${smallBtn("Supprimer", "js-del")}
+    <div class="daily-consigne__actions js-consigne-actions" role="group" aria-label="Actions" style="position:relative;">
+      <button type="button"
+              class="btn btn-ghost text-sm consigne-actions__trigger js-actions-trigger"
+              aria-haspopup="true"
+              aria-expanded="false"
+              title="Actions">
+        <span aria-hidden="true">⋮</span>
+        <span class="sr-only">Actions</span>
+      </button>
+      <div class="consigne-actions__panel js-actions-panel card"
+           role="menu"
+           aria-hidden="true"
+           hidden
+           style="position:absolute; right:0; top:calc(100% + .25rem); display:flex; flex-direction:column; align-items:stretch; gap:.25rem; min-width:9rem; padding:.5rem; background:#fff; border:1px solid rgba(148,163,184,.35); border-radius:.75rem; box-shadow:0 10px 30px -12px rgba(15,23,42,.25); z-index:10;">
+        ${actionBtn("Historique", "js-histo")}
+        ${actionBtn("Modifier", "js-edit")}
+        ${actionBtn("Décaler", "js-delay")}
+        ${actionBtn("Supprimer", "js-del text-red-600")}
+      </div>
     </div>
   `;
+}
+
+const CONSIGNE_ACTION_SELECTOR = ".js-consigne-actions";
+let openConsigneActionsRoot = null;
+let consigneActionsDocListenersBound = false;
+
+function getConsigneActionElements(root) {
+  if (!root) return { trigger: null, panel: null };
+  return {
+    trigger: root.querySelector(".js-actions-trigger"),
+    panel: root.querySelector(".js-actions-panel"),
+  };
+}
+
+function removeConsigneActionListeners() {
+  if (!consigneActionsDocListenersBound) return;
+  document.removeEventListener("click", onDocumentClickConsigneActions, true);
+  document.removeEventListener("keydown", onDocumentKeydownConsigneActions, true);
+  consigneActionsDocListenersBound = false;
+}
+
+function ensureConsigneActionListeners() {
+  if (consigneActionsDocListenersBound) return;
+  document.addEventListener("click", onDocumentClickConsigneActions, true);
+  document.addEventListener("keydown", onDocumentKeydownConsigneActions, true);
+  consigneActionsDocListenersBound = true;
+}
+
+function closeConsigneActionMenu(root, { focusTrigger = false } = {}) {
+  if (!root) return;
+  const { trigger, panel } = getConsigneActionElements(root);
+  if (panel && !panel.hidden) {
+    panel.hidden = true;
+    panel.setAttribute("aria-hidden", "true");
+  }
+  if (trigger) {
+    trigger.setAttribute("aria-expanded", "false");
+    if (focusTrigger) {
+      trigger.focus();
+    }
+  }
+  if (openConsigneActionsRoot === root) {
+    openConsigneActionsRoot = null;
+    removeConsigneActionListeners();
+  }
+}
+
+function openConsigneActionMenu(root) {
+  if (!root) return;
+  if (openConsigneActionsRoot && openConsigneActionsRoot !== root) {
+    closeConsigneActionMenu(openConsigneActionsRoot);
+  }
+  const { trigger, panel } = getConsigneActionElements(root);
+  if (panel) {
+    panel.hidden = false;
+    panel.setAttribute("aria-hidden", "false");
+    if (!panel.hasAttribute("tabindex")) {
+      panel.setAttribute("tabindex", "-1");
+    }
+  }
+  if (trigger) {
+    trigger.setAttribute("aria-expanded", "true");
+  }
+  openConsigneActionsRoot = root;
+  ensureConsigneActionListeners();
+}
+
+function toggleConsigneActionMenu(root) {
+  if (!root) return;
+  const { panel } = getConsigneActionElements(root);
+  const isOpen = openConsigneActionsRoot === root && panel && !panel.hidden;
+  if (isOpen) {
+    closeConsigneActionMenu(root);
+  } else {
+    openConsigneActionMenu(root);
+    if (panel && typeof panel.focus === "function") {
+      try {
+        panel.focus({ preventScroll: true });
+      } catch (err) {
+        panel.focus();
+      }
+    }
+  }
+}
+
+function onDocumentClickConsigneActions(event) {
+  if (!openConsigneActionsRoot) return;
+  if (openConsigneActionsRoot.contains(event.target)) return;
+  closeConsigneActionMenu(openConsigneActionsRoot);
+}
+
+function onDocumentKeydownConsigneActions(event) {
+  if (!openConsigneActionsRoot) return;
+  if (event.key === "Escape" || event.key === "Esc") {
+    closeConsigneActionMenu(openConsigneActionsRoot, { focusTrigger: true });
+    event.stopPropagation();
+  }
+}
+
+function setupConsigneActionMenus(scope = document) {
+  $$(CONSIGNE_ACTION_SELECTOR, scope).forEach((actionsRoot) => {
+    if (actionsRoot.dataset.actionsMenuReady === "1") return;
+    const { trigger, panel } = getConsigneActionElements(actionsRoot);
+    if (!trigger || !panel) return;
+    actionsRoot.dataset.actionsMenuReady = "1";
+    panel.hidden = true;
+    panel.setAttribute("aria-hidden", "true");
+    trigger.setAttribute("aria-haspopup", "true");
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleConsigneActionMenu(actionsRoot);
+    });
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" || event.key === "Esc") {
+        closeConsigneActionMenu(actionsRoot, { focusTrigger: true });
+        event.stopPropagation();
+      }
+    });
+    panel.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" || event.key === "Esc") {
+        closeConsigneActionMenu(actionsRoot, { focusTrigger: true });
+        event.stopPropagation();
+      }
+    });
+  });
+}
+
+function closeConsigneActionMenuFromNode(node, options) {
+  if (!node) return;
+  const root = node.closest(CONSIGNE_ACTION_SELECTOR);
+  if (root) {
+    closeConsigneActionMenu(root, options);
+  }
 }
 
 function inputForType(consigne, initialValue = null) {
@@ -2174,13 +2326,15 @@ async function renderPractice(ctx, root, _opts = {}) {
         </div>
         ${inputForType(c)}
       `;
+      setupConsigneActionMenus(el);
       const bH = el.querySelector(".js-histo");
       const bE = el.querySelector(".js-edit");
       const bD = el.querySelector(".js-del");
-      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c); };
-      bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
+      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c); };
+      bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
       bD.onclick = async (e) => {
         e.preventDefault(); e.stopPropagation();
+        closeConsigneActionMenuFromNode(bD);
         if (confirm("Supprimer cette consigne ? (historique conservé)")) {
           Schema.D.info("ui.deleteConsigne.confirm", c.id);
           await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, c.id);
@@ -2201,6 +2355,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         delayBtn.onclick = async (e) => {
           e.preventDefault();
           e.stopPropagation();
+          closeConsigneActionMenuFromNode(delayBtn);
           if (delayBtn.disabled) {
             showToast("Active la répétition espacée pour utiliser le décalage.");
             return;
@@ -2553,13 +2708,15 @@ async function renderDaily(ctx, root, opts = {}) {
       ${inputForType(item, previous?.value ?? null)}
     `;
 
+    setupConsigneActionMenus(itemCard);
     const bH = itemCard.querySelector(".js-histo");
     const bE = itemCard.querySelector(".js-edit");
     const bD = itemCard.querySelector(".js-del");
-    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item); };
-    bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
+    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item); };
+    bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
     bD.onclick = async (e) => {
       e.preventDefault(); e.stopPropagation();
+      closeConsigneActionMenuFromNode(bD);
       if (confirm("Supprimer cette consigne ? (historique conservé)")) {
         Schema.D.info("ui.deleteConsigne.confirm", item.id);
         await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, item.id);
@@ -2580,6 +2737,7 @@ async function renderDaily(ctx, root, opts = {}) {
       delayBtn.onclick = async (e) => {
         e.preventDefault();
         e.stopPropagation();
+        closeConsigneActionMenuFromNode(delayBtn);
         if (delayBtn.disabled) {
           showToast("Active la répétition espacée pour utiliser le décalage.");
           return;
