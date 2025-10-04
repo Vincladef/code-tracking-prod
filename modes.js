@@ -2764,7 +2764,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           },
         },
       }));
-      attachConsigneEditor(row, c, { variant: "drawer" });
+      attachConsigneEditor(row, c, { variant: "modal" });
       bindConsigneRowValue(row, c, {
         onChange: (value) => {
           if (value === null || value === undefined) {
@@ -3179,7 +3179,7 @@ async function renderDaily(ctx, root, opts = {}) {
       },
     }));
 
-    attachConsigneEditor(row, item, { variant: "drawer" });
+    attachConsigneEditor(row, item, { variant: "modal" });
     bindConsigneRowValue(row, item, {
       initialValue,
       onChange: (value) => {
