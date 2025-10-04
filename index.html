@@ -621,14 +621,29 @@
     .consigne-row__status {
       display:inline-flex;
       align-items:center;
-      gap:.45rem;
+      gap:.35rem;
       font-size:.8rem;
       font-weight:600;
       color:var(--consigne-status-accent, #475569);
     }
-    .consigne-row__summary {
-      color:inherit;
-      font-size:.82rem;
+    .consigne-row__mark {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:.95rem;
+      height:.95rem;
+      font-size:.75rem;
+      color:var(--consigne-status-accent, #475569);
+      opacity:0;
+      transform:scale(.9);
+      transition:opacity .2s ease, transform .2s ease;
+    }
+    .consigne-row__mark::before {
+      content:"\2713";
+    }
+    .consigne-row__mark--checked {
+      opacity:.55;
+      transform:scale(1);
     }
     .consigne-row__dot {
       width:.6rem;
