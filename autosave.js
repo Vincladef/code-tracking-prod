@@ -3,6 +3,7 @@
   const SAVE_DEBOUNCE_MS = 800;
   const RESTORE_DEBOUNCE_MS = 120;
   const DOCUMENT_FRAGMENT_NODE = 11;
+  const TEXT_NODE = 3;
   const trackedForms = new WeakMap();
   let formCounter = 0;
 
@@ -80,6 +81,8 @@
   }
 
   const IGNORED_INPUT_TYPES = new Set(["button", "submit", "reset", "image", "file", "password", "hidden"]);
+  const TRACKED_FIELD_SELECTOR = "input, select, textarea";
+  const STATUS_REGION_SELECTOR = ".consigne-row__status, [data-status], [role=\"status\"], [aria-live]";
 
   function shouldTrackField(field) {
     if (!field) return false;
@@ -118,6 +121,29 @@
       groups.get(normalized).push(element);
     });
     return groups;
+  }
+
+  function isStatusRegion(node) {
+    if (!(node instanceof Element)) return false;
+    if (typeof node.matches === "function" && node.matches(STATUS_REGION_SELECTOR)) return true;
+    if (typeof node.closest === "function") {
+      const closest = node.closest(STATUS_REGION_SELECTOR);
+      if (closest) return true;
+    }
+    return false;
+  }
+
+  function nodeContainsTrackedField(node) {
+    if (!node) return false;
+    if (node.nodeType === DOCUMENT_FRAGMENT_NODE) {
+      return Array.from(node.childNodes || []).some((child) => nodeContainsTrackedField(child));
+    }
+    if (!(node instanceof Element)) return false;
+    if (typeof node.matches === "function" && node.matches(TRACKED_FIELD_SELECTOR)) return true;
+    if (typeof node.querySelector === "function") {
+      return Boolean(node.querySelector(TRACKED_FIELD_SELECTOR));
+    }
+    return false;
   }
 
   function arraysEqual(a, b) {
@@ -491,9 +517,38 @@
             const forms = node.querySelectorAll("form");
             forms.forEach((form) => registerForm(form));
           }
+        });
+
+        const added = Array.from(mutation.addedNodes || []);
+        const removed = Array.from(mutation.removedNodes || []);
+        const nodes = added.concat(removed);
+        const relevantNodes = nodes.filter((node) => nodeContainsTrackedField(node));
+        const target = mutation.target;
+        const targetIsStatus = isStatusRegion(target);
+        const targetIsTrackedField =
+          (target && target.nodeType === DOCUMENT_FRAGMENT_NODE && nodeContainsTrackedField(target)) ||
+          (target instanceof Element && typeof target.matches === "function" && target.matches(TRACKED_FIELD_SELECTOR));
+        const onlyTextNodes = nodes.length > 0 && nodes.every((node) => node && node.nodeType === TEXT_NODE);
+
+        if (!relevantNodes.length && !targetIsTrackedField) {
+          if (targetIsStatus || onlyTextNodes) {
+            return;
+          }
+          if (!nodes.length) {
+            if (targetIsStatus) {
+              return;
+            }
+          }
+          return;
+        }
+
+        relevantNodes.forEach((node) => {
           collectTrackedForm(node);
         });
-        collectTrackedForm(mutation.target);
+
+        if (target instanceof Element && !targetIsStatus && (targetIsTrackedField || relevantNodes.length)) {
+          collectTrackedForm(target);
+        }
       } else if (mutation.type === "attributes" && mutation.attributeName === "data-autosave-key") {
         const target = mutation.target;
         if (target instanceof HTMLFormElement) {
