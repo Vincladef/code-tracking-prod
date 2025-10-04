@@ -1362,8 +1362,7 @@ function consigneActions() {
       <div class="consigne-actions__panel js-actions-panel card"
            role="menu"
            aria-hidden="true"
-           hidden
-           style="position:absolute; right:0; top:calc(100% + .25rem); display:flex; flex-direction:column; align-items:stretch; gap:.25rem; min-width:9rem; padding:.5rem; background:#fff; border:1px solid rgba(148,163,184,.35); border-radius:.75rem; box-shadow:0 10px 30px -12px rgba(15,23,42,.25); z-index:10;">
+           hidden>
         ${actionBtn("Historique", "js-histo")}
         ${actionBtn("Modifier", "js-edit")}
         ${actionBtn("Décaler", "js-delay")}
