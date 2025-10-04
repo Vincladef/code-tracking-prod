@@ -8,12 +8,26 @@ const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+// Default limits for auto-growing textareas. The max height can be overridden
+// with a `data-auto-grow-max` attribute when needed, but defaults to 320px to
+// avoid runaway layouts while keeping enough room for comfortable editing.
+const AUTO_GROW_MIN_HEIGHT = 120;
+const AUTO_GROW_DEFAULT_MAX_HEIGHT = 320;
+
 function autoGrowTextarea(el) {
   if (!(el instanceof HTMLTextAreaElement)) return;
   if (el.dataset.autoGrowBound === "true") return;
+  const rawMax = Number.parseInt(el.dataset.autoGrowMax || "", 10);
+  const maxHeight = Math.max(
+    AUTO_GROW_MIN_HEIGHT,
+    Number.isFinite(rawMax) && rawMax > 0 ? rawMax : AUTO_GROW_DEFAULT_MAX_HEIGHT,
+  );
   const resize = () => {
     el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    const scrollHeight = el.scrollHeight;
+    const clampedHeight = Math.max(AUTO_GROW_MIN_HEIGHT, Math.min(scrollHeight, maxHeight));
+    el.style.height = `${clampedHeight}px`;
+    el.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
   };
   el.addEventListener("input", resize);
   el.addEventListener("change", resize);
