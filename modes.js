@@ -3731,11 +3731,13 @@ function attachConsigneEditor(row, consigne, options = {}) {
         </section>`
       : "";
     const actionsMarkup = requiresValidation
-      ? `<div class="flex justify-end gap-2">
+      ? `<div class="practice-editor__actions">
           <button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>
           <button type="button" class="btn btn-primary" data-consigne-editor-validate>Valider</button>
         </div>`
-      : `<div class="flex justify-end"><button type="button" class="btn" data-consigne-editor-cancel>Fermer</button></div>`;
+      : `<div class="practice-editor__actions">
+          <button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>
+        </div>`;
     const markup = `
       <div class="space-y-4">
         <header class="space-y-1">
