@@ -21,6 +21,10 @@
     );
   const isCbInput = n => !!(n && n.nodeType === 1 && n.tagName === 'INPUT' && n.type === 'checkbox');
 
+  function isReallyEmptyText(t) {
+    return !/[^\s\u00A0\u200B\uFEFF]/.test(t || '');
+  }
+
   function cbRoot(node) {
     if (!node) return null;
     if (isCbWrap(node)) return node;
@@ -122,22 +126,29 @@
   }
 
   function emptyAfterCb(editor, ctx) {
-    if (!startsWithCb(ctx)) return false;
-    const first = cbRoot(ctx.first);
-    if (!first) return false;
-    if (ctx.mode === 'block') {
-      let n = first.nextSibling, empty = true;
-      while (n) {
-        if ((n.nodeType === 3 && n.textContent.trim()) || (n.nodeType === 1 && !cbRoot(n) && n.textContent.trim())) { empty = false; break; }
-        n = n.nextSibling;
+    if (!ctx) return false;
+
+    const first = (ctx.first?.closest?.('.cb-wrap')) || ctx.first;
+    const isCb = first && (
+      (first.nodeType === 1 && first.classList?.contains('cb-wrap')) ||
+      (first.nodeType === 1 && first.tagName === 'INPUT' && first.type === 'checkbox')
+    );
+    if (!isCb) return false;
+
+    let n = first.nextSibling;
+    let empty = true;
+    while (n && (ctx.mode === 'inline' ? n !== editor : true)) {
+      if (ctx.mode === 'inline' && n.nodeName === 'BR') break;
+      if (n.nodeType === 3 && !isReallyEmptyText(n.textContent)) { empty = false; break; }
+      if (n.nodeType === 1) {
+        if (
+          (n.tagName === 'BR') ||
+          (n.classList && n.classList.contains('cb-wrap')) ||
+          isReallyEmptyText(n.textContent)
+        ) {
+          // ignore
+        } else { empty = false; break; }
       }
-      return empty;
-    }
-    // inline
-    let n = first.nextSibling, empty = true;
-    while (n && n !== editor) {
-      if (n.nodeName === 'BR') break;
-      if ((n.nodeType === 3 && n.textContent.trim()) || (n.nodeType === 1 && !cbRoot(n) && n.textContent.trim())) { empty = false; break; }
       n = n.nextSibling;
     }
     return empty;
@@ -195,36 +206,60 @@
     const first = cbRoot(ctx.first);
     if (!first) return false;
     const space = first.nextSibling;
-    if (space && space.nodeType === 3 && /^\s$/.test(space.textContent)) space.remove();
+    if (space && space.nodeType === 3 && isReallyEmptyText(space.textContent)) space.remove();
     first.remove();
     return true;
   }
 
-  function removeLeadingCbAndKeepEmptyLine(editor, ctx) {
-    const first = (ctx.first?.classList?.contains('cb-wrap') || ctx.first?.tagName === 'INPUT')
-      ? ctx.first
-      : ctx.first?.closest?.('.cb-wrap') || ctx.first;
+  function removeLeadingCbAndKeepSameLine(editor, ctx) {
+    const first = (ctx.first?.closest?.('.cb-wrap')) || ctx.first;
     if (!first) return;
 
+    const parentBeforeRemoval = first.parentNode;
+    let afterFirst = first.nextSibling;
     const space = first.nextSibling;
-    if (space && space.nodeType === 3 && /^\s$/.test(space.textContent)) space.remove();
+    if (space && space.nodeType === 3 && isReallyEmptyText(space.textContent)) {
+      afterFirst = space.nextSibling;
+      space.remove();
+    }
     first.remove();
 
     const sel = window.getSelection();
     if (!sel) return;
+    const r = document.createRange();
+
     if (ctx.mode === 'block') {
-      if (!ctx.block.querySelector('br')) ctx.block.innerHTML = '<br>';
-      const r = document.createRange();
+      if (!editor.contains(ctx.block)) return;
+      if (!ctx.block.textContent || isReallyEmptyText(ctx.block.textContent)) {
+        ctx.block.innerHTML = '<br>';
+      }
       r.setStart(ctx.block, ctx.block.childNodes.length);
       r.collapse(true);
       sel.removeAllRanges(); sel.addRange(r);
     } else {
-      const r = document.createRange();
-      const br = document.createElement('br');
-      r.selectNodeContents(editor); r.collapse(false);
-      sel.removeAllRanges(); sel.addRange(r);
-      r.insertNode(br);
-      r.setStartAfter(br); r.collapse(true);
+      let caretTarget = afterFirst;
+      while (caretTarget && caretTarget.nodeType === 3 && isReallyEmptyText(caretTarget.textContent)) {
+        caretTarget = caretTarget.nextSibling;
+      }
+
+      if (!caretTarget || caretTarget.nodeName === 'BR') {
+        if (!caretTarget) {
+          caretTarget = document.createElement('br');
+          if (afterFirst && editor.contains(afterFirst)) {
+            editor.insertBefore(caretTarget, afterFirst);
+          } else if (parentBeforeRemoval && editor.contains(parentBeforeRemoval) && parentBeforeRemoval.nextSibling) {
+            editor.insertBefore(caretTarget, parentBeforeRemoval.nextSibling);
+          } else {
+            editor.appendChild(caretTarget);
+          }
+        }
+        r.setStartBefore(caretTarget);
+      } else if (caretTarget.nodeType === 3) {
+        r.setStart(caretTarget, 0);
+      } else {
+        r.setStartBefore(caretTarget);
+      }
+      r.collapse(true);
       sel.removeAllRanges(); sel.addRange(r);
     }
   }
@@ -246,7 +281,7 @@
       const root = cbRoot(node);
       if (!root) return false;
       const nb = root[prevNext];
-      if (nb && nb.nodeType === 3 && /^\s$/.test(nb.textContent)) nb.remove();
+      if (nb && nb.nodeType === 3 && isReallyEmptyText(nb.textContent)) nb.remove();
       root.remove();
       return true;
     }
@@ -257,12 +292,12 @@
       if (direction === 'back') {
         if (r.startContainer.nodeType === 3 && r.startOffset > 0) return false;
         let t = cont.previousSibling;
-        if (t && t.nodeType === 3 && /^\s$/.test(t.textContent)) { const x = t.previousSibling; if (cbRoot(x)) { t.remove(); t = x; } }
+        if (t && t.nodeType === 3 && isReallyEmptyText(t.textContent)) { const x = t.previousSibling; if (cbRoot(x)) { t.remove(); t = x; } }
         return kill(t, 'previousSibling');
       } else {
         if (r.startContainer.nodeType === 3 && r.startOffset < r.startContainer.textContent.length) return false;
         let t = cont.nextSibling;
-        if (t && t.nodeType === 3 && /^\s$/.test(t.textContent)) { const x = t.nextSibling; if (cbRoot(x)) { t.remove(); t = x; } }
+        if (t && t.nodeType === 3 && isReallyEmptyText(t.textContent)) { const x = t.nextSibling; if (cbRoot(x)) { t.remove(); t = x; } }
         return kill(t, 'nextSibling');
       }
     }
@@ -273,12 +308,12 @@
     if (direction === 'back') {
       if (r.startContainer.nodeType === 3 && r.startOffset > 0) return false;
       let t = node.previousSibling;
-      if (t && t.nodeType === 3 && /^\s$/.test(t.textContent)) { const x = t.previousSibling; if (cbRoot(x)) { t.remove(); t = x; } }
+      if (t && t.nodeType === 3 && isReallyEmptyText(t.textContent)) { const x = t.previousSibling; if (cbRoot(x)) { t.remove(); t = x; } }
       return kill(t, 'previousSibling');
     } else {
       if (r.startContainer.nodeType === 3 && r.startOffset < r.startContainer.textContent.length) return false;
       let t = node.nextSibling;
-      if (t && t.nodeType === 3 && /^\s$/.test(t.textContent)) { const x = t.nextSibling; if (cbRoot(x)) { t.remove(); t = x; } }
+      if (t && t.nodeType === 3 && isReallyEmptyText(t.textContent)) { const x = t.nextSibling; if (cbRoot(x)) { t.remove(); t = x; } }
       return kill(t, 'nextSibling');
     }
   }
@@ -308,14 +343,16 @@
       normalizeCheckboxes(editorEl);
       if (e.key === 'Enter') {
         const ctx = lineCtx(editorEl);
-        if (!ctx || !startsWithCb(ctx)) return;
+        if (!ctx) return;
+        if (!startsWithCb(ctx)) return;
         e.preventDefault();
         e.stopPropagation();
         if (emptyAfterCb(editorEl, ctx)) {
-          removeLeadingCbAndKeepEmptyLine(editorEl, ctx);
-        } else {
-          insertBreakWithCheckbox(editorEl);
+          removeLeadingCbAndKeepSameLine(editorEl, ctx);
+          return;
         }
+        insertBreakWithCheckbox(editorEl);
+        return;
       }
       if (e.key === 'Backspace') {
         if (deleteAdjacentCb(editorEl, 'back')) {
