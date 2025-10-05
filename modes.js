@@ -2649,26 +2649,6 @@ function setupRichTextEditor(root) {
 
   const trimNbsp = (value) => (value || "").replace(/\u00a0/g, " ").trim();
 
-  const nodeHasMeaningfulContent = (node) => {
-    if (!node) return false;
-    if (node.nodeType === Node.TEXT_NODE) {
-      return trimNbsp(node.textContent || "").length > 0;
-    }
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      if (node.nodeName === "BR") return false;
-      if (node.matches?.('input[type="checkbox"][data-rich-checkbox]')) {
-        return false;
-      }
-      if (node.getAttribute?.("data-rich-checkbox-wrapper") === "1") {
-        return Array.from(node.childNodes || []).some((child) => nodeHasMeaningfulContent(child));
-      }
-      const text = trimNbsp(node.textContent || "");
-      if (text.length > 0) return true;
-      return Array.from(node.childNodes || []).some((child) => nodeHasMeaningfulContent(child));
-    }
-    return false;
-  };
-
   const getLineStartNode = (range = null) => {
     const activeRange = range || getActiveRange();
     if (!content || !activeRange) return null;
@@ -2710,7 +2690,7 @@ function setupRichTextEditor(root) {
       && first.matches?.('input[type="checkbox"][data-rich-checkbox]');
   };
 
-  const lineHasContentAfterCheckbox = (range = null) => {
+  const lineEmptyAfterCheckbox = (range = null) => {
     const first = getLineStartNode(range);
     if (!first || !isCheckboxWrapper(first)) {
       return false;
@@ -2718,18 +2698,66 @@ function setupRichTextEditor(root) {
     let sibling = first.nextSibling;
     while (sibling) {
       if (sibling.nodeName === "BR") break;
-      if (nodeHasMeaningfulContent(sibling)) {
-        return true;
+      if (isCheckboxWrapper(sibling)) {
+        return false;
+      }
+      if (sibling.nodeType === Node.TEXT_NODE) {
+        if (trimNbsp(sibling.textContent || "")) {
+          return false;
+        }
+      } else if (sibling.nodeType === Node.ELEMENT_NODE) {
+        if (trimNbsp(sibling.textContent || "")) {
+          return false;
+        }
       }
       sibling = sibling.nextSibling;
     }
-    return false;
+    return true;
   };
 
-  const isWhitespaceTextNode = (node) => {
-    if (!node || node.nodeType !== Node.TEXT_NODE) return false;
-    const text = node.textContent ? node.textContent.replace(/\u00a0/g, " ") : "";
-    return text.trim().length === 0 && text.length > 0;
+  const caretAtLineStartAfterCheckbox = (range = null) => {
+    const activeRange = range || getActiveRange();
+    if (!activeRange || !activeRange.collapsed) {
+      return false;
+    }
+    const first = getLineStartNode(activeRange);
+    if (!first || !isCheckboxWrapper(first)) {
+      return false;
+    }
+    const { startContainer, startOffset } = activeRange;
+    if (startContainer.nodeType === Node.TEXT_NODE && startOffset > 0) {
+      const beforeText = startContainer.textContent
+        ? startContainer.textContent.slice(0, startOffset)
+        : "";
+      if (trimNbsp(beforeText)) {
+        return false;
+      }
+    }
+    if (startContainer.nodeType === Node.ELEMENT_NODE && startOffset > 0) {
+      return false;
+    }
+    let node = startContainer;
+    while (node && node.parentNode !== content) {
+      node = node.parentNode;
+    }
+    if (!node) {
+      return false;
+    }
+    if (node === first) {
+      return true;
+    }
+    if (node === first.nextSibling) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const beforeText = node.textContent
+          ? node.textContent.slice(0, activeRange.startOffset)
+          : "";
+        return !trimNbsp(beforeText);
+      }
+      if (isWhitespaceNode(node)) {
+        return true;
+      }
+    }
+    return false;
   };
 
   const removeNode = (node) => {
@@ -2741,6 +2769,55 @@ function setupRichTextEditor(root) {
   const deleteAdjacentCheckbox = (direction) => {
     const range = getActiveRange();
     if (!range || !range.collapsed) return false;
+    const first = getLineStartNode(range);
+    if (!first || !isCheckboxWrapper(first)) {
+      return false;
+    }
+
+    if (direction === "back" && caretAtLineStartAfterCheckbox(range)) {
+      const parent = first.parentNode;
+      let caretTarget = first.nextSibling;
+      if (caretTarget && isWhitespaceNode(caretTarget)) {
+        const next = caretTarget.nextSibling;
+        removeNode(caretTarget);
+        caretTarget = next;
+      }
+      removeNode(first);
+
+      if (ownerDocument && typeof ownerDocument.createRange === "function" && ownerDocument.getSelection) {
+        const selection = ownerDocument.getSelection();
+        if (selection) {
+          const newRange = ownerDocument.createRange();
+          let target = caretTarget && caretTarget.parentNode === parent ? caretTarget : null;
+          if (!target && parent === content) {
+            target = content.firstChild;
+          }
+          if (target) {
+            if (target.nodeType === Node.TEXT_NODE) {
+              newRange.setStart(target, 0);
+            } else {
+              newRange.setStartBefore(target);
+            }
+          } else if (parent === content) {
+            newRange.setStart(content, 0);
+          } else {
+            newRange.selectNodeContents(content);
+            newRange.collapse(true);
+          }
+          newRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+          savedSelection = newRange.cloneRange ? newRange.cloneRange() : newRange;
+          storeSelectionInfo(savedSelection);
+        }
+      }
+
+      schedule();
+      scheduleSelectionCapture();
+      updateToolbarStates();
+      return true;
+    }
+
     const { startContainer, startOffset } = range;
     if (startContainer.nodeType === Node.TEXT_NODE) {
       if (direction === "back" && startOffset > 0) {
@@ -2750,29 +2827,37 @@ function setupRichTextEditor(root) {
       if (direction === "del" && startOffset < len) {
         return false;
       }
+    } else if (startContainer.nodeType === Node.ELEMENT_NODE) {
+      if (direction === "back" && startOffset > 0) {
+        return false;
+      }
+      if (direction === "del" && startOffset < (startContainer.childNodes ? startContainer.childNodes.length : 0)) {
+        return false;
+      }
     }
+
     let node = startContainer;
     while (node && node.parentNode !== content) {
       node = node.parentNode;
     }
-    if (!node) return false;
+    if (!node) {
+      return false;
+    }
 
     const pickNeighbor = () => (direction === "back" ? node.previousSibling : node.nextSibling);
     let target = pickNeighbor();
-    if (isWhitespaceTextNode(target)) {
+    if (target && isWhitespaceNode(target)) {
       const candidate = direction === "back" ? target.previousSibling : target.nextSibling;
       if (isCheckboxWrapper(candidate)) {
         removeNode(target);
         target = candidate;
-      } else {
-        return false;
       }
     }
     if (!isCheckboxWrapper(target)) {
       return false;
     }
     const spacer = direction === "back" ? target.previousSibling : target.nextSibling;
-    if (isWhitespaceTextNode(spacer)) {
+    if (spacer && isWhitespaceNode(spacer)) {
       removeNode(spacer);
     }
     removeNode(target);
@@ -2943,9 +3028,9 @@ function setupRichTextEditor(root) {
       const range = getActiveRange();
       if (lineStartsWithCheckbox(range)) {
         event.preventDefault();
-        const handled = lineHasContentAfterCheckbox(range)
-          ? insertBreakWithCheckbox(range)
-          : insertPlainBreak(range);
+        const handled = lineEmptyAfterCheckbox(range)
+          ? insertPlainBreak(range)
+          : insertBreakWithCheckbox(range);
         if (handled) {
           scheduleSelectionCapture();
           schedule();
