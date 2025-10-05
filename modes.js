@@ -11,14 +11,14 @@ function waitForCheckboxSetupFunction() {
   if (typeof window === "undefined") {
     return Promise.resolve(null);
   }
-  const existing = window.setupCheckboxListBehavior;
+  const existing = window.setupChecklistEditor || window.setupCheckboxListBehavior;
   if (typeof existing === "function") {
     return Promise.resolve(existing);
   }
   if (!checkboxBehaviorSetupPromise) {
     checkboxBehaviorSetupPromise = new Promise((resolve) => {
       const poll = () => {
-        const fn = window.setupCheckboxListBehavior;
+        const fn = window.setupChecklistEditor || window.setupCheckboxListBehavior;
         if (typeof fn === "function") {
           resolve(fn);
           return;
