@@ -12,6 +12,10 @@
     );
   const isCbInput = (n) => !!(n && n.nodeType === 1 && n.tagName === "INPUT" && n.type === "checkbox");
 
+  function isReallyEmptyText(t) {
+    return !(/[^\s\u00A0\u200B\uFEFF]/.test(t || ""));
+  }
+
   function cbRoot(node) {
     if (!node) return null;
     if (isCbWrap(node)) return node;
@@ -85,7 +89,7 @@
     let c = n.firstChild;
     while (
       c &&
-      ((c.nodeType === 3 && !c.textContent.trim()) || (c.nodeType === 1 && c.tagName === "BR"))
+      ((c.nodeType === 3 && isReallyEmptyText(c.textContent)) || (c.nodeType === 1 && c.tagName === "BR"))
     )
       c = c.nextSibling;
     return c;
@@ -113,7 +117,7 @@
     let prev = node.previousSibling;
     while (prev && prev.nodeName !== "BR") prev = prev.previousSibling;
     let first = prev ? prev.nextSibling : editor.firstChild;
-    while (first && first.nodeType === 3 && !first.textContent.trim()) first = first.nextSibling;
+    while (first && first.nodeType === 3 && isReallyEmptyText(first.textContent)) first = first.nextSibling;
     const caretAtStart = r.collapsed && !(r.startContainer.nodeType === 3 && r.startOffset > 0);
     return { mode: "inline", first, node, caretAtStart };
   }
@@ -127,7 +131,10 @@
       let n = first.nextSibling;
       let empty = true;
       while (n) {
-        if ((n.nodeType === 3 && n.textContent.trim()) || (n.nodeType === 1 && !cbRoot(n) && n.textContent.trim())) {
+        if (
+          (n.nodeType === 3 && !isReallyEmptyText(n.textContent)) ||
+          (n.nodeType === 1 && !cbRoot(n) && !isReallyEmptyText(n.textContent))
+        ) {
           empty = false;
           break;
         }
@@ -139,7 +146,10 @@
     let empty = true;
     while (n && n !== editor) {
       if (n.nodeName === "BR") break;
-      if ((n.nodeType === 3 && n.textContent.trim()) || (n.nodeType === 1 && !cbRoot(n) && n.textContent.trim())) {
+      if (
+        (n.nodeType === 3 && !isReallyEmptyText(n.textContent)) ||
+        (n.nodeType === 1 && !cbRoot(n) && !isReallyEmptyText(n.textContent))
+      ) {
         empty = false;
         break;
       }
