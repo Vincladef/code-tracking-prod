@@ -2307,6 +2307,22 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
         }
         selectionFrame = raf(() => {
           selectionFrame = null;
+          if (!ownerDocument || typeof ownerDocument.getSelection !== "function") {
+            return;
+          }
+          const selection = ownerDocument.getSelection();
+          if (!selection || selection.rangeCount === 0) {
+            return;
+          }
+          let range = null;
+          try {
+            range = selection.getRangeAt(0);
+          } catch (error) {
+            range = null;
+          }
+          if (!range || !isRangeInsideContent(range)) {
+            return;
+          }
           captureSelection();
         });
       };
@@ -2324,8 +2340,6 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
             if (persist) {
               savedSelection = range.cloneRange ? range.cloneRange() : range;
               storeSelectionInfo(savedSelection);
-            } else {
-              savedSelection = null;
             }
             return true;
           } catch (error) {
@@ -2334,7 +2348,10 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
           }
         };
 
-        const selectionInfoSnapshot = cloneSelectionInfo(savedSelectionInfo);
+        const selectionInfoBackup = cloneSelectionInfo(savedSelectionInfo);
+        const savedSelectionBackup = savedSelection && savedSelection.cloneRange
+          ? savedSelection.cloneRange()
+          : savedSelection;
         const primaryRange = savedSelection && savedSelection.cloneRange
           ? savedSelection.cloneRange()
           : savedSelection;
@@ -2344,27 +2361,35 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
         }
 
         const fallbackCandidates = [];
-        if (selectionInfoSnapshot) {
-          const rebuiltFromInfo = buildRangeFromInfo(selectionInfoSnapshot);
-          const rebuiltFromIndex = buildRangeFromTextIndex(selectionInfoSnapshot);
-          if (rebuiltFromInfo) fallbackCandidates.push(rebuiltFromInfo);
-          if (rebuiltFromIndex) fallbackCandidates.push(rebuiltFromIndex);
+        if (selectionInfoBackup) {
+          const rebuiltFromInfo = buildRangeFromInfo(selectionInfoBackup);
+          const rebuiltFromIndex = buildRangeFromTextIndex(selectionInfoBackup);
+          if (rebuiltFromInfo) {
+            fallbackCandidates.push({ range: rebuiltFromInfo, persist: true });
+          }
+          if (rebuiltFromIndex) {
+            fallbackCandidates.push({ range: rebuiltFromIndex, persist: true });
+          }
         }
-        fallbackCandidates.push(buildFallbackRange());
+        fallbackCandidates.push({ range: buildFallbackRange(), persist: false });
 
         for (let i = 0; i < fallbackCandidates.length; i += 1) {
           const candidate = fallbackCandidates[i];
-          const persist = i < fallbackCandidates.length - 1;
-          if (attemptAddRange(candidate, { persist })) {
+          if (attemptAddRange(candidate.range, { persist: candidate.persist })) {
+            if (!candidate.persist && selectionInfoBackup) {
+              savedSelection = savedSelectionBackup && savedSelectionBackup.cloneRange
+                ? savedSelectionBackup.cloneRange()
+                : savedSelectionBackup;
+              savedSelectionInfo = selectionInfoBackup;
+            }
             return;
           }
         }
 
         savedSelection = null;
-        if (selectionInfoSnapshot) {
-          savedSelectionInfo = selectionInfoSnapshot;
+        if (selectionInfoBackup) {
+          savedSelectionInfo = selectionInfoBackup;
         }
-        captureSelection();
       };
 
       const sync = () => {
