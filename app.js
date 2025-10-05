@@ -184,7 +184,10 @@
       if (!editorEl.classList.contains("rt-editor")) {
         editorEl.classList.add("rt-editor");
       }
-      const setupFn = window.setupCheckboxListBehavior || window.setupChecklistEditor;
+      const setupFn =
+        window.setupCheckboxLikeBullets ||
+        window.setupCheckboxListBehavior ||
+        window.setupChecklistEditor;
       if (typeof setupFn !== "function") return false;
       const insertBtn = document.getElementById("insert-checkbox");
       try {
@@ -196,7 +199,11 @@
     };
 
     const hasSetupFn = () =>
-      typeof (window.setupCheckboxListBehavior || window.setupChecklistEditor) === "function";
+      typeof (
+        window.setupCheckboxLikeBullets ||
+        window.setupCheckboxListBehavior ||
+        window.setupChecklistEditor
+      ) === "function";
 
     if (trySetup()) return;
 
