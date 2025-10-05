@@ -306,11 +306,22 @@
     .scale-ticks{ display:grid; grid-template-columns:repeat(11,1fr); font-size:.85rem; margin-top:.25rem; }
     .scale-ticks span{ text-align:center; }
 
-    .modal{ position:fixed; inset:0; display:flex; justify-content:center; background:rgba(0,0,0,.45); }
+    .modal{ position:fixed; inset:0; display:flex; justify-content:center; background:rgba(0,0,0,.45); z-index:1000; }
     .modal.phone-center{ align-items:center; }
     .modal.phone-top{ align-items:flex-start; padding-top:8px; }
     @media (max-width: 640px){
       .modal{ min-height:100dvh; }
+      .modal.phone-center{ align-items:center !important; padding-top:0 !important; }
+      .modal.phone-top{ align-items:flex-start !important; padding-top:max(8px, env(safe-area-inset-top)) !important; }
+    }
+    .modal__dialog{
+      width:min(900px,92vw);
+      max-height:90vh;
+      background:#fff;
+      border-radius:16px;
+      display:grid;
+      grid-template-rows:auto 1fr auto;
+      overflow:hidden;
     }
 
     /* Journalier — navigation par jour */

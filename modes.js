@@ -357,7 +357,7 @@ function modal(html) {
   const wrap = document.createElement("div");
   wrap.className = "modal fixed inset-0 z-50 bg-black/40 p-4 phone-center";
   wrap.innerHTML = `
-    <div class="w-[min(680px,92vw)] overflow-y-auto rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl" data-modal-content style="max-height:var(--viewport-safe-height, calc(100vh - 2rem));">
+    <div class="modal__dialog w-[min(680px,92vw)] overflow-y-auto rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl" data-modal-content style="max-height:var(--viewport-safe-height, calc(100vh - 2rem));">
       ${html}
     </div>`;
   const modalEl = wrap.querySelector("[data-modal-content]");
@@ -2669,236 +2669,114 @@ function setupRichTextEditor(root) {
     return false;
   };
 
-  const resolveLineStart = (range) => {
-    if (!content || !range) return null;
-    const anchor = range.startContainer;
+  const getLineStartNode = (range = null) => {
+    const activeRange = range || getActiveRange();
+    if (!content || !activeRange) return null;
+    const anchor = activeRange.startContainer;
     const anchorElement = anchor?.nodeType === Node.ELEMENT_NODE ? anchor : anchor?.parentElement;
     if (anchorElement && typeof anchorElement.closest === "function" && anchorElement.closest("ul,ol")) {
       return null;
     }
-    let block = anchor;
-    while (block && block.parentNode !== content) {
-      block = block.parentNode;
+    let node = anchor;
+    while (node && node.parentNode !== content) {
+      node = node.parentNode;
     }
-    if (!block) {
-      block = content.firstChild;
+    if (!node) return null;
+    let probe = node.previousSibling;
+    while (probe && probe.nodeName !== "BR") {
+      node = probe;
+      probe = node.previousSibling;
     }
-    if (!block) return null;
-    let start = block;
-    let probe = anchor;
-    while (probe && probe !== content && probe !== block) {
-      if (probe.previousSibling) {
-        probe = probe.previousSibling;
-        if (probe && probe.nodeName === "BR") {
-          start = probe.nextSibling || null;
-          break;
-        }
-      } else {
-        const parent = probe.parentNode;
-        if (!parent) break;
-        probe = parent;
-        if (probe === block) {
-          start = block.firstChild;
-        }
+    let first = probe ? probe.nextSibling : content.firstChild;
+    while (first && first.nodeType === Node.TEXT_NODE && !trimNbsp(first.textContent || "")) {
+      first = first.nextSibling;
+    }
+    if (first && first.nodeName === "BR") {
+      first = first.nextSibling;
+      while (first && first.nodeType === Node.TEXT_NODE && !trimNbsp(first.textContent || "")) {
+        first = first.nextSibling;
       }
     }
-    if (!start) {
-      start = block.firstChild;
-    }
-    if (start && start.nodeType === Node.ELEMENT_NODE && start.parentNode === content) {
-      start = start.firstChild;
-    }
-    while (start && start.nodeType === Node.TEXT_NODE && !trimNbsp(start.textContent || "")) {
-      start = start.nextSibling;
-    }
-    while (start && start.nodeName === "BR") {
-      start = start.nextSibling;
-    }
-    return start || null;
+    return first || null;
   };
 
-  const analyzeCheckboxLine = (range) => {
-    const info = { startsWithCheckbox: false, emptyAfter: false };
-    if (!range) return info;
-    const firstNode = resolveLineStart(range);
-    if (!firstNode) return info;
-    let checkboxNode = null;
-    if (isCheckboxWrapper(firstNode)) {
-      const checkbox = firstNode.querySelector('input[type="checkbox"][data-rich-checkbox]');
-      if (!checkbox) return info;
-      checkboxNode = firstNode;
-      info.startsWithCheckbox = true;
-    } else if (firstNode.nodeType === Node.ELEMENT_NODE && firstNode.matches?.('input[type="checkbox"][data-rich-checkbox]')) {
-      checkboxNode = firstNode;
-      info.startsWithCheckbox = true;
-    } else {
-      return info;
+  const lineStartsWithCheckbox = (range = null) => {
+    const first = getLineStartNode(range);
+    if (!first) return false;
+    if (isCheckboxWrapper(first)) {
+      return true;
     }
-    let sibling = checkboxNode.nextSibling;
-    let hasMeaningfulContent = false;
+    return first.nodeType === Node.ELEMENT_NODE
+      && first.matches?.('input[type="checkbox"][data-rich-checkbox]');
+  };
+
+  const lineHasContentAfterCheckbox = (range = null) => {
+    const first = getLineStartNode(range);
+    if (!first || !isCheckboxWrapper(first)) {
+      return false;
+    }
+    let sibling = first.nextSibling;
     while (sibling) {
       if (sibling.nodeName === "BR") break;
       if (nodeHasMeaningfulContent(sibling)) {
-        hasMeaningfulContent = true;
-        break;
+        return true;
       }
       sibling = sibling.nextSibling;
     }
-    info.emptyAfter = !hasMeaningfulContent;
-    return info;
+    return false;
   };
 
-  const findPreviousLeaf = (container, offset) => {
-    let node = container;
-    let position = typeof offset === "number" ? offset : 0;
-    if (!node) return null;
-    if (node.nodeType === Node.TEXT_NODE) {
-      if (position > 0) {
-        return node;
-      }
-      const parent = node.parentNode;
-      if (!parent) return null;
-      position = Array.prototype.indexOf.call(parent.childNodes, node);
-      node = parent;
-    }
-    while (node) {
-      if (node === content && position <= 0) return null;
-      if (position > 0) {
-        let sibling = node.childNodes[position - 1];
-        while (sibling && sibling.lastChild) {
-          sibling = sibling.lastChild;
-        }
-        return sibling || node.childNodes[position - 1] || null;
-      }
-      const parent = node.parentNode;
-      if (!parent) return null;
-      position = Array.prototype.indexOf.call(parent.childNodes, node);
-      node = parent;
-    }
-    return null;
+  const isWhitespaceTextNode = (node) => {
+    if (!node || node.nodeType !== Node.TEXT_NODE) return false;
+    const text = node.textContent ? node.textContent.replace(/\u00a0/g, " ") : "";
+    return text.trim().length === 0 && text.length > 0;
   };
 
-  const findNextLeaf = (container, offset) => {
-    let node = container;
-    let position = typeof offset === "number" ? offset : 0;
-    if (!node) return null;
-    if (node.nodeType === Node.TEXT_NODE) {
-      const length = node.textContent ? node.textContent.length : 0;
-      if (position < length) {
-        return node;
-      }
-      const parent = node.parentNode;
-      if (!parent) return null;
-      position = Array.prototype.indexOf.call(parent.childNodes, node) + 1;
-      node = parent;
+  const removeNode = (node) => {
+    if (node && node.parentNode) {
+      node.parentNode.removeChild(node);
     }
-    while (node) {
-      const childCount = node.childNodes ? node.childNodes.length : 0;
-      if (node === content && position >= childCount) return null;
-      if (position < childCount) {
-        let sibling = node.childNodes[position];
-        while (sibling && sibling.firstChild) {
-          sibling = sibling.firstChild;
-        }
-        return sibling || node.childNodes[position] || null;
-      }
-      const parent = node.parentNode;
-      if (!parent) return null;
-      position = Array.prototype.indexOf.call(parent.childNodes, node) + 1;
-      node = parent;
-    }
-    return null;
   };
 
-  const deleteAdjacentCheckbox = (dir) => {
-    if (!ownerDocument || typeof ownerDocument.getSelection !== "function") return false;
-    const selection = ownerDocument.getSelection();
-    if (!selection || selection.rangeCount === 0) return false;
-    const range = selection.getRangeAt(0);
-    if (!range || !range.collapsed || !isRangeInsideContent(range)) return false;
-
+  const deleteAdjacentCheckbox = (direction) => {
+    const range = getActiveRange();
+    if (!range || !range.collapsed) return false;
     const { startContainer, startOffset } = range;
     if (startContainer.nodeType === Node.TEXT_NODE) {
-      if (dir === "back" && startOffset > 0) return false;
-      const length = startContainer.textContent ? startContainer.textContent.length : 0;
-      if (dir === "del" && startOffset < length) return false;
+      if (direction === "back" && startOffset > 0) {
+        return false;
+      }
+      const len = startContainer.textContent ? startContainer.textContent.length : 0;
+      if (direction === "del" && startOffset < len) {
+        return false;
+      }
     }
+    let node = startContainer;
+    while (node && node.parentNode !== content) {
+      node = node.parentNode;
+    }
+    if (!node) return false;
 
-    const neighbor = dir === "back"
-      ? findPreviousLeaf(startContainer, startOffset)
-      : findNextLeaf(startContainer, startOffset);
-    if (!neighbor) return false;
-
-    let target = null;
-    let spacer = null;
-    if (isCheckboxWrapper(neighbor)) {
-      target = neighbor;
-    } else if (isWhitespaceNode(neighbor)) {
-      const adjacent = dir === "back"
-        ? findPreviousLeaf(neighbor, neighbor.textContent ? neighbor.textContent.length : 0)
-        : findNextLeaf(neighbor, 0);
-      if (isCheckboxWrapper(adjacent)) {
-        target = adjacent;
-        spacer = neighbor;
+    const pickNeighbor = () => (direction === "back" ? node.previousSibling : node.nextSibling);
+    let target = pickNeighbor();
+    if (isWhitespaceTextNode(target)) {
+      const candidate = direction === "back" ? target.previousSibling : target.nextSibling;
+      if (isCheckboxWrapper(candidate)) {
+        removeNode(target);
+        target = candidate;
       } else {
         return false;
       }
-    } else {
+    }
+    if (!isCheckboxWrapper(target)) {
       return false;
     }
-
-    if (!target || !target.parentNode) return false;
-
-    const trailing = dir === "back" ? target.nextSibling : target.previousSibling;
-
-    const removalRange = ownerDocument.createRange();
-    try {
-      if (dir === "back") {
-        if (spacer && spacer.parentNode) {
-          removalRange.setStart(spacer, 0);
-        } else {
-          removalRange.setStartBefore(target);
-        }
-        removalRange.setEndAfter(target);
-      } else {
-        removalRange.setStartBefore(target);
-        if (spacer && spacer.parentNode) {
-          const len = spacer.textContent ? spacer.textContent.length : 0;
-          removalRange.setEnd(spacer, len);
-        } else {
-          removalRange.setEndAfter(target);
-        }
-      }
-    } catch (error) {
-      return false;
+    const spacer = direction === "back" ? target.previousSibling : target.nextSibling;
+    if (isWhitespaceTextNode(spacer)) {
+      removeNode(spacer);
     }
+    removeNode(target);
 
-    removalRange.deleteContents();
-
-    if (trailing && trailing.parentNode && isWhitespaceNode(trailing)) {
-      const text = trailing.textContent ? trailing.textContent.replace(/\u00a0/g, " ") : "";
-      if (text.length <= 1) {
-        trailing.parentNode.removeChild(trailing);
-      }
-    }
-
-    let applied = false;
-    if (ownerDocument && typeof ownerDocument.createRange === "function") {
-      const newRange = ownerDocument.createRange();
-      try {
-        newRange.setStart(removalRange.startContainer, removalRange.startOffset);
-        newRange.collapse(true);
-        applied = reapplyRangeSelection(newRange);
-      } catch (error) {
-        applied = false;
-      }
-    }
-    if (!applied) {
-      const fallbackRange = buildFallbackRange();
-      if (fallbackRange) {
-        reapplyRangeSelection(fallbackRange);
-      }
-    }
     schedule();
     scheduleSelectionCapture();
     updateToolbarStates();
@@ -3063,12 +2941,11 @@ function setupRichTextEditor(root) {
     if (event.key !== "Enter") return;
     if (!event.shiftKey) {
       const range = getActiveRange();
-      const { startsWithCheckbox, emptyAfter } = analyzeCheckboxLine(range);
-      if (startsWithCheckbox) {
+      if (lineStartsWithCheckbox(range)) {
         event.preventDefault();
-        const handled = emptyAfter
-          ? insertPlainBreak(range)
-          : insertBreakWithCheckbox(range);
+        const handled = lineHasContentAfterCheckbox(range)
+          ? insertBreakWithCheckbox(range)
+          : insertPlainBreak(range);
         if (handled) {
           scheduleSelectionCapture();
           schedule();
