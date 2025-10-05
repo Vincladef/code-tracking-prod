@@ -3120,6 +3120,9 @@ function dotColor(type, v){
     return "ko-strong";
   }
   if (type === "checklist") {
+    if (v == null) {
+      return "na";
+    }
     const values = Array.isArray(v)
       ? v
       : v && typeof v === "object" && Array.isArray(v.items)
@@ -3287,6 +3290,10 @@ function readConsigneCurrentValue(consigne, scope) {
   if (type === "checklist") {
     const hidden = scope.querySelector(`[name="checklist:${id}"]`);
     if (hidden) {
+      const isDirty = hidden.dataset && hidden.dataset.dirty === "1";
+      if (!isDirty) {
+        return null;
+      }
       try {
         const parsed = JSON.parse(hidden.value || "[]");
         if (Array.isArray(parsed)) {
@@ -4926,3 +4933,10 @@ Modes.renderPractice = renderPractice;
 Modes.renderDaily = renderDaily;
 Modes.renderHistory = renderHistory;
 Modes.attachConsignesDragDrop = window.attachConsignesDragDrop;
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    readConsigneCurrentValue,
+    dotColor,
+  };
+}
