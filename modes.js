@@ -5,6 +5,8 @@ const modesFirestore = Schema.firestore || window.firestoreAPI || {};
 
 const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
 
+let checkboxBehaviorModulePromise = null;
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -2062,24 +2064,27 @@ function setupRichTextEditor(root) {
 
   if (!hidden || !content) return;
 
-  const installCheckboxBehavior = () => {
+  const ensureCheckboxBehavior = () => {
     if (!content || typeof window === "undefined") return;
-    const installer = window.setupCheckboxListBehavior;
-    if (typeof installer === "function") {
-      installer(content);
+    if (!checkboxBehaviorModulePromise) {
+      checkboxBehaviorModulePromise = import("./editor-checkboxes.js").catch((error) => {
+        modesLogger?.warn?.("richtext:checkboxes:import", error);
+        checkboxBehaviorModulePromise = null;
+        return null;
+      });
     }
+    checkboxBehaviorModulePromise?.then((mod) => {
+      if (!mod || typeof mod.setupCheckboxListBehavior !== "function") return;
+      try {
+        const checkboxButton = toolbar?.querySelector('[data-rich-command="checkbox"]');
+        mod.setupCheckboxListBehavior(content, checkboxButton || null);
+      } catch (error) {
+        modesLogger?.warn?.("richtext:checkboxes:setup", error);
+      }
+    });
   };
 
-  if (typeof window !== "undefined") {
-    if (typeof window.setupCheckboxListBehavior === "function") {
-      installCheckboxBehavior();
-    } else {
-      const handleReady = () => {
-        installCheckboxBehavior();
-      };
-      window.addEventListener("editor-checkboxes:ready", handleReady, { once: true });
-    }
-  }
+  ensureCheckboxBehavior();
 
   const sanitizeElement = typeof utils.sanitizeElement === "function" ? utils.sanitizeElement : null;
   const sanitizeHtml = typeof utils.sanitizeHtml === "function" ? utils.sanitizeHtml : (value) => value;
@@ -3002,23 +3007,24 @@ function setupRichTextEditor(root) {
       if (!button) return;
       const command = button.getAttribute("data-rich-command");
       if (!command) return;
+
+      if (command === "checkbox" && content.__cbInstalled) {
+        return;
+      }
+
       event.preventDefault();
       if (content && typeof content.focus === "function") {
         content.focus();
       }
       restoreSelection();
       if (command === "checkbox") {
-        let handled = false;
-        if (content && typeof content.insertCheckboxAtCaret === "function") {
-          handled = content.insertCheckboxAtCaret() === true;
-        }
-        if (!handled) {
-          handled = insertCheckboxAtCaret();
-        }
-        if (!handled) {
-          fallbackInsertCheckbox();
-        }
-      } else if (!tryExecCommand(command, null) && (command === "bold" || command === "italic")) {
+        insertCheckboxAtCaret() || fallbackInsertCheckbox();
+        scheduleSelectionCapture();
+        schedule();
+        updateToolbarStates();
+        return;
+      }
+      if (!tryExecCommand(command, null) && (command === "bold" || command === "italic")) {
         fallbackWrapWithTag(command === "bold" ? "strong" : "em");
       }
       scheduleSelectionCapture();
