@@ -2491,22 +2491,41 @@ function attachConsigneEditor(row, consigne, options = {}) {
       const childTitle = child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
       const childDescription = child.description || child.details || child.helper || "";
       const childValue = readConsigneCurrentValue(child, childState.row || row);
+      const baseMenuItemClass =
+        "child-menu__item flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 focus:bg-slate-100 focus:outline-none";
+      const dangerMenuItemClass = `${baseMenuItemClass} text-red-600 hover:bg-red-50 focus:bg-red-50`;
       const actionButtons = [];
       if (typeof childState.onHistory === "function") {
-        actionButtons.push(`<button type="button" class="btn btn-ghost text-xs" data-child-action="history">Historique</button>`);
+        actionButtons.push(
+          `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="history">Historique</button>`
+        );
       }
       if (typeof childState.onEdit === "function") {
-        actionButtons.push(`<button type="button" class="btn btn-ghost text-xs" data-child-action="edit">Modifier</button>`);
+        actionButtons.push(
+          `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="edit">Modifier</button>`
+        );
       }
       if (typeof childState.onToggleSr === "function") {
         const srLabel = childState.srEnabled ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
-        actionButtons.push(`<button type="button" class="btn btn-ghost text-xs" data-child-action="sr-toggle" data-enabled="${childState.srEnabled ? "1" : "0"}">${srLabel}</button>`);
+        actionButtons.push(
+          `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="sr-toggle" data-enabled="${childState.srEnabled ? "1" : "0"}">${srLabel}</button>`
+        );
       }
       if (typeof childState.onDelete === "function") {
-        actionButtons.push(`<button type="button" class="btn btn-ghost text-xs text-red-600" data-child-action="delete">Supprimer</button>`);
+        actionButtons.push(
+          `<button type="button" class="${dangerMenuItemClass}" role="menuitem" data-child-action="delete">Supprimer</button>`
+        );
       }
       const actionsHtml = actionButtons.length
-        ? `<div class="flex flex-wrap items-center justify-end gap-1" data-child-actions>${actionButtons.join("")}</div>`
+        ? `<div class="relative" data-child-menu-root>
+            <button type="button" class="btn btn-ghost btn-sm" data-child-menu-toggle aria-haspopup="true" aria-expanded="false">
+              <span aria-hidden="true">⋯</span>
+              <span class="sr-only">Actions supplémentaires</span>
+            </button>
+            <div class="absolute right-0 z-10 mt-1 hidden min-w-[200px] origin-top-right rounded-xl border border-slate-200 bg-white p-1 shadow-lg focus:outline-none" data-child-menu role="menu">
+              ${actionButtons.map((btn) => `<div role="none">${btn}</div>`).join("")}
+            </div>
+          </div>`
         : "";
       return `
         <article class="space-y-3 rounded-xl border border-slate-200 p-3" data-child-consigne="${escapeHtml(child.id)}">
@@ -2591,10 +2610,19 @@ function attachConsigneEditor(row, consigne, options = {}) {
         focusTarget.focus();
       }
     }
+    const childMenuCleanups = [];
     let isClosed = false;
     const closeOverlay = () => {
       if (isClosed) return;
       isClosed = true;
+      while (childMenuCleanups.length) {
+        const cleanup = childMenuCleanups.pop();
+        try {
+          cleanup?.();
+        } catch (err) {
+          console.error(err);
+        }
+      }
       document.removeEventListener("keydown", onKeyDown, true);
       overlay.remove();
       if (trigger && typeof trigger.setAttribute === "function") {
@@ -2622,6 +2650,98 @@ function attachConsigneEditor(row, consigne, options = {}) {
       node.querySelectorAll("textarea").forEach((textarea) => {
         autoGrowTextarea(textarea);
       });
+      const menuRoot = node.querySelector("[data-child-menu-root]");
+      const menuToggle = menuRoot?.querySelector("[data-child-menu-toggle]");
+      const menu = menuRoot?.querySelector("[data-child-menu]");
+      let menuOpen = false;
+      const onMenuDocumentClick = (event) => {
+        if (!menuRoot || !menu) return;
+        if (!menuRoot.contains(event.target)) {
+          closeMenu();
+        }
+      };
+      const onMenuDocumentKeydown = (event) => {
+        if (event.key === "Escape" && menuOpen) {
+          event.preventDefault();
+          event.stopPropagation();
+          closeMenu();
+        }
+      };
+      const closeMenu = ({ focus } = {}) => {
+        if (!menuRoot || !menuToggle || !menu) return;
+        if (!menuOpen) return;
+        menuOpen = false;
+        menu.classList.add("hidden");
+        menuRoot.classList.remove("is-open");
+        menuToggle.setAttribute("aria-expanded", "false");
+        document.removeEventListener("click", onMenuDocumentClick);
+        document.removeEventListener("keydown", onMenuDocumentKeydown, true);
+        const active = document.activeElement;
+        const shouldFocus =
+          focus !== undefined
+            ? focus
+            : (menu.contains(active) || active === menuToggle);
+        if (shouldFocus && typeof menuToggle.focus === "function") {
+          try {
+            menuToggle.focus({ preventScroll: true });
+          } catch (err) {
+            menuToggle.focus();
+          }
+        }
+      };
+      const openMenu = () => {
+        if (!menuRoot || !menuToggle || !menu) return;
+        if (menuOpen) return;
+        menuOpen = true;
+        menu.classList.remove("hidden");
+        menuRoot.classList.add("is-open");
+        menuToggle.setAttribute("aria-expanded", "true");
+        setTimeout(() => {
+          document.addEventListener("click", onMenuDocumentClick);
+        }, 0);
+        document.addEventListener("keydown", onMenuDocumentKeydown, true);
+        const firstItem = menu.querySelector("[data-child-action]");
+        if (firstItem instanceof HTMLElement) {
+          try {
+            firstItem.focus({ preventScroll: true });
+          } catch (err) {
+            firstItem.focus();
+          }
+        }
+      };
+      if (menuRoot && menuToggle && menu) {
+        menuToggle.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (menuOpen) {
+            closeMenu({ focus: true });
+          } else {
+            openMenu();
+          }
+        });
+        menuToggle.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            if (!menuOpen) {
+              openMenu();
+            }
+          } else if (event.key === "Escape" && menuOpen) {
+            event.preventDefault();
+            closeMenu({ focus: true });
+          }
+        });
+        menu.addEventListener("click", (event) => {
+          event.stopPropagation();
+        });
+        menu.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && menuOpen) {
+            event.preventDefault();
+            event.stopPropagation();
+            closeMenu({ focus: true });
+          }
+        });
+        childMenuCleanups.push(() => closeMenu({ focus: false }));
+      }
       const callHandler = (handler, event) => {
         if (typeof handler === "function") {
           try {
@@ -2636,6 +2756,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
         if (typeof childState.onHistory === "function") {
           historyBtn.addEventListener("click", (event) => {
             event.preventDefault();
+            closeMenu({ focus: false });
             callHandler(childState.onHistory, event);
           });
         } else {
@@ -2648,6 +2769,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
         if (typeof childState.onEdit === "function") {
           editBtn.addEventListener("click", (event) => {
             event.preventDefault();
+            closeMenu({ focus: false });
             callHandler(childState.onEdit, event);
           });
         } else {
@@ -2669,6 +2791,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
           updateSrButton(childState.srEnabled);
           srBtn.addEventListener("click", async (event) => {
             event.preventDefault();
+            closeMenu({ focus: false });
             const current = Boolean(childState.srEnabled);
             srBtn.disabled = true;
             try {
@@ -2699,6 +2822,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
         if (typeof childState.onDelete === "function") {
           deleteBtn.addEventListener("click", async (event) => {
             event.preventDefault();
+            closeMenu({ focus: false });
             deleteBtn.disabled = true;
             try {
               const result = await childState.onDelete({ event, close: closeOverlay, consigne: childState.consigne, row: childState.row });
