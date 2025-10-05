@@ -232,8 +232,19 @@
     const r = document.createRange();
 
     if (ctx.mode === 'block') {
-      if (!ctx.block.textContent || isReallyEmptyText(ctx.block.textContent)) ctx.block.innerHTML = '<br>';
-      r.setStart(ctx.block, ctx.block.childNodes.length);
+      let caretNode = null;
+      if (!ctx.block.textContent || isReallyEmptyText(ctx.block.textContent)) {
+        while (ctx.block.firstChild) ctx.block.removeChild(ctx.block.firstChild);
+        caretNode = document.createTextNode('');
+        ctx.block.appendChild(caretNode);
+      } else {
+        caretNode = ctx.block.lastChild;
+        if (!caretNode || caretNode.nodeType !== 3) {
+          caretNode = document.createTextNode('');
+          ctx.block.appendChild(caretNode);
+        }
+      }
+      r.setStart(caretNode, caretNode.textContent.length);
     } else {
       let caretNode = null;
       if (anchor && anchor.parentNode === editor) {
