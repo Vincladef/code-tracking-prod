@@ -10,26 +10,79 @@
 (function () {
   const Sel = () => (window.getSelection()?.rangeCount ? window.getSelection() : null);
 
-  const isCbWrap = n => !!(n && n.nodeType === 1 && n.classList.contains('cb-wrap'));
+  const isCbWrap = (n) =>
+    !!(
+      n &&
+      n.nodeType === 1 &&
+      (
+        n.classList.contains('cb-wrap') ||
+        (typeof n.getAttribute === 'function' && n.getAttribute('data-rich-checkbox-wrapper') === '1')
+      )
+    );
   const isCbInput = n => !!(n && n.nodeType === 1 && n.tagName === 'INPUT' && n.type === 'checkbox');
 
   function cbRoot(node) {
     if (!node) return null;
     if (isCbWrap(node)) return node;
-    if (isCbInput(node)) return node;                   // accepte l'INPUT nue
-    if (node.nodeType === 1 && node.closest('.cb-wrap')) return node.closest('.cb-wrap');
+    if (isCbInput(node)) {
+      const wrap = node.closest('.cb-wrap, [data-rich-checkbox-wrapper="1"]');
+      return wrap || node;                   // accepte l'INPUT nue
+    }
+    if (node.nodeType === 1 && node.closest('.cb-wrap, [data-rich-checkbox-wrapper="1"]')) {
+      return node.closest('.cb-wrap, [data-rich-checkbox-wrapper="1"]');
+    }
     return null;
   }
 
-  function makeCbWrap() {
+  function makeCbWrap(existingInput) {
     const wrap = document.createElement('span');
-    wrap.className = 'cb-wrap';
+    wrap.classList.add('cb-wrap');
+    wrap.setAttribute('data-rich-checkbox-wrapper', '1');
+    wrap.setAttribute('contenteditable', 'false');
     wrap.contentEditable = 'false';
-    const cb = document.createElement('input');
+    const cb = existingInput && isCbInput(existingInput) ? existingInput : document.createElement('input');
+    cb.setAttribute('type', 'checkbox');
     cb.type = 'checkbox';
+    cb.setAttribute('data-rich-checkbox', '1');
+    cb.setAttribute('tabindex', '-1');
     cb.tabIndex = -1;
+    cb.setAttribute('contenteditable', 'false');
+    cb.contentEditable = 'false';
     wrap.appendChild(cb);
     return wrap;
+  }
+
+  function normalizeCheckbox(input) {
+    if (!isCbInput(input)) return null;
+    let wrap = input.closest('.cb-wrap, [data-rich-checkbox-wrapper="1"]');
+    if (!wrap) {
+      const parent = input.parentNode;
+      const next = input.nextSibling;
+      wrap = makeCbWrap(input);
+      if (parent) parent.insertBefore(wrap, next);
+    } else {
+      wrap.classList.add('cb-wrap');
+      wrap.setAttribute('data-rich-checkbox-wrapper', '1');
+      wrap.setAttribute('contenteditable', 'false');
+      wrap.contentEditable = 'false';
+      if (!wrap.contains(input)) wrap.appendChild(input);
+    }
+    input.setAttribute('type', 'checkbox');
+    input.type = 'checkbox';
+    input.setAttribute('data-rich-checkbox', '1');
+    input.setAttribute('tabindex', '-1');
+    input.tabIndex = -1;
+    input.setAttribute('contenteditable', 'false');
+    input.contentEditable = 'false';
+    return wrap;
+  }
+
+  function normalizeCheckboxes(editor) {
+    if (!editor) return;
+    const checkboxes = Array.from(editor.querySelectorAll('input[type="checkbox"]'));
+    checkboxes.forEach((input) => {
+      normalizeCheckbox(input);
+    });
   }
 
   function firstNonEmpty(node) {
@@ -71,6 +124,7 @@
   function emptyAfterCb(editor, ctx) {
     if (!startsWithCb(ctx)) return false;
     const first = cbRoot(ctx.first);
+    if (!first) return false;
     if (ctx.mode === 'block') {
       let n = first.nextSibling, empty = true;
       while (n) {
@@ -139,6 +193,7 @@
   function removeLeadingCb(editor, ctx) {
     if (!startsWithCb(ctx)) return false;
     const first = cbRoot(ctx.first);
+    if (!first) return false;
     const space = first.nextSibling;
     if (space && space.nodeType === 3 && /^\s$/.test(space.textContent)) space.remove();
     first.remove();
@@ -204,21 +259,57 @@
     if (!editorEl || editorEl.__cbInstalled) return;
     editorEl.__cbInstalled = true;
 
+    normalizeCheckboxes(editorEl);
+
+    let normalizeScheduled = false;
+    const scheduleNormalize = () => {
+      if (normalizeScheduled) return;
+      normalizeScheduled = true;
+      const raf = window.requestAnimationFrame || ((cb) => window.setTimeout(cb, 16));
+      raf(() => {
+        normalizeScheduled = false;
+        normalizeCheckboxes(editorEl);
+      });
+    };
+
+    editorEl.addEventListener('focus', scheduleNormalize);
+    editorEl.addEventListener('input', scheduleNormalize);
+
     editorEl.addEventListener('keydown', (e) => {
+      normalizeCheckboxes(editorEl);
       if (e.key === 'Enter') {
         const ctx = lineCtx(editorEl);
         if (!ctx || !startsWithCb(ctx)) return;
         e.preventDefault();
+        e.stopPropagation();
         emptyAfterCb(editorEl, ctx) ? insertPlainBreak(editorEl) : insertBreakWithCheckbox(editorEl);
       }
-      if (e.key === 'Backspace') { if (deleteAdjacentCb(editorEl, 'back')) e.preventDefault(); }
-      if (e.key === 'Delete')   { if (deleteAdjacentCb(editorEl, 'del'))  e.preventDefault(); }
+      if (e.key === 'Backspace') {
+        if (deleteAdjacentCb(editorEl, 'back')) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+      if (e.key === 'Delete') {
+        if (deleteAdjacentCb(editorEl, 'del')) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
     });
 
     if (insertBtnEl) {
       insertBtnEl.addEventListener('click', () => {
         editorEl.focus();
-        const s = Sel(); if (!s) return;
+        let s = Sel();
+        if (!s) return;
+        if (!editorEl.contains(s.anchorNode)) {
+          const range = document.createRange();
+          range.selectNodeContents(editorEl);
+          range.collapse(false);
+          s.removeAllRanges();
+          s.addRange(range);
+        }
         const r = s.getRangeAt(0);
         // on insère un wrap (plus robuste pour caret), mais l’algorithme acceptera aussi l’INPUT nue si tu en as déjà
         const w = makeCbWrap();
@@ -227,6 +318,7 @@
         const r2 = document.createRange(); r2.setStartAfter(w); r2.collapse(true); r2.insertNode(sp);
         r2.setStartAfter(sp); r2.setEndAfter(sp);
         s.removeAllRanges(); s.addRange(r2);
+        editorEl.focus();
       });
     }
   };
