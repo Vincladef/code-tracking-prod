@@ -2062,6 +2062,25 @@ function setupRichTextEditor(root) {
 
   if (!hidden || !content) return;
 
+  const installCheckboxBehavior = () => {
+    if (!content || typeof window === "undefined") return;
+    const installer = window.setupCheckboxListBehavior;
+    if (typeof installer === "function") {
+      installer(content);
+    }
+  };
+
+  if (typeof window !== "undefined") {
+    if (typeof window.setupCheckboxListBehavior === "function") {
+      installCheckboxBehavior();
+    } else {
+      const handleReady = () => {
+        installCheckboxBehavior();
+      };
+      window.addEventListener("editor-checkboxes:ready", handleReady, { once: true });
+    }
+  }
+
   const sanitizeElement = typeof utils.sanitizeElement === "function" ? utils.sanitizeElement : null;
   const sanitizeHtml = typeof utils.sanitizeHtml === "function" ? utils.sanitizeHtml : (value) => value;
   const toPlainText = typeof utils.toPlainText === "function" ? utils.toPlainText : (value) => value;
@@ -2989,7 +3008,14 @@ function setupRichTextEditor(root) {
       }
       restoreSelection();
       if (command === "checkbox") {
-        if (!insertCheckboxAtCaret()) {
+        let handled = false;
+        if (content && typeof content.insertCheckboxAtCaret === "function") {
+          handled = content.insertCheckboxAtCaret() === true;
+        }
+        if (!handled) {
+          handled = insertCheckboxAtCaret();
+        }
+        if (!handled) {
           fallbackInsertCheckbox();
         }
       } else if (!tryExecCommand(command, null) && (command === "bold" || command === "italic")) {
@@ -3011,6 +3037,24 @@ function setupRichTextEditor(root) {
   });
 
   content.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.shiftKey && typeof document.execCommand === "function") {
+      event.preventDefault();
+      document.execCommand("insertLineBreak", false, null);
+      schedule();
+      scheduleSelectionCapture();
+      updateToolbarStates();
+      return;
+    }
+
+    if (content.__cbInstalled) {
+      if (event.defaultPrevented) {
+        scheduleSelectionCapture();
+        schedule();
+        updateToolbarStates();
+      }
+      return;
+    }
+
     if (event.key === "Backspace") {
       if (deleteAdjacentCheckbox("back")) {
         event.preventDefault();
@@ -3038,13 +3082,6 @@ function setupRichTextEditor(root) {
         }
         return;
       }
-    }
-    if (event.shiftKey && typeof document.execCommand === "function") {
-      event.preventDefault();
-      document.execCommand("insertLineBreak", false, null);
-      schedule();
-      scheduleSelectionCapture();
-      updateToolbarStates();
     }
   });
 
