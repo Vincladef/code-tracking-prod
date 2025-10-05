@@ -200,6 +200,35 @@
     return true;
   }
 
+  function removeLeadingCbAndKeepEmptyLine(editor, ctx) {
+    const first = (ctx.first?.classList?.contains('cb-wrap') || ctx.first?.tagName === 'INPUT')
+      ? ctx.first
+      : ctx.first?.closest?.('.cb-wrap') || ctx.first;
+    if (!first) return;
+
+    const space = first.nextSibling;
+    if (space && space.nodeType === 3 && /^\s$/.test(space.textContent)) space.remove();
+    first.remove();
+
+    const sel = window.getSelection();
+    if (!sel) return;
+    if (ctx.mode === 'block') {
+      if (!ctx.block.querySelector('br')) ctx.block.innerHTML = '<br>';
+      const r = document.createRange();
+      r.setStart(ctx.block, ctx.block.childNodes.length);
+      r.collapse(true);
+      sel.removeAllRanges(); sel.addRange(r);
+    } else {
+      const r = document.createRange();
+      const br = document.createElement('br');
+      r.selectNodeContents(editor); r.collapse(false);
+      sel.removeAllRanges(); sel.addRange(r);
+      r.insertNode(br);
+      r.setStartAfter(br); r.collapse(true);
+      sel.removeAllRanges(); sel.addRange(r);
+    }
+  }
+
   function deleteAdjacentCb(editor, direction) {
     const s = Sel(); if (!s) return false;
     const r = s.getRangeAt(0); if (!r.collapsed) return false;
@@ -282,7 +311,11 @@
         if (!ctx || !startsWithCb(ctx)) return;
         e.preventDefault();
         e.stopPropagation();
-        emptyAfterCb(editorEl, ctx) ? insertPlainBreak(editorEl) : insertBreakWithCheckbox(editorEl);
+        if (emptyAfterCb(editorEl, ctx)) {
+          removeLeadingCbAndKeepEmptyLine(editorEl, ctx);
+        } else {
+          insertBreakWithCheckbox(editorEl);
+        }
       }
       if (e.key === 'Backspace') {
         if (deleteAdjacentCb(editorEl, 'back')) {
