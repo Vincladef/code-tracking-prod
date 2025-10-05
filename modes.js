@@ -198,6 +198,17 @@ const NOTE_IGNORED_VALUES = new Set(["no_answer"]);
 function formatConsigneValue(type, value, _options = {}) {
   if (type === "info") return "";
   if (value === null || value === undefined || value === "") return "—";
+  if (type === "checklist") {
+    let items = [];
+    if (Array.isArray(value)) {
+      items = value;
+    } else if (value && typeof value === "object" && Array.isArray(value.items)) {
+      items = value.items;
+    }
+    if (!items.length) return "—";
+    const done = items.filter((item) => item === true).length;
+    return `${done} / ${items.length}`;
+  }
   if (type === "yesno") {
     if (value === "yes") return "Oui";
     if (value === "no") return "Non";
@@ -356,6 +367,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (type === "likert5") return "Échelle ×5";
     if (type === "yesno") return "Oui / Non";
     if (type === "num") return "Numérique";
+    if (type === "checklist") return "Checklist";
     if (type === "long") return "Texte long";
     if (type === "short") return "Texte court";
     if (type === "info") return "";
@@ -383,6 +395,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (type === "likert5") return Math.max(0, Math.min(1, value / 4));
     if (type === "likert6") return Math.max(0, Math.min(1, value / (LIKERT6_ORDER.length - 1 || 1)));
     if (type === "yesno") return Math.max(0, Math.min(1, value));
+    if (type === "checklist") {
+      if (!Array.isArray(value) || value.length === 0) return null;
+      const completed = value.filter(Boolean).length;
+      return Math.max(0, Math.min(1, completed / value.length));
+    }
     return null;
   }
 
@@ -1731,6 +1748,34 @@ function inputForType(consigne, initialValue = null) {
       </select>
     `;
   }
+  if (consigne.type === "checklist") {
+    const items = Array.isArray(consigne.checklistItems)
+      ? consigne.checklistItems.filter((item) => typeof item === "string" && item.trim().length > 0)
+      : [];
+    const normalizedValue = Array.isArray(initialValue)
+      ? items.map((_, index) => Boolean(initialValue[index]))
+      : items.map(() => false);
+    const checkboxes = items
+      .map((label, index) => {
+        const checked = normalizedValue[index];
+        return `
+          <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm" data-checklist-item>
+            <input type="checkbox" class="h-4 w-4" data-checklist-input ${checked ? "checked" : ""}>
+            <span class="flex-1">${escapeHtml(label)}</span>
+          </label>`;
+      })
+      .join("");
+    const initialSerialized = escapeHtml(JSON.stringify(normalizedValue));
+    return `
+      <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}">
+        ${checkboxes || `<p class="text-sm text-[var(--muted)]">Aucun élément défini</p>`}
+        <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state ${
+          Array.isArray(initialValue) ? 'data-dirty="1"' : ""
+        }>
+      </div>
+      <script>(()=>{const script=document.currentScript;const hidden=script.previousElementSibling;const root=hidden?.closest('[data-checklist-root]');if(!root||!hidden)return;const inputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const sync=()=>{const values=inputs().map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);};const markDirty=()=>{hidden.dataset.dirty="1";};const notify=()=>{hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync();markDirty();notify();}});sync();})();</script>
+    `;
+  }
   return "";
 }
 
@@ -1802,6 +1847,34 @@ function collectAnswers(form, consignes, options = {}) {
     } else if (consigne.type === "likert6") {
       const val = form.querySelector(`[name="likert6:${consigne.id}"]`)?.value;
       if (val) answers.push({ consigne, value: val, dayKey });
+    } else if (consigne.type === "checklist") {
+      const hidden = form.querySelector(`[name="checklist:${consigne.id}"]`);
+      if (hidden) {
+        try {
+          const parsed = JSON.parse(hidden.value || "[]");
+          if (Array.isArray(parsed) && parsed.length) {
+            const values = parsed.map((item) => item === true);
+            const hasSelection = values.some(Boolean);
+            const isDirty = hidden.dataset.dirty === "1";
+            if (hasSelection || isDirty) {
+              answers.push({ consigne, value: values, dayKey });
+            }
+          }
+        } catch (error) {
+          console.warn("collectAnswers:checklist", error);
+        }
+      } else {
+        const container = form.querySelector(
+          `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+        );
+        if (container) {
+          const values = Array.from(container.querySelectorAll("[data-checklist-input]"))
+            .map((box) => Boolean(box.checked));
+          if (values.length && values.some(Boolean)) {
+            answers.push({ consigne, value: values, dayKey });
+          }
+        }
+      }
     }
   }
   return answers;
@@ -1927,9 +2000,18 @@ async function openConsigneForm(ctx, consigne = null) {
           <option value="short"   ${consigne?.type === "short"   ? "selected" : ""}>Texte court</option>
           <option value="long"    ${consigne?.type === "long"    ? "selected" : ""}>Texte long</option>
           <option value="num"     ${consigne?.type === "num"     ? "selected" : ""}>Échelle numérique (1–10)</option>
+          <option value="checklist" ${consigne?.type === "checklist" ? "selected" : ""}>Checklist</option>
           <option value="info"    ${consigne?.type === "info"    ? "selected" : ""}>${INFO_RESPONSE_LABEL}</option>
         </select>
       </label>
+
+      <fieldset class="grid gap-2" data-checklist-editor hidden>
+        <legend class="text-sm text-[var(--muted)]">Éléments de checklist</legend>
+        <div class="grid gap-2" data-checklist-list></div>
+        <div class="flex justify-start">
+          <button type="button" class="btn btn-ghost text-sm" data-checklist-add>+ Ajouter un élément</button>
+        </div>
+      </fieldset>
 
       ${catUI}
 
@@ -1995,6 +2077,89 @@ async function openConsigneForm(ctx, consigne = null) {
     </form>
   `;
   const m = modal(html);
+  const typeSelectEl = m.querySelector('select[name="type"]');
+  const checklistEditor = m.querySelector('[data-checklist-editor]');
+  const checklistList = m.querySelector('[data-checklist-list]');
+  const checklistAddBtn = m.querySelector('[data-checklist-add]');
+  const checklistEmptyClass = 'checklist-editor__empty';
+  const renderChecklistEmptyState = () => {
+    if (!checklistList) return;
+    const hasItems = checklistList.querySelector('[name="checklist-item"]');
+    if (hasItems) {
+      const empty = checklistList.querySelector(`.${checklistEmptyClass}`);
+      if (empty) empty.remove();
+      return;
+    }
+    const empty = document.createElement('p');
+    empty.className = `text-sm text-[var(--muted)] ${checklistEmptyClass}`;
+    empty.textContent = "Aucun élément pour l'instant.";
+    checklistList.appendChild(empty);
+  };
+  const addChecklistRow = (initialText = "") => {
+    if (!checklistList) return null;
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.name = 'checklist-item';
+    input.className = 'w-full';
+    input.placeholder = "Intitulé de l'élément";
+    input.value = initialText;
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn btn-ghost text-xs';
+    removeBtn.dataset.removeChecklist = 'true';
+    removeBtn.textContent = 'Supprimer';
+    removeBtn.addEventListener('click', () => {
+      row.remove();
+      renderChecklistEmptyState();
+    });
+    row.append(input, removeBtn);
+    checklistList.appendChild(row);
+    renderChecklistEmptyState();
+    return row;
+  };
+  if (checklistAddBtn) {
+    checklistAddBtn.addEventListener('click', () => {
+      addChecklistRow();
+      const lastInput = checklistList?.querySelector('div:last-of-type input[name="checklist-item"]');
+      if (lastInput) {
+        try {
+          lastInput.focus({ preventScroll: true });
+        } catch (error) {
+          lastInput.focus();
+        }
+      }
+    });
+  }
+  const initialChecklistItems = Array.isArray(consigne?.checklistItems)
+    ? consigne.checklistItems.filter((item) => typeof item === 'string' && item.trim().length > 0)
+    : [];
+  if (initialChecklistItems.length) {
+    initialChecklistItems.forEach((item) => addChecklistRow(item));
+  }
+  const ensureChecklistHasRow = () => {
+    if (!checklistList) return;
+    if (!checklistList.querySelector('[name="checklist-item"]')) {
+      addChecklistRow();
+    }
+  };
+  const syncChecklistVisibility = () => {
+    if (!checklistEditor) return;
+    const isChecklist = typeSelectEl?.value === 'checklist';
+    checklistEditor.hidden = !isChecklist;
+    checklistEditor.setAttribute('aria-hidden', isChecklist ? 'false' : 'true');
+    if (isChecklist) {
+      ensureChecklistHasRow();
+    }
+  };
+  if (typeSelectEl) {
+    typeSelectEl.addEventListener('change', () => {
+      syncChecklistVisibility();
+    });
+  }
+  syncChecklistVisibility();
+  renderChecklistEmptyState();
   const objectiveSelectEl = m.querySelector("#objective-select");
   const objectiveMetaBox = m.querySelector("[data-objective-meta]");
   const syncObjectiveMeta = () => {
@@ -2036,6 +2201,7 @@ async function openConsigneForm(ctx, consigne = null) {
             <option value="short" ${item.type === "short" ? "selected" : ""}>Texte court</option>
             <option value="long" ${item.type === "long" ? "selected" : ""}>Texte long</option>
             <option value="num" ${item.type === "num" ? "selected" : ""}>Échelle numérique (1–10)</option>
+            <option value="checklist" ${item.type === "checklist" ? "selected" : ""}>Checklist</option>
             <option value="info" ${item.type === "info" ? "selected" : ""}>${INFO_RESPONSE_LABEL}</option>
           </select>
         </div>
@@ -2123,6 +2289,23 @@ async function openConsigneForm(ctx, consigne = null) {
         active: true,
         parentId: consigne?.parentId || null,
       };
+      if (payload.type === "checklist") {
+        const itemInputs = Array.from(m.querySelectorAll('[name="checklist-item"]'));
+        const items = itemInputs.map((input) => input.value.trim());
+        const hasAtLeastOne = items.some((text) => text.length > 0);
+        if (!hasAtLeastOne) {
+          alert("Ajoute au moins un élément à la checklist.");
+          return;
+        }
+        const hasEmpty = items.some((text) => text.length === 0);
+        if (hasEmpty) {
+          alert("Renseigne chaque élément de checklist ou supprime ceux qui sont vides.");
+          return;
+        }
+        payload.checklistItems = items;
+      } else {
+        payload.checklistItems = [];
+      }
       if (mode === "daily") {
         const isAll = m.querySelector("#daily-all")?.checked;
         payload.days = isAll ? [] : $$("input[name=days]:checked", m).map((input) => input.value);
@@ -2276,6 +2459,18 @@ function dotColor(type, v){
     if (n >= 4) return "mid";
     return "ko-strong";
   }
+  if (type === "checklist") {
+    const values = Array.isArray(v)
+      ? v
+      : v && typeof v === "object" && Array.isArray(v.items)
+        ? v.items
+        : [];
+    if (!values.length) return "na";
+    const completed = values.filter(Boolean).length;
+    if (completed === 0) return "ko-strong";
+    if (completed === values.length) return "ok-strong";
+    return "mid";
+  }
   if (type === "short" || type === "long") {
     return hasTextualNote(v) ? "note" : "na";
   }
@@ -2415,6 +2610,29 @@ function readConsigneCurrentValue(consigne, scope) {
     const select = scope.querySelector(`[name="likert6:${id}"]`);
     return select ? select.value : "";
   }
+  if (type === "checklist") {
+    const hidden = scope.querySelector(`[name="checklist:${id}"]`);
+    if (hidden) {
+      try {
+        const parsed = JSON.parse(hidden.value || "[]");
+        if (Array.isArray(parsed)) {
+          return parsed.map((value) => value === true);
+        }
+      } catch (error) {
+        console.warn("readConsigneCurrentValue:checklist", error);
+      }
+    }
+    const container = scope.querySelector(
+      `[data-checklist-root][data-consigne-id="${String(id ?? "")}"]`
+    );
+    if (container) {
+      const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
+      if (boxes.length) {
+        return boxes.map((box) => Boolean(box.checked));
+      }
+    }
+    return [];
+  }
   const input = scope.querySelector(`[name$=":${id}"]`);
   return input ? input.value : "";
 }
@@ -2462,6 +2680,34 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
 }
 
 function setConsigneRowValue(row, consigne, value) {
+  if (consigne?.type === "checklist") {
+    const container = row?.querySelector(
+      `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+    );
+    if (!container) {
+      updateConsigneStatusUI(row, consigne, value);
+      return;
+    }
+    const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
+    const normalizedArray = Array.isArray(value) ? value : [];
+    boxes.forEach((box, index) => {
+      box.checked = Boolean(normalizedArray[index]);
+    });
+    const hidden = container.querySelector(`[name="checklist:${String(consigne.id ?? "")}"]`);
+    if (hidden) {
+      const serialized = JSON.stringify(boxes.map((box) => Boolean(box.checked)));
+      hidden.value = serialized;
+      if (Array.isArray(value)) {
+        hidden.dataset.dirty = "1";
+      } else {
+        delete hidden.dataset.dirty;
+      }
+      hidden.dispatchEvent(new Event("input", { bubbles: true }));
+      hidden.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    updateConsigneStatusUI(row, consigne, boxes.map((box) => Boolean(box.checked)));
+    return;
+  }
   const fields = findConsigneInputFields(row, consigne);
   if (!fields.length) {
     updateConsigneStatusUI(row, consigne, value);
