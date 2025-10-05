@@ -98,7 +98,7 @@
 
   function firstNonEmpty(node) {
     let c = node.firstChild;
-    while (c && ((c.nodeType === 3 && !c.textContent.trim()) || (c.nodeType === 1 && c.tagName === 'BR'))) c = c.nextSibling;
+    while (c && ((c.nodeType === 3 && isReallyEmptyText(c.textContent)) || (c.nodeType === 1 && c.tagName === 'BR'))) c = c.nextSibling;
     return c;
   }
 
@@ -123,7 +123,7 @@
     // Mode "inline" (séparé par <br>)
     let prev = node.previousSibling; while (prev && prev.nodeName !== 'BR') prev = prev.previousSibling;
     let first = prev ? prev.nextSibling : editor.firstChild;
-    while (first && first.nodeType === 3 && !first.textContent.trim()) first = first.nextSibling;
+    while (first && first.nodeType === 3 && isReallyEmptyText(first.textContent)) first = first.nextSibling;
     const caretAtStart = r.collapsed && !(r.startContainer.nodeType === 3 && r.startOffset > 0);
     return { mode: 'inline', first, node, caretAtStart };
   }
