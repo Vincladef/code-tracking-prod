@@ -1289,6 +1289,9 @@
     .editor li::marker,
     #rt-editor li::marker,
     .consigne-rich-text__content li::marker{ font-variant-numeric:tabular-nums; }
+    #rt-editor ul { list-style: disc outside; padding-left: 1.25rem; margin:.25rem 0; }
+    #rt-editor ol { list-style: decimal outside; padding-left: 1.25rem; margin:.25rem 0; }
+    #rt-editor li { display:list-item; }
     .consigne-rich-text__content[data-placeholder][data-rich-text-empty="1"]::before{
       content: attr(data-placeholder);
       color:#94a3b8;
