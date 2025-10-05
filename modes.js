@@ -143,30 +143,35 @@ function sanitizeRichTextElement(root) {
       return;
     }
     const lowerTag = tagName.toLowerCase();
-    if (lowerTag === "span" && !node.hasAttribute("data-rich-checkbox-wrapper")) {
-      const styleValue = node.getAttribute("style") || "";
-      const hasBold = INLINE_BOLD_REGEX.test(styleValue);
-      const hasItalic = INLINE_ITALIC_REGEX.test(styleValue);
-      if (hasBold || hasItalic) {
+    const styleValue = node.getAttribute("style") || "";
+    const hasBold = INLINE_BOLD_REGEX.test(styleValue);
+    const hasItalic = INLINE_ITALIC_REGEX.test(styleValue);
+    const isCheckboxWrapper = lowerTag === "span" && node.hasAttribute("data-rich-checkbox-wrapper");
+    const shouldPreserveNode = lowerTag !== "span" || isCheckboxWrapper || !node.parentNode;
+    if (!isCheckboxWrapper && (hasBold || hasItalic)) {
+      let content = document.createDocumentFragment();
+      while (node.firstChild) {
+        content.appendChild(node.firstChild);
+      }
+      let transformed = content;
+      if (hasItalic && lowerTag !== "em" && lowerTag !== "i") {
+        const em = document.createElement("em");
+        em.appendChild(transformed);
+        transformed = em;
+      }
+      if (hasBold && lowerTag !== "strong" && lowerTag !== "b") {
+        const strong = document.createElement("strong");
+        strong.appendChild(transformed);
+        transformed = strong;
+      }
+      if (shouldPreserveNode) {
+        node.appendChild(transformed);
+      } else {
         const parent = node.parentNode;
         if (parent) {
-          let content = document.createDocumentFragment();
-          while (node.firstChild) {
-            content.appendChild(node.firstChild);
-          }
-          if (hasItalic) {
-            const em = document.createElement("em");
-            em.appendChild(content);
-            content = em;
-          }
-          if (hasBold) {
-            const strong = document.createElement("strong");
-            strong.appendChild(content);
-            content = strong;
-          }
-          parent.replaceChild(content, node);
+          parent.replaceChild(transformed, node);
         } else {
-          node.replaceWith(node.textContent || "");
+          node.replaceWith(transformed);
         }
         return;
       }
@@ -187,7 +192,7 @@ function sanitizeRichTextElement(root) {
         node.setAttribute("type", "checkbox");
       }
     });
-    if (lowerTag === "span") {
+    if (node.hasAttribute("style")) {
       node.removeAttribute("style");
     }
     if (lowerTag === "input") {
