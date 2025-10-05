@@ -89,7 +89,7 @@
       const isEditable =
         editorEl.isContentEditable || editorEl.getAttribute("contenteditable") === "true";
       if (!isEditable) return false;
-      const setupFn = window.setupChecklistEditor || window.setupCheckboxListBehavior;
+      const setupFn = window.setupCheckboxListBehavior || window.setupChecklistEditor;
       if (typeof setupFn !== "function") return false;
       const insertBtn = document.getElementById("insert-checkbox");
       try {
@@ -101,7 +101,7 @@
     };
 
     const hasSetupFn = () =>
-      typeof (window.setupChecklistEditor || window.setupCheckboxListBehavior) === "function";
+      typeof (window.setupCheckboxListBehavior || window.setupChecklistEditor) === "function";
 
     if (trySetup()) return;
 
