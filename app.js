@@ -80,6 +80,54 @@
     route: "#/admin",
   };
 
+  function ensureRichTextModalCheckboxBehavior() {
+    if (typeof document === "undefined") return;
+
+    const trySetup = () => {
+      const editorEl = document.getElementById("rt-editor");
+      if (!editorEl) return false;
+      const isEditable =
+        editorEl.isContentEditable || editorEl.getAttribute("contenteditable") === "true";
+      if (!isEditable) return false;
+      const setupFn = window.setupChecklistEditor || window.setupCheckboxListBehavior;
+      if (typeof setupFn !== "function") return false;
+      const insertBtn = document.getElementById("insert-checkbox");
+      try {
+        setupFn(editorEl, insertBtn || null);
+      } catch (error) {
+        console.warn("[app] checklist-editor:setup", error);
+      }
+      return true;
+    };
+
+    const hasSetupFn = () =>
+      typeof (window.setupChecklistEditor || window.setupCheckboxListBehavior) === "function";
+
+    if (trySetup()) return;
+
+    if (!hasSetupFn() && typeof window.setTimeout === "function") {
+      const waitForFn = () => {
+        if (hasSetupFn()) {
+          trySetup();
+          return;
+        }
+        window.setTimeout(waitForFn, 120);
+      };
+      window.setTimeout(waitForFn, 120);
+    }
+
+    if (typeof MutationObserver === "function" && document.body) {
+      const observer = new MutationObserver(() => {
+        if (trySetup()) {
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+  }
+
+  ensureRichTextModalCheckboxBehavior();
+
   const badgeManager = (() => {
     const DOW = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
     let refreshPromise = null;
