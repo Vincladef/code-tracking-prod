@@ -73,33 +73,42 @@ function modal(html) {
   const hadInlineSafeHeight = Boolean(previousSafeHeight && previousSafeHeight.trim() !== "");
   const originalWrapAlignItems = wrap.style.alignItems;
   const originalWrapJustifyContent = wrap.style.justifyContent;
+  const originalWrapPaddingTop = wrap.style.paddingTop;
   const originalWrapPaddingBottom = wrap.style.paddingBottom;
-  const originalModalMarginTop = modalEl?.style?.marginTop;
   const originalModalPaddingBottom = modalEl?.style?.paddingBottom;
 
+  // iOS Safari et Chrome Android contractent le visualViewport lorsque le clavier logiciel
+  // est affiché, en particulier sur des champs texte très longs. On ajuste donc les
+  // paddings pour conserver SAFE_PADDING tout en n'appliquant le décalage vertical qu'une
+  // seule fois. Comportement vérifié manuellement sur les deux navigateurs.
   const updateFromViewport = () => {
     if (!modalEl) return;
     const height = viewport ? viewport.height : window.innerHeight;
     const offsetTop = viewport ? viewport.offsetTop : 0;
     const offsetLeft = viewport ? viewport.offsetLeft : 0;
-    const maxHeight = Math.max(0, height - VIEWPORT_MARGIN_BOTTOM);
+    const hiddenBottom = Math.max(0, window.innerHeight - (height + offsetTop));
+    const keyboardVisible = viewport ? height + offsetTop < window.innerHeight : false;
+    const reservedTop = keyboardVisible ? offsetTop + SAFE_PADDING : 0;
+    const reservedBottom = keyboardVisible ? SAFE_PADDING : VIEWPORT_MARGIN_BOTTOM;
+    const maxHeight = Math.max(0, height - reservedTop - reservedBottom);
+
     modalEl.style.maxHeight = `${maxHeight}px`;
-    modalEl.style.transform = viewport ? `translate3d(${offsetLeft}px, ${offsetTop}px, 0)` : "";
+    modalEl.style.transform = viewport
+      ? `translate3d(${offsetLeft}px, ${keyboardVisible ? 0 : offsetTop}px, 0)`
+      : "";
     docEl?.style?.setProperty("--viewport-safe-height", `${maxHeight}px`);
 
-    const keyboardVisible = viewport ? height < window.innerHeight : false;
     if (keyboardVisible) {
       wrap.style.alignItems = "flex-start";
       wrap.style.justifyContent = "flex-start";
-      modalEl.style.marginTop = `${offsetTop + SAFE_PADDING}px`;
-      const hiddenBottom = Math.max(0, window.innerHeight - (height + offsetTop));
+      wrap.style.paddingTop = `${offsetTop + SAFE_PADDING}px`;
       wrap.style.paddingBottom = `${hiddenBottom + SAFE_PADDING}px`;
       modalEl.style.paddingBottom = originalModalPaddingBottom;
     } else {
       wrap.style.alignItems = originalWrapAlignItems;
       wrap.style.justifyContent = originalWrapJustifyContent;
+      wrap.style.paddingTop = originalWrapPaddingTop;
       wrap.style.paddingBottom = originalWrapPaddingBottom;
-      modalEl.style.marginTop = originalModalMarginTop;
       modalEl.style.paddingBottom = originalModalPaddingBottom;
     }
   };
@@ -136,9 +145,9 @@ function modal(html) {
     }
     wrap.style.alignItems = originalWrapAlignItems;
     wrap.style.justifyContent = originalWrapJustifyContent;
+    wrap.style.paddingTop = originalWrapPaddingTop;
     wrap.style.paddingBottom = originalWrapPaddingBottom;
     if (modalEl) {
-      modalEl.style.marginTop = originalModalMarginTop;
       modalEl.style.paddingBottom = originalModalPaddingBottom;
     }
     originalRemove();
