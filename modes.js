@@ -3759,7 +3759,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
         </article>`;
     };
     const childMarkup = childConsignes.length
-      ? `<section class="space-y-3 border-t border-slate-200 pt-3 mt-3" data-consigne-editor-children>
+      ? `<section class="practice-editor__section space-y-3 border-t border-slate-200 pt-3 mt-3" data-consigne-editor-children>
           <header class="space-y-1">
             <h3 class="text-base font-semibold">Sous-consignes</h3>
             <p class="text-sm text-slate-600">Complète les sous-consignes liées à cette carte.</p>
@@ -3770,23 +3770,23 @@ function attachConsigneEditor(row, consigne, options = {}) {
         </section>`
       : "";
     const actionsMarkup = requiresValidation
-      ? `<div class="practice-editor__actions">
+      ? `<footer class="practice-editor__actions">
           <button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>
           <button type="button" class="btn btn-primary" data-consigne-editor-validate>Valider</button>
-        </div>`
-      : `<div class="practice-editor__actions">
+        </footer>`
+      : `<footer class="practice-editor__actions">
           <button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>
-        </div>`;
+        </footer>`;
     const markup = `
-      <div class="space-y-4">
-        <header class="space-y-1">
+      <div class="practice-editor">
+        <header class="practice-editor__header">
           <h2 class="text-lg font-semibold">${escapeHtml(title)}</h2>
           ${description ? `<p class="text-sm text-slate-600 whitespace-pre-line" data-consigne-editor-description>${escapeHtml(description)}</p>` : ""}
         </header>
-        <div class="space-y-3" data-consigne-editor-body>
+        <section class="practice-editor__section space-y-3" data-consigne-editor-body>
           ${inputForType(consigne, currentValue)}
-          ${childMarkup}
-        </div>
+        </section>
+        ${childMarkup}
         ${actionsMarkup}
       </div>
     `;
