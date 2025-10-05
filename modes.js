@@ -2005,13 +2005,7 @@ async function openConsigneForm(ctx, consigne = null) {
         </select>
       </label>
 
-      <fieldset class="grid gap-2" data-checklist-editor hidden>
-        <legend class="text-sm text-[var(--muted)]">Éléments de checklist</legend>
-        <div class="grid gap-2" data-checklist-list></div>
-        <div class="flex justify-start">
-          <button type="button" class="btn btn-ghost text-sm" data-checklist-add>+ Ajouter un élément</button>
-        </div>
-      </fieldset>
+      <div data-checklist-editor-anchor></div>
 
       ${catUI}
 
@@ -2078,12 +2072,39 @@ async function openConsigneForm(ctx, consigne = null) {
   `;
   const m = modal(html);
   const typeSelectEl = m.querySelector('select[name="type"]');
-  const checklistEditor = m.querySelector('[data-checklist-editor]');
-  const checklistList = m.querySelector('[data-checklist-list]');
-  const checklistAddBtn = m.querySelector('[data-checklist-add]');
+  const checklistAnchor = m.querySelector('[data-checklist-editor-anchor]');
+  const checklistEditor = document.createElement('fieldset');
+  checklistEditor.className = 'grid gap-2';
+  checklistEditor.dataset.checklistEditor = '';
+  const checklistLegend = document.createElement('legend');
+  checklistLegend.className = 'text-sm text-[var(--muted)]';
+  checklistLegend.textContent = 'Éléments de checklist';
+  const checklistList = document.createElement('div');
+  checklistList.className = 'grid gap-2';
+  checklistList.dataset.checklistList = '';
+  const checklistActions = document.createElement('div');
+  checklistActions.className = 'flex justify-start';
+  const checklistAddBtn = document.createElement('button');
+  checklistAddBtn.type = 'button';
+  checklistAddBtn.className = 'btn btn-ghost text-sm';
+  checklistAddBtn.dataset.checklistAdd = 'true';
+  checklistAddBtn.textContent = '+ Ajouter un élément';
+  checklistActions.appendChild(checklistAddBtn);
+  checklistEditor.append(checklistLegend, checklistList, checklistActions);
+  let checklistMounted = false;
+  const mountChecklistEditor = () => {
+    if (!checklistAnchor || checklistMounted) return;
+    checklistAnchor.appendChild(checklistEditor);
+    checklistMounted = true;
+  };
+  const unmountChecklistEditor = () => {
+    if (!checklistMounted) return;
+    checklistEditor.remove();
+    checklistMounted = false;
+  };
   const checklistEmptyClass = 'checklist-editor__empty';
   const renderChecklistEmptyState = () => {
-    if (!checklistList) return;
+    if (!checklistMounted || !checklistList) return;
     const hasItems = checklistList.querySelector('[name="checklist-item"]');
     if (hasItems) {
       const empty = checklistList.querySelector(`.${checklistEmptyClass}`);
@@ -2119,19 +2140,17 @@ async function openConsigneForm(ctx, consigne = null) {
     renderChecklistEmptyState();
     return row;
   };
-  if (checklistAddBtn) {
-    checklistAddBtn.addEventListener('click', () => {
-      addChecklistRow();
-      const lastInput = checklistList?.querySelector('div:last-of-type input[name="checklist-item"]');
-      if (lastInput) {
-        try {
-          lastInput.focus({ preventScroll: true });
-        } catch (error) {
-          lastInput.focus();
-        }
+  checklistAddBtn.addEventListener('click', () => {
+    addChecklistRow();
+    const lastInput = checklistList?.querySelector('div:last-of-type input[name="checklist-item"]');
+    if (lastInput) {
+      try {
+        lastInput.focus({ preventScroll: true });
+      } catch (error) {
+        lastInput.focus();
       }
-    });
-  }
+    }
+  });
   const initialChecklistItems = Array.isArray(consigne?.checklistItems)
     ? consigne.checklistItems.filter((item) => typeof item === 'string' && item.trim().length > 0)
     : [];
@@ -2139,19 +2158,23 @@ async function openConsigneForm(ctx, consigne = null) {
     initialChecklistItems.forEach((item) => addChecklistRow(item));
   }
   const ensureChecklistHasRow = () => {
-    if (!checklistList) return;
+    if (!checklistMounted || !checklistList) return;
     if (!checklistList.querySelector('[name="checklist-item"]')) {
       addChecklistRow();
     }
   };
   const syncChecklistVisibility = () => {
-    if (!checklistEditor) return;
     const isChecklist = typeSelectEl?.value === 'checklist';
-    checklistEditor.hidden = !isChecklist;
-    checklistEditor.setAttribute('aria-hidden', isChecklist ? 'false' : 'true');
-    if (isChecklist) {
-      ensureChecklistHasRow();
+    if (!isChecklist) {
+      if (checklistList) {
+        checklistList.innerHTML = '';
+      }
+      unmountChecklistEditor();
+      return;
     }
+    mountChecklistEditor();
+    ensureChecklistHasRow();
+    renderChecklistEmptyState();
   };
   if (typeSelectEl) {
     typeSelectEl.addEventListener('change', () => {
