@@ -218,6 +218,12 @@
     if (!first) return;
 
     const space = first.nextSibling;
+    const anchor = (() => {
+      if (space && space.nodeType === 3 && isReallyEmptyText(space.textContent)) {
+        return space.nextSibling;
+      }
+      return first.nextSibling;
+    })();
     if (space && space.nodeType === 3 && isReallyEmptyText(space.textContent)) space.remove();
     first.remove();
 
@@ -229,8 +235,19 @@
       if (!ctx.block.textContent || isReallyEmptyText(ctx.block.textContent)) ctx.block.innerHTML = '<br>';
       r.setStart(ctx.block, ctx.block.childNodes.length);
     } else {
-      r.selectNodeContents(editor);
-      r.collapse(false);
+      let caretNode = null;
+      if (anchor && anchor.parentNode === editor) {
+        if (anchor.nodeType === 3) {
+          caretNode = anchor;
+        } else {
+          caretNode = document.createTextNode('');
+          editor.insertBefore(caretNode, anchor);
+        }
+      } else {
+        caretNode = document.createTextNode('');
+        editor.appendChild(caretNode);
+      }
+      r.setStart(caretNode, 0);
     }
     r.collapse(true);
     sel.removeAllRanges();
