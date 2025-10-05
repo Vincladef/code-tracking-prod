@@ -2819,7 +2819,17 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       const subChecklistEditor = document.createElement('fieldset');
       subChecklistEditor.className = 'grid gap-2';
       subChecklistEditor.dataset.subChecklistEditor = '';
-      subChecklistEditor.hidden = true;
+      const setSubChecklistVisibility = (visible) => {
+        const isVisible = Boolean(visible);
+        subChecklistEditor.hidden = !isVisible;
+        subChecklistEditor.classList.toggle('hidden', !isVisible);
+        if (!isVisible) {
+          subChecklistEditor.style.display = 'none';
+        } else {
+          subChecklistEditor.style.removeProperty('display');
+        }
+      };
+      setSubChecklistVisibility(false);
       const subChecklistLegend = document.createElement('legend');
       subChecklistLegend.className = 'text-sm text-[var(--muted)]';
       subChecklistLegend.textContent = "Éléments de checklist";
@@ -2912,11 +2922,11 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           if (subChecklistList) {
             subChecklistList.innerHTML = '';
           }
-          subChecklistEditor.hidden = true;
+          setSubChecklistVisibility(false);
           renderSubChecklistEmptyState();
           return;
         }
-        subChecklistEditor.hidden = false;
+        setSubChecklistVisibility(true);
         ensureSubChecklistHasRow();
         renderSubChecklistEmptyState();
       };
