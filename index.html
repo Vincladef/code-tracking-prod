@@ -298,6 +298,11 @@
     .no-scrollbar::-webkit-scrollbar{ display:none; }
     .no-scrollbar{ -ms-overflow-style:none; scrollbar-width:none; }
 
+    @media (max-width: 640px){
+      .modal.phone-top{ align-items:flex-start; padding-top:8px; }
+      .modal.phone-center{ align-items:center; padding-top:0; }
+    }
+
     /* Journalier — navigation par jour */
     .day-nav {
       display:flex;
@@ -1269,11 +1274,21 @@
     .consigne-rich-text{ display:flex; flex-direction:column; gap:.5rem; }
     .consigne-rich-text__toolbar{ display:flex; flex-wrap:wrap; gap:.35rem; }
     .consigne-rich-text__toolbar .btn{ padding:.3rem .6rem; font-size:.75rem; line-height:1.1; }
+    .consigne-rich-text__toolbar .btn.active{ outline:2px solid #6ca3ff; background:#eef4ff; }
     .consigne-rich-text__content{ min-height:10rem; overflow:auto; white-space:pre-wrap; position:relative; }
     .consigne-rich-text__content p{ margin:.35rem 0; }
-    .consigne-rich-text__content ul,
-    .consigne-rich-text__content ol{ margin:.35rem 0; padding-left:1.25rem; }
-    .consigne-rich-text__content li{ margin:.2rem 0; }
+    .editor ul,
+    #rt-editor ul,
+    .consigne-rich-text__content ul{ list-style:disc outside; padding-left:1.25rem; margin:.35rem 0; }
+    .editor ol,
+    #rt-editor ol,
+    .consigne-rich-text__content ol{ list-style:decimal outside; padding-left:1.25rem; margin:.35rem 0; }
+    .editor li,
+    #rt-editor li,
+    .consigne-rich-text__content li{ margin:.2rem 0; display:list-item; }
+    .editor li::marker,
+    #rt-editor li::marker,
+    .consigne-rich-text__content li::marker{ font-variant-numeric:tabular-nums; }
     .consigne-rich-text__content[data-placeholder][data-rich-text-empty="1"]::before{
       content: attr(data-placeholder);
       color:#94a3b8;
