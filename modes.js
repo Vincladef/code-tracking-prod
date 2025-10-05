@@ -495,6 +495,10 @@ const NOTE_IGNORED_VALUES = new Set(["no_answer"]);
 function formatConsigneValue(type, value, options = {}) {
   const wantsHtml = options.mode === "html";
   if (type === "info") return "";
+  if (value && typeof value === "object" && value.skipped) {
+    const label = "Passée";
+    return wantsHtml ? escapeHtml(label) : label;
+  }
   if (type === "long") {
     const normalized = normalizeRichTextValue(value);
     if (!richTextHasContent(normalized)) {
@@ -2587,12 +2591,34 @@ function setupRichTextEditor(root) {
     return true;
   };
 
-  const currentLineStartsWithCheckbox = (range) => {
-    if (!content || !range) return false;
+  const trimNbsp = (value) => (value || "").replace(/\u00a0/g, " ").trim();
+
+  const nodeHasMeaningfulContent = (node) => {
+    if (!node) return false;
+    if (node.nodeType === Node.TEXT_NODE) {
+      return trimNbsp(node.textContent || "").length > 0;
+    }
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      if (node.nodeName === "BR") return false;
+      if (node.matches?.('input[type="checkbox"][data-rich-checkbox]')) {
+        return false;
+      }
+      if (node.getAttribute?.("data-rich-checkbox-wrapper") === "1") {
+        return Array.from(node.childNodes || []).some((child) => nodeHasMeaningfulContent(child));
+      }
+      const text = trimNbsp(node.textContent || "");
+      if (text.length > 0) return true;
+      return Array.from(node.childNodes || []).some((child) => nodeHasMeaningfulContent(child));
+    }
+    return false;
+  };
+
+  const resolveLineStart = (range) => {
+    if (!content || !range) return null;
     const anchor = range.startContainer;
     const anchorElement = anchor?.nodeType === Node.ELEMENT_NODE ? anchor : anchor?.parentElement;
     if (anchorElement && typeof anchorElement.closest === "function" && anchorElement.closest("ul,ol")) {
-      return false;
+      return null;
     }
     let block = anchor;
     while (block && block.parentNode !== content) {
@@ -2601,7 +2627,7 @@ function setupRichTextEditor(root) {
     if (!block) {
       block = content.firstChild;
     }
-    if (!block) return false;
+    if (!block) return null;
     let start = block;
     let probe = anchor;
     while (probe && probe !== content && probe !== block) {
@@ -2626,25 +2652,61 @@ function setupRichTextEditor(root) {
     if (start && start.nodeType === Node.ELEMENT_NODE && start.parentNode === content) {
       start = start.firstChild;
     }
-    while (start && start.nodeType === Node.TEXT_NODE && !start.textContent.trim()) {
+    while (start && start.nodeType === Node.TEXT_NODE && !trimNbsp(start.textContent || "")) {
       start = start.nextSibling;
     }
     while (start && start.nodeName === "BR") {
       start = start.nextSibling;
     }
-    if (!start || start.nodeType !== Node.ELEMENT_NODE || typeof start.matches !== "function") {
-      return false;
-    }
-    if (start.matches('[data-rich-checkbox-wrapper]')) {
-      return Boolean(start.querySelector('input[type="checkbox"][data-rich-checkbox]'));
-    }
-    if (start.matches('input[type="checkbox"][data-rich-checkbox]')) {
-      return true;
-    }
-    return false;
+    return start || null;
   };
 
-  const insertCheckboxLineBreak = (range) => {
+  const analyzeCheckboxLine = (range) => {
+    const info = { startsWithCheckbox: false, hasTextAfter: false };
+    if (!range) return info;
+    const firstNode = resolveLineStart(range);
+    if (!firstNode) return info;
+    let checkboxNode = null;
+    if (firstNode.nodeType === Node.ELEMENT_NODE && firstNode.getAttribute?.("data-rich-checkbox-wrapper") === "1") {
+      const checkbox = firstNode.querySelector('input[type="checkbox"][data-rich-checkbox]');
+      if (!checkbox) return info;
+      checkboxNode = firstNode;
+      info.startsWithCheckbox = true;
+    } else if (firstNode.nodeType === Node.ELEMENT_NODE && firstNode.matches?.('input[type="checkbox"][data-rich-checkbox]')) {
+      checkboxNode = firstNode;
+      info.startsWithCheckbox = true;
+    } else {
+      return info;
+    }
+    let sibling = checkboxNode.nextSibling;
+    while (sibling) {
+      if (sibling.nodeName === "BR") break;
+      if (nodeHasMeaningfulContent(sibling)) {
+        info.hasTextAfter = true;
+        break;
+      }
+      sibling = sibling.nextSibling;
+    }
+    return info;
+  };
+
+  const insertSimpleCheckboxBreak = (range) => {
+    if (!range || !ownerDocument || typeof ownerDocument.createElement !== "function") {
+      return false;
+    }
+    const br = ownerDocument.createElement("br");
+    try {
+      range.deleteContents();
+      range.insertNode(br);
+    } catch (error) {
+      return false;
+    }
+    range.setStartAfter(br);
+    range.collapse(true);
+    return reapplyRangeSelection(range);
+  };
+
+  const insertBreakWithCheckbox = (range) => {
     if (!range || !ownerDocument || typeof ownerDocument.createElement !== "function" || typeof ownerDocument.createRange !== "function") {
       return false;
     }
@@ -2684,8 +2746,7 @@ function setupRichTextEditor(root) {
     afterWrapper.insertNode(space);
     afterWrapper.setStart(space, space.textContent ? space.textContent.length : 0);
     afterWrapper.collapse(true);
-    reapplyRangeSelection(afterWrapper);
-    return true;
+    return reapplyRangeSelection(afterWrapper);
   };
 
   const fallbackInsertCheckbox = () => {
@@ -2793,23 +2854,23 @@ function setupRichTextEditor(root) {
     }
   });
 
-  const handleCheckboxEnter = (event) => {
-    if (event.shiftKey) return false;
-    const range = getActiveRange();
-    if (!range || !currentLineStartsWithCheckbox(range)) return false;
-    event.preventDefault();
-    if (insertCheckboxLineBreak(range)) {
-      scheduleSelectionCapture();
-      schedule();
-      updateToolbarStates();
-    }
-    return true;
-  };
-
   content.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
-    if (!event.shiftKey && handleCheckboxEnter(event)) {
-      return;
+    if (!event.shiftKey) {
+      const range = getActiveRange();
+      const { startsWithCheckbox, hasTextAfter } = analyzeCheckboxLine(range);
+      if (startsWithCheckbox) {
+        event.preventDefault();
+        const handled = hasTextAfter
+          ? insertBreakWithCheckbox(range)
+          : insertSimpleCheckboxBreak(range);
+        if (handled) {
+          scheduleSelectionCapture();
+          schedule();
+          updateToolbarStates();
+        }
+        return;
+      }
     }
     if (event.shiftKey && typeof document.execCommand === "function") {
       event.preventDefault();
@@ -2904,7 +2965,7 @@ function inputForType(consigne, initialValue = null) {
     const safeValue = Number.isFinite(sliderValue) ? sliderValue : 5;
     return `
       <input type="range" min="1" max="10" value="${safeValue}" data-default-value="${safeValue}" name="num:${consigne.id}" class="w-full">
-      <div class="text-sm opacity-70 mt-1" data-meter="num:${consigne.id}">${safeValue}</div>
+      <div class="text-sm opacity-70 mt-1" data-meter="num:${consigne.id}" aria-live="polite">${safeValue}</div>
       <script>(()=>{const slider=document.currentScript.previousElementSibling.previousElementSibling;const label=document.currentScript.previousElementSibling;const sync=()=>{if(label&&slider){label.textContent=slider.value;}};if(slider){sync();slider.addEventListener('input',sync);}})();</script>
     `;
   }
@@ -3814,6 +3875,9 @@ function hasTextualNote(value) {
 }
 
 function dotColor(type, v){
+  if (v && typeof v === "object" && v.skipped) {
+    return "note";
+  }
   if (type === "info") {
     return hasTextualNote(v) ? "note" : "na";
   }
@@ -3912,7 +3976,11 @@ function triggerConsigneRowUpdateHighlight(row) {
 
 function updateConsigneStatusUI(row, consigne, rawValue) {
   if (!row || !consigne) return;
-  let status = dotColor(consigne.type, rawValue);
+  const skipFlag = row.dataset.skipAnswered === "1";
+  const valueForStatus = skipFlag && (!(rawValue && typeof rawValue === "object" && rawValue.skipped))
+    ? { skipped: true }
+    : rawValue;
+  let status = dotColor(consigne.type, valueForStatus);
   if (status === "na" && row.dataset.childAnswered === "1") {
     status = "note";
   }
@@ -3943,29 +4011,36 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
     mark.classList.toggle("consigne-row__mark--checked", isAnswered);
   }
   if (live) {
-    const textualNote = extractTextualNote(rawValue);
+    const textualNote = extractTextualNote(valueForStatus);
     const isNoteStatus = status === "note";
     const baseHasValue = (() => {
+      if (skipFlag) return true;
       if (consigne.type === "long") {
-        return richTextHasContent(rawValue);
+        return richTextHasContent(valueForStatus);
       }
-      return !(rawValue === null || rawValue === undefined || rawValue === "");
+      if (consigne.type === "checklist") {
+        if (Array.isArray(valueForStatus)) return valueForStatus.some(Boolean);
+        if (valueForStatus && typeof valueForStatus === "object" && Array.isArray(valueForStatus.items)) {
+          return valueForStatus.items.some(Boolean);
+        }
+      }
+      return !(valueForStatus === null || valueForStatus === undefined || valueForStatus === "");
     })();
     const hasValue = isNoteStatus ? textualNote.length > 0 || baseHasValue : baseHasValue;
     const formattedValue = (() => {
       if (isNoteStatus) {
         if (textualNote) return textualNote;
-        const fallback = formatConsigneValue(consigne.type, rawValue);
+        const fallback = formatConsigneValue(consigne.type, valueForStatus);
         if (fallback === null || fallback === undefined || fallback === "" || fallback === "—") {
-          return "Réponse enregistrée";
+          return skipFlag ? "Passée" : "Réponse enregistrée";
         }
         return fallback;
       }
       if (consigne.type === "info") return INFO_RESPONSE_LABEL;
       if (!hasValue) return "Sans donnée";
-      const result = formatConsigneValue(consigne.type, rawValue);
+      const result = formatConsigneValue(consigne.type, valueForStatus);
       if (result === null || result === undefined || result === "" || result === "—") {
-        return "Réponse enregistrée";
+        return skipFlag ? "Passée" : "Réponse enregistrée";
       }
       return result;
     })();
@@ -4100,6 +4175,9 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
 }
 
 function setConsigneRowValue(row, consigne, value) {
+  if (row) {
+    delete row.dataset.skipAnswered;
+  }
   if (consigne?.type === "long") {
     const editor = row?.querySelector(
       `[data-rich-text-root][data-consigne-id="${String(consigne.id ?? "")}"]`
@@ -4191,9 +4269,13 @@ function attachConsigneEditor(row, consigne, options = {}) {
   childConsignes.forEach((child) => {
     child.srEnabled = child?.srEnabled !== false;
   });
-  const isTextAnswerType = (item) => {
+  const TEXT_MODAL_TYPES = new Set(["long", "short", "notes", "texte", "long_text", "short_text"]);
+  const CENTER_MODAL_TYPES = new Set(["likert6", "likert5", "yesno", "num", "checklist", "info", "likert", "oui_non", "scale_0_10", "choix", "multiple"]);
+  const pickPhoneModalClass = (item) => {
     const type = item?.type;
-    return type === "long" || type === "short";
+    if (TEXT_MODAL_TYPES.has(type)) return "phone-top";
+    if (CENTER_MODAL_TYPES.has(type)) return "phone-center";
+    return "phone-center";
   };
   const updateParentChildAnsweredFlag = () => {
     if (!row) return false;
@@ -4321,6 +4403,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
     const actionsMarkup = requiresValidation
       ? `<footer class="practice-editor__actions">
           <button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>
+          <button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>
           <button type="button" class="btn btn-primary" data-consigne-editor-validate>Valider</button>
         </footer>`
       : `<footer class="practice-editor__actions">
@@ -4342,8 +4425,8 @@ function attachConsigneEditor(row, consigne, options = {}) {
     const overlay = (variant === "drawer" ? drawer : modal)(markup);
     if (variant !== "drawer" && overlay instanceof HTMLElement) {
       overlay.classList.remove("phone-top", "phone-center");
-      const preferTop = isTextAnswerType(consigne)
-        || childConsignes.some((childState) => isTextAnswerType(childState.consigne));
+      const relevantItems = [consigne, ...childConsignes.map((child) => child.consigne).filter(Boolean)];
+      const preferTop = relevantItems.some((item) => pickPhoneModalClass(item) === "phone-top");
       overlay.classList.add(preferTop ? "phone-top" : "phone-center");
     }
     overlay.querySelectorAll("textarea").forEach((textarea) => {
@@ -4641,6 +4724,20 @@ function attachConsigneEditor(row, consigne, options = {}) {
         closeOverlay();
       });
     }
+    const skipBtn = overlay.querySelector("[data-consigne-editor-skip]");
+    if (skipBtn) {
+      skipBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        row.dataset.skipAnswered = "1";
+        updateParentChildAnsweredFlag();
+        updateConsigneStatusUI(row, consigne, { skipped: true });
+        syncParentAnswered();
+        if (typeof options.onSkip === "function") {
+          options.onSkip({ event, close: closeOverlay, consigne, row });
+        }
+        closeOverlay();
+      });
+    }
     const validateBtn = overlay.querySelector("[data-consigne-editor-validate]");
     if (validateBtn) {
       validateBtn.addEventListener("click", (event) => {
@@ -4677,9 +4774,37 @@ function attachConsigneEditor(row, consigne, options = {}) {
 
 function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
   if (!row || !consigne) return;
+  const hasValueForConsigne = (value) => {
+    const type = consigne.type;
+    if (type === "long") {
+      return richTextHasContent(value);
+    }
+    if (type === "short") {
+      return typeof value === "string" && value.trim().length > 0;
+    }
+    if (type === "checklist") {
+      if (Array.isArray(value)) return value.some(Boolean);
+      if (value && typeof value === "object" && Array.isArray(value.items)) {
+        return value.items.some(Boolean);
+      }
+      return false;
+    }
+    return !(value === null || value === undefined || value === "");
+  };
+  const mapValueForStatus = (value) => {
+    if (row?.dataset?.skipAnswered === "1") {
+      if (hasValueForConsigne(value)) {
+        delete row.dataset.skipAnswered;
+        return value;
+      }
+      return { skipped: true };
+    }
+    return value;
+  };
   const emit = (value) => {
+    const statusValue = mapValueForStatus(value);
     if (onChange) onChange(value);
-    updateConsigneStatusUI(row, consigne, value);
+    updateConsigneStatusUI(row, consigne, statusValue);
   };
   const read = () => readConsigneCurrentValue(consigne, row);
   if (initialValue !== undefined) {

@@ -408,12 +408,21 @@ function nextCooldownAfterAnswer(meta, prevState, value) {
 }
 
 async function resetSRForConsigne(db, uid, consigneId) {
-  const today = new Date().toISOString();
-  await upsertSRState(db, uid, consigneId, "consigne", {
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const immediate = new Date(midnight.getTime() - 1).toISOString();
+  const canDeleteField = typeof deleteField === "function";
+  const state = {
     streak: 0,
     nextAllowedIndex: 0,
-    nextVisibleOn: today
-  });
+    nextVisibleOn: immediate,
+  };
+  if (canDeleteField) {
+    state.hideUntil = deleteField();
+  } else {
+    state.hideUntil = null;
+  }
+  await upsertSRState(db, uid, consigneId, "consigne", state);
 }
 
 async function delayConsigne({ db, uid, consigne, mode, amount, sessionIndex }) {
