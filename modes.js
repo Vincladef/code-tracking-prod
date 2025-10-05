@@ -2232,6 +2232,118 @@ async function openConsigneForm(ctx, consigne = null) {
           <button type="button" class="btn btn-ghost text-xs" data-remove>Supprimer</button>
         </div>
       `;
+      const mainSection = row.querySelector(".subconsigne-row__main");
+      const typeSelect = row.querySelector('select[name="sub-type"]');
+      const subChecklistEditor = document.createElement('fieldset');
+      subChecklistEditor.className = 'grid gap-2';
+      subChecklistEditor.dataset.subChecklistEditor = '';
+      subChecklistEditor.hidden = true;
+      const subChecklistLegend = document.createElement('legend');
+      subChecklistLegend.className = 'text-sm text-[var(--muted)]';
+      subChecklistLegend.textContent = "Éléments de checklist";
+      const subChecklistList = document.createElement('div');
+      subChecklistList.className = 'grid gap-2';
+      subChecklistList.dataset.subChecklistList = '';
+      const subChecklistActions = document.createElement('div');
+      subChecklistActions.className = 'flex justify-start';
+      const subChecklistAddBtn = document.createElement('button');
+      subChecklistAddBtn.type = 'button';
+      subChecklistAddBtn.className = 'btn btn-ghost text-sm';
+      subChecklistAddBtn.dataset.subChecklistAdd = 'true';
+      subChecklistAddBtn.textContent = '+ Ajouter un élément';
+      subChecklistActions.appendChild(subChecklistAddBtn);
+      subChecklistEditor.append(subChecklistLegend, subChecklistList, subChecklistActions);
+      if (mainSection) {
+        mainSection.appendChild(subChecklistEditor);
+      }
+      const subChecklistEmptyClass = 'subchecklist-editor__empty';
+      const renderSubChecklistEmptyState = () => {
+        if (!subChecklistList) return;
+        const empty = subChecklistList.querySelector(`.${subChecklistEmptyClass}`);
+        const hasItems = subChecklistList.querySelector('[name="sub-checklist-item"]');
+        if (subChecklistEditor.hidden) {
+          if (empty) empty.remove();
+          return;
+        }
+        if (hasItems) {
+          if (empty) empty.remove();
+          return;
+        }
+        const emptyState = document.createElement('p');
+        emptyState.className = `text-sm text-[var(--muted)] ${subChecklistEmptyClass}`;
+        emptyState.textContent = "Aucun élément pour l'instant.";
+        subChecklistList.appendChild(emptyState);
+      };
+      const addSubChecklistRow = (initialText = "") => {
+        if (!subChecklistList) return null;
+        const itemRow = document.createElement('div');
+        itemRow.className = 'flex items-center gap-2';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.name = 'sub-checklist-item';
+        input.className = 'w-full';
+        input.placeholder = "Intitulé de l'élément";
+        input.value = initialText;
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'btn btn-ghost text-xs';
+        removeBtn.dataset.removeSubChecklist = 'true';
+        removeBtn.textContent = 'Supprimer';
+        removeBtn.addEventListener('click', () => {
+          itemRow.remove();
+          renderSubChecklistEmptyState();
+        });
+        itemRow.append(input, removeBtn);
+        subChecklistList.appendChild(itemRow);
+        renderSubChecklistEmptyState();
+        return itemRow;
+      };
+      const ensureSubChecklistHasRow = () => {
+        if (subChecklistEditor.hidden) return;
+        if (!subChecklistList) return;
+        if (!subChecklistList.querySelector('[name="sub-checklist-item"]')) {
+          addSubChecklistRow();
+        }
+      };
+      if (subChecklistAddBtn) {
+        subChecklistAddBtn.addEventListener('click', () => {
+          const newRow = addSubChecklistRow();
+          const lastInput = newRow?.querySelector('input[name="sub-checklist-item"]');
+          if (lastInput) {
+            try {
+              lastInput.focus({ preventScroll: true });
+            } catch (error) {
+              lastInput.focus();
+            }
+          }
+        });
+      }
+      const initialSubChecklistItems = Array.isArray(item?.checklistItems)
+        ? item.checklistItems.filter((value) => typeof value === 'string' && value.trim().length > 0)
+        : [];
+      if (initialSubChecklistItems.length) {
+        initialSubChecklistItems.forEach((value) => addSubChecklistRow(value));
+      }
+      const syncSubChecklistVisibility = () => {
+        const isChecklist = typeSelect?.value === 'checklist';
+        if (!isChecklist) {
+          if (subChecklistList) {
+            subChecklistList.innerHTML = '';
+          }
+          subChecklistEditor.hidden = true;
+          renderSubChecklistEmptyState();
+          return;
+        }
+        subChecklistEditor.hidden = false;
+        ensureSubChecklistHasRow();
+        renderSubChecklistEmptyState();
+      };
+      if (typeSelect) {
+        typeSelect.addEventListener('change', () => {
+          syncSubChecklistVisibility();
+        });
+      }
+      syncSubChecklistVisibility();
       row.querySelector('[data-remove]')?.addEventListener('click', () => {
         if (item.id) {
           removedChildIds.add(item.id);
@@ -2343,6 +2455,32 @@ async function openConsigneForm(ctx, consigne = null) {
         alert("Renseigne le texte de chaque sous-consigne ou supprime celles qui sont vides.");
         return;
       }
+      if (canManageChildren && subRows.length) {
+        let missingSubChecklistItems = false;
+        let hasEmptySubChecklistItem = false;
+        subRows.forEach((row) => {
+          const typeField = row.querySelector('select[name="sub-type"]');
+          if (typeField?.value !== 'checklist') return;
+          const itemInputs = Array.from(row.querySelectorAll('input[name="sub-checklist-item"]'));
+          const items = itemInputs.map((input) => input.value.trim());
+          const hasAtLeastOne = items.some((text) => text.length > 0);
+          if (!hasAtLeastOne) {
+            missingSubChecklistItems = true;
+            return;
+          }
+          if (items.some((text) => text.length === 0)) {
+            hasEmptySubChecklistItem = true;
+          }
+        });
+        if (missingSubChecklistItems) {
+          alert("Ajoute au moins un élément à chaque checklist de sous-consigne.");
+          return;
+        }
+        if (hasEmptySubChecklistItem) {
+          alert("Renseigne chaque élément de checklist de tes sous-consignes ou supprime ceux qui sont vides.");
+          return;
+        }
+      }
       let consigneId = consigne?.id || null;
       if (consigne) {
         await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, payload);
@@ -2377,9 +2515,14 @@ async function openConsigneForm(ctx, consigne = null) {
                 ...childPayloadBase,
                 text: textValue,
                 type: typeValue,
+                checklistItems: [],
               };
               if (mode === "daily") {
                 childPayload.days = Array.isArray(childDays) ? [...childDays] : [];
+              }
+              if (typeValue === 'checklist') {
+                const checklistInputs = Array.from(row.querySelectorAll('input[name="sub-checklist-item"]'));
+                childPayload.checklistItems = checklistInputs.map((input) => input.value.trim());
               }
               if (childId) {
                 updates.push(
