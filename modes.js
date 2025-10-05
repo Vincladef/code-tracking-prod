@@ -104,7 +104,7 @@ const RICH_TEXT_ALLOWED_TAGS = new Set([
 ]);
 const RICH_TEXT_ALLOWED_ATTRS = {
   input: ["type", "checked", "data-rich-checkbox", "data-rich-checkbox-index"],
-  span: ["data-rich-checkbox-wrapper"],
+  span: ["data-rich-checkbox-wrapper", "style"],
   div: [],
   p: [],
   br: [],
@@ -116,6 +116,9 @@ const RICH_TEXT_ALLOWED_ATTRS = {
   ol: [],
   li: [],
 };
+
+const INLINE_BOLD_REGEX = /font-weight\s*:\s*(bold|[5-9]00)\b/i;
+const INLINE_ITALIC_REGEX = /font-style\s*:\s*italic\b/i;
 
 function sanitizeRichTextElement(root) {
   if (!root) return "";
@@ -140,6 +143,34 @@ function sanitizeRichTextElement(root) {
       return;
     }
     const lowerTag = tagName.toLowerCase();
+    if (lowerTag === "span" && !node.hasAttribute("data-rich-checkbox-wrapper")) {
+      const styleValue = node.getAttribute("style") || "";
+      const hasBold = INLINE_BOLD_REGEX.test(styleValue);
+      const hasItalic = INLINE_ITALIC_REGEX.test(styleValue);
+      if (hasBold || hasItalic) {
+        const parent = node.parentNode;
+        if (parent) {
+          let content = document.createDocumentFragment();
+          while (node.firstChild) {
+            content.appendChild(node.firstChild);
+          }
+          if (hasItalic) {
+            const em = document.createElement("em");
+            em.appendChild(content);
+            content = em;
+          }
+          if (hasBold) {
+            const strong = document.createElement("strong");
+            strong.appendChild(content);
+            content = strong;
+          }
+          parent.replaceChild(content, node);
+        } else {
+          node.replaceWith(node.textContent || "");
+        }
+        return;
+      }
+    }
     const allowedAttrs = RICH_TEXT_ALLOWED_ATTRS[lowerTag] || [];
     Array.from(node.attributes).forEach((attr) => {
       const name = attr.name.toLowerCase();
@@ -156,6 +187,9 @@ function sanitizeRichTextElement(root) {
         node.setAttribute("type", "checkbox");
       }
     });
+    if (lowerTag === "span") {
+      node.removeAttribute("style");
+    }
     if (lowerTag === "input") {
       const isChecked = node.checked || node.hasAttribute("checked");
       if (isChecked) node.setAttribute("checked", "");
