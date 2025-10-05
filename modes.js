@@ -8,6 +8,37 @@ const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+function consigneCategoryStorageKey(uid, mode) {
+  if (!uid || !mode) return null;
+  return ["consigne", "last-category", uid, mode].map((part) => String(part)).join(":");
+}
+
+function readStoredConsigneCategory(uid, mode) {
+  const key = consigneCategoryStorageKey(uid, mode);
+  if (!key) return null;
+  try {
+    return typeof localStorage !== "undefined" ? localStorage.getItem(key) || null : null;
+  } catch (error) {
+    modesLogger?.debug?.("consigne.category.read.error", error);
+    return null;
+  }
+}
+
+function storeConsigneCategory(uid, mode, category) {
+  const key = consigneCategoryStorageKey(uid, mode);
+  if (!key) return;
+  try {
+    if (typeof localStorage === "undefined") return;
+    if (category) {
+      localStorage.setItem(key, category);
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch (error) {
+    modesLogger?.debug?.("consigne.category.store.error", error);
+  }
+}
+
 // Default limits for auto-growing textareas. The max height can be overridden
 // with a `data-auto-grow-max` attribute when needed, but defaults to 320px to
 // avoid runaway layouts while keeping enough room for comfortable editing.
@@ -2331,10 +2362,14 @@ function collectAnswers(form, consignes, options = {}) {
   return answers;
 }
 
-async function openConsigneForm(ctx, consigne = null) {
+async function openConsigneForm(ctx, consigne = null, options = {}) {
   const mode = consigne?.mode || (ctx.route.includes("/practice") ? "practice" : "daily");
   modesLogger.group("ui.consigneForm.open", { mode, consigneId: consigne?.id || null });
-  const catUI = await categorySelect(ctx, mode, consigne?.category || null);
+  const uid = ctx?.user?.uid || null;
+  const lastStoredCategory = readStoredConsigneCategory(uid, mode);
+  const defaultCategory = options?.defaultCategory || null;
+  const initialCategory = consigne?.category ?? defaultCategory ?? lastStoredCategory ?? "";
+  const catUI = await categorySelect(ctx, mode, initialCategory);
   const priority = Number(consigne?.priority ?? 2);
   const monthKey = Schema.monthKeyFromDate(new Date());
   let objectifs = [];
@@ -2863,6 +2898,8 @@ async function openConsigneForm(ctx, consigne = null) {
       }
 
       await Schema.ensureCategory(ctx.db, ctx.user.uid, cat, mode);
+
+      storeConsigneCategory(ctx?.user?.uid || null, mode, cat);
 
       const payload = {
         ownerUid: ctx.user.uid,
@@ -4028,7 +4065,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       navigate(`${toAppPath(base)}?cat=${encodeURIComponent(value)}`);
     };
   }
-  card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
+  card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null, { defaultCategory: currentCat });
   const dashBtn = card.querySelector(".js-dashboard");
   if (dashBtn) {
     const hasCategory = Boolean(currentCat);
