@@ -2060,6 +2060,56 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
 
       let pending = null;
       let lastSerialized = hidden ? hidden.value : null;
+      let savedSelection = null;
+      let selectionFrame = null;
+
+      const ownerDocument = content?.ownerDocument || document;
+
+      const isRangeInsideContent = (range) => {
+        if (!content || !range) return false;
+        const ancestor = range.commonAncestorContainer;
+        if (!ancestor) return false;
+        return content === ancestor || content.contains(ancestor);
+      };
+
+      const captureSelection = () => {
+        if (!ownerDocument || typeof ownerDocument.getSelection !== "function") {
+          savedSelection = null;
+          return;
+        }
+        const selection = ownerDocument.getSelection();
+        if (!selection || selection.rangeCount === 0) {
+          return;
+        }
+        const range = selection.getRangeAt(0);
+        if (!isRangeInsideContent(range)) {
+          return;
+        }
+        savedSelection = range.cloneRange();
+      };
+
+      const scheduleSelectionCapture = () => {
+        if (selectionFrame !== null) {
+          caf(selectionFrame);
+        }
+        selectionFrame = raf(() => {
+          selectionFrame = null;
+          captureSelection();
+        });
+      };
+
+      const restoreSelection = () => {
+        if (!savedSelection || !ownerDocument || typeof ownerDocument.getSelection !== "function") return;
+        const selection = ownerDocument.getSelection();
+        if (!selection) return;
+        selection.removeAllRanges();
+        try {
+          const range = savedSelection.cloneRange ? savedSelection.cloneRange() : savedSelection;
+          selection.addRange(range);
+        } catch (error) {
+          captureSelection();
+        }
+      };
 
       const sync = () => {
         pending = null;
@@ -2116,6 +2166,16 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
         });
       };
 
+      if (content) {
+        content.addEventListener("mouseup", scheduleSelectionCapture);
+        content.addEventListener("keyup", scheduleSelectionCapture);
+        content.addEventListener("focus", scheduleSelectionCapture);
+      }
+
+      if (ownerDocument && typeof ownerDocument.addEventListener === "function") {
+        ownerDocument.addEventListener("selectionchange", scheduleSelectionCapture);
+      }
+
       if (toolbar && content) {
         toolbar.addEventListener("click", (event) => {
           const button = event.target.closest("[data-rich-command]");
@@ -2126,6 +2186,7 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
           if (content && typeof content.focus === "function") {
             content.focus();
           }
+          restoreSelection();
           if (command === "checkbox") {
             const html = '<span data-rich-checkbox-wrapper="1"><input type="checkbox" data-rich-checkbox="1"></span>&nbsp;';
             if (typeof document.execCommand === "function") {
@@ -2134,6 +2195,7 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
           } else if (typeof document.execCommand === "function") {
             document.execCommand(command, false, null);
           }
+          scheduleSelectionCapture();
           schedule();
         });
       }
