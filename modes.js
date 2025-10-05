@@ -2044,602 +2044,660 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
       <div class="consigne-rich-text__content consigne-editor__textarea" data-rich-text-content contenteditable="true"${placeholderAttr}>${initialHtml}</div>
       <input type="hidden"${hiddenIdAttr} name="${escapeHtml(String(name))}" value="${serialized}" data-rich-text-input data-rich-text-version="${RICH_TEXT_VERSION}">
     </div>
-    <script>(() => {
-      const script = document.currentScript;
-      const root = script?.previousElementSibling;
-      if (!root || !root.hasAttribute("data-rich-text-root")) return;
-      const utils = window.Modes?.richText || {};
-      const content = root.querySelector("[data-rich-text-content]");
-      const hidden = root.querySelector("[data-rich-text-input]");
-      const toolbar = root.querySelector("[data-rich-text-toolbar]");
-      const sanitizeElement = typeof utils.sanitizeElement === "function" ? utils.sanitizeElement : null;
-      const sanitizeHtml = typeof utils.sanitizeHtml === "function" ? utils.sanitizeHtml : (value) => value;
-      const toPlainText = typeof utils.toPlainText === "function" ? utils.toPlainText : (value) => value;
-      const hasContent = typeof utils.hasContent === "function" ? utils.hasContent : null;
-      const ensureStructure = typeof utils.ensureStructure === "function" ? utils.ensureStructure : null;
-      const raf = window.requestAnimationFrame || ((cb) => window.setTimeout(cb, 16));
-      const caf = window.cancelAnimationFrame || window.clearTimeout;
+  `;
+}
 
-      const ensureNotEmpty = () => {
-        if (!content) return;
-        if (!content.innerHTML || !content.innerHTML.trim()) {
-          content.innerHTML = "<p><br></p>";
-        }
-      };
+function setupRichTextEditor(root) {
+  if (!(root instanceof HTMLElement)) return;
+  if (root.dataset.richTextReady === "1") return;
 
-      const applyInitialState = () => {
-        if (!content || !hidden) return;
-        let parsed = null;
-        try {
-          parsed = JSON.parse(hidden.value || "{}");
-        } catch (error) {
-          parsed = null;
-        }
-        if (parsed && parsed.html) {
-          const html = ensureStructure ? ensureStructure(parsed.html) : parsed.html;
-          content.innerHTML = html && html.trim() ? html : "<p><br></p>";
-        }
-        const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
-        boxes.forEach((box, index) => {
-          box.setAttribute("data-rich-checkbox", "1");
-          box.setAttribute("data-rich-checkbox-index", String(index));
-          if (parsed && Array.isArray(parsed.checkboxes) && parsed.checkboxes[index]) {
-            box.checked = true;
-            box.setAttribute("checked", "");
-          } else if (box.checked) {
-            box.setAttribute("checked", "");
-          } else {
-            box.removeAttribute("checked");
-          }
-        });
-        ensureNotEmpty();
-      };
+  const utils = window.Modes?.richText || {};
+  const content = root.querySelector("[data-rich-text-content]");
+  const hidden = root.querySelector("[data-rich-text-input]");
+  const toolbar = root.querySelector("[data-rich-text-toolbar]");
 
-      applyInitialState();
+  if (!hidden || !content) return;
 
-      let pending = null;
-      let lastSerialized = hidden ? hidden.value : null;
-      let savedSelection = null;
-      let savedSelectionInfo = null;
-      let selectionFrame = null;
+  const sanitizeElement = typeof utils.sanitizeElement === "function" ? utils.sanitizeElement : null;
+  const sanitizeHtml = typeof utils.sanitizeHtml === "function" ? utils.sanitizeHtml : (value) => value;
+  const toPlainText = typeof utils.toPlainText === "function" ? utils.toPlainText : (value) => value;
+  const hasContent = typeof utils.hasContent === "function" ? utils.hasContent : null;
+  const ensureStructure = typeof utils.ensureStructure === "function" ? utils.ensureStructure : null;
+  const raf = window.requestAnimationFrame || ((cb) => window.setTimeout(cb, 16));
+  const caf = window.cancelAnimationFrame || window.clearTimeout;
 
-      const ownerDocument = content?.ownerDocument || document;
+  const ensureNotEmpty = () => {
+    if (!content) return;
+    if (!content.innerHTML || !content.innerHTML.trim()) {
+      content.innerHTML = "<p><br></p>";
+    }
+  };
 
-      const isRangeInsideContent = (range) => {
-        if (!content || !range) return false;
-        const ancestor = range.commonAncestorContainer;
-        if (!ancestor) return false;
-        return content === ancestor || content.contains(ancestor);
-      };
+  const applyInitialState = () => {
+    if (!content || !hidden) return;
+    let parsed = null;
+    try {
+      parsed = JSON.parse(hidden.value || "{}");
+    } catch (error) {
+      parsed = null;
+    }
+    if (parsed && parsed.html) {
+      const html = ensureStructure ? ensureStructure(parsed.html) : parsed.html;
+      content.innerHTML = html && html.trim() ? html : "<p><br></p>";
+    }
+    const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
+    boxes.forEach((box, index) => {
+      box.setAttribute("data-rich-checkbox", "1");
+      box.setAttribute("data-rich-checkbox-index", String(index));
+      if (parsed && Array.isArray(parsed.checkboxes) && parsed.checkboxes[index]) {
+        box.checked = true;
+        box.setAttribute("checked", "");
+      } else if (box.checked) {
+        box.setAttribute("checked", "");
+      } else {
+        box.removeAttribute("checked");
+      }
+    });
+    ensureNotEmpty();
+  };
 
-      const computeNodePath = (node) => {
-        if (!content || !node) return null;
-        if (node === content) return [];
-        const path = [];
-        let current = node;
-        while (current && current !== content) {
-          const parent = current.parentNode;
-          if (!parent) return null;
-          const index = Array.prototype.indexOf.call(parent.childNodes || [], current);
-          if (index < 0) return null;
-          path.unshift(index);
-          current = parent;
-        }
-        return current === content ? path : null;
-      };
+  applyInitialState();
 
-      const resolveNodePath = (path) => {
-        if (!content || !Array.isArray(path)) return null;
-        let current = content;
-        for (let i = 0; i < path.length; i += 1) {
-          if (!current || !current.childNodes) return null;
-          current = current.childNodes[path[i]] || null;
-        }
-        return current;
-      };
+  let pending = null;
+  let lastSerialized = hidden ? hidden.value : null;
+  let savedSelection = null;
+  let savedSelectionInfo = null;
+  let selectionFrame = null;
 
-      const clampOffset = (node, offset) => {
-        if (!node) return 0;
-        const length = node.nodeType === Node.TEXT_NODE
-          ? (node.textContent || "").length
-          : (node.childNodes ? node.childNodes.length : 0);
-        if (!Number.isFinite(offset)) return length;
-        return Math.max(0, Math.min(offset, length));
-      };
+  const ownerDocument = content?.ownerDocument || document;
 
-      const cloneSelectionInfo = (info) => {
-        if (!info) return null;
-        try {
-          return JSON.parse(JSON.stringify(info));
-        } catch (error) {
-          return null;
-        }
-      };
+  const isRangeInsideContent = (range) => {
+    if (!content || !range) return false;
+    const ancestor = range.commonAncestorContainer;
+    if (!ancestor) return false;
+    return content === ancestor || content.contains(ancestor);
+  };
 
-      const computeTextIndex = (node, offset) => {
-        if (!content || !ownerDocument || typeof ownerDocument.createRange !== "function") {
-          return null;
-        }
-        try {
-          const range = ownerDocument.createRange();
-          range.selectNodeContents(content);
-          const clampedOffset = clampOffset(node, offset);
-          range.setEnd(node, clampedOffset);
-          return range.toString().length;
-        } catch (error) {
-          return null;
-        }
-      };
+  const computeNodePath = (node) => {
+    if (!content || !node) return null;
+    if (node === content) return [];
+    const path = [];
+    let current = node;
+    while (current && current !== content) {
+      const parent = current.parentNode;
+      if (!parent) return null;
+      const index = Array.prototype.indexOf.call(parent.childNodes || [], current);
+      if (index < 0) return null;
+      path.unshift(index);
+      current = parent;
+    }
+    return current === content ? path : null;
+  };
 
-      const storeSelectionInfo = (range) => {
-        if (!range) {
-          savedSelectionInfo = null;
-          return;
-        }
-        const startPath = computeNodePath(range.startContainer);
-        const endPath = computeNodePath(range.endContainer);
-        if (!startPath || !endPath) {
-          savedSelectionInfo = null;
-          return;
-        }
-        const startOffset = clampOffset(range.startContainer, range.startOffset);
-        const endOffset = clampOffset(range.endContainer, range.endOffset);
-        const startIndex = computeTextIndex(range.startContainer, startOffset);
-        const endIndex = computeTextIndex(range.endContainer, endOffset);
-        const selectionText = typeof range.toString === "function" ? range.toString() : "";
-        savedSelectionInfo = {
-          start: {
-            path: startPath,
-            offset: startOffset,
-            textIndex: Number.isFinite(startIndex) ? startIndex : null,
-          },
-          end: {
-            path: endPath,
-            offset: endOffset,
-            textIndex: Number.isFinite(endIndex) ? endIndex : null,
-          },
-          collapsed: Boolean(range.collapsed),
-          text: selectionText,
-        };
-      };
+  const resolveNodePath = (path) => {
+    if (!content || !Array.isArray(path)) return null;
+    let current = content;
+    for (let i = 0; i < path.length; i += 1) {
+      if (!current || !current.childNodes) return null;
+      current = current.childNodes[path[i]] || null;
+    }
+    return current;
+  };
 
-      const resolveTextIndex = (index) => {
-        if (!content || !Number.isFinite(index) || !ownerDocument) {
-          return null;
-        }
-        const walker = ownerDocument.createTreeWalker(content, NodeFilter.SHOW_TEXT, null);
-        let remaining = index;
-        let lastNode = null;
-        while (walker.nextNode()) {
-          const node = walker.currentNode;
-          const length = (node.textContent || "").length;
-          lastNode = node;
-          if (remaining <= length) {
-            return {
-              node,
-              offset: Math.max(0, Math.min(remaining, length)),
-            };
-          }
-          remaining -= length;
-        }
-        if (!lastNode) return null;
-        const tailLength = (lastNode.textContent || "").length;
+  const clampOffset = (node, offset) => {
+    if (!node) return 0;
+    const length = node.nodeType === Node.TEXT_NODE
+      ? (node.textContent || "").length
+      : (node.childNodes ? node.childNodes.length : 0);
+    if (!Number.isFinite(offset)) return length;
+    return Math.max(0, Math.min(offset, length));
+  };
+
+  const cloneSelectionInfo = (info) => {
+    if (!info) return null;
+    try {
+      return JSON.parse(JSON.stringify(info));
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const computeTextIndex = (node, offset) => {
+    if (!content || !ownerDocument || typeof ownerDocument.createRange !== "function") {
+      return null;
+    }
+    try {
+      const range = ownerDocument.createRange();
+      range.selectNodeContents(content);
+      const clampedOffset = clampOffset(node, offset);
+      range.setEnd(node, clampedOffset);
+      return range.toString().length;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const storeSelectionInfo = (range) => {
+    if (!range) {
+      savedSelectionInfo = null;
+      return;
+    }
+    const startPath = computeNodePath(range.startContainer);
+    const endPath = computeNodePath(range.endContainer);
+    if (!startPath || !endPath) {
+      savedSelectionInfo = null;
+      return;
+    }
+    const startOffset = clampOffset(range.startContainer, range.startOffset);
+    const endOffset = clampOffset(range.endContainer, range.endOffset);
+    const startIndex = computeTextIndex(range.startContainer, startOffset);
+    const endIndex = computeTextIndex(range.endContainer, endOffset);
+    const selectionText = typeof range.toString === "function" ? range.toString() : "";
+    savedSelectionInfo = {
+      start: {
+        path: startPath,
+        offset: startOffset,
+        textIndex: Number.isFinite(startIndex) ? startIndex : null,
+      },
+      end: {
+        path: endPath,
+        offset: endOffset,
+        textIndex: Number.isFinite(endIndex) ? endIndex : null,
+      },
+      collapsed: Boolean(range.collapsed),
+      text: selectionText,
+    };
+  };
+
+  const resolveTextIndex = (index) => {
+    if (!content || !Number.isFinite(index) || !ownerDocument) {
+      return null;
+    }
+    const walker = ownerDocument.createTreeWalker(content, NodeFilter.SHOW_TEXT, null);
+    let remaining = index;
+    let lastNode = null;
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const length = (node.textContent || "").length;
+      lastNode = node;
+      if (remaining <= length) {
         return {
-          node: lastNode,
-          offset: tailLength,
+          node,
+          offset: Math.max(0, Math.min(remaining, length)),
         };
-      };
+      }
+      remaining -= length;
+    }
+    if (!lastNode) return null;
+    const tailLength = (lastNode.textContent || "").length;
+    return {
+      node: lastNode,
+      offset: tailLength,
+    };
+  };
 
-      const buildRangeFromInfo = (info) => {
-        if (!info || !ownerDocument || typeof ownerDocument.createRange !== "function") return null;
-        const range = ownerDocument.createRange();
-        const startNode = resolveNodePath(info.start?.path);
-        const endNode = resolveNodePath(info.end?.path);
-        if (!startNode || !endNode) return null;
-        const startOffset = clampOffset(startNode, info.start?.offset);
-        const endOffset = clampOffset(endNode, info.end?.offset);
-        try {
-          range.setStart(startNode, startOffset);
-          range.setEnd(endNode, endOffset);
-          return range;
-        } catch (error) {
-          return null;
+  const buildRangeFromInfo = (info) => {
+    if (!info || !ownerDocument || typeof ownerDocument.createRange !== "function") return null;
+    const range = ownerDocument.createRange();
+    const startNode = resolveNodePath(info.start?.path);
+    const endNode = resolveNodePath(info.end?.path);
+    if (!startNode || !endNode) return null;
+    const startOffset = clampOffset(startNode, info.start?.offset);
+    const endOffset = clampOffset(endNode, info.end?.offset);
+    try {
+      range.setStart(startNode, startOffset);
+      range.setEnd(endNode, endOffset);
+      return range;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const buildRangeFromTextIndex = (info) => {
+    if (!info || !ownerDocument || typeof ownerDocument.createRange !== "function") return null;
+    const startIndex = Number.isFinite(info?.start?.textIndex) ? info.start.textIndex : null;
+    let endIndex = Number.isFinite(info?.end?.textIndex) ? info.end.textIndex : null;
+    if (endIndex == null && startIndex != null) {
+      if (info?.collapsed) {
+        endIndex = startIndex;
+      } else if (typeof info?.text === "string") {
+        endIndex = startIndex + info.text.length;
+      }
+    }
+    const start = resolveTextIndex(startIndex);
+    const end = resolveTextIndex(endIndex);
+    if (!start || !end) return null;
+    try {
+      const range = ownerDocument.createRange();
+      range.setStart(start.node, clampOffset(start.node, start.offset));
+      range.setEnd(end.node, clampOffset(end.node, end.offset));
+      return range;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const buildFallbackRange = () => {
+    if (!content || !ownerDocument || typeof ownerDocument.createRange !== "function") return null;
+    try {
+      const range = ownerDocument.createRange();
+      range.selectNodeContents(content);
+      range.collapse(false);
+      return range;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const captureSelection = () => {
+    if (!ownerDocument || typeof ownerDocument.getSelection !== "function") {
+      savedSelection = null;
+      savedSelectionInfo = null;
+      return;
+    }
+    const selection = ownerDocument.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    if (!isRangeInsideContent(range)) {
+      return;
+    }
+    savedSelection = range.cloneRange();
+    storeSelectionInfo(savedSelection);
+  };
+
+  const scheduleSelectionCapture = () => {
+    if (selectionFrame !== null) {
+      caf(selectionFrame);
+    }
+    selectionFrame = raf(() => {
+      selectionFrame = null;
+      if (!ownerDocument || typeof ownerDocument.getSelection !== "function") {
+        return;
+      }
+      const selection = ownerDocument.getSelection();
+      if (!selection || selection.rangeCount === 0) {
+        return;
+      }
+      let range = null;
+      try {
+        range = selection.getRangeAt(0);
+      } catch (error) {
+        range = null;
+      }
+      if (!range || !isRangeInsideContent(range)) {
+        return;
+      }
+      captureSelection();
+    });
+  };
+
+  const restoreSelection = () => {
+    if (!ownerDocument || typeof ownerDocument.getSelection !== "function") return;
+    const selection = ownerDocument.getSelection();
+    if (!selection) return;
+
+    const attemptAddRange = (range, { persist = true } = {}) => {
+      if (!range) return false;
+      selection.removeAllRanges();
+      try {
+        selection.addRange(range);
+        if (persist) {
+          savedSelection = range.cloneRange ? range.cloneRange() : range;
+          storeSelectionInfo(savedSelection);
         }
-      };
+        return true;
+      } catch (error) {
+        selection.removeAllRanges();
+        return false;
+      }
+    };
 
-      const buildRangeFromTextIndex = (info) => {
-        if (!info || !ownerDocument || typeof ownerDocument.createRange !== "function") return null;
-        const startIndex = Number.isFinite(info?.start?.textIndex) ? info.start.textIndex : null;
-        let endIndex = Number.isFinite(info?.end?.textIndex) ? info.end.textIndex : null;
-        if (endIndex == null && startIndex != null) {
-          if (info?.collapsed) {
-            endIndex = startIndex;
-          } else if (typeof info?.text === "string") {
-            endIndex = startIndex + info.text.length;
-          }
-        }
-        const start = resolveTextIndex(startIndex);
-        const end = resolveTextIndex(endIndex);
-        if (!start || !end) return null;
-        try {
-          const range = ownerDocument.createRange();
-          range.setStart(start.node, clampOffset(start.node, start.offset));
-          range.setEnd(end.node, clampOffset(end.node, end.offset));
-          return range;
-        } catch (error) {
-          return null;
-        }
-      };
+    const selectionInfoBackup = cloneSelectionInfo(savedSelectionInfo);
+    const savedSelectionBackup = savedSelection && savedSelection.cloneRange
+      ? savedSelection.cloneRange()
+      : savedSelection;
+    const primaryRange = savedSelection && savedSelection.cloneRange
+      ? savedSelection.cloneRange()
+      : savedSelection;
 
-      const buildFallbackRange = () => {
-        if (!content || !ownerDocument || typeof ownerDocument.createRange !== "function") return null;
-        try {
-          const range = ownerDocument.createRange();
-          range.selectNodeContents(content);
-          range.collapse(false);
-          return range;
-        } catch (error) {
-          return null;
-        }
-      };
+    if (attemptAddRange(primaryRange)) {
+      return;
+    }
 
-      const captureSelection = () => {
-        if (!ownerDocument || typeof ownerDocument.getSelection !== "function") {
-          savedSelection = null;
-          savedSelectionInfo = null;
-          return;
-        }
-        const selection = ownerDocument.getSelection();
-        if (!selection || selection.rangeCount === 0) {
-          return;
-        }
-        const range = selection.getRangeAt(0);
-        if (!isRangeInsideContent(range)) {
-          return;
-        }
-        savedSelection = range.cloneRange();
-        storeSelectionInfo(savedSelection);
-      };
+    const fallbackCandidates = [];
+    if (selectionInfoBackup) {
+      const rebuiltFromInfo = buildRangeFromInfo(selectionInfoBackup);
+      const rebuiltFromIndex = buildRangeFromTextIndex(selectionInfoBackup);
+      if (rebuiltFromInfo) {
+        fallbackCandidates.push({ range: rebuiltFromInfo, persist: true });
+      }
+      if (rebuiltFromIndex) {
+        fallbackCandidates.push({ range: rebuiltFromIndex, persist: true });
+      }
+    }
+    fallbackCandidates.push({ range: buildFallbackRange(), persist: false });
 
-      const scheduleSelectionCapture = () => {
-        if (selectionFrame !== null) {
-          caf(selectionFrame);
-        }
-        selectionFrame = raf(() => {
-          selectionFrame = null;
-          if (!ownerDocument || typeof ownerDocument.getSelection !== "function") {
-            return;
-          }
-          const selection = ownerDocument.getSelection();
-          if (!selection || selection.rangeCount === 0) {
-            return;
-          }
-          let range = null;
-          try {
-            range = selection.getRangeAt(0);
-          } catch (error) {
-            range = null;
-          }
-          if (!range || !isRangeInsideContent(range)) {
-            return;
-          }
-          captureSelection();
-        });
-      };
-
-      const restoreSelection = () => {
-        if (!ownerDocument || typeof ownerDocument.getSelection !== "function") return;
-        const selection = ownerDocument.getSelection();
-        if (!selection) return;
-
-        const attemptAddRange = (range, { persist = true } = {}) => {
-          if (!range) return false;
-          selection.removeAllRanges();
-          try {
-            selection.addRange(range);
-            if (persist) {
-              savedSelection = range.cloneRange ? range.cloneRange() : range;
-              storeSelectionInfo(savedSelection);
-            }
-            return true;
-          } catch (error) {
-            selection.removeAllRanges();
-            return false;
-          }
-        };
-
-        const selectionInfoBackup = cloneSelectionInfo(savedSelectionInfo);
-        const savedSelectionBackup = savedSelection && savedSelection.cloneRange
-          ? savedSelection.cloneRange()
-          : savedSelection;
-        const primaryRange = savedSelection && savedSelection.cloneRange
-          ? savedSelection.cloneRange()
-          : savedSelection;
-
-        if (attemptAddRange(primaryRange)) {
-          return;
-        }
-
-        const fallbackCandidates = [];
-        if (selectionInfoBackup) {
-          const rebuiltFromInfo = buildRangeFromInfo(selectionInfoBackup);
-          const rebuiltFromIndex = buildRangeFromTextIndex(selectionInfoBackup);
-          if (rebuiltFromInfo) {
-            fallbackCandidates.push({ range: rebuiltFromInfo, persist: true });
-          }
-          if (rebuiltFromIndex) {
-            fallbackCandidates.push({ range: rebuiltFromIndex, persist: true });
-          }
-        }
-        fallbackCandidates.push({ range: buildFallbackRange(), persist: false });
-
-        for (let i = 0; i < fallbackCandidates.length; i += 1) {
-          const candidate = fallbackCandidates[i];
-          if (attemptAddRange(candidate.range, { persist: candidate.persist })) {
-            if (!candidate.persist && selectionInfoBackup) {
-              savedSelection = savedSelectionBackup && savedSelectionBackup.cloneRange
-                ? savedSelectionBackup.cloneRange()
-                : savedSelectionBackup;
-              savedSelectionInfo = selectionInfoBackup;
-            }
-            return;
-          }
-        }
-
-        savedSelection = null;
-        if (selectionInfoBackup) {
+    for (let i = 0; i < fallbackCandidates.length; i += 1) {
+      const candidate = fallbackCandidates[i];
+      if (attemptAddRange(candidate.range, { persist: candidate.persist })) {
+        if (!candidate.persist && selectionInfoBackup) {
+          savedSelection = savedSelectionBackup && savedSelectionBackup.cloneRange
+            ? savedSelectionBackup.cloneRange()
+            : savedSelectionBackup;
           savedSelectionInfo = selectionInfoBackup;
         }
-      };
-
-      const sync = () => {
-        pending = null;
-        if (!content || !hidden) return;
-        if (sanitizeElement) {
-          const selectionInfoBackup = cloneSelectionInfo(savedSelectionInfo);
-          sanitizeElement(content);
-          if (savedSelectionInfo) {
-            let refreshed = buildRangeFromInfo(savedSelectionInfo);
-            let shouldPersist = Boolean(refreshed);
-            if (!refreshed && selectionInfoBackup) {
-              refreshed = buildRangeFromTextIndex(selectionInfoBackup);
-              shouldPersist = Boolean(refreshed);
-            }
-            if (!refreshed) {
-              refreshed = buildFallbackRange();
-              shouldPersist = false;
-            }
-            if (refreshed) {
-              if (shouldPersist) {
-                savedSelection = refreshed.cloneRange ? refreshed.cloneRange() : refreshed;
-                storeSelectionInfo(savedSelection);
-              } else {
-                savedSelection = null;
-                if (selectionInfoBackup) {
-                  savedSelectionInfo = selectionInfoBackup;
-                }
-              }
-            } else {
-              savedSelection = null;
-              if (selectionInfoBackup) {
-                savedSelectionInfo = selectionInfoBackup;
-              }
-            }
-          }
-        }
-        const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
-        boxes.forEach((box, index) => {
-          box.setAttribute("data-rich-checkbox", "1");
-          box.setAttribute("data-rich-checkbox-index", String(index));
-          if (box.checked) {
-            box.setAttribute("checked", "");
-          } else {
-            box.removeAttribute("checked");
-          }
-        });
-        ensureNotEmpty();
-        const html = sanitizeHtml(content.innerHTML);
-        const plain = toPlainText(html);
-        const payload = {
-          kind: "richtext",
-          version: utils.version || ${RICH_TEXT_VERSION},
-          html,
-          text: plain,
-          checkboxes: boxes.map((box) => Boolean(box.checked)),
-        };
-        const serializedValue = JSON.stringify(payload);
-        if (content) {
-          if (hasContent && hasContent(payload)) {
-            content.removeAttribute("data-rich-text-empty");
-          } else {
-            content.setAttribute("data-rich-text-empty", "1");
-          }
-        }
-        if (serializedValue === lastSerialized) return;
-        lastSerialized = serializedValue;
-        hidden.value = serializedValue;
-        if (hasContent) {
-          if (hasContent(payload)) delete hidden.dataset.richTextEmpty;
-          else hidden.dataset.richTextEmpty = "1";
-        }
-        hidden.dispatchEvent(new Event("input", { bubbles: true }));
-        hidden.dispatchEvent(new Event("change", { bubbles: true }));
-      };
-
-      const schedule = () => {
-        if (pending !== null) {
-          caf(pending);
-        }
-        pending = raf(() => {
-          pending = null;
-          sync();
-        });
-      };
-
-      if (content) {
-        content.addEventListener("mouseup", scheduleSelectionCapture);
-        content.addEventListener("keyup", scheduleSelectionCapture);
-        content.addEventListener("focus", scheduleSelectionCapture);
+        return;
       }
+    }
 
-      if (ownerDocument && typeof ownerDocument.addEventListener === "function") {
-        ownerDocument.addEventListener("selectionchange", scheduleSelectionCapture);
-      }
+    savedSelection = null;
+    if (selectionInfoBackup) {
+      savedSelectionInfo = selectionInfoBackup;
+    }
+  };
 
-      const tryExecCommand = (cmd, value = null) => {
-        if (typeof document.execCommand !== "function") return false;
-        try {
-          const result = document.execCommand(cmd, false, value);
-          return result !== false;
-        } catch (error) {
-          return false;
+  const sync = () => {
+    pending = null;
+    if (!content || !hidden) return;
+    if (sanitizeElement) {
+      const selectionInfoBackup = cloneSelectionInfo(savedSelectionInfo);
+      sanitizeElement(content);
+      if (savedSelectionInfo) {
+        let refreshed = buildRangeFromInfo(savedSelectionInfo);
+        let shouldPersist = Boolean(refreshed);
+        if (!refreshed && selectionInfoBackup) {
+          refreshed = buildRangeFromTextIndex(selectionInfoBackup);
+          shouldPersist = Boolean(refreshed);
         }
-      };
-
-      const getActiveRange = () => {
-        if (!ownerDocument || typeof ownerDocument.getSelection !== "function") return null;
-        const selection = ownerDocument.getSelection();
-        if (!selection || selection.rangeCount === 0) return null;
-        let range = null;
-        try {
-          range = selection.getRangeAt(0);
-        } catch (error) {
-          range = null;
+        if (!refreshed) {
+          refreshed = buildFallbackRange();
+          shouldPersist = false;
         }
-        if (!range || !isRangeInsideContent(range)) return null;
-        return range;
-      };
-
-      const reapplyRangeSelection = (range) => {
-        if (!range || !ownerDocument || typeof ownerDocument.getSelection !== "function") return false;
-        const selection = ownerDocument.getSelection();
-        if (!selection) return false;
-        selection.removeAllRanges();
-        try {
-          selection.addRange(range);
-        } catch (error) {
-          selection.removeAllRanges();
-          return false;
-        }
-        savedSelection = range.cloneRange ? range.cloneRange() : range;
-        storeSelectionInfo(savedSelection);
-        return true;
-      };
-
-      const fallbackInsertCheckbox = () => {
-        if (!ownerDocument || typeof ownerDocument.createRange !== "function" || typeof ownerDocument.createElement !== "function") {
-          return false;
-        }
-        const range = getActiveRange();
-        if (!range) return false;
-        const wrapper = ownerDocument.createElement("span");
-        wrapper.setAttribute("data-rich-checkbox-wrapper", "1");
-        const input = ownerDocument.createElement("input");
-        input.setAttribute("type", "checkbox");
-        input.setAttribute("data-rich-checkbox", "1");
-        wrapper.appendChild(input);
-        const space = ownerDocument.createTextNode("\u00a0");
-        const fragment = ownerDocument.createDocumentFragment();
-        fragment.appendChild(wrapper);
-        fragment.appendChild(space);
-        try {
-          range.deleteContents();
-          range.insertNode(fragment);
-        } catch (error) {
-          wrapper.remove();
-          return false;
-        }
-        const newRange = ownerDocument.createRange();
-        try {
-          if (space.parentNode) {
-            const spaceLength = space.textContent ? space.textContent.length : 0;
-            newRange.setStart(space, spaceLength);
+        if (refreshed) {
+          if (shouldPersist) {
+            savedSelection = refreshed.cloneRange ? refreshed.cloneRange() : refreshed;
+            storeSelectionInfo(savedSelection);
           } else {
-            newRange.setStartAfter(wrapper);
-          }
-          newRange.collapse(true);
-        } catch (error) {
-          return false;
-        }
-        return reapplyRangeSelection(newRange);
-      };
-
-      const fallbackWrapWithTag = (tagName) => {
-        if (!ownerDocument || typeof ownerDocument.createElement !== "function" || typeof ownerDocument.createRange !== "function") {
-          return false;
-        }
-        const range = getActiveRange();
-        if (!range || range.collapsed) return false;
-        const wrapper = ownerDocument.createElement(tagName);
-        let contents = null;
-        try {
-          contents = range.extractContents();
-        } catch (error) {
-          contents = null;
-        }
-        if (!contents) return false;
-        wrapper.appendChild(contents);
-        try {
-          range.insertNode(wrapper);
-        } catch (error) {
-          return false;
-        }
-        const newRange = ownerDocument.createRange();
-        try {
-          newRange.selectNodeContents(wrapper);
-        } catch (error) {
-          return false;
-        }
-        return reapplyRangeSelection(newRange);
-      };
-
-      if (toolbar && content) {
-        toolbar.addEventListener("click", (event) => {
-          const button = event.target.closest("[data-rich-command]");
-          if (!button) return;
-          const command = button.getAttribute("data-rich-command");
-          if (!command) return;
-          event.preventDefault();
-          if (content && typeof content.focus === "function") {
-            content.focus();
-          }
-          restoreSelection();
-          if (command === "checkbox") {
-            const html = '<span data-rich-checkbox-wrapper="1"><input type="checkbox" data-rich-checkbox="1"></span>&nbsp;';
-            if (!tryExecCommand("insertHTML", html)) {
-              fallbackInsertCheckbox();
-            }
-          } else {
-            if (!tryExecCommand(command, null) && (command === "bold" || command === "italic")) {
-              fallbackWrapWithTag(command === "bold" ? "strong" : "em");
+            savedSelection = null;
+            if (selectionInfoBackup) {
+              savedSelectionInfo = selectionInfoBackup;
             }
           }
-          scheduleSelectionCapture();
-          schedule();
-        });
-      }
-
-      if (content) {
-        content.addEventListener("input", schedule);
-        content.addEventListener("change", schedule);
-        content.addEventListener("blur", sync);
-        content.addEventListener("click", (event) => {
-          if (event.target && event.target.matches('input[type="checkbox"]')) {
-            schedule();
+        } else {
+          savedSelection = null;
+          if (selectionInfoBackup) {
+            savedSelectionInfo = selectionInfoBackup;
           }
-        });
-        content.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" && event.shiftKey && typeof document.execCommand === "function") {
-            event.preventDefault();
-            document.execCommand("insertLineBreak", false, null);
-            schedule();
-          }
-        });
+        }
       }
+    }
+    const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
+    boxes.forEach((box, index) => {
+      box.setAttribute("data-rich-checkbox", "1");
+      box.setAttribute("data-rich-checkbox-index", String(index));
+      if (box.checked) {
+        box.setAttribute("checked", "");
+      } else {
+        box.removeAttribute("checked");
+      }
+    });
+    ensureNotEmpty();
+    const html = sanitizeHtml(content.innerHTML);
+    const plain = toPlainText(html);
+    const payload = {
+      kind: "richtext",
+      version: utils.version || RICH_TEXT_VERSION,
+      html,
+      text: plain,
+      checkboxes: boxes.map((box) => Boolean(box.checked)),
+    };
+    const serializedValue = JSON.stringify(payload);
+    if (content) {
+      if (hasContent && hasContent(payload)) {
+        content.removeAttribute("data-rich-text-empty");
+      } else {
+        content.setAttribute("data-rich-text-empty", "1");
+      }
+    }
+    if (serializedValue === lastSerialized) return;
+    lastSerialized = serializedValue;
+    hidden.value = serializedValue;
+    if (hasContent) {
+      if (hasContent(payload)) delete hidden.dataset.richTextEmpty;
+      else hidden.dataset.richTextEmpty = "1";
+    }
+    hidden.dispatchEvent(new Event("input", { bubbles: true }));
+    hidden.dispatchEvent(new Event("change", { bubbles: true }));
+  };
 
+  const schedule = () => {
+    if (pending !== null) {
+      caf(pending);
+    }
+    pending = raf(() => {
+      pending = null;
       sync();
-    })();
-  `;
+    });
+  };
+
+  if (content) {
+    content.addEventListener("mouseup", scheduleSelectionCapture);
+    content.addEventListener("keyup", scheduleSelectionCapture);
+    content.addEventListener("focus", scheduleSelectionCapture);
+  }
+
+  if (ownerDocument && typeof ownerDocument.addEventListener === "function") {
+    ownerDocument.addEventListener("selectionchange", scheduleSelectionCapture);
+  }
+
+  const tryExecCommand = (cmd, value = null) => {
+    if (typeof document.execCommand !== "function") return false;
+    try {
+      const result = document.execCommand(cmd, false, value);
+      return result !== false;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  const getActiveRange = () => {
+    if (!ownerDocument || typeof ownerDocument.getSelection !== "function") return null;
+    const selection = ownerDocument.getSelection();
+    if (!selection || selection.rangeCount === 0) return null;
+    let range = null;
+    try {
+      range = selection.getRangeAt(0);
+    } catch (error) {
+      range = null;
+    }
+    if (!range || !isRangeInsideContent(range)) return null;
+    return range;
+  };
+
+  const reapplyRangeSelection = (range) => {
+    if (!range || !ownerDocument || typeof ownerDocument.getSelection !== "function") return false;
+    const selection = ownerDocument.getSelection();
+    if (!selection) return false;
+    selection.removeAllRanges();
+    try {
+      selection.addRange(range);
+    } catch (error) {
+      selection.removeAllRanges();
+      return false;
+    }
+    savedSelection = range.cloneRange ? range.cloneRange() : range;
+    storeSelectionInfo(savedSelection);
+    return true;
+  };
+
+  const fallbackInsertCheckbox = () => {
+    if (!ownerDocument || typeof ownerDocument.createRange !== "function" || typeof ownerDocument.createElement !== "function") {
+      return false;
+    }
+    const range = getActiveRange();
+    if (!range) return false;
+    const wrapper = ownerDocument.createElement("span");
+    wrapper.setAttribute("data-rich-checkbox-wrapper", "1");
+    const input = ownerDocument.createElement("input");
+    input.setAttribute("type", "checkbox");
+    input.setAttribute("data-rich-checkbox", "1");
+    wrapper.appendChild(input);
+    const space = ownerDocument.createTextNode("\u00a0");
+    const fragment = ownerDocument.createDocumentFragment();
+    fragment.appendChild(wrapper);
+    fragment.appendChild(space);
+    try {
+      range.deleteContents();
+      range.insertNode(fragment);
+    } catch (error) {
+      wrapper.remove();
+      return false;
+    }
+    const newRange = ownerDocument.createRange();
+    try {
+      if (space.parentNode) {
+        const spaceLength = space.textContent ? space.textContent.length : 0;
+        newRange.setStart(space, spaceLength);
+      } else {
+        newRange.setStartAfter(wrapper);
+      }
+      newRange.collapse(true);
+    } catch (error) {
+      return false;
+    }
+    return reapplyRangeSelection(newRange);
+  };
+
+  const fallbackWrapWithTag = (tagName) => {
+    if (!ownerDocument || typeof ownerDocument.createElement !== "function" || typeof ownerDocument.createRange !== "function") {
+      return false;
+    }
+    const range = getActiveRange();
+    if (!range || range.collapsed) return false;
+    const wrapper = ownerDocument.createElement(tagName);
+    let contents = null;
+    try {
+      contents = range.extractContents();
+    } catch (error) {
+      contents = null;
+    }
+    if (!contents) return false;
+    wrapper.appendChild(contents);
+    try {
+      range.insertNode(wrapper);
+    } catch (error) {
+      return false;
+    }
+    const newRange = ownerDocument.createRange();
+    try {
+      newRange.selectNodeContents(wrapper);
+    } catch (error) {
+      return false;
+    }
+    return reapplyRangeSelection(newRange);
+  };
+
+  if (toolbar && content) {
+    toolbar.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-rich-command]");
+      if (!button) return;
+      const command = button.getAttribute("data-rich-command");
+      if (!command) return;
+      event.preventDefault();
+      if (content && typeof content.focus === "function") {
+        content.focus();
+      }
+      restoreSelection();
+      if (command === "checkbox") {
+        const html = '<span data-rich-checkbox-wrapper="1"><input type="checkbox" data-rich-checkbox="1"></span>&nbsp;';
+        if (!tryExecCommand("insertHTML", html)) {
+          fallbackInsertCheckbox();
+        }
+      } else if (!tryExecCommand(command, null) && (command === "bold" || command === "italic")) {
+        fallbackWrapWithTag(command === "bold" ? "strong" : "em");
+      }
+      scheduleSelectionCapture();
+      schedule();
+    });
+  }
+
+  content.addEventListener("input", schedule);
+  content.addEventListener("change", schedule);
+  content.addEventListener("blur", sync);
+  content.addEventListener("click", (event) => {
+    if (event.target && event.target.matches('input[type="checkbox"]')) {
+      schedule();
+    }
+  });
+  content.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.shiftKey && typeof document.execCommand === "function") {
+      event.preventDefault();
+      document.execCommand("insertLineBreak", false, null);
+      schedule();
+    }
+  });
+
+  root.dataset.richTextReady = "1";
+  sync();
+}
+
+function initializeRichTextEditors(scope = document) {
+  if (!scope) return;
+  const targets = [];
+  if (scope instanceof Element) {
+    if (scope.matches("[data-rich-text-root]")) {
+      targets.push(scope);
+    }
+    targets.push(...scope.querySelectorAll("[data-rich-text-root]"));
+  } else if (scope.querySelectorAll) {
+    targets.push(...scope.querySelectorAll("[data-rich-text-root]"));
+  }
+  targets.forEach((root) => {
+    try {
+      setupRichTextEditor(root);
+    } catch (error) {
+      modesLogger?.warn?.("richtext:init:error", error);
+    }
+  });
+}
+
+(function bootstrapRichTextEditors() {
+  const run = () => {
+    initializeRichTextEditors(document);
+    if (typeof MutationObserver !== "function") {
+      return;
+    }
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof Element) {
+            initializeRichTextEditors(node);
+          }
+        });
+      });
+    });
+    if (document.body) {
+      observer.observe(document.body, { childList: true, subtree: true });
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        if (document.body) {
+          observer.observe(document.body, { childList: true, subtree: true });
+        }
+      }, { once: true });
+    }
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", run, { once: true });
+  } else {
+    run();
+  }
+})();
+
+if (window.Modes?.richText) {
+  window.Modes.richText.setup = setupRichTextEditor;
+  window.Modes.richText.setupAll = initializeRichTextEditors;
 }
 
 function inputForType(consigne, initialValue = null) {
