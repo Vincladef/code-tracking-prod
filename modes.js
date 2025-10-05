@@ -5,7 +5,31 @@ const modesFirestore = Schema.firestore || window.firestoreAPI || {};
 
 const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
 
-let checkboxBehaviorModulePromise = null;
+let checkboxBehaviorSetupPromise = null;
+
+function waitForCheckboxSetupFunction() {
+  if (typeof window === "undefined") {
+    return Promise.resolve(null);
+  }
+  const existing = window.setupCheckboxListBehavior;
+  if (typeof existing === "function") {
+    return Promise.resolve(existing);
+  }
+  if (!checkboxBehaviorSetupPromise) {
+    checkboxBehaviorSetupPromise = new Promise((resolve) => {
+      const poll = () => {
+        const fn = window.setupCheckboxListBehavior;
+        if (typeof fn === "function") {
+          resolve(fn);
+          return;
+        }
+        window.setTimeout(poll, 50);
+      };
+      poll();
+    });
+  }
+  return checkboxBehaviorSetupPromise;
+}
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -2066,18 +2090,11 @@ function setupRichTextEditor(root) {
 
   const ensureCheckboxBehavior = () => {
     if (!content || typeof window === "undefined") return;
-    if (!checkboxBehaviorModulePromise) {
-      checkboxBehaviorModulePromise = import("./editor-checkboxes.js").catch((error) => {
-        modesLogger?.warn?.("richtext:checkboxes:import", error);
-        checkboxBehaviorModulePromise = null;
-        return null;
-      });
-    }
-    checkboxBehaviorModulePromise?.then((mod) => {
-      if (!mod || typeof mod.setupCheckboxListBehavior !== "function") return;
+    waitForCheckboxSetupFunction().then((setupFn) => {
+      if (typeof setupFn !== "function") return;
       try {
         const checkboxButton = toolbar?.querySelector('[data-rich-command="checkbox"]');
-        mod.setupCheckboxListBehavior(content, checkboxButton || null);
+        setupFn(content, checkboxButton || null);
       } catch (error) {
         modesLogger?.warn?.("richtext:checkboxes:setup", error);
       }
