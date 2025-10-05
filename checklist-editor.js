@@ -11,9 +11,29 @@
 
 (function () {
   const ZERO_WIDTH = /\u200B/g;
-  const isCbWrap = (n) => !!(n && n.nodeType === 1 && n.classList.contains("cb-wrap"));
+  const isCbWrap = (n) =>
+    !!(
+      n &&
+      n.nodeType === 1 &&
+      (
+        n.classList.contains("cb-wrap") ||
+        (typeof n.getAttribute === "function" && n.getAttribute("data-rich-checkbox-wrapper") === "1")
+      )
+    );
   const isCheckboxEl = (n) => !!(n && n.nodeType === 1 && n.tagName === "INPUT" && n.type === "checkbox");
-  const isCheckboxNode = (n) => isCbWrap(n) || isCheckboxEl(n);
+  const checkboxRoot = (node) => {
+    if (!node) return null;
+    if (isCbWrap(node)) return node;
+    if (isCheckboxEl(node)) {
+      const wrap = node.closest('.cb-wrap, [data-rich-checkbox-wrapper="1"]');
+      return wrap || node;
+    }
+    if (node.nodeType === 1 && node.closest('.cb-wrap, [data-rich-checkbox-wrapper="1"]')) {
+      return node.closest('.cb-wrap, [data-rich-checkbox-wrapper="1"]');
+    }
+    return null;
+  };
+  const isCheckboxNode = (n) => !!checkboxRoot(n);
   const isBreak = (n) => !!(n && n.nodeType === 1 && n.tagName === "BR");
   const isMeaninglessText = (n) =>
     !!(
@@ -41,15 +61,55 @@
     return c || null;
   }
 
-  function makeCb() {
+  function makeCb(existingInput) {
     const wrap = document.createElement("span");
-    wrap.className = "cb-wrap";
+    wrap.classList.add("cb-wrap");
+    wrap.setAttribute("data-rich-checkbox-wrapper", "1");
+    wrap.setAttribute("contenteditable", "false");
     wrap.contentEditable = "false";
-    const cb = document.createElement("input");
+    const cb = existingInput && isCheckboxEl(existingInput) ? existingInput : document.createElement("input");
+    cb.setAttribute("type", "checkbox");
     cb.type = "checkbox";
+    cb.setAttribute("data-rich-checkbox", "1");
+    cb.setAttribute("tabindex", "-1");
     cb.tabIndex = -1;
+    cb.setAttribute("contenteditable", "false");
+    cb.contentEditable = "false";
     wrap.appendChild(cb);
     return wrap;
+  }
+
+  function normalizeCheckbox(input) {
+    if (!isCheckboxEl(input)) return null;
+    let wrap = input.closest('.cb-wrap, [data-rich-checkbox-wrapper="1"]');
+    if (!wrap) {
+      const parent = input.parentNode;
+      const next = input.nextSibling;
+      wrap = makeCb(input);
+      if (parent) parent.insertBefore(wrap, next);
+    } else {
+      wrap.classList.add("cb-wrap");
+      wrap.setAttribute("data-rich-checkbox-wrapper", "1");
+      wrap.setAttribute("contenteditable", "false");
+      wrap.contentEditable = "false";
+      if (!wrap.contains(input)) wrap.appendChild(input);
+    }
+    input.setAttribute("type", "checkbox");
+    input.type = "checkbox";
+    input.setAttribute("data-rich-checkbox", "1");
+    input.setAttribute("tabindex", "-1");
+    input.tabIndex = -1;
+    input.setAttribute("contenteditable", "false");
+    input.contentEditable = "false";
+    return wrap;
+  }
+
+  function normalizeCheckboxes(editor) {
+    if (!editor) return;
+    const checkboxes = Array.from(editor.querySelectorAll('input[type="checkbox"]'));
+    checkboxes.forEach((input) => {
+      normalizeCheckbox(input);
+    });
   }
 
   const sel = () => (window.getSelection()?.rangeCount ? window.getSelection() : null);
@@ -166,6 +226,8 @@
 
   function emptyAfterCheckbox(editor, ctx) {
     if (!startsWithCheckbox(ctx)) return false;
+    const first = checkboxRoot(ctx.first);
+    if (!first) return false;
 
     const checkInline = (start, boundary) => {
       let n = start.nextSibling;
@@ -179,7 +241,7 @@
     };
 
     if (ctx.mode === "block") {
-      let n = ctx.first.nextSibling;
+      let n = first.nextSibling;
       while (n) {
         if (hasContent(n)) return false;
         if (isCheckboxNode(n)) return false;
@@ -188,14 +250,15 @@
       }
       return true;
     }
-    return checkInline(ctx.first, editor);
+    return checkInline(first, editor);
   }
 
   function removeCheckboxNode(node, options = {}) {
     const { removeLeft = true, removeRight = true } = options;
-    if (!node) return;
+    const target = checkboxRoot(node);
+    if (!target) return;
     if (removeLeft) {
-      let sib = node.previousSibling;
+      let sib = target.previousSibling;
       while (sib && isMeaninglessText(sib)) {
         const prev = sib.previousSibling;
         sib.remove();
@@ -203,19 +266,19 @@
       }
     }
     if (removeRight) {
-      let sib = node.nextSibling;
+      let sib = target.nextSibling;
       while (sib && isMeaninglessText(sib)) {
         const next = sib.nextSibling;
         sib.remove();
         sib = next;
       }
     }
-    node.remove();
+    target.remove();
   }
 
   function removeLeadingCheckbox(editor, ctx) {
-    const first = ctx.first;
-    if (!isCheckboxNode(first)) return false;
+    const first = checkboxRoot(ctx.first);
+    if (!first) return false;
     removeCheckboxNode(first, { removeLeft: false });
     return true;
   }
@@ -302,6 +365,7 @@
   }
 
   function onInsertParagraph(editor) {
+    normalizeCheckboxes(editor);
     const ctx = getLineCtx(editor);
     if (!ctx || !startsWithCheckbox(ctx)) return false;
     if (emptyAfterCheckbox(editor, ctx)) insertPlainLine(editor, ctx);
@@ -310,12 +374,14 @@
   }
 
   function onDeleteBackward(editor) {
+    normalizeCheckboxes(editor);
     const ctx = getLineCtx(editor);
     if (!ctx) return false;
     return deleteAdjacentCheckbox(editor, ctx, "back");
   }
 
   function onDeleteForward(editor) {
+    normalizeCheckboxes(editor);
     const ctx = getLineCtx(editor);
     if (!ctx) return false;
     return deleteAdjacentCheckbox(editor, ctx, "del");
@@ -325,20 +391,40 @@
     if (!editor || editor.__cbInstalled) return;
     editor.__cbInstalled = true;
 
+    normalizeCheckboxes(editor);
+
+    let normalizeScheduled = false;
+    const scheduleNormalize = () => {
+      if (normalizeScheduled) return;
+      normalizeScheduled = true;
+      const raf = window.requestAnimationFrame || ((cb) => window.setTimeout(cb, 16));
+      raf(() => {
+        normalizeScheduled = false;
+        normalizeCheckboxes(editor);
+      });
+    };
+
+    editor.addEventListener("focus", scheduleNormalize);
+    editor.addEventListener("input", scheduleNormalize);
+
     editor.addEventListener(
       "beforeinput",
       (e) => {
+        normalizeCheckboxes(editor);
         if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
           if (onInsertParagraph(editor)) {
             e.preventDefault();
+            e.stopPropagation();
           }
         } else if (e.inputType === "deleteContentBackward") {
           if (onDeleteBackward(editor)) {
             e.preventDefault();
+            e.stopPropagation();
           }
         } else if (e.inputType === "deleteContentForward") {
           if (onDeleteForward(editor)) {
             e.preventDefault();
+            e.stopPropagation();
           }
         }
       },
@@ -346,21 +432,25 @@
     );
 
     editor.addEventListener("keydown", (e) => {
+      normalizeCheckboxes(editor);
       if (e.key === "Enter") {
         if (onInsertParagraph(editor)) {
           e.preventDefault();
+          e.stopPropagation();
           return;
         }
       }
       if (e.key === "Backspace") {
         if (onDeleteBackward(editor)) {
           e.preventDefault();
+          e.stopPropagation();
           return;
         }
       }
       if (e.key === "Delete") {
         if (onDeleteForward(editor)) {
           e.preventDefault();
+          e.stopPropagation();
           return;
         }
       }
@@ -371,6 +461,13 @@
         editor.focus();
         const s = sel();
         if (!s) return;
+        if (!editor.contains(s.anchorNode)) {
+          const range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+          s.removeAllRanges();
+          s.addRange(range);
+        }
         const r = s.getRangeAt(0);
         const node = makeCb();
         r.deleteContents();
@@ -383,6 +480,7 @@
         r2.setStartAfter(space);
         r2.setEndAfter(space);
         setCaret(r2);
+        editor.focus();
       });
     }
   };

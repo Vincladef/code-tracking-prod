@@ -1,17 +1,85 @@
 /* editor-checkboxes.js — cases à cocher = comportement "liste à puces" */
 (function () {
   const S = () => (window.getSelection()?.rangeCount ? window.getSelection() : null);
-  const isCb = (n) => !!(n && n.nodeType === 1 && n.classList.contains("cb-wrap"));
+  const isCbWrap = (n) =>
+    !!(
+      n &&
+      n.nodeType === 1 &&
+      (
+        n.classList.contains("cb-wrap") ||
+        (typeof n.getAttribute === "function" && n.getAttribute("data-rich-checkbox-wrapper") === "1")
+      )
+    );
+  const isCbInput = (n) => !!(n && n.nodeType === 1 && n.tagName === "INPUT" && n.type === "checkbox");
+
+  function cbRoot(node) {
+    if (!node) return null;
+    if (isCbWrap(node)) return node;
+    if (isCbInput(node)) {
+      const wrap = node.closest('.cb-wrap, [data-rich-checkbox-wrapper="1"]');
+      return wrap || node;
+    }
+    if (node.nodeType === 1 && node.closest('.cb-wrap, [data-rich-checkbox-wrapper="1"]')) {
+      return node.closest('.cb-wrap, [data-rich-checkbox-wrapper="1"]');
+    }
+    return null;
+  }
+
   const mkCb = () => {
     const w = document.createElement("span");
-    w.className = "cb-wrap";
+    w.classList.add("cb-wrap");
+    w.setAttribute("data-rich-checkbox-wrapper", "1");
+    w.setAttribute("contenteditable", "false");
     w.contentEditable = "false";
     const i = document.createElement("input");
+    i.setAttribute("type", "checkbox");
     i.type = "checkbox";
+    i.setAttribute("data-rich-checkbox", "1");
+    i.setAttribute("tabindex", "-1");
     i.tabIndex = -1;
+    i.setAttribute("contenteditable", "false");
+    i.contentEditable = "false";
     w.appendChild(i);
     return w;
   };
+
+  function normalizeCheckbox(input) {
+    if (!isCbInput(input)) return null;
+    let wrap = input.closest('.cb-wrap, [data-rich-checkbox-wrapper="1"]');
+    if (!wrap) {
+      const parent = input.parentNode;
+      const next = input.nextSibling;
+      wrap = document.createElement("span");
+      wrap.classList.add("cb-wrap");
+      wrap.setAttribute("data-rich-checkbox-wrapper", "1");
+      wrap.setAttribute("contenteditable", "false");
+      wrap.contentEditable = "false";
+      if (parent) parent.insertBefore(wrap, next);
+      wrap.appendChild(input);
+    } else {
+      wrap.classList.add("cb-wrap");
+      wrap.setAttribute("data-rich-checkbox-wrapper", "1");
+      wrap.setAttribute("contenteditable", "false");
+      wrap.contentEditable = "false";
+      if (!wrap.contains(input)) wrap.appendChild(input);
+    }
+    input.setAttribute("type", "checkbox");
+    input.type = "checkbox";
+    input.setAttribute("data-rich-checkbox", "1");
+    input.setAttribute("tabindex", "-1");
+    input.tabIndex = -1;
+    input.setAttribute("contenteditable", "false");
+    input.contentEditable = "false";
+    return wrap;
+  }
+
+  function normalizeCheckboxes(editor) {
+    if (!editor) return;
+    const checkboxes = Array.from(editor.querySelectorAll('input[type="checkbox"]'));
+    checkboxes.forEach((input) => {
+      normalizeCheckbox(input);
+    });
+  }
 
   const firstNonEmpty = (n) => {
     let c = n.firstChild;
@@ -50,17 +118,16 @@
     return { mode: "inline", first, node, caretAtStart };
   }
 
-  const startsWithCb = (ctx) => !!(ctx && isCb(ctx.first));
+  const startsWithCb = (ctx) => !!cbRoot(ctx?.first);
   function emptyAfterCb(editor, ctx) {
     if (!startsWithCb(ctx)) return false;
+    const first = cbRoot(ctx.first);
+    if (!first) return false;
     if (ctx.mode === "block") {
-      let n = ctx.first.nextSibling;
+      let n = first.nextSibling;
       let empty = true;
       while (n) {
-        if (
-          (n.nodeType === 3 && n.textContent.trim()) ||
-          (n.nodeType === 1 && !isCb(n) && n.textContent.trim())
-        ) {
+        if ((n.nodeType === 3 && n.textContent.trim()) || (n.nodeType === 1 && !cbRoot(n) && n.textContent.trim())) {
           empty = false;
           break;
         }
@@ -68,14 +135,11 @@
       }
       return empty;
     }
-    let n = ctx.first.nextSibling;
+    let n = first.nextSibling;
     let empty = true;
     while (n && n !== editor) {
       if (n.nodeName === "BR") break;
-      if (
-        (n.nodeType === 3 && n.textContent.trim()) ||
-        (n.nodeType === 1 && !isCb(n) && n.textContent.trim())
-      ) {
+      if ((n.nodeType === 3 && n.textContent.trim()) || (n.nodeType === 1 && !cbRoot(n) && n.textContent.trim())) {
         empty = false;
         break;
       }
@@ -145,9 +209,11 @@
   }
   function removeLeading(editor, ctx) {
     if (!startsWithCb(ctx)) return false;
-    const space = ctx.first.nextSibling;
+    const first = cbRoot(ctx.first);
+    if (!first) return false;
+    const space = first.nextSibling;
     if (space && space.nodeType === 3 && /^\s$/.test(space.textContent)) space.remove();
-    ctx.first.remove();
+    first.remove();
     return true;
   }
   function delAdj(editor, dir) {
@@ -165,10 +231,11 @@
       return removeLeading(editor, ctx);
 
     function removeTarget(t, prevNext) {
-      if (isCb(t)) {
-        const nb = t[prevNext];
+      const root = cbRoot(t);
+      if (root) {
+        const nb = root[prevNext];
         if (nb && nb.nodeType === 3 && /^\s$/.test(nb.textContent)) nb.remove();
-        t.remove();
+        root.remove();
         return true;
       }
       return false;
@@ -183,7 +250,7 @@
         let t = cont.previousSibling;
         if (t && t.nodeType === 3 && /^\s$/.test(t.textContent)) {
           const x = t.previousSibling;
-          if (isCb(x)) {
+          if (cbRoot(x)) {
             t.remove();
             t = x;
           }
@@ -195,7 +262,7 @@
         let t = cont.nextSibling;
         if (t && t.nodeType === 3 && /^\s$/.test(t.textContent)) {
           const x = t.nextSibling;
-          if (isCb(x)) {
+          if (cbRoot(x)) {
             t.remove();
             t = x;
           }
@@ -212,7 +279,7 @@
       let t = node.previousSibling;
       if (t && t.nodeType === 3 && /^\s$/.test(t.textContent)) {
         const x = t.previousSibling;
-        if (isCb(x)) {
+        if (cbRoot(x)) {
           t.remove();
           t = x;
         }
@@ -224,7 +291,7 @@
       let t = node.nextSibling;
       if (t && t.nodeType === 3 && /^\s$/.test(t.textContent)) {
         const x = t.nextSibling;
-        if (isCb(x)) {
+        if (cbRoot(x)) {
           t.remove();
           t = x;
         }
@@ -237,26 +304,57 @@
     if (!editor || editor.__cbInstalled) return;
     editor.__cbInstalled = true;
 
+    normalizeCheckboxes(editor);
+
+    let normalizeScheduled = false;
+    const scheduleNormalize = () => {
+      if (normalizeScheduled) return;
+      normalizeScheduled = true;
+      const raf = window.requestAnimationFrame || ((cb) => window.setTimeout(cb, 16));
+      raf(() => {
+        normalizeScheduled = false;
+        normalizeCheckboxes(editor);
+      });
+    };
+
+    editor.addEventListener("focus", scheduleNormalize);
+    editor.addEventListener("input", scheduleNormalize);
+
     editor.addEventListener("keydown", (e) => {
+      normalizeCheckboxes(editor);
       if (e.key === "Enter") {
         const ctx = lineCtx(editor);
         if (!ctx || !startsWithCb(ctx)) return;
         e.preventDefault();
+        e.stopPropagation();
         emptyAfterCb(editor, ctx) ? brPlain(editor) : brWithCb(editor);
       }
       if (e.key === "Backspace") {
-        if (delAdj(editor, "back")) e.preventDefault();
+        if (delAdj(editor, "back")) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
       }
       if (e.key === "Delete") {
-        if (delAdj(editor, "del")) e.preventDefault();
+        if (delAdj(editor, "del")) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
       }
     });
 
     if (insertBtn) {
       insertBtn.addEventListener("click", () => {
         editor.focus();
-        const s = S();
+        let s = S();
         if (!s) return;
+        if (!editor.contains(s.anchorNode)) {
+          const range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+          s.removeAllRanges();
+          s.addRange(range);
+        }
         const r = s.getRangeAt(0);
         const w = mkCb();
         r.deleteContents();
@@ -270,6 +368,7 @@
         r2.setEndAfter(sp);
         s.removeAllRanges();
         s.addRange(r2);
+        editor.focus();
       });
     }
   };
