@@ -298,9 +298,19 @@
     .no-scrollbar::-webkit-scrollbar{ display:none; }
     .no-scrollbar{ -ms-overflow-style:none; scrollbar-width:none; }
 
+    .cb-wrap{ display:inline-block; vertical-align:baseline; }
+    .cb-wrap:focus-within{ outline:2px solid #7aa7ff; border-radius:4px; }
+
+    .scale{ width:100%; }
+    .scale input[type="range"]{ width:100%; }
+    .scale-ticks{ display:grid; grid-template-columns:repeat(11,1fr); font-size:.85rem; margin-top:.25rem; }
+    .scale-ticks span{ text-align:center; }
+
+    .modal{ position:fixed; inset:0; display:flex; justify-content:center; background:rgba(0,0,0,.45); }
+    .modal.phone-center{ align-items:center; }
+    .modal.phone-top{ align-items:flex-start; padding-top:8px; }
     @media (max-width: 640px){
-      .modal.phone-top{ align-items:flex-start; padding-top:8px; }
-      .modal.phone-center{ align-items:center; padding-top:0; }
+      .modal{ min-height:100dvh; }
     }
 
     /* Journalier — navigation par jour */
