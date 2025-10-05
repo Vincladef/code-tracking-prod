@@ -1687,30 +1687,72 @@
     appLog("sidebar:render", { profile: ctx.profile, categories: ctx.categories?.length });
 
     if (!ctx.user?.uid) {
-      box.innerHTML = '<span class="muted">Aucun utilisateur sélectionné.</span>';
+      const empty = document.createElement("span");
+      empty.className = "muted";
+      empty.textContent = "Aucun utilisateur sélectionné.";
+      box.replaceChildren(empty);
       if (status) status.textContent = "Sélectionnez un utilisateur pour accéder aux paramètres.";
       const catBoxEmpty = queryOne("#category-box");
       if (catBoxEmpty) {
-        catBoxEmpty.innerHTML = '<span class="muted">Sélectionnez un utilisateur pour voir ses catégories.</span>';
+        const catEmpty = document.createElement("span");
+        catEmpty.className = "muted";
+        catEmpty.textContent = "Sélectionnez un utilisateur pour voir ses catégories.";
+        catBoxEmpty.replaceChildren(catEmpty);
       }
       return;
     }
 
+    const profileName = ctx.profile?.displayName || ctx.profile?.name || "Utilisateur";
     const link = `${location.origin}${location.pathname}#/u/${ctx.user.uid}`;
-    box.innerHTML = `
-      <div><strong>${ctx.profile.displayName || ctx.profile.name || "Utilisateur"}</strong></div>
-      <div class="muted">UID : <code>${ctx.user.uid}</code></div>
-      <div class="muted">Lien direct : <a class="link" href="${link}">${link}</a></div>
-    `;
+
+    const nameDiv = document.createElement("div");
+    const strong = document.createElement("strong");
+    strong.textContent = profileName;
+    nameDiv.appendChild(strong);
+
+    const uidDiv = document.createElement("div");
+    uidDiv.className = "muted";
+    uidDiv.append(document.createTextNode("UID : "));
+    const code = document.createElement("code");
+    code.textContent = ctx.user.uid;
+    uidDiv.appendChild(code);
+
+    const linkDiv = document.createElement("div");
+    linkDiv.className = "muted";
+    linkDiv.append(document.createTextNode("Lien direct : "));
+    const anchor = document.createElement("a");
+    anchor.className = "link";
+    anchor.href = link;
+    anchor.textContent = link;
+    linkDiv.appendChild(anchor);
+
+    box.replaceChildren(nameDiv, uidDiv, linkDiv);
 
     syncNotificationButtonsForUid(ctx.user.uid);
 
     const catBox = queryOne("#category-box");
     if (catBox) {
       if (!ctx.categories.length) {
-        catBox.innerHTML = '<span class="muted">Aucune catégorie. Elles seront créées automatiquement lors de l’ajout d’une consigne.</span>';
+        const empty = document.createElement("span");
+        empty.className = "muted";
+        empty.textContent = "Aucune catégorie. Elles seront créées automatiquement lors de l’ajout d’une consigne.";
+        catBox.replaceChildren(empty);
       } else {
-        catBox.innerHTML = ctx.categories.map(c => `<div class="flex"><span>${c.name}</span><span class="pill">${c.mode}</span></div>`).join("");
+        const fragments = ctx.categories.map((c) => {
+          const row = document.createElement("div");
+          row.className = "flex";
+
+          const nameSpan = document.createElement("span");
+          nameSpan.textContent = c?.name ?? "";
+
+          const modeSpan = document.createElement("span");
+          modeSpan.className = "pill";
+          modeSpan.textContent = c?.mode ?? "";
+
+          row.append(nameSpan, modeSpan);
+          return row;
+        });
+        catBox.replaceChildren(...fragments);
       }
     }
   }
