@@ -83,12 +83,107 @@
   function ensureRichTextModalCheckboxBehavior() {
     if (typeof document === "undefined") return;
 
+    const upgradeTextarea = (textarea) => {
+      if (!(textarea instanceof HTMLElement) || textarea.tagName !== "TEXTAREA") {
+        return textarea;
+      }
+      if (textarea.dataset.rtEditorDisplayId) {
+        const existing = document.getElementById(textarea.dataset.rtEditorDisplayId);
+        if (existing) return existing;
+      }
+
+      const doc = textarea.ownerDocument || document;
+      const originalId = textarea.id || "rt-editor";
+      const display = doc.createElement("div");
+      display.id = originalId;
+      const classList = new Set((textarea.className || "").split(/\s+/).filter(Boolean));
+      classList.add("rt-editor");
+      display.className = Array.from(classList).join(" ");
+      display.setAttribute("contenteditable", "true");
+      const placeholder = textarea.getAttribute("placeholder");
+      if (placeholder) {
+        display.setAttribute("data-placeholder", placeholder);
+      }
+
+      const setDisplayContent = (value) => {
+        const raw = value || "";
+        if (
+          raw &&
+          /<\s*(div|p|span|ul|ol|li|input|br|strong|em|h[1-6]|blockquote|section|article|header|footer|pre|code|table|tbody|thead|tr|td|th|label|form|button|a)\b/i.test(raw)
+        ) {
+          display.innerHTML = raw;
+          return;
+        }
+        display.innerHTML = "";
+        const fragment = doc.createDocumentFragment();
+        const lines = raw.split(/\r?\n/);
+        if (lines.length === 1 && lines[0] === "") {
+          fragment.appendChild(doc.createElement("br"));
+        } else {
+          lines.forEach((line, index) => {
+            if (index > 0) fragment.appendChild(doc.createElement("br"));
+            if (line) fragment.appendChild(doc.createTextNode(line));
+          });
+        }
+        display.appendChild(fragment);
+      };
+
+      setDisplayContent(textarea.value || "");
+
+      const hidden = textarea;
+      const hiddenId = `${originalId}-hidden`;
+      hidden.id = hiddenId;
+      hidden.hidden = true;
+      hidden.style.display = "none";
+      hidden.setAttribute("aria-hidden", "true");
+      hidden.dataset.rtEditorDisplayId = originalId;
+      hidden.classList.add("rt-editor__hidden-input");
+
+      textarea.insertAdjacentElement("beforebegin", display);
+
+      const syncHidden = (dispatch = false) => {
+        hidden.value = display.innerHTML;
+        if (dispatch) {
+          try {
+            hidden.dispatchEvent(new Event("input", { bubbles: true }));
+          } catch (err) {
+            console.warn("[app] rt-editor:hidden:input", err);
+          }
+        }
+      };
+
+      display.addEventListener("input", () => syncHidden(true));
+      display.addEventListener("blur", () => syncHidden(false));
+
+      const form = hidden.closest("form");
+      if (form) {
+        form.addEventListener("reset", () => {
+          window.setTimeout(() => {
+            const defaultValue = hidden.defaultValue || "";
+            setDisplayContent(defaultValue);
+            syncHidden(false);
+          }, 0);
+        });
+      }
+
+      syncHidden(false);
+
+      return display;
+    };
+
     const trySetup = () => {
-      const editorEl = document.getElementById("rt-editor");
+      let editorEl = document.getElementById("rt-editor");
       if (!editorEl) return false;
-      const isEditable =
-        editorEl.isContentEditable || editorEl.getAttribute("contenteditable") === "true";
-      if (!isEditable) return false;
+      if (editorEl.tagName === "TEXTAREA") {
+        editorEl = upgradeTextarea(editorEl);
+      }
+      if (!editorEl) return false;
+      if (!editorEl.isContentEditable) {
+        editorEl.setAttribute("contenteditable", "true");
+      }
+      if (!editorEl.classList.contains("rt-editor")) {
+        editorEl.classList.add("rt-editor");
+      }
       const setupFn = window.setupCheckboxListBehavior || window.setupChecklistEditor;
       if (typeof setupFn !== "function") return false;
       const insertBtn = document.getElementById("insert-checkbox");

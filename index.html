@@ -1289,22 +1289,42 @@
     .consigne-rich-text__toolbar .btn{ padding:.3rem .6rem; font-size:.75rem; line-height:1.1; }
     .consigne-rich-text__toolbar .btn.active{ outline:2px solid #6ca3ff; background:#eef4ff; }
     .consigne-rich-text__content{ min-height:10rem; overflow:auto; white-space:pre-wrap; position:relative; }
+    .rt-editor{
+      min-height:180px;
+      padding:10px;
+      border:1px solid #cdeccd;
+      border-radius:12px;
+      outline:none;
+      overflow:auto;
+      resize:none;
+      white-space:pre-wrap;
+      word-break:break-word;
+    }
     .consigne-rich-text__content p{ margin:.35rem 0; }
     .editor ul,
     #rt-editor ul,
+    .rt-editor ul,
     .consigne-rich-text__content ul{ list-style:disc outside; padding-left:1.25rem; margin:.35rem 0; }
     .editor ol,
     #rt-editor ol,
+    .rt-editor ol,
     .consigne-rich-text__content ol{ list-style:decimal outside; padding-left:1.25rem; margin:.35rem 0; }
     .editor li,
     #rt-editor li,
+    .rt-editor li,
     .consigne-rich-text__content li{ margin:.2rem 0; display:list-item; }
     .editor li::marker,
     #rt-editor li::marker,
+    .rt-editor li::marker,
     .consigne-rich-text__content li::marker{ font-variant-numeric:tabular-nums; }
-    #rt-editor ul { list-style: disc outside; padding-left: 1.25rem; margin:.25rem 0; }
-    #rt-editor ol { list-style: decimal outside; padding-left: 1.25rem; margin:.25rem 0; }
-    #rt-editor li { display:list-item; }
+    #rt-editor ul,
+    .rt-editor ul{ list-style:disc outside; padding-left:1.25rem; margin:.25rem 0; }
+    #rt-editor ol,
+    .rt-editor ol{ list-style:decimal outside; padding-left:1.25rem; margin:.25rem 0; }
+    #rt-editor li,
+    .rt-editor li{ display:list-item; }
+    .cb-wrap{ display:inline-block; vertical-align:baseline; }
+    .cb-wrap:focus-within{ outline:2px solid #7aa7ff; border-radius:4px; }
     .consigne-rich-text__content[data-placeholder][data-rich-text-empty="1"]::before{
       content: attr(data-placeholder);
       color:#94a3b8;
