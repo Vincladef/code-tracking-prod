@@ -56,6 +56,233 @@ function escapeHtml(str) {
     .replace(/'/g, "&#39;");
 }
 
+const RICH_TEXT_VERSION = 1;
+const RICH_TEXT_ALLOWED_TAGS = new Set([
+  "P",
+  "BR",
+  "STRONG",
+  "B",
+  "EM",
+  "I",
+  "UL",
+  "OL",
+  "LI",
+  "DIV",
+  "SPAN",
+  "INPUT",
+]);
+const RICH_TEXT_ALLOWED_ATTRS = {
+  input: ["type", "checked", "data-rich-checkbox", "data-rich-checkbox-index"],
+  span: ["data-rich-checkbox-wrapper"],
+  div: [],
+  p: [],
+  br: [],
+  strong: [],
+  b: [],
+  em: [],
+  i: [],
+  ul: [],
+  ol: [],
+  li: [],
+};
+
+function sanitizeRichTextElement(root) {
+  if (!root) return "";
+  const stack = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+  while (walker.nextNode()) {
+    stack.push(walker.currentNode);
+  }
+  stack.forEach((node) => {
+    if (!(node instanceof Element)) return;
+    const tagName = node.tagName;
+    if (!RICH_TEXT_ALLOWED_TAGS.has(tagName)) {
+      const parent = node.parentNode;
+      if (parent) {
+        while (node.firstChild) {
+          parent.insertBefore(node.firstChild, node);
+        }
+        parent.removeChild(node);
+      } else {
+        node.remove();
+      }
+      return;
+    }
+    const lowerTag = tagName.toLowerCase();
+    const allowedAttrs = RICH_TEXT_ALLOWED_ATTRS[lowerTag] || [];
+    Array.from(node.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      if (!allowedAttrs.includes(name)) {
+        node.removeAttribute(attr.name);
+        return;
+      }
+      if (lowerTag === "input" && name === "type") {
+        const typeValue = (attr.value || "").toLowerCase();
+        if (typeValue !== "checkbox") {
+          node.remove();
+          return;
+        }
+        node.setAttribute("type", "checkbox");
+      }
+    });
+    if (lowerTag === "input") {
+      const isChecked = node.checked || node.hasAttribute("checked");
+      if (isChecked) node.setAttribute("checked", "");
+      else node.removeAttribute("checked");
+      node.setAttribute("data-rich-checkbox", "1");
+    }
+  });
+  return root.innerHTML;
+}
+
+function sanitizeRichTextHtml(html) {
+  const template = document.createElement("template");
+  template.innerHTML = html || "";
+  sanitizeRichTextElement(template.content);
+  return template.innerHTML;
+}
+
+function plainTextToRichHtml(text) {
+  const safe = escapeHtml(text || "");
+  if (!safe) return "";
+  return `<p>${safe
+    .replace(/\r?\n\r?\n/g, "</p><p>")
+    .replace(/\r?\n/g, "<br>")}</p>`;
+}
+
+function richTextHtmlToPlainText(html) {
+  const container = document.createElement("div");
+  container.innerHTML = html || "";
+  container.querySelectorAll("br").forEach((br) => br.replaceWith("\n"));
+  container.querySelectorAll("li").forEach((li) => {
+    if (!li.lastChild || li.lastChild.nodeType !== Node.TEXT_NODE) {
+      li.appendChild(document.createTextNode(""));
+    }
+    li.appendChild(document.createTextNode("\n"));
+  });
+  container.querySelectorAll("p,div").forEach((el) => {
+    if (!el.lastChild || el.lastChild.nodeType !== Node.TEXT_NODE) {
+      el.appendChild(document.createTextNode(""));
+    }
+    el.appendChild(document.createTextNode("\n"));
+  });
+  container.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    const mark = input.hasAttribute("checked") ? "[x]" : "[ ]";
+    input.replaceWith(document.createTextNode(mark));
+  });
+  const text = container.textContent || "";
+  return text.replace(/\u00a0/g, " ").replace(/[ \t]*\n[ \t]*/g, "\n").trim();
+}
+
+function extractRichTextCheckboxStates(html) {
+  const container = document.createElement("div");
+  container.innerHTML = html || "";
+  return Array.from(container.querySelectorAll('input[type="checkbox"]')).map((input) =>
+    input.hasAttribute("checked") || input.checked
+  );
+}
+
+function normalizeRichTextValue(raw) {
+  if (raw && typeof raw === "object" && typeof raw.toDate === "function") {
+    return {
+      kind: "richtext",
+      version: RICH_TEXT_VERSION,
+      html: "",
+      text: "",
+      checkboxes: [],
+    };
+  }
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return {
+        kind: "richtext",
+        version: RICH_TEXT_VERSION,
+        html: "",
+        text: "",
+        checkboxes: [],
+      };
+    }
+    if (trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === "object") {
+          return normalizeRichTextValue(parsed);
+        }
+      } catch (error) {
+        // ignore and treat as plain text
+      }
+    }
+    const sanitizedHtml = sanitizeRichTextHtml(plainTextToRichHtml(trimmed));
+    const html = ensureRichTextStructure(sanitizedHtml) || "";
+    const text = richTextHtmlToPlainText(html);
+    return {
+      kind: "richtext",
+      version: RICH_TEXT_VERSION,
+      html,
+      text,
+      checkboxes: extractRichTextCheckboxStates(html),
+    };
+  }
+  if (raw && typeof raw === "object") {
+    const sourceHtml = typeof raw.html === "string" ? raw.html : "";
+    const sanitized = sanitizeRichTextHtml(sourceHtml);
+    const html = ensureRichTextStructure(sanitized) || "";
+    const textSource = typeof raw.text === "string" ? raw.text.trim() : "";
+    const text = textSource || richTextHtmlToPlainText(html);
+    const checkboxesSource = Array.isArray(raw.checkboxes) ? raw.checkboxes.map((item) => item === true) : null;
+    const checkboxes = checkboxesSource || extractRichTextCheckboxStates(html);
+    return {
+      kind: "richtext",
+      version: RICH_TEXT_VERSION,
+      html,
+      text,
+      checkboxes,
+    };
+  }
+  return {
+    kind: "richtext",
+    version: RICH_TEXT_VERSION,
+    html: "",
+    text: "",
+    checkboxes: [],
+  };
+}
+
+function richTextHasContent(value) {
+  const normalized = normalizeRichTextValue(value);
+  if (normalized.text && normalized.text.trim()) {
+    return true;
+  }
+  if (Array.isArray(normalized.checkboxes) && normalized.checkboxes.some(Boolean)) {
+    return true;
+  }
+  const html = normalized.html || "";
+  const stripped = html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").trim();
+  return stripped.length > 0;
+}
+
+function ensureRichTextStructure(html) {
+  const trimmed = (html || "").trim();
+  if (!trimmed) return "";
+  const container = document.createElement("div");
+  container.innerHTML = trimmed;
+  if (!container.querySelector("p") && !container.querySelector("div")) {
+    return `<p>${trimmed}</p>`;
+  }
+  return trimmed;
+}
+
+window.Modes.richText = {
+  version: RICH_TEXT_VERSION,
+  sanitizeElement: sanitizeRichTextElement,
+  sanitizeHtml: sanitizeRichTextHtml,
+  normalizeValue: normalizeRichTextValue,
+  hasContent: richTextHasContent,
+  toPlainText: richTextHtmlToPlainText,
+  ensureStructure: ensureRichTextStructure,
+};
+
 function modal(html) {
   const wrap = document.createElement("div");
   wrap.className = "fixed inset-0 z-50 grid place-items-center bg-black/40 p-4";
@@ -195,8 +422,20 @@ const LIKERT6_LABELS = {
 
 const NOTE_IGNORED_VALUES = new Set(["no_answer"]);
 
-function formatConsigneValue(type, value, _options = {}) {
+function formatConsigneValue(type, value, options = {}) {
+  const wantsHtml = options.mode === "html";
   if (type === "info") return "";
+  if (type === "long") {
+    const normalized = normalizeRichTextValue(value);
+    if (!richTextHasContent(normalized)) {
+      return wantsHtml ? "—" : "—";
+    }
+    if (wantsHtml) {
+      const html = ensureRichTextStructure(normalized.html) || "";
+      return html && html.trim() ? html : escapeHtml(normalized.text || "—");
+    }
+    return normalized.text || "—";
+  }
   if (value === null || value === undefined || value === "") return "—";
   if (type === "checklist") {
     let items = [];
@@ -207,19 +446,24 @@ function formatConsigneValue(type, value, _options = {}) {
     }
     if (!items.length) return "—";
     const done = items.filter((item) => item === true).length;
-    return `${done} / ${items.length}`;
+    const text = `${done} / ${items.length}`;
+    return wantsHtml ? escapeHtml(text) : text;
   }
   if (type === "yesno") {
-    if (value === "yes") return "Oui";
-    if (value === "no") return "Non";
-    return String(value);
+    const text = value === "yes" ? "Oui" : value === "no" ? "Non" : String(value);
+    return wantsHtml ? escapeHtml(text) : text;
   }
-  if (type === "likert5") return String(value);
+  if (type === "likert5") {
+    const text = String(value);
+    return wantsHtml ? escapeHtml(text) : text;
+  }
   if (type === "likert6") {
     const mapped = LIKERT6_LABELS[String(value)];
-    return mapped || String(value);
+    const text = mapped || String(value);
+    return wantsHtml ? escapeHtml(text) : text;
   }
-  return String(value);
+  const fallback = String(value);
+  return wantsHtml ? escapeHtml(fallback) : fallback;
 }
 
 function priorityTone(p) {
@@ -886,6 +1130,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           : "Aucune donnée disponible pour le moment.";
 
       const name = consigne.text || consigne.titre || consigne.name || consigne.id;
+      const lastFormattedText = formatConsigneValue(consigne.type, lastValue);
+      const lastFormattedHtml = formatConsigneValue(consigne.type, lastValue, { mode: "html" });
       const stat = {
         id: consigne.id,
         name,
@@ -906,7 +1152,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         lastDateFull: lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais",
         lastRelative: formatRelativeDate(lastDateObj || lastDateIso),
         lastValue,
-        lastFormatted: formatConsigneValue(consigne.type, lastValue),
+        lastFormatted: lastFormattedText,
+        lastFormattedHtml,
         lastCommentRaw: lastNote,
         commentDisplay: truncateText(lastNote, 180),
         statusKind: dotColor(consigne.type, lastValue),
@@ -1060,9 +1307,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               const dateLabel = meta?.fullLabel || meta?.label || entry.date;
               const relativeLabel = formatRelativeDate(meta?.dateObj || entry.date);
               const valueText = formatConsigneValue(stat.type, entry.value);
+              const valueHtml = formatConsigneValue(stat.type, entry.value, { mode: "html" });
               const normalizedValue = valueText == null ? "" : String(valueText).trim();
+              const hasValue = normalizedValue && normalizedValue !== "—";
               const fallbackValue = stat.type === "info" ? "" : "—";
-              const safeValue = normalizedValue && normalizedValue !== "—" ? escapeHtml(normalizedValue) : fallbackValue;
+              const safeValue = hasValue ? valueHtml : escapeHtml(fallbackValue);
               const noteMarkup = entry.note && entry.note.trim()
                 ? `<span class="practice-dashboard__history-note">${escapeHtml(entry.note)}</span>`
                 : "";
@@ -1108,6 +1357,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           const totalEntries = stat.totalEntries || 0;
           const entriesLabel = totalEntries > 1 ? `${totalEntries} entrées` : `${totalEntries} entrée`;
           const typeChip = stat.typeLabel ? `<span class="practice-dashboard__chip">${escapeHtml(stat.typeLabel)}</span>` : "";
+          const lastValueText = stat.lastFormatted || "";
+          const hasLastValue = lastValueText && lastValueText.trim() && lastValueText !== "—";
+          const lastValueMarkup = hasLastValue
+            ? stat.lastFormattedHtml || escapeHtml(lastValueText)
+            : escapeHtml(stat.type === "info" ? "" : "—");
           return `
             <section class="practice-dashboard__history-section" data-id="${stat.id}"${accentStyle}>
               <header class="practice-dashboard__history-header">
@@ -1124,7 +1378,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               <div class="practice-dashboard__history-summary" role="list">
                 <div class="practice-dashboard__history-summary-item" role="listitem">
                   <span class="practice-dashboard__history-summary-label">Dernière valeur</span>
-                  <span class="practice-dashboard__history-summary-value">${escapeHtml(stat.lastFormatted || (stat.type === "info" ? "" : "—"))}</span>
+                  <span class="practice-dashboard__history-summary-value">${lastValueMarkup}</span>
                 </div>
                 <div class="practice-dashboard__history-summary-item" role="listitem">
                   <span class="practice-dashboard__history-summary-label">Moyenne</span>
@@ -1195,7 +1449,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         </select>`;
       }
       if (type === "long") {
-        return `<textarea id="${fieldId}" name="value" class="consigne-editor__textarea" placeholder="Réponse">${escapeHtml(String(value ?? ""))}</textarea>`;
+        return renderRichTextInput("value", {
+          initialValue: value,
+          placeholder: "Réponse",
+          inputId: fieldId,
+        });
       }
       return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Réponse" value="${escapeHtml(String(value ?? ""))}">`;
     }
@@ -1207,7 +1465,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       }
       const field = form.elements.value;
       if (!field) return "";
-      if (type === "long" || type === "short") {
+      if (type === "long") {
+        const normalized = normalizeRichTextValue(field.value || "");
+        return richTextHasContent(normalized) ? normalized : "";
+      }
+      if (type === "short") {
         return (field.value || "").trim();
       }
       if (type === "num") {
@@ -1284,6 +1546,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       stat.lastRelative = formatRelativeDate(lastDateObj || lastDateIso);
       stat.lastValue = lastValue;
       stat.lastFormatted = formatConsigneValue(stat.type, lastValue);
+      stat.lastFormattedHtml = formatConsigneValue(stat.type, lastValue, { mode: "html" });
       stat.lastCommentRaw = lastEntry?.note ?? "";
       stat.commentDisplay = truncateText(stat.lastCommentRaw, 180);
       stat.statusKind = dotColor(stat.type, lastValue);
@@ -1687,6 +1950,186 @@ function closeConsigneActionMenuFromNode(node, options) {
   }
 }
 
+function renderRichTextInput(name, { consigneId = "", initialValue = null, placeholder = "", inputId = "" } = {}) {
+  const normalized = normalizeRichTextValue(initialValue);
+  const structuredHtml = ensureRichTextStructure(normalized.html) || "";
+  const initialHtml = structuredHtml.trim() ? structuredHtml : "<p><br></p>";
+  const serialized = escapeHtml(JSON.stringify(normalized));
+  const consigneAttr = consigneId !== null && consigneId !== undefined
+    ? ` data-consigne-id="${escapeHtml(String(consigneId))}"`
+    : "";
+  const placeholderAttr = placeholder
+    ? ` data-placeholder="${escapeHtml(String(placeholder))}"`
+    : "";
+  const hiddenIdAttr = inputId ? ` id="${escapeHtml(String(inputId))}"` : "";
+  return `
+    <div class="consigne-rich-text" data-rich-text-root${consigneAttr}>
+      <div class="consigne-rich-text__toolbar" data-rich-text-toolbar role="toolbar" aria-label="Mise en forme">
+        <button type="button" class="btn btn-ghost text-xs" data-rich-command="bold" title="Gras" aria-label="Gras"><strong>B</strong></button>
+        <button type="button" class="btn btn-ghost text-xs" data-rich-command="italic" title="Italique" aria-label="Italique"><em>I</em></button>
+        <button type="button" class="btn btn-ghost text-xs" data-rich-command="insertUnorderedList" title="Liste à puces" aria-label="Liste à puces">•</button>
+        <button type="button" class="btn btn-ghost text-xs" data-rich-command="insertOrderedList" title="Liste numérotée" aria-label="Liste numérotée">1.</button>
+        <button type="button" class="btn btn-ghost text-xs" data-rich-command="checkbox" title="Insérer une case à cocher" aria-label="Insérer une case à cocher">☐</button>
+      </div>
+      <div class="consigne-rich-text__content consigne-editor__textarea" data-rich-text-content contenteditable="true"${placeholderAttr}>${initialHtml}</div>
+      <input type="hidden"${hiddenIdAttr} name="${escapeHtml(String(name))}" value="${serialized}" data-rich-text-input data-rich-text-version="${RICH_TEXT_VERSION}">
+    </div>
+    <script>(() => {
+      const script = document.currentScript;
+      const root = script?.previousElementSibling;
+      if (!root || !root.hasAttribute("data-rich-text-root")) return;
+      const utils = window.Modes?.richText || {};
+      const content = root.querySelector("[data-rich-text-content]");
+      const hidden = root.querySelector("[data-rich-text-input]");
+      const toolbar = root.querySelector("[data-rich-text-toolbar]");
+      const sanitizeElement = typeof utils.sanitizeElement === "function" ? utils.sanitizeElement : null;
+      const sanitizeHtml = typeof utils.sanitizeHtml === "function" ? utils.sanitizeHtml : (value) => value;
+      const toPlainText = typeof utils.toPlainText === "function" ? utils.toPlainText : (value) => value;
+      const hasContent = typeof utils.hasContent === "function" ? utils.hasContent : null;
+      const ensureStructure = typeof utils.ensureStructure === "function" ? utils.ensureStructure : null;
+      const raf = window.requestAnimationFrame || ((cb) => window.setTimeout(cb, 16));
+      const caf = window.cancelAnimationFrame || window.clearTimeout;
+
+      const ensureNotEmpty = () => {
+        if (!content) return;
+        if (!content.innerHTML || !content.innerHTML.trim()) {
+          content.innerHTML = "<p><br></p>";
+        }
+      };
+
+      const applyInitialState = () => {
+        if (!content || !hidden) return;
+        let parsed = null;
+        try {
+          parsed = JSON.parse(hidden.value || "{}");
+        } catch (error) {
+          parsed = null;
+        }
+        if (parsed && parsed.html) {
+          const html = ensureStructure ? ensureStructure(parsed.html) : parsed.html;
+          content.innerHTML = html && html.trim() ? html : "<p><br></p>";
+        }
+        const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
+        boxes.forEach((box, index) => {
+          box.setAttribute("data-rich-checkbox", "1");
+          box.setAttribute("data-rich-checkbox-index", String(index));
+          if (parsed && Array.isArray(parsed.checkboxes) && parsed.checkboxes[index]) {
+            box.checked = true;
+            box.setAttribute("checked", "");
+          } else if (box.checked) {
+            box.setAttribute("checked", "");
+          } else {
+            box.removeAttribute("checked");
+          }
+        });
+        ensureNotEmpty();
+      };
+
+      applyInitialState();
+
+      let pending = null;
+      let lastSerialized = hidden ? hidden.value : null;
+
+      const sync = () => {
+        pending = null;
+        if (!content || !hidden) return;
+        if (sanitizeElement) {
+          sanitizeElement(content);
+        }
+        const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
+        boxes.forEach((box, index) => {
+          box.setAttribute("data-rich-checkbox", "1");
+          box.setAttribute("data-rich-checkbox-index", String(index));
+          if (box.checked) {
+            box.setAttribute("checked", "");
+          } else {
+            box.removeAttribute("checked");
+          }
+        });
+        ensureNotEmpty();
+        const html = sanitizeHtml(content.innerHTML);
+        const plain = toPlainText(html);
+        const payload = {
+          kind: "richtext",
+          version: utils.version || ${RICH_TEXT_VERSION},
+          html,
+          text: plain,
+          checkboxes: boxes.map((box) => Boolean(box.checked)),
+        };
+        const serializedValue = JSON.stringify(payload);
+        if (content) {
+          if (hasContent && hasContent(payload)) {
+            content.removeAttribute("data-rich-text-empty");
+          } else {
+            content.setAttribute("data-rich-text-empty", "1");
+          }
+        }
+        if (serializedValue === lastSerialized) return;
+        lastSerialized = serializedValue;
+        hidden.value = serializedValue;
+        if (hasContent) {
+          if (hasContent(payload)) delete hidden.dataset.richTextEmpty;
+          else hidden.dataset.richTextEmpty = "1";
+        }
+        hidden.dispatchEvent(new Event("input", { bubbles: true }));
+        hidden.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+
+      const schedule = () => {
+        if (pending !== null) {
+          caf(pending);
+        }
+        pending = raf(() => {
+          pending = null;
+          sync();
+        });
+      };
+
+      if (toolbar && content) {
+        toolbar.addEventListener("click", (event) => {
+          const button = event.target.closest("[data-rich-command]");
+          if (!button) return;
+          const command = button.getAttribute("data-rich-command");
+          if (!command) return;
+          event.preventDefault();
+          if (content && typeof content.focus === "function") {
+            content.focus();
+          }
+          if (command === "checkbox") {
+            const html = '<span data-rich-checkbox-wrapper="1"><input type="checkbox" data-rich-checkbox="1"></span>&nbsp;';
+            if (typeof document.execCommand === "function") {
+              document.execCommand("insertHTML", false, html);
+            }
+          } else if (typeof document.execCommand === "function") {
+            document.execCommand(command, false, null);
+          }
+          schedule();
+        });
+      }
+
+      if (content) {
+        content.addEventListener("input", schedule);
+        content.addEventListener("change", schedule);
+        content.addEventListener("blur", sync);
+        content.addEventListener("click", (event) => {
+          if (event.target && event.target.matches('input[type="checkbox"]')) {
+            schedule();
+          }
+        });
+        content.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && event.shiftKey && typeof document.execCommand === "function") {
+            event.preventDefault();
+            document.execCommand("insertLineBreak", false, null);
+            schedule();
+          }
+        });
+      }
+
+      sync();
+    })();
+  `;
+}
+
 function inputForType(consigne, initialValue = null) {
   if (consigne.type === "info") {
     return INFO_STATIC_BLOCK;
@@ -1696,8 +2139,11 @@ function inputForType(consigne, initialValue = null) {
     return `<input name="short:${consigne.id}" class="w-full" placeholder="Réponse" value="${value}">`;
   }
   if (consigne.type === "long") {
-    const value = escapeHtml(initialValue ?? "");
-    return `<textarea name="long:${consigne.id}" class="consigne-editor__textarea" placeholder="Réponse">${value}</textarea>`;
+    return renderRichTextInput(`long:${consigne.id}`, {
+      consigneId: consigne.id,
+      initialValue,
+      placeholder: "Réponse",
+    });
   }
   if (consigne.type === "num") {
     const sliderValue = initialValue != null && initialValue !== ""
@@ -1833,8 +2279,13 @@ function collectAnswers(form, consignes, options = {}) {
       const val = form.querySelector(`[name="short:${consigne.id}"]`)?.value?.trim();
       if (val) answers.push({ consigne, value: val, dayKey });
     } else if (consigne.type === "long") {
-      const val = form.querySelector(`[name="long:${consigne.id}"]`)?.value?.trim();
-      if (val) answers.push({ consigne, value: val, dayKey });
+      const input = form.querySelector(`[name="long:${consigne.id}"]`);
+      if (input) {
+        const normalized = normalizeRichTextValue(input.value || "");
+        if (richTextHasContent(normalized)) {
+          answers.push({ consigne, value: normalized, dayKey });
+        }
+      }
     } else if (consigne.type === "num") {
       const val = form.querySelector(`[name="num:${consigne.id}"]`)?.value;
       if (val) answers.push({ consigne, value: Number(val), dayKey });
@@ -2570,6 +3021,12 @@ function extractTextualNote(value) {
     return trimmed;
   }
   if (typeof value === "object") {
+    if (value.kind === "richtext") {
+      const plain = typeof value.text === "string" ? value.text.trim() : "";
+      if (plain) return plain;
+      const fromHtml = richTextHtmlToPlainText(value.html || "");
+      if (fromHtml) return fromHtml;
+    }
     const candidates = ["note", "comment", "remark", "text", "message"];
     for (const key of candidates) {
       const candidate = value[key];
@@ -2714,7 +3171,12 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
   if (live) {
     const textualNote = extractTextualNote(rawValue);
     const isNoteStatus = status === "note";
-    const baseHasValue = !(rawValue === null || rawValue === undefined || rawValue === "");
+    const baseHasValue = (() => {
+      if (consigne.type === "long") {
+        return richTextHasContent(rawValue);
+      }
+      return !(rawValue === null || rawValue === undefined || rawValue === "");
+    })();
     const hasValue = isNoteStatus ? textualNote.length > 0 || baseHasValue : baseHasValue;
     const formattedValue = (() => {
       if (isNoteStatus) {
@@ -2753,8 +3215,17 @@ function readConsigneCurrentValue(consigne, scope) {
     return input ? input.value.trim() : "";
   }
   if (type === "long") {
-    const textarea = scope.querySelector(`[name="long:${id}"]`);
-    return textarea ? textarea.value.trim() : "";
+    const hidden = scope.querySelector(`[name="long:${id}"]`);
+    if (hidden) {
+      return normalizeRichTextValue(hidden.value || "");
+    }
+    const editor = scope.querySelector(`[data-rich-text-root][data-consigne-id="${String(id ?? "")}"]`);
+    if (editor) {
+      const content = editor.querySelector("[data-rich-text-content]");
+      const html = content ? content.innerHTML : "";
+      return normalizeRichTextValue({ html });
+    }
+    return normalizeRichTextValue("");
   }
   if (type === "num") {
     const range = scope.querySelector(`[name="num:${id}"]`);
@@ -2846,6 +3317,32 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
 }
 
 function setConsigneRowValue(row, consigne, value) {
+  if (consigne?.type === "long") {
+    const editor = row?.querySelector(
+      `[data-rich-text-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+    );
+    const hidden = row?.querySelector(`[name="long:${consigne.id}"]`);
+    const normalized = normalizeRichTextValue(value);
+    if (editor) {
+      const content = editor.querySelector("[data-rich-text-content]");
+      if (content) {
+        const structured = ensureRichTextStructure(normalized.html) || "";
+        content.innerHTML = structured.trim() ? structured : "<p><br></p>";
+        if (richTextHasContent(normalized)) {
+          content.removeAttribute("data-rich-text-empty");
+        } else {
+          content.setAttribute("data-rich-text-empty", "1");
+        }
+      }
+    }
+    if (hidden) {
+      hidden.value = JSON.stringify(normalized);
+      hidden.dispatchEvent(new Event("input", { bubbles: true }));
+      hidden.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    updateConsigneStatusUI(row, consigne, normalized);
+    return;
+  }
   if (consigne?.type === "checklist") {
     const container = row?.querySelector(
       `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
@@ -3408,18 +3905,21 @@ async function openHistory(ctx, consigne) {
       const iso = createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "";
       const dateText = createdAt && !Number.isNaN(createdAt.getTime()) ? dateFormatter.format(createdAt) : "Date inconnue";
       const relative = createdAt ? relativeLabel(createdAt) : "";
-      const formatted = formatConsigneValue(consigne.type, r.value);
+      const formattedText = formatConsigneValue(consigne.type, r.value);
+      const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html" });
       const status = dotColor(consigne.type, r.value);
       const note = r.note && String(r.note).trim();
       const noteMarkup = note ? `<p class="history-panel__note">${escapeHtml(note)}</p>` : "";
       const relativeMarkup = relative ? `<span class="history-panel__meta">${escapeHtml(relative)}</span>` : "";
       const statusLabel = statusLabels[status] || "Valeur";
+      const hasFormatted = formattedText && formattedText.trim() && formattedText !== "—";
+      const formattedMarkup = hasFormatted ? formattedHtml : escapeHtml(consigne.type === "info" ? "" : "—");
       return `
         <li class="history-panel__item" data-priority-tone="${escapeHtml(priorityToneValue)}">
           <div class="history-panel__item-row">
             <span class="history-panel__value" data-priority-tone="${escapeHtml(priorityToneValue)}">
               <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
-              <span>${escapeHtml(formatted)}</span>
+              <span>${formattedMarkup}</span>
               <span class="sr-only">${escapeHtml(statusLabel)}</span>
             </span>
             <time class="history-panel__date" datetime="${escapeHtml(iso)}">${escapeHtml(dateText)}</time>
@@ -3877,6 +4377,19 @@ async function renderPractice(ctx, root, _opts = {}) {
         input.selectedIndex = 0;
       });
       $$("input[type=radio]", form).forEach((input) => (input.checked = false));
+      $$("[data-rich-text-root]", form).forEach((editor) => {
+        const hidden = editor.querySelector("[data-rich-text-input]");
+        const content = editor.querySelector("[data-rich-text-content]");
+        if (content) {
+          content.innerHTML = "<p><br></p>";
+        }
+        if (hidden) {
+          const emptyValue = normalizeRichTextValue("");
+          hidden.value = JSON.stringify(emptyValue);
+          hidden.dispatchEvent(new Event("input", { bubbles: true }));
+          hidden.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      });
 
       showToast(answers.length ? "Itération enregistrée" : "Itération passée");
       saveBtn.classList.add("btn-saved");
