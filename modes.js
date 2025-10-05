@@ -2422,6 +2422,22 @@ function findConsigneInputFields(row, consigne) {
   return Array.from(holder.querySelectorAll(`[name$=":${consigne.id}"]`));
 }
 
+function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
+  const row = document.createElement("div");
+  row.className = "consigne-row consigne-row--child consigne-row--virtual";
+  row.dataset.id = consigne?.id || "";
+  row.hidden = true;
+  row.style.display = "none";
+  row.setAttribute("aria-hidden", "true");
+  const holder = document.createElement("div");
+  holder.hidden = true;
+  holder.setAttribute("data-consigne-input-holder", "");
+  holder.innerHTML = inputForType(consigne, initialValue);
+  row.appendChild(holder);
+  enhanceRangeMeters(row);
+  return row;
+}
+
 function setConsigneRowValue(row, consigne, value) {
   const fields = findConsigneInputFields(row, consigne);
   if (!fields.length) {
@@ -2454,6 +2470,12 @@ function attachConsigneEditor(row, consigne, options = {}) {
   const trigger = options.trigger || row.querySelector("[data-consigne-open]");
   if (!trigger) return;
   const variant = options.variant === "drawer" ? "drawer" : "modal";
+  const childConsignes = Array.isArray(options.childConsignes)
+    ? options.childConsignes.filter((item) => item && item.consigne)
+    : [];
+  childConsignes.forEach((child) => {
+    child.srEnabled = child?.srEnabled !== false;
+  });
   enhanceRangeMeters(row.querySelector("[data-consigne-input-holder]"));
   const openEditor = () => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -2463,12 +2485,60 @@ function attachConsigneEditor(row, consigne, options = {}) {
     const currentValue = readConsigneCurrentValue(consigne, row);
     const title = consigne.text || consigne.titre || consigne.name || consigne.id;
     const description = consigne.description || consigne.details || consigne.helper || "";
-    const actionsMarkup = consigne.type === "info"
-      ? `<div class="flex justify-end"><button type="button" class="btn" data-consigne-editor-cancel>Fermer</button></div>`
-      : `<div class="flex justify-end gap-2">
+    const requiresValidation = consigne.type !== "info" || childConsignes.length > 0;
+    const renderChildEditor = (childState, index) => {
+      const child = childState.consigne || {};
+      const childTitle = child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
+      const childDescription = child.description || child.details || child.helper || "";
+      const childValue = readConsigneCurrentValue(child, childState.row || row);
+      const actionButtons = [];
+      if (typeof childState.onHistory === "function") {
+        actionButtons.push(`<button type="button" class="btn btn-ghost text-xs" data-child-action="history">Historique</button>`);
+      }
+      if (typeof childState.onEdit === "function") {
+        actionButtons.push(`<button type="button" class="btn btn-ghost text-xs" data-child-action="edit">Modifier</button>`);
+      }
+      if (typeof childState.onToggleSr === "function") {
+        const srLabel = childState.srEnabled ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
+        actionButtons.push(`<button type="button" class="btn btn-ghost text-xs" data-child-action="sr-toggle" data-enabled="${childState.srEnabled ? "1" : "0"}">${srLabel}</button>`);
+      }
+      if (typeof childState.onDelete === "function") {
+        actionButtons.push(`<button type="button" class="btn btn-ghost text-xs text-red-600" data-child-action="delete">Supprimer</button>`);
+      }
+      const actionsHtml = actionButtons.length
+        ? `<div class="flex flex-wrap items-center justify-end gap-1" data-child-actions>${actionButtons.join("")}</div>`
+        : "";
+      return `
+        <article class="space-y-3 rounded-xl border border-slate-200 p-3" data-child-consigne="${escapeHtml(child.id)}">
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div class="space-y-1">
+              <div class="font-medium text-slate-800">${escapeHtml(childTitle)}</div>
+              ${childDescription ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(childDescription)}</p>` : ""}
+            </div>
+            ${actionsHtml}
+          </div>
+          <div class="space-y-2" data-consigne-editor-child-body>
+            ${inputForType(child, childValue)}
+          </div>
+        </article>`;
+    };
+    const childMarkup = childConsignes.length
+      ? `<section class="space-y-3 border-t border-slate-200 pt-3 mt-3" data-consigne-editor-children>
+          <header class="space-y-1">
+            <h3 class="text-base font-semibold">Sous-consignes</h3>
+            <p class="text-sm text-slate-600">Complète les sous-consignes liées à cette carte.</p>
+          </header>
+          <div class="space-y-3">
+            ${childConsignes.map((child, index) => renderChildEditor(child, index)).join("")}
+          </div>
+        </section>`
+      : "";
+    const actionsMarkup = requiresValidation
+      ? `<div class="flex justify-end gap-2">
           <button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>
           <button type="button" class="btn btn-primary" data-consigne-editor-validate>Valider</button>
-        </div>`;
+        </div>`
+      : `<div class="flex justify-end"><button type="button" class="btn" data-consigne-editor-cancel>Fermer</button></div>`;
     const markup = `
       <div class="space-y-4">
         <header class="space-y-1">
@@ -2477,6 +2547,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
         </header>
         <div class="space-y-3" data-consigne-editor-body>
           ${inputForType(consigne, currentValue)}
+          ${childMarkup}
         </div>
         ${actionsMarkup}
       </div>
@@ -2542,6 +2613,111 @@ function attachConsigneEditor(row, consigne, options = {}) {
         options.onClose();
       }
     };
+    const escapeAttrValue = (value) => String(value ?? "").replace(/"/g, '\\"');
+    childConsignes.forEach((childState) => {
+      const childId = childState?.consigne?.id;
+      if (childId == null) return;
+      const node = overlay.querySelector(`[data-child-consigne="${escapeAttrValue(childId)}"]`);
+      if (!node) return;
+      node.querySelectorAll("textarea").forEach((textarea) => {
+        autoGrowTextarea(textarea);
+      });
+      const callHandler = (handler, event) => {
+        if (typeof handler === "function") {
+          try {
+            handler({ event, close: closeOverlay, consigne: childState.consigne, row: childState.row });
+          } catch (err) {
+            console.error(err);
+          }
+        }
+      };
+      const historyBtn = node.querySelector('[data-child-action="history"]');
+      if (historyBtn) {
+        if (typeof childState.onHistory === "function") {
+          historyBtn.addEventListener("click", (event) => {
+            event.preventDefault();
+            callHandler(childState.onHistory, event);
+          });
+        } else {
+          historyBtn.disabled = true;
+          historyBtn.setAttribute("aria-disabled", "true");
+        }
+      }
+      const editBtn = node.querySelector('[data-child-action="edit"]');
+      if (editBtn) {
+        if (typeof childState.onEdit === "function") {
+          editBtn.addEventListener("click", (event) => {
+            event.preventDefault();
+            callHandler(childState.onEdit, event);
+          });
+        } else {
+          editBtn.disabled = true;
+          editBtn.setAttribute("aria-disabled", "true");
+        }
+      }
+      const srBtn = node.querySelector('[data-child-action="sr-toggle"]');
+      if (srBtn) {
+        if (typeof childState.onToggleSr === "function") {
+          const updateSrButton = (enabled) => {
+            const nextEnabled = Boolean(enabled);
+            const label = nextEnabled
+              ? "Désactiver la répétition espacée"
+              : "Activer la répétition espacée";
+            srBtn.dataset.enabled = nextEnabled ? "1" : "0";
+            srBtn.textContent = label;
+          };
+          updateSrButton(childState.srEnabled);
+          srBtn.addEventListener("click", async (event) => {
+            event.preventDefault();
+            const current = Boolean(childState.srEnabled);
+            srBtn.disabled = true;
+            try {
+              const result = await childState.onToggleSr(!current, {
+                event,
+                close: closeOverlay,
+                update: updateSrButton,
+              });
+              const finalState = typeof result === "boolean" ? result : !current;
+              childState.srEnabled = finalState;
+              updateSrButton(finalState);
+            } catch (err) {
+              console.error(err);
+              updateSrButton(current);
+            } finally {
+              if (overlay.isConnected) {
+                srBtn.disabled = false;
+              }
+            }
+          });
+        } else {
+          srBtn.disabled = true;
+          srBtn.setAttribute("aria-disabled", "true");
+        }
+      }
+      const deleteBtn = node.querySelector('[data-child-action="delete"]');
+      if (deleteBtn) {
+        if (typeof childState.onDelete === "function") {
+          deleteBtn.addEventListener("click", async (event) => {
+            event.preventDefault();
+            deleteBtn.disabled = true;
+            try {
+              const result = await childState.onDelete({ event, close: closeOverlay, consigne: childState.consigne, row: childState.row });
+              if (result === false && overlay.isConnected) {
+                deleteBtn.disabled = false;
+              }
+            } catch (err) {
+              console.error(err);
+              if (overlay.isConnected) {
+                deleteBtn.disabled = false;
+              }
+            }
+          });
+        } else {
+          deleteBtn.disabled = true;
+          deleteBtn.setAttribute("aria-disabled", "true");
+        }
+      }
+    });
     const background = variant === "drawer" ? overlay.firstElementChild : overlay;
     if (background) {
       background.addEventListener("click", (event) => {
@@ -2573,8 +2749,17 @@ function attachConsigneEditor(row, consigne, options = {}) {
         event.preventDefault();
         const newValue = readConsigneCurrentValue(consigne, overlay);
         setConsigneRowValue(row, consigne, newValue);
+        const childValueEntries = [];
+        childConsignes.forEach((childState) => {
+          const childValue = readConsigneCurrentValue(childState.consigne, overlay);
+          if (childState.row) {
+            setConsigneRowValue(childState.row, childState.consigne, childValue);
+          }
+          childValueEntries.push([childState.consigne?.id, childValue]);
+        });
+        const childValueMap = new Map(childValueEntries.filter(([id]) => id != null));
         if (typeof options.onSubmit === "function") {
-          options.onSubmit(newValue);
+          options.onSubmit(newValue, { childValues: childValueMap });
         }
         closeOverlay();
       });
@@ -2831,7 +3016,7 @@ async function renderPractice(ctx, root, _opts = {}) {
   } else {
     form.innerHTML = "";
 
-    const makeItem = (c, { isChild = false } = {}) => {
+    const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
       const tone = priorityTone(c.priority);
       const row = document.createElement("div");
       row.className = `consigne-row priority-surface priority-surface-${tone}`;
@@ -2954,7 +3139,10 @@ async function renderPractice(ctx, root, _opts = {}) {
           },
         },
       }));
-      attachConsigneEditor(row, c, { variant: "modal" });
+      const editorConfig = { variant: "modal", ...(editorOptions || {}) };
+      if (!deferEditor) {
+        attachConsigneEditor(row, c, editorConfig);
+      }
       bindConsigneRowValue(row, c, {
         onChange: (value) => {
           if (value === null || value === undefined) {
@@ -2971,21 +3159,62 @@ async function renderPractice(ctx, root, _opts = {}) {
     const renderGroup = (group, target) => {
       const wrapper = document.createElement("div");
       wrapper.className = "consigne-group";
-      const parentCard = makeItem(group.consigne, { isChild: false });
+      const parentCard = makeItem(group.consigne, { isChild: false, deferEditor: true });
       wrapper.appendChild(parentCard);
-      if (group.children.length) {
-        const details = document.createElement("details");
-        details.className = "consigne-group__children";
-        details.innerHTML = `<summary class="consigne-group__summary">${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}</summary>`;
-        const list = document.createElement("div");
-        list.className = "consigne-group__list";
-        group.children.forEach((child) => {
-          const childCard = makeItem(child, { isChild: true });
-          list.appendChild(childCard);
-        });
-        details.appendChild(list);
-        wrapper.appendChild(details);
-      }
+      const childConfigs = group.children.map((child) => {
+        const childRow = createHiddenConsigneRow(child);
+        childRow.dataset.parentId = child.parentId || group.consigne.id || "";
+        childRow.draggable = false;
+        parentCard.appendChild(childRow);
+        bindConsigneRowValue(childRow, child);
+        let srEnabled = child?.srEnabled !== false;
+        const config = {
+          consigne: child,
+          row: childRow,
+          srEnabled,
+          onHistory: () => {
+            Schema.D.info("ui.history.click", child.id);
+            openHistory(ctx, child);
+          },
+          onEdit: ({ close } = {}) => {
+            Schema.D.info("ui.editConsigne.click", child.id);
+            if (typeof close === "function") {
+              close();
+            }
+            openConsigneForm(ctx, child);
+          },
+          onDelete: async ({ close } = {}) => {
+            if (!confirm("Supprimer cette consigne ? (historique conservé)")) {
+              return false;
+            }
+            Schema.D.info("ui.deleteConsigne.confirm", child.id);
+            await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, child.id);
+            if (typeof close === "function") {
+              close();
+            }
+            renderPractice(ctx, root);
+            return true;
+          },
+          onToggleSr: async (next) => {
+            try {
+              await Schema.updateConsigne(ctx.db, ctx.user.uid, child.id, { srEnabled: next });
+              srEnabled = next;
+              config.srEnabled = srEnabled;
+              child.srEnabled = next;
+              return srEnabled;
+            } catch (err) {
+              console.error(err);
+              showToast("Impossible de mettre à jour la répétition espacée.");
+              return srEnabled;
+            }
+          },
+        };
+        return config;
+      });
+      attachConsigneEditor(parentCard, group.consigne, {
+        variant: "modal",
+        childConsignes: childConfigs,
+      });
       target.appendChild(wrapper);
     };
 
@@ -3245,7 +3474,7 @@ async function renderDaily(ctx, root, opts = {}) {
     ? previousAnswersRaw
     : new Map(previousAnswersRaw || []);
 
-  const renderItemCard = (item, { isChild = false } = {}) => {
+  const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
     const previous = previousAnswers.get(item.id);
     const hasPrevValue = previous && Object.prototype.hasOwnProperty.call(previous, "value");
     const initialValue = hasPrevValue ? previous.value : null;
@@ -3369,7 +3598,10 @@ async function renderDaily(ctx, root, opts = {}) {
       },
     }));
 
-    attachConsigneEditor(row, item, { variant: "modal" });
+    const editorConfig = { variant: "modal", ...(editorOptions || {}) };
+    if (!deferEditor) {
+      attachConsigneEditor(row, item, editorConfig);
+    }
     bindConsigneRowValue(row, item, {
       initialValue,
       onChange: (value) => {
@@ -3389,21 +3621,71 @@ async function renderDaily(ctx, root, opts = {}) {
   const renderGroup = (group, target) => {
     const wrapper = document.createElement("div");
     wrapper.className = "consigne-group";
-    const parentCard = renderItemCard(group.consigne, { isChild: false });
+    const parentCard = renderItemCard(group.consigne, { isChild: false, deferEditor: true });
     wrapper.appendChild(parentCard);
-    if (group.children.length) {
-      const details = document.createElement("details");
-      details.className = "consigne-group__children";
-      details.innerHTML = `<summary class="consigne-group__summary">${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}</summary>`;
-      const list = document.createElement("div");
-      list.className = "consigne-group__list";
-      group.children.forEach((child) => {
-        const childCard = renderItemCard(child, { isChild: true });
-        list.appendChild(childCard);
+    const childConfigs = group.children.map((child) => {
+      const previous = previousAnswers.get(child.id);
+      const hasPrevValue = previous && Object.prototype.hasOwnProperty.call(previous, "value");
+      const initialValue = hasPrevValue ? previous.value : null;
+      const childRow = createHiddenConsigneRow(child, { initialValue });
+      childRow.dataset.parentId = child.parentId || group.consigne.id || "";
+      childRow.draggable = false;
+      parentCard.appendChild(childRow);
+      bindConsigneRowValue(childRow, child, {
+        initialValue,
+        onChange: (value) => {
+          const base = previousAnswers.get(child.id) || { consigneId: child.id };
+          previousAnswers.set(child.id, { ...base, value });
+        },
       });
-      details.appendChild(list);
-      wrapper.appendChild(details);
-    }
+      let srEnabled = child?.srEnabled !== false;
+      const config = {
+        consigne: child,
+        row: childRow,
+        srEnabled,
+        onHistory: () => {
+          Schema.D.info("ui.history.click", child.id);
+          openHistory(ctx, child);
+        },
+        onEdit: ({ close } = {}) => {
+          Schema.D.info("ui.editConsigne.click", child.id);
+          if (typeof close === "function") {
+            close();
+          }
+          openConsigneForm(ctx, child);
+        },
+        onDelete: async ({ close } = {}) => {
+          if (!confirm("Supprimer cette consigne ? (historique conservé)")) {
+            return false;
+          }
+          Schema.D.info("ui.deleteConsigne.confirm", child.id);
+          await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, child.id);
+          if (typeof close === "function") {
+            close();
+          }
+          renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
+          return true;
+        },
+        onToggleSr: async (next) => {
+          try {
+            await Schema.updateConsigne(ctx.db, ctx.user.uid, child.id, { srEnabled: next });
+            srEnabled = next;
+            config.srEnabled = srEnabled;
+            child.srEnabled = next;
+            return srEnabled;
+          } catch (err) {
+            console.error(err);
+            showToast("Impossible de mettre à jour la répétition espacée.");
+            return srEnabled;
+          }
+        },
+      };
+      return config;
+    });
+    attachConsigneEditor(parentCard, group.consigne, {
+      variant: "modal",
+      childConsignes: childConfigs,
+    });
     target.appendChild(wrapper);
   };
 
