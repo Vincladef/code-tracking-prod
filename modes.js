@@ -2328,6 +2328,16 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
   const dot = row.querySelector("[data-status-dot]");
   const mark = row.querySelector("[data-status-mark]");
   const live = row.querySelector("[data-status-live]");
+  const tone = row.dataset.priorityTone || priorityTone(consigne.priority);
+  if (tone) {
+    row.dataset.priorityTone = tone;
+    if (statusHolder) {
+      statusHolder.dataset.priorityTone = tone;
+    }
+    if (dot) {
+      dot.dataset.priorityTone = tone;
+    }
+  }
   row.dataset.status = status;
   if (statusHolder) {
     statusHolder.dataset.status = status;
@@ -2435,6 +2445,10 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
   const row = document.createElement("div");
   row.className = "consigne-row consigne-row--child consigne-row--virtual";
   row.dataset.id = consigne?.id || "";
+  const tone = priorityTone(consigne?.priority);
+  if (tone) {
+    row.dataset.priorityTone = tone;
+  }
   row.hidden = true;
   row.style.display = "none";
   row.setAttribute("aria-hidden", "true");
@@ -2963,6 +2977,8 @@ async function openHistory(ctx, consigne) {
     na: "Sans donnée",
   };
 
+  const priorityToneValue = priorityTone(consigne.priority);
+
   function relativeLabel(date) {
     if (!date || Number.isNaN(date.getTime())) return "";
     const today = new Date();
@@ -2987,10 +3003,10 @@ async function openHistory(ctx, consigne) {
       const relativeMarkup = relative ? `<span class="history-panel__meta">${escapeHtml(relative)}</span>` : "";
       const statusLabel = statusLabels[status] || "Valeur";
       return `
-        <li class="history-panel__item">
+        <li class="history-panel__item" data-priority-tone="${escapeHtml(priorityToneValue)}">
           <div class="history-panel__item-row">
-            <span class="history-panel__value">
-              <span class="history-panel__dot history-panel__dot--${status}" aria-hidden="true"></span>
+            <span class="history-panel__value" data-priority-tone="${escapeHtml(priorityToneValue)}">
+              <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
               <span>${escapeHtml(formatted)}</span>
               <span class="sr-only">${escapeHtml(statusLabel)}</span>
             </span>
@@ -3154,6 +3170,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       const row = document.createElement("div");
       row.className = `consigne-row priority-surface priority-surface-${tone}`;
       row.dataset.id = c.id;
+      row.dataset.priorityTone = tone;
       if (isChild) {
         row.classList.add("consigne-row--child");
         if (c.parentId) {
@@ -3186,6 +3203,14 @@ async function renderPractice(ctx, root, _opts = {}) {
         </div>
         <div data-consigne-input-holder hidden></div>
       `;
+      const statusHolder = row.querySelector("[data-status]");
+      if (statusHolder) {
+        statusHolder.dataset.priorityTone = tone;
+      }
+      const statusDot = row.querySelector("[data-status-dot]");
+      if (statusDot) {
+        statusDot.dataset.priorityTone = tone;
+      }
       const holder = row.querySelector("[data-consigne-input-holder]");
       if (holder) {
         holder.innerHTML = inputForType(c);
@@ -3615,6 +3640,7 @@ async function renderDaily(ctx, root, opts = {}) {
     const tone = priorityTone(item.priority);
     row.className = `consigne-row priority-surface priority-surface-${tone}`;
     row.dataset.id = item.id;
+    row.dataset.priorityTone = tone;
     if (isChild) {
       row.classList.add("consigne-row--child");
       if (item.parentId) {
@@ -3645,6 +3671,14 @@ async function renderDaily(ctx, root, opts = {}) {
       </div>
       <div data-consigne-input-holder hidden></div>
     `;
+    const statusHolder = row.querySelector("[data-status]");
+    if (statusHolder) {
+      statusHolder.dataset.priorityTone = tone;
+    }
+    const statusDot = row.querySelector("[data-status-dot]");
+    if (statusDot) {
+      statusDot.dataset.priorityTone = tone;
+    }
     const holder = row.querySelector("[data-consigne-input-holder]");
     if (holder) {
       holder.innerHTML = inputForType(item, previous?.value ?? null);
