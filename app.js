@@ -156,6 +156,14 @@
       display.addEventListener("blur", () => syncHidden(false));
 
       const form = hidden.closest("form");
+      if (form && !form.__rtEditorEnterGuard) {
+        form.__rtEditorEnterGuard = true;
+        form.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && document.activeElement === display) {
+            event.preventDefault();
+          }
+        });
+      }
       if (form) {
         form.addEventListener("reset", () => {
           window.setTimeout(() => {
@@ -171,6 +179,24 @@
       return display;
     };
 
+    const resolveCheckboxSetupFn = () =>
+      window.setupCheckboxLikeBullets ||
+      window.setupCheckboxListBehavior ||
+      window.setupChecklistEditor;
+
+    const setupEditorOnce = (editorEl, insertBtn) => {
+      const setupFn = resolveCheckboxSetupFn();
+      if (typeof setupFn !== "function") return false;
+      if (!editorEl) return false;
+      if (editorEl.__cbInstalled) return true;
+      try {
+        setupFn(editorEl, insertBtn || null);
+      } catch (error) {
+        console.warn("[app] checklist-editor:setup", error);
+      }
+      return true;
+    };
+
     const trySetup = () => {
       let editorEl = document.getElementById("rt-editor");
       if (!editorEl) return false;
@@ -184,26 +210,11 @@
       if (!editorEl.classList.contains("rt-editor")) {
         editorEl.classList.add("rt-editor");
       }
-      const setupFn =
-        window.setupCheckboxLikeBullets ||
-        window.setupCheckboxListBehavior ||
-        window.setupChecklistEditor;
-      if (typeof setupFn !== "function") return false;
       const insertBtn = document.getElementById("insert-checkbox");
-      try {
-        setupFn(editorEl, insertBtn || null);
-      } catch (error) {
-        console.warn("[app] checklist-editor:setup", error);
-      }
-      return true;
+      return setupEditorOnce(editorEl, insertBtn || null);
     };
 
-    const hasSetupFn = () =>
-      typeof (
-        window.setupCheckboxLikeBullets ||
-        window.setupCheckboxListBehavior ||
-        window.setupChecklistEditor
-      ) === "function";
+    const hasSetupFn = () => typeof resolveCheckboxSetupFn() === "function";
 
     if (trySetup()) return;
 

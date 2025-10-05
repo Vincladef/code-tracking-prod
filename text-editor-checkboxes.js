@@ -85,7 +85,14 @@
     if (!editor) return;
     const checkboxes = Array.from(editor.querySelectorAll('input[type="checkbox"]'));
     checkboxes.forEach((input) => {
-      normalizeCheckbox(input);
+      const wrap = normalizeCheckbox(input);
+      if (!wrap) return;
+      const next = wrap.nextSibling;
+      if (!next || next.nodeType !== 3) {
+        wrap.after(document.createTextNode(' '));
+      } else if (!next.textContent) {
+        next.textContent = ' ';
+      }
     });
   }
 
@@ -95,7 +102,7 @@
     return c;
   }
 
-  function lineCtx(editor) {
+  function getLineContext(editor) {
     const s = Sel(); if (!s) return null;
     const r = s.getRangeAt(0);
     // remonte à un enfant direct du contenteditable
@@ -121,11 +128,11 @@
     return { mode: 'inline', first, node, caretAtStart };
   }
 
-  function startsWithCb(ctx) {
+  function lineStartsWithCb(ctx) {
     return !!cbRoot(ctx?.first);
   }
 
-  function emptyAfterCb(editor, ctx) {
+  function lineEmptyAfterCb(editor, ctx) {
     if (!ctx) return false;
 
     const first = (ctx.first?.closest?.('.cb-wrap')) || ctx.first;
@@ -135,18 +142,13 @@
     );
     if (!isCb) return false;
 
-    let n = first.nextSibling;
-    let empty = true;
+    let n = first.nextSibling, empty = true;
     while (n && (ctx.mode === 'inline' ? n !== editor : true)) {
       if (ctx.mode === 'inline' && n.nodeName === 'BR') break;
       if (n.nodeType === 3 && !isReallyEmptyText(n.textContent)) { empty = false; break; }
       if (n.nodeType === 1) {
-        if (
-          (n.tagName === 'BR') ||
-          (n.classList && n.classList.contains('cb-wrap')) ||
-          isReallyEmptyText(n.textContent)
-        ) {
-          // ignore
+        if (n.tagName === 'BR' || (n.classList && n.classList.contains('cb-wrap')) || isReallyEmptyText(n.textContent)) {
+          // ignorer
         } else { empty = false; break; }
       }
       n = n.nextSibling;
@@ -157,7 +159,7 @@
   function insertPlainBreak(editor) {
     const s = Sel(); if (!s) return;
     const r = s.getRangeAt(0);
-    const ctx = lineCtx(editor);
+    const ctx = getLineContext(editor);
 
     if (ctx && ctx.mode === 'block') {
       const nb = document.createElement(ctx.block.tagName);
@@ -177,7 +179,7 @@
   function insertBreakWithCheckbox(editor) {
     const s = Sel(); if (!s) return;
     const r = s.getRangeAt(0);
-    const ctx = lineCtx(editor);
+    const ctx = getLineContext(editor);
 
     if (ctx && ctx.mode === 'block') {
       const nb = document.createElement(ctx.block.tagName);
@@ -202,7 +204,7 @@
   }
 
   function removeLeadingCb(editor, ctx) {
-    if (!startsWithCb(ctx)) return false;
+    if (!lineStartsWithCb(ctx)) return false;
     const first = cbRoot(ctx.first);
     if (!first) return false;
     const space = first.nextSibling;
@@ -215,13 +217,8 @@
     const first = (ctx.first?.closest?.('.cb-wrap')) || ctx.first;
     if (!first) return;
 
-    const parentBeforeRemoval = first.parentNode;
-    let afterFirst = first.nextSibling;
     const space = first.nextSibling;
-    if (space && space.nodeType === 3 && isReallyEmptyText(space.textContent)) {
-      afterFirst = space.nextSibling;
-      space.remove();
-    }
+    if (space && space.nodeType === 3 && isReallyEmptyText(space.textContent)) space.remove();
     first.remove();
 
     const sel = window.getSelection();
@@ -229,50 +226,26 @@
     const r = document.createRange();
 
     if (ctx.mode === 'block') {
-      if (!editor.contains(ctx.block)) return;
-      if (!ctx.block.textContent || isReallyEmptyText(ctx.block.textContent)) {
-        ctx.block.innerHTML = '<br>';
-      }
+      if (!ctx.block.textContent || isReallyEmptyText(ctx.block.textContent)) ctx.block.innerHTML = '<br>';
       r.setStart(ctx.block, ctx.block.childNodes.length);
-      r.collapse(true);
-      sel.removeAllRanges(); sel.addRange(r);
     } else {
-      let caretTarget = afterFirst;
-      while (caretTarget && caretTarget.nodeType === 3 && isReallyEmptyText(caretTarget.textContent)) {
-        caretTarget = caretTarget.nextSibling;
-      }
-
-      if (!caretTarget || caretTarget.nodeName === 'BR') {
-        if (!caretTarget) {
-          caretTarget = document.createElement('br');
-          if (afterFirst && editor.contains(afterFirst)) {
-            editor.insertBefore(caretTarget, afterFirst);
-          } else if (parentBeforeRemoval && editor.contains(parentBeforeRemoval) && parentBeforeRemoval.nextSibling) {
-            editor.insertBefore(caretTarget, parentBeforeRemoval.nextSibling);
-          } else {
-            editor.appendChild(caretTarget);
-          }
-        }
-        r.setStartBefore(caretTarget);
-      } else if (caretTarget.nodeType === 3) {
-        r.setStart(caretTarget, 0);
-      } else {
-        r.setStartBefore(caretTarget);
-      }
-      r.collapse(true);
-      sel.removeAllRanges(); sel.addRange(r);
+      r.selectNodeContents(editor);
+      r.collapse(false);
     }
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
   }
 
   function deleteAdjacentCb(editor, direction) {
     const s = Sel(); if (!s) return false;
     const r = s.getRangeAt(0); if (!r.collapsed) return false;
-    const ctx = lineCtx(editor); if (!ctx) return false;
+    const ctx = getLineContext(editor); if (!ctx) return false;
 
     // Backspace au tout début d’une ligne "checkbox" -> enlève la puce
     if (direction === 'back') {
-      const atStart = (ctx.mode === 'block') ? (ctx.caretAtStart && startsWithCb(ctx))
-                                             : (ctx.caretAtStart && startsWithCb(ctx));
+      const atStart = (ctx.mode === 'block') ? (ctx.caretAtStart && lineStartsWithCb(ctx))
+                                             : (ctx.caretAtStart && lineStartsWithCb(ctx));
       if (atStart) return removeLeadingCb(editor, ctx);
     }
 
@@ -319,6 +292,24 @@
   }
 
   // API globale
+  function insertCheckboxAtCaret(editorEl) {
+    const s = Sel();
+    if (!s) return;
+    const r = s.getRangeAt(0);
+    const w = makeCbWrap();
+    r.deleteContents();
+    r.insertNode(w);
+    const sp = document.createTextNode(' ');
+    const r2 = document.createRange();
+    r2.setStartAfter(w);
+    r2.collapse(true);
+    r2.insertNode(sp);
+    r2.setStartAfter(sp);
+    r2.setEndAfter(sp);
+    s.removeAllRanges();
+    s.addRange(r2);
+  }
+
   window.setupCheckboxLikeBullets = function (editorEl, insertBtnEl) {
     if (!editorEl || editorEl.__cbInstalled) return;
     editorEl.__cbInstalled = true;
@@ -342,12 +333,13 @@
     editorEl.addEventListener('keydown', (e) => {
       normalizeCheckboxes(editorEl);
       if (e.key === 'Enter') {
-        const ctx = lineCtx(editorEl);
+        const ctx = getLineContext(editorEl);
         if (!ctx) return;
-        if (!startsWithCb(ctx)) return;
+        if (!lineStartsWithCb(ctx)) return;
         e.preventDefault();
         e.stopPropagation();
-        if (emptyAfterCb(editorEl, ctx)) {
+        if (lineEmptyAfterCb(editorEl, ctx)) {
+          e.stopImmediatePropagation();
           removeLeadingCbAndKeepSameLine(editorEl, ctx);
           return;
         }
@@ -380,16 +372,11 @@
           s.removeAllRanges();
           s.addRange(range);
         }
-        const r = s.getRangeAt(0);
-        // on insère un wrap (plus robuste pour caret), mais l’algorithme acceptera aussi l’INPUT nue si tu en as déjà
-        const w = makeCbWrap();
-        r.deleteContents(); r.insertNode(w);
-        const sp = document.createTextNode(' ');
-        const r2 = document.createRange(); r2.setStartAfter(w); r2.collapse(true); r2.insertNode(sp);
-        r2.setStartAfter(sp); r2.setEndAfter(sp);
-        s.removeAllRanges(); s.addRange(r2);
+        insertCheckboxAtCaret(editorEl);
         editorEl.focus();
       });
     }
   };
+
+  window.getLineContext = getLineContext;
 })();
