@@ -355,7 +355,7 @@ window.Modes.richText = {
 
 function modal(html) {
   const wrap = document.createElement("div");
-  wrap.className = "modal fixed inset-0 z-50 grid place-items-center bg-black/40 p-4";
+  wrap.className = "modal fixed inset-0 z-50 bg-black/40 p-4 phone-center";
   wrap.innerHTML = `
     <div class="w-[min(680px,92vw)] overflow-y-auto rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl" data-modal-content style="max-height:var(--viewport-safe-height, calc(100vh - 2rem));">
       ${html}
@@ -2091,12 +2091,8 @@ function setupRichTextEditor(root) {
     }
     const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
     boxes.forEach((box, index) => {
-      box.setAttribute("data-rich-checkbox", "1");
+      ensureCheckboxWrapper(box);
       box.setAttribute("data-rich-checkbox-index", String(index));
-      box.setAttribute("tabindex", "-1");
-      box.setAttribute("contenteditable", "false");
-      box.tabIndex = -1;
-      box.contentEditable = "false";
       if (parsed && Array.isArray(parsed.checkboxes) && parsed.checkboxes[index]) {
         box.checked = true;
         box.setAttribute("checked", "");
@@ -2120,6 +2116,70 @@ function setupRichTextEditor(root) {
   const ownerDocument = content?.ownerDocument || document;
   const boldButton = toolbar?.querySelector('[data-rich-command="bold"]');
   const italicButton = toolbar?.querySelector('[data-rich-command="italic"]');
+
+  const isCheckboxWrapper = (node) => node?.nodeType === Node.ELEMENT_NODE
+    && node.getAttribute?.("data-rich-checkbox-wrapper") === "1";
+
+  const isWhitespaceNode = (node) => {
+    if (!node || node.nodeType !== Node.TEXT_NODE) return false;
+    const text = node.textContent || "";
+    return text.replace(/\u00a0/g, " ").trim().length === 0;
+  };
+
+  const ensureCheckboxWrapper = (input) => {
+    if (!input || input.nodeName !== "INPUT") return null;
+    input.setAttribute("type", "checkbox");
+    input.setAttribute("data-rich-checkbox", "1");
+    input.setAttribute("tabindex", "-1");
+    input.setAttribute("contenteditable", "false");
+    input.tabIndex = -1;
+    input.contentEditable = "false";
+
+    let wrapper = input.closest('[data-rich-checkbox-wrapper]');
+    if (!wrapper && ownerDocument && typeof ownerDocument.createElement === "function") {
+      wrapper = ownerDocument.createElement("span");
+      wrapper.setAttribute("data-rich-checkbox-wrapper", "1");
+      wrapper.classList.add("cb-wrap");
+      wrapper.setAttribute("contenteditable", "false");
+      wrapper.contentEditable = "false";
+      const parent = input.parentNode;
+      if (parent) {
+        parent.insertBefore(wrapper, input);
+        wrapper.appendChild(input);
+      } else {
+        wrapper.appendChild(input);
+      }
+    }
+    if (wrapper) {
+      wrapper.setAttribute("data-rich-checkbox-wrapper", "1");
+      wrapper.classList.add("cb-wrap");
+      wrapper.setAttribute("contenteditable", "false");
+      wrapper.contentEditable = "false";
+      const nextSibling = wrapper.nextSibling;
+      if (isWhitespaceNode(nextSibling) && nextSibling.textContent?.includes("\u00a0")) {
+        nextSibling.textContent = nextSibling.textContent.replace(/\u00a0/g, " ");
+      }
+    }
+    return wrapper || null;
+  };
+
+  const createCheckboxWrapper = () => {
+    if (!ownerDocument || typeof ownerDocument.createElement !== "function") return null;
+    const wrapper = ownerDocument.createElement("span");
+    wrapper.setAttribute("data-rich-checkbox-wrapper", "1");
+    wrapper.classList.add("cb-wrap");
+    wrapper.setAttribute("contenteditable", "false");
+    wrapper.contentEditable = "false";
+    const input = ownerDocument.createElement("input");
+    input.setAttribute("type", "checkbox");
+    input.setAttribute("data-rich-checkbox", "1");
+    input.setAttribute("tabindex", "-1");
+    input.setAttribute("contenteditable", "false");
+    input.tabIndex = -1;
+    input.contentEditable = "false";
+    wrapper.appendChild(input);
+    return { wrapper, input };
+  };
 
   const updateToolbarStates = () => {
     if (!toolbar) return;
@@ -2484,12 +2544,8 @@ function setupRichTextEditor(root) {
     }
     const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
     boxes.forEach((box, index) => {
-      box.setAttribute("data-rich-checkbox", "1");
+      ensureCheckboxWrapper(box);
       box.setAttribute("data-rich-checkbox-index", String(index));
-      box.setAttribute("tabindex", "-1");
-      box.setAttribute("contenteditable", "false");
-      box.tabIndex = -1;
-      box.contentEditable = "false";
       if (box.checked) {
         box.setAttribute("checked", "");
       } else {
@@ -2662,12 +2718,12 @@ function setupRichTextEditor(root) {
   };
 
   const analyzeCheckboxLine = (range) => {
-    const info = { startsWithCheckbox: false, hasTextAfter: false };
+    const info = { startsWithCheckbox: false, emptyAfter: false };
     if (!range) return info;
     const firstNode = resolveLineStart(range);
     if (!firstNode) return info;
     let checkboxNode = null;
-    if (firstNode.nodeType === Node.ELEMENT_NODE && firstNode.getAttribute?.("data-rich-checkbox-wrapper") === "1") {
+    if (isCheckboxWrapper(firstNode)) {
       const checkbox = firstNode.querySelector('input[type="checkbox"][data-rich-checkbox]');
       if (!checkbox) return info;
       checkboxNode = firstNode;
@@ -2679,18 +2735,177 @@ function setupRichTextEditor(root) {
       return info;
     }
     let sibling = checkboxNode.nextSibling;
+    let hasMeaningfulContent = false;
     while (sibling) {
       if (sibling.nodeName === "BR") break;
       if (nodeHasMeaningfulContent(sibling)) {
-        info.hasTextAfter = true;
+        hasMeaningfulContent = true;
         break;
       }
       sibling = sibling.nextSibling;
     }
+    info.emptyAfter = !hasMeaningfulContent;
     return info;
   };
 
-  const insertSimpleCheckboxBreak = (range) => {
+  const findPreviousLeaf = (container, offset) => {
+    let node = container;
+    let position = typeof offset === "number" ? offset : 0;
+    if (!node) return null;
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (position > 0) {
+        return node;
+      }
+      const parent = node.parentNode;
+      if (!parent) return null;
+      position = Array.prototype.indexOf.call(parent.childNodes, node);
+      node = parent;
+    }
+    while (node) {
+      if (node === content && position <= 0) return null;
+      if (position > 0) {
+        let sibling = node.childNodes[position - 1];
+        while (sibling && sibling.lastChild) {
+          sibling = sibling.lastChild;
+        }
+        return sibling || node.childNodes[position - 1] || null;
+      }
+      const parent = node.parentNode;
+      if (!parent) return null;
+      position = Array.prototype.indexOf.call(parent.childNodes, node);
+      node = parent;
+    }
+    return null;
+  };
+
+  const findNextLeaf = (container, offset) => {
+    let node = container;
+    let position = typeof offset === "number" ? offset : 0;
+    if (!node) return null;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const length = node.textContent ? node.textContent.length : 0;
+      if (position < length) {
+        return node;
+      }
+      const parent = node.parentNode;
+      if (!parent) return null;
+      position = Array.prototype.indexOf.call(parent.childNodes, node) + 1;
+      node = parent;
+    }
+    while (node) {
+      const childCount = node.childNodes ? node.childNodes.length : 0;
+      if (node === content && position >= childCount) return null;
+      if (position < childCount) {
+        let sibling = node.childNodes[position];
+        while (sibling && sibling.firstChild) {
+          sibling = sibling.firstChild;
+        }
+        return sibling || node.childNodes[position] || null;
+      }
+      const parent = node.parentNode;
+      if (!parent) return null;
+      position = Array.prototype.indexOf.call(parent.childNodes, node) + 1;
+      node = parent;
+    }
+    return null;
+  };
+
+  const deleteAdjacentCheckbox = (dir) => {
+    if (!ownerDocument || typeof ownerDocument.getSelection !== "function") return false;
+    const selection = ownerDocument.getSelection();
+    if (!selection || selection.rangeCount === 0) return false;
+    const range = selection.getRangeAt(0);
+    if (!range || !range.collapsed || !isRangeInsideContent(range)) return false;
+
+    const { startContainer, startOffset } = range;
+    if (startContainer.nodeType === Node.TEXT_NODE) {
+      if (dir === "back" && startOffset > 0) return false;
+      const length = startContainer.textContent ? startContainer.textContent.length : 0;
+      if (dir === "del" && startOffset < length) return false;
+    }
+
+    const neighbor = dir === "back"
+      ? findPreviousLeaf(startContainer, startOffset)
+      : findNextLeaf(startContainer, startOffset);
+    if (!neighbor) return false;
+
+    let target = null;
+    let spacer = null;
+    if (isCheckboxWrapper(neighbor)) {
+      target = neighbor;
+    } else if (isWhitespaceNode(neighbor)) {
+      const adjacent = dir === "back"
+        ? findPreviousLeaf(neighbor, neighbor.textContent ? neighbor.textContent.length : 0)
+        : findNextLeaf(neighbor, 0);
+      if (isCheckboxWrapper(adjacent)) {
+        target = adjacent;
+        spacer = neighbor;
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+
+    if (!target || !target.parentNode) return false;
+
+    const trailing = dir === "back" ? target.nextSibling : target.previousSibling;
+
+    const removalRange = ownerDocument.createRange();
+    try {
+      if (dir === "back") {
+        if (spacer && spacer.parentNode) {
+          removalRange.setStart(spacer, 0);
+        } else {
+          removalRange.setStartBefore(target);
+        }
+        removalRange.setEndAfter(target);
+      } else {
+        removalRange.setStartBefore(target);
+        if (spacer && spacer.parentNode) {
+          const len = spacer.textContent ? spacer.textContent.length : 0;
+          removalRange.setEnd(spacer, len);
+        } else {
+          removalRange.setEndAfter(target);
+        }
+      }
+    } catch (error) {
+      return false;
+    }
+
+    removalRange.deleteContents();
+
+    if (trailing && trailing.parentNode && isWhitespaceNode(trailing)) {
+      const text = trailing.textContent ? trailing.textContent.replace(/\u00a0/g, " ") : "";
+      if (text.length <= 1) {
+        trailing.parentNode.removeChild(trailing);
+      }
+    }
+
+    let applied = false;
+    if (ownerDocument && typeof ownerDocument.createRange === "function") {
+      const newRange = ownerDocument.createRange();
+      try {
+        newRange.setStart(removalRange.startContainer, removalRange.startOffset);
+        newRange.collapse(true);
+        applied = reapplyRangeSelection(newRange);
+      } catch (error) {
+        applied = false;
+      }
+    }
+    if (!applied) {
+      const fallbackRange = buildFallbackRange();
+      if (fallbackRange) {
+        reapplyRangeSelection(fallbackRange);
+      }
+    }
+    schedule();
+    scheduleSelectionCapture();
+    updateToolbarStates();
+    return true;
+  };
+
+  const insertPlainBreak = (range) => {
     if (!range || !ownerDocument || typeof ownerDocument.createElement !== "function") {
       return false;
     }
@@ -2724,72 +2939,51 @@ function setupRichTextEditor(root) {
     const afterBr = ownerDocument.createRange();
     afterBr.setStartAfter(br);
     afterBr.collapse(true);
-    const wrapper = ownerDocument.createElement("span");
-    wrapper.setAttribute("data-rich-checkbox-wrapper", "1");
-    const input = ownerDocument.createElement("input");
-    input.setAttribute("type", "checkbox");
-    input.setAttribute("data-rich-checkbox", "1");
-    input.setAttribute("tabindex", "-1");
-    input.setAttribute("contenteditable", "false");
-    input.tabIndex = -1;
-    input.contentEditable = "false";
-    wrapper.appendChild(input);
+    const pair = createCheckboxWrapper();
+    if (!pair) return false;
+    const { wrapper } = pair;
     try {
       afterBr.insertNode(wrapper);
     } catch (error) {
       return false;
     }
-    const space = ownerDocument.createTextNode("\u00a0");
+    const space = ownerDocument.createTextNode(" ");
     const afterWrapper = ownerDocument.createRange();
     afterWrapper.setStartAfter(wrapper);
     afterWrapper.collapse(true);
     afterWrapper.insertNode(space);
-    afterWrapper.setStart(space, space.textContent ? space.textContent.length : 0);
+    afterWrapper.setStartAfter(space);
     afterWrapper.collapse(true);
     return reapplyRangeSelection(afterWrapper);
   };
 
-  const fallbackInsertCheckbox = () => {
-    if (!ownerDocument || typeof ownerDocument.createRange !== "function" || typeof ownerDocument.createElement !== "function") {
+  const insertCheckboxAtCaret = () => {
+    if (!ownerDocument || typeof ownerDocument.createRange !== "function") {
       return false;
     }
     const range = getActiveRange();
     if (!range) return false;
-    const wrapper = ownerDocument.createElement("span");
-    wrapper.setAttribute("data-rich-checkbox-wrapper", "1");
-    const input = ownerDocument.createElement("input");
-    input.setAttribute("type", "checkbox");
-    input.setAttribute("data-rich-checkbox", "1");
-    input.setAttribute("tabindex", "-1");
-    input.setAttribute("contenteditable", "false");
-    input.tabIndex = -1;
-    input.contentEditable = "false";
-    wrapper.appendChild(input);
-    const space = ownerDocument.createTextNode("\u00a0");
-    const fragment = ownerDocument.createDocumentFragment();
-    fragment.appendChild(wrapper);
-    fragment.appendChild(space);
+    const pair = createCheckboxWrapper();
+    if (!pair) return false;
+    const { wrapper } = pair;
+    const space = ownerDocument.createTextNode(" ");
     try {
       range.deleteContents();
-      range.insertNode(fragment);
+      range.insertNode(wrapper);
     } catch (error) {
       wrapper.remove();
       return false;
     }
-    const newRange = ownerDocument.createRange();
-    try {
-      if (space.parentNode) {
-        const spaceLength = space.textContent ? space.textContent.length : 0;
-        newRange.setStart(space, spaceLength);
-      } else {
-        newRange.setStartAfter(wrapper);
-      }
-      newRange.collapse(true);
-    } catch (error) {
-      return false;
-    }
-    return reapplyRangeSelection(newRange);
+    const afterWrapper = ownerDocument.createRange();
+    afterWrapper.setStartAfter(wrapper);
+    afterWrapper.collapse(true);
+    afterWrapper.insertNode(space);
+    afterWrapper.setStartAfter(space);
+    afterWrapper.collapse(true);
+    return reapplyRangeSelection(afterWrapper);
   };
+
+  const fallbackInsertCheckbox = () => insertCheckboxAtCaret();
 
   const fallbackWrapWithTag = (tagName) => {
     if (!ownerDocument || typeof ownerDocument.createElement !== "function" || typeof ownerDocument.createRange !== "function") {
@@ -2832,8 +3026,7 @@ function setupRichTextEditor(root) {
       }
       restoreSelection();
       if (command === "checkbox") {
-        const html = '<span data-rich-checkbox-wrapper="1"><input type="checkbox" data-rich-checkbox="1"></span>&nbsp;';
-        if (!tryExecCommand("insertHTML", html)) {
+        if (!insertCheckboxAtCaret()) {
           fallbackInsertCheckbox();
         }
       } else if (!tryExecCommand(command, null) && (command === "bold" || command === "italic")) {
@@ -2855,15 +3048,27 @@ function setupRichTextEditor(root) {
   });
 
   content.addEventListener("keydown", (event) => {
+    if (event.key === "Backspace") {
+      if (deleteAdjacentCheckbox("back")) {
+        event.preventDefault();
+        return;
+      }
+    }
+    if (event.key === "Delete") {
+      if (deleteAdjacentCheckbox("del")) {
+        event.preventDefault();
+        return;
+      }
+    }
     if (event.key !== "Enter") return;
     if (!event.shiftKey) {
       const range = getActiveRange();
-      const { startsWithCheckbox, hasTextAfter } = analyzeCheckboxLine(range);
+      const { startsWithCheckbox, emptyAfter } = analyzeCheckboxLine(range);
       if (startsWithCheckbox) {
         event.preventDefault();
-        const handled = hasTextAfter
-          ? insertBreakWithCheckbox(range)
-          : insertSimpleCheckboxBreak(range);
+        const handled = emptyAfter
+          ? insertPlainBreak(range)
+          : insertBreakWithCheckbox(range);
         if (handled) {
           scheduleSelectionCapture();
           schedule();
@@ -2964,9 +3169,13 @@ function inputForType(consigne, initialValue = null) {
       : 5;
     const safeValue = Number.isFinite(sliderValue) ? sliderValue : 5;
     return `
-      <input type="range" min="1" max="10" value="${safeValue}" data-default-value="${safeValue}" name="num:${consigne.id}" class="w-full">
-      <div class="text-sm opacity-70 mt-1" data-meter="num:${consigne.id}" aria-live="polite">${safeValue}</div>
-      <script>(()=>{const slider=document.currentScript.previousElementSibling.previousElementSibling;const label=document.currentScript.previousElementSibling;const sync=()=>{if(label&&slider){label.textContent=slider.value;}};if(slider){sync();slider.addEventListener('input',sync);}})();</script>
+      <div class="scale">
+        <input type="range" min="0" max="10" step="1" value="${safeValue}" data-default-value="${safeValue}" name="num:${consigne.id}" class="w-full">
+        <div class="scale-ticks">
+          <span>0</span><span>1</span><span>2</span><span>3</span><span>4</span>
+          <span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+        </div>
+      </div>
     `;
   }
   if (consigne.type === "likert6") {
@@ -3267,7 +3476,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           <option value="yesno"   ${consigne?.type === "yesno"   ? "selected" : ""}>Oui / Non</option>
           <option value="short"   ${consigne?.type === "short"   ? "selected" : ""}>Texte court</option>
           <option value="long"    ${consigne?.type === "long"    ? "selected" : ""}>Texte long</option>
-          <option value="num"     ${consigne?.type === "num"     ? "selected" : ""}>Échelle numérique (1–10)</option>
+          <option value="num"     ${consigne?.type === "num"     ? "selected" : ""}>Échelle numérique (0–10)</option>
           <option value="checklist" ${consigne?.type === "checklist" ? "selected" : ""}>Checklist</option>
           <option value="info"    ${consigne?.type === "info"    ? "selected" : ""}>${INFO_RESPONSE_LABEL}</option>
         </select>
@@ -3491,7 +3700,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
             <option value="yesno" ${item.type === "yesno" ? "selected" : ""}>Oui / Non</option>
             <option value="short" ${item.type === "short" ? "selected" : ""}>Texte court</option>
             <option value="long" ${item.type === "long" ? "selected" : ""}>Texte long</option>
-            <option value="num" ${item.type === "num" ? "selected" : ""}>Échelle numérique (1–10)</option>
+            <option value="num" ${item.type === "num" ? "selected" : ""}>Échelle numérique (0–10)</option>
             <option value="checklist" ${item.type === "checklist" ? "selected" : ""}>Checklist</option>
             <option value="info" ${item.type === "info" ? "selected" : ""}>${INFO_RESPONSE_LABEL}</option>
           </select>
