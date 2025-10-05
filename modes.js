@@ -355,7 +355,7 @@ window.Modes.richText = {
 
 function modal(html) {
   const wrap = document.createElement("div");
-  wrap.className = "fixed inset-0 z-50 grid place-items-center bg-black/40 p-4";
+  wrap.className = "modal fixed inset-0 z-50 grid place-items-center bg-black/40 p-4";
   wrap.innerHTML = `
     <div class="w-[min(680px,92vw)] overflow-y-auto rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl" data-modal-content style="max-height:var(--viewport-safe-height, calc(100vh - 2rem));">
       ${html}
@@ -2089,6 +2089,10 @@ function setupRichTextEditor(root) {
     boxes.forEach((box, index) => {
       box.setAttribute("data-rich-checkbox", "1");
       box.setAttribute("data-rich-checkbox-index", String(index));
+      box.setAttribute("tabindex", "-1");
+      box.setAttribute("contenteditable", "false");
+      box.tabIndex = -1;
+      box.contentEditable = "false";
       if (parsed && Array.isArray(parsed.checkboxes) && parsed.checkboxes[index]) {
         box.checked = true;
         box.setAttribute("checked", "");
@@ -2110,6 +2114,46 @@ function setupRichTextEditor(root) {
   let selectionFrame = null;
 
   const ownerDocument = content?.ownerDocument || document;
+  const boldButton = toolbar?.querySelector('[data-rich-command="bold"]');
+  const italicButton = toolbar?.querySelector('[data-rich-command="italic"]');
+
+  const updateToolbarStates = () => {
+    if (!toolbar) return;
+    const getSelection = ownerDocument && typeof ownerDocument.getSelection === "function"
+      ? ownerDocument.getSelection.bind(ownerDocument)
+      : (typeof document.getSelection === "function" ? document.getSelection.bind(document) : null);
+    const selection = getSelection ? getSelection() : null;
+    const anchorNode = selection?.anchorNode || null;
+    const focusNode = selection?.focusNode || null;
+    const inside = anchorNode && focusNode && content
+      ? content.contains(anchorNode) && content.contains(focusNode)
+      : false;
+    const toggle = (button, active) => {
+      if (!button) return;
+      button.classList.toggle("active", Boolean(active));
+    };
+    if (!inside) {
+      toggle(boldButton, false);
+      toggle(italicButton, false);
+      return;
+    }
+    let boldActive = false;
+    let italicActive = false;
+    if (typeof document.queryCommandState === "function") {
+      try {
+        boldActive = document.queryCommandState("bold");
+      } catch (error) {
+        boldActive = false;
+      }
+      try {
+        italicActive = document.queryCommandState("italic");
+      } catch (error) {
+        italicActive = false;
+      }
+    }
+    toggle(boldButton, boldActive);
+    toggle(italicButton, italicActive);
+  };
 
   const isRangeInsideContent = (range) => {
     if (!content || !range) return false;
@@ -2330,6 +2374,7 @@ function setupRichTextEditor(root) {
         return;
       }
       captureSelection();
+      updateToolbarStates();
     });
   };
 
@@ -2437,6 +2482,10 @@ function setupRichTextEditor(root) {
     boxes.forEach((box, index) => {
       box.setAttribute("data-rich-checkbox", "1");
       box.setAttribute("data-rich-checkbox-index", String(index));
+      box.setAttribute("tabindex", "-1");
+      box.setAttribute("contenteditable", "false");
+      box.tabIndex = -1;
+      box.contentEditable = "false";
       if (box.checked) {
         box.setAttribute("checked", "");
       } else {
@@ -2482,14 +2531,20 @@ function setupRichTextEditor(root) {
     });
   };
 
+  const handleSelectionEvent = () => {
+    scheduleSelectionCapture();
+    updateToolbarStates();
+  };
+
   if (content) {
-    content.addEventListener("mouseup", scheduleSelectionCapture);
-    content.addEventListener("keyup", scheduleSelectionCapture);
-    content.addEventListener("focus", scheduleSelectionCapture);
+    content.addEventListener("mouseup", handleSelectionEvent);
+    content.addEventListener("keyup", handleSelectionEvent);
+    content.addEventListener("focus", handleSelectionEvent);
+    content.addEventListener("blur", updateToolbarStates);
   }
 
   if (ownerDocument && typeof ownerDocument.addEventListener === "function") {
-    ownerDocument.addEventListener("selectionchange", scheduleSelectionCapture);
+    ownerDocument.addEventListener("selectionchange", handleSelectionEvent);
   }
 
   const tryExecCommand = (cmd, value = null) => {
@@ -2532,6 +2587,107 @@ function setupRichTextEditor(root) {
     return true;
   };
 
+  const currentLineStartsWithCheckbox = (range) => {
+    if (!content || !range) return false;
+    const anchor = range.startContainer;
+    const anchorElement = anchor?.nodeType === Node.ELEMENT_NODE ? anchor : anchor?.parentElement;
+    if (anchorElement && typeof anchorElement.closest === "function" && anchorElement.closest("ul,ol")) {
+      return false;
+    }
+    let block = anchor;
+    while (block && block.parentNode !== content) {
+      block = block.parentNode;
+    }
+    if (!block) {
+      block = content.firstChild;
+    }
+    if (!block) return false;
+    let start = block;
+    let probe = anchor;
+    while (probe && probe !== content && probe !== block) {
+      if (probe.previousSibling) {
+        probe = probe.previousSibling;
+        if (probe && probe.nodeName === "BR") {
+          start = probe.nextSibling || null;
+          break;
+        }
+      } else {
+        const parent = probe.parentNode;
+        if (!parent) break;
+        probe = parent;
+        if (probe === block) {
+          start = block.firstChild;
+        }
+      }
+    }
+    if (!start) {
+      start = block.firstChild;
+    }
+    if (start && start.nodeType === Node.ELEMENT_NODE && start.parentNode === content) {
+      start = start.firstChild;
+    }
+    while (start && start.nodeType === Node.TEXT_NODE && !start.textContent.trim()) {
+      start = start.nextSibling;
+    }
+    while (start && start.nodeName === "BR") {
+      start = start.nextSibling;
+    }
+    if (!start || start.nodeType !== Node.ELEMENT_NODE || typeof start.matches !== "function") {
+      return false;
+    }
+    if (start.matches('[data-rich-checkbox-wrapper]')) {
+      return Boolean(start.querySelector('input[type="checkbox"][data-rich-checkbox]'));
+    }
+    if (start.matches('input[type="checkbox"][data-rich-checkbox]')) {
+      return true;
+    }
+    return false;
+  };
+
+  const insertCheckboxLineBreak = (range) => {
+    if (!range || !ownerDocument || typeof ownerDocument.createElement !== "function" || typeof ownerDocument.createRange !== "function") {
+      return false;
+    }
+    try {
+      range.deleteContents();
+    } catch (error) {
+      // ignore deletion issues and continue
+    }
+    const br = ownerDocument.createElement("br");
+    try {
+      range.insertNode(br);
+    } catch (error) {
+      return false;
+    }
+    const afterBr = ownerDocument.createRange();
+    afterBr.setStartAfter(br);
+    afterBr.collapse(true);
+    const wrapper = ownerDocument.createElement("span");
+    wrapper.setAttribute("data-rich-checkbox-wrapper", "1");
+    const input = ownerDocument.createElement("input");
+    input.setAttribute("type", "checkbox");
+    input.setAttribute("data-rich-checkbox", "1");
+    input.setAttribute("tabindex", "-1");
+    input.setAttribute("contenteditable", "false");
+    input.tabIndex = -1;
+    input.contentEditable = "false";
+    wrapper.appendChild(input);
+    try {
+      afterBr.insertNode(wrapper);
+    } catch (error) {
+      return false;
+    }
+    const space = ownerDocument.createTextNode("\u00a0");
+    const afterWrapper = ownerDocument.createRange();
+    afterWrapper.setStartAfter(wrapper);
+    afterWrapper.collapse(true);
+    afterWrapper.insertNode(space);
+    afterWrapper.setStart(space, space.textContent ? space.textContent.length : 0);
+    afterWrapper.collapse(true);
+    reapplyRangeSelection(afterWrapper);
+    return true;
+  };
+
   const fallbackInsertCheckbox = () => {
     if (!ownerDocument || typeof ownerDocument.createRange !== "function" || typeof ownerDocument.createElement !== "function") {
       return false;
@@ -2543,6 +2699,10 @@ function setupRichTextEditor(root) {
     const input = ownerDocument.createElement("input");
     input.setAttribute("type", "checkbox");
     input.setAttribute("data-rich-checkbox", "1");
+    input.setAttribute("tabindex", "-1");
+    input.setAttribute("contenteditable", "false");
+    input.tabIndex = -1;
+    input.contentEditable = "false";
     wrapper.appendChild(input);
     const space = ownerDocument.createTextNode("\u00a0");
     const fragment = ownerDocument.createDocumentFragment();
@@ -2620,6 +2780,7 @@ function setupRichTextEditor(root) {
       }
       scheduleSelectionCapture();
       schedule();
+      updateToolbarStates();
     });
   }
 
@@ -2631,16 +2792,37 @@ function setupRichTextEditor(root) {
       schedule();
     }
   });
+
+  const handleCheckboxEnter = (event) => {
+    if (event.shiftKey) return false;
+    const range = getActiveRange();
+    if (!range || !currentLineStartsWithCheckbox(range)) return false;
+    event.preventDefault();
+    if (insertCheckboxLineBreak(range)) {
+      scheduleSelectionCapture();
+      schedule();
+      updateToolbarStates();
+    }
+    return true;
+  };
+
   content.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && event.shiftKey && typeof document.execCommand === "function") {
+    if (event.key !== "Enter") return;
+    if (!event.shiftKey && handleCheckboxEnter(event)) {
+      return;
+    }
+    if (event.shiftKey && typeof document.execCommand === "function") {
       event.preventDefault();
       document.execCommand("insertLineBreak", false, null);
       schedule();
+      scheduleSelectionCapture();
+      updateToolbarStates();
     }
   });
 
   root.dataset.richTextReady = "1";
   sync();
+  updateToolbarStates();
 }
 
 function initializeRichTextEditors(scope = document) {
@@ -3730,7 +3912,10 @@ function triggerConsigneRowUpdateHighlight(row) {
 
 function updateConsigneStatusUI(row, consigne, rawValue) {
   if (!row || !consigne) return;
-  const status = dotColor(consigne.type, rawValue);
+  let status = dotColor(consigne.type, rawValue);
+  if (status === "na" && row.dataset.childAnswered === "1") {
+    status = "note";
+  }
   const statusHolder = row.querySelector("[data-status]");
   const dot = row.querySelector("[data-status-dot]");
   const mark = row.querySelector("[data-status-mark]");
@@ -3791,6 +3976,11 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
     clearConsigneRowUpdateHighlight(row);
   } else {
     triggerConsigneRowUpdateHighlight(row);
+  }
+  if (typeof CustomEvent === "function") {
+    row.dispatchEvent(new CustomEvent("consigne-status-changed", {
+      detail: { status, consigne, value: rawValue },
+    }));
   }
 }
 
@@ -4001,6 +4191,57 @@ function attachConsigneEditor(row, consigne, options = {}) {
   childConsignes.forEach((child) => {
     child.srEnabled = child?.srEnabled !== false;
   });
+  const isTextAnswerType = (item) => {
+    const type = item?.type;
+    return type === "long" || type === "short";
+  };
+  const updateParentChildAnsweredFlag = () => {
+    if (!row) return false;
+    if (!childConsignes.length) {
+      delete row.dataset.childAnswered;
+      return false;
+    }
+    const hasChildAnswered = childConsignes.some((childState) => {
+      const childRow = childState?.row;
+      if (!(childRow instanceof HTMLElement)) return false;
+      const status = childRow.dataset?.status;
+      return status && status !== "na";
+    });
+    if (hasChildAnswered) {
+      row.dataset.childAnswered = "1";
+    } else {
+      delete row.dataset.childAnswered;
+    }
+    return hasChildAnswered;
+  };
+  const syncParentAnswered = () => {
+    if (!row) return false;
+    const before = row.dataset.childAnswered === "1";
+    const after = updateParentChildAnsweredFlag();
+    if (before !== after) {
+      const currentValue = readConsigneCurrentValue(consigne, row);
+      updateConsigneStatusUI(row, consigne, currentValue);
+    }
+    return after;
+  };
+  syncParentAnswered();
+  if (childConsignes.length && row) {
+    childConsignes.forEach((childState) => {
+      if (childState?.row instanceof HTMLElement) {
+        childState.row.addEventListener("consigne-status-changed", () => {
+          syncParentAnswered();
+        });
+      }
+    });
+    const rafSync = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (cb) => setTimeout(cb, 16);
+    rafSync(() => {
+      syncParentAnswered();
+    });
+  } else if (row) {
+    delete row.dataset.childAnswered;
+  }
   enhanceRangeMeters(row.querySelector("[data-consigne-input-holder]"));
   const openEditor = () => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -4099,6 +4340,12 @@ function attachConsigneEditor(row, consigne, options = {}) {
       </div>
     `;
     const overlay = (variant === "drawer" ? drawer : modal)(markup);
+    if (variant !== "drawer" && overlay instanceof HTMLElement) {
+      overlay.classList.remove("phone-top", "phone-center");
+      const preferTop = isTextAnswerType(consigne)
+        || childConsignes.some((childState) => isTextAnswerType(childState.consigne));
+      overlay.classList.add(preferTop ? "phone-top" : "phone-center");
+    }
     overlay.querySelectorAll("textarea").forEach((textarea) => {
       autoGrowTextarea(textarea);
     });
@@ -4399,7 +4646,6 @@ function attachConsigneEditor(row, consigne, options = {}) {
       validateBtn.addEventListener("click", (event) => {
         event.preventDefault();
         const newValue = readConsigneCurrentValue(consigne, overlay);
-        setConsigneRowValue(row, consigne, newValue);
         const childValueEntries = [];
         childConsignes.forEach((childState) => {
           const childValue = readConsigneCurrentValue(childState.consigne, overlay);
@@ -4408,6 +4654,9 @@ function attachConsigneEditor(row, consigne, options = {}) {
           }
           childValueEntries.push([childState.consigne?.id, childValue]);
         });
+        updateParentChildAnsweredFlag();
+        setConsigneRowValue(row, consigne, newValue);
+        syncParentAnswered();
         const childValueMap = new Map(childValueEntries.filter(([id]) => id != null));
         if (typeof options.onSubmit === "function") {
           options.onSubmit(newValue, { childValues: childValueMap });
