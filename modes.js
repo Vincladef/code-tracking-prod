@@ -2345,6 +2345,113 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
         ownerDocument.addEventListener("selectionchange", scheduleSelectionCapture);
       }
 
+      const tryExecCommand = (cmd, value = null) => {
+        if (typeof document.execCommand !== "function") return false;
+        try {
+          const result = document.execCommand(cmd, false, value);
+          return result !== false;
+        } catch (error) {
+          return false;
+        }
+      };
+
+      const getActiveRange = () => {
+        if (!ownerDocument || typeof ownerDocument.getSelection !== "function") return null;
+        const selection = ownerDocument.getSelection();
+        if (!selection || selection.rangeCount === 0) return null;
+        let range = null;
+        try {
+          range = selection.getRangeAt(0);
+        } catch (error) {
+          range = null;
+        }
+        if (!range || !isRangeInsideContent(range)) return null;
+        return range;
+      };
+
+      const reapplyRangeSelection = (range) => {
+        if (!range || !ownerDocument || typeof ownerDocument.getSelection !== "function") return false;
+        const selection = ownerDocument.getSelection();
+        if (!selection) return false;
+        selection.removeAllRanges();
+        try {
+          selection.addRange(range);
+        } catch (error) {
+          selection.removeAllRanges();
+          return false;
+        }
+        savedSelection = range.cloneRange ? range.cloneRange() : range;
+        storeSelectionInfo(savedSelection);
+        return true;
+      };
+
+      const fallbackInsertCheckbox = () => {
+        if (!ownerDocument || typeof ownerDocument.createRange !== "function" || typeof ownerDocument.createElement !== "function") {
+          return false;
+        }
+        const range = getActiveRange();
+        if (!range) return false;
+        const wrapper = ownerDocument.createElement("span");
+        wrapper.setAttribute("data-rich-checkbox-wrapper", "1");
+        const input = ownerDocument.createElement("input");
+        input.setAttribute("type", "checkbox");
+        input.setAttribute("data-rich-checkbox", "1");
+        wrapper.appendChild(input);
+        const space = ownerDocument.createTextNode("\u00a0");
+        const fragment = ownerDocument.createDocumentFragment();
+        fragment.appendChild(wrapper);
+        fragment.appendChild(space);
+        try {
+          range.deleteContents();
+          range.insertNode(fragment);
+        } catch (error) {
+          wrapper.remove();
+          return false;
+        }
+        const newRange = ownerDocument.createRange();
+        try {
+          if (space.parentNode) {
+            const spaceLength = space.textContent ? space.textContent.length : 0;
+            newRange.setStart(space, spaceLength);
+          } else {
+            newRange.setStartAfter(wrapper);
+          }
+          newRange.collapse(true);
+        } catch (error) {
+          return false;
+        }
+        return reapplyRangeSelection(newRange);
+      };
+
+      const fallbackWrapWithTag = (tagName) => {
+        if (!ownerDocument || typeof ownerDocument.createElement !== "function" || typeof ownerDocument.createRange !== "function") {
+          return false;
+        }
+        const range = getActiveRange();
+        if (!range || range.collapsed) return false;
+        const wrapper = ownerDocument.createElement(tagName);
+        let contents = null;
+        try {
+          contents = range.extractContents();
+        } catch (error) {
+          contents = null;
+        }
+        if (!contents) return false;
+        wrapper.appendChild(contents);
+        try {
+          range.insertNode(wrapper);
+        } catch (error) {
+          return false;
+        }
+        const newRange = ownerDocument.createRange();
+        try {
+          newRange.selectNodeContents(wrapper);
+        } catch (error) {
+          return false;
+        }
+        return reapplyRangeSelection(newRange);
+      };
+
       if (toolbar && content) {
         toolbar.addEventListener("click", (event) => {
           const button = event.target.closest("[data-rich-command]");
@@ -2358,11 +2465,13 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
           restoreSelection();
           if (command === "checkbox") {
             const html = '<span data-rich-checkbox-wrapper="1"><input type="checkbox" data-rich-checkbox="1"></span>&nbsp;';
-            if (typeof document.execCommand === "function") {
-              document.execCommand("insertHTML", false, html);
+            if (!tryExecCommand("insertHTML", html)) {
+              fallbackInsertCheckbox();
             }
-          } else if (typeof document.execCommand === "function") {
-            document.execCommand(command, false, null);
+          } else {
+            if (!tryExecCommand(command, null) && (command === "bold" || command === "italic")) {
+              fallbackWrapWithTag(command === "bold" ? "strong" : "em");
+            }
           }
           scheduleSelectionCapture();
           schedule();
