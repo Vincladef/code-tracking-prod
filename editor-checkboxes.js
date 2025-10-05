@@ -330,14 +330,50 @@
     editor.addEventListener("focus", scheduleNormalize);
     editor.addEventListener("input", scheduleNormalize);
 
+    const handleEnter = (event) => {
+      const ctx = lineCtx(editor);
+      if (!ctx || !startsWithCb(ctx)) return false;
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+      }
+      if (emptyAfterCb(editor, ctx)) brPlain(editor);
+      else brWithCb(editor);
+      return true;
+    };
+
+    let skipBeforeInputEnter = false;
+
+    editor.addEventListener(
+      "beforeinput",
+      (e) => {
+        if (e.defaultPrevented) return;
+        if (e.inputType !== "insertParagraph" && e.inputType !== "insertLineBreak") {
+          skipBeforeInputEnter = false;
+          return;
+        }
+        normalizeCheckboxes(editor);
+        if (skipBeforeInputEnter) {
+          skipBeforeInputEnter = false;
+          e.preventDefault();
+          return;
+        }
+        if (handleEnter(e)) {
+          skipBeforeInputEnter = true;
+        }
+      },
+      { capture: true }
+    );
+
     editor.addEventListener("keydown", (e) => {
       normalizeCheckboxes(editor);
       if (e.key === "Enter") {
-        const ctx = lineCtx(editor);
-        if (!ctx || !startsWithCb(ctx)) return;
-        e.preventDefault();
-        e.stopPropagation();
-        emptyAfterCb(editor, ctx) ? brPlain(editor) : brWithCb(editor);
+        const handled = handleEnter(e);
+        skipBeforeInputEnter = handled;
+        if (handled) return;
+      } else {
+        skipBeforeInputEnter = false;
       }
       if (e.key === "Backspace") {
         if (delAdj(editor, "back")) {

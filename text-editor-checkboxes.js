@@ -358,21 +358,49 @@
     editorEl.addEventListener('focus', scheduleNormalize);
     editorEl.addEventListener('input', scheduleNormalize);
 
+    const handleEnter = (event) => {
+      const ctx = getLineContext(editorEl);
+      if (!ctx || !lineStartsWithCb(ctx)) return false;
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+      }
+      if (lineEmptyAfterCb(editorEl, ctx)) {
+        removeLeadingCbAndKeepSameLine(editorEl, ctx);
+      } else {
+        insertBreakWithCheckbox(editorEl);
+      }
+      return true;
+    };
+
+    let skipBeforeInputEnter = false;
+
+    editorEl.addEventListener('beforeinput', (e) => {
+      if (e.defaultPrevented) return;
+      if (e.inputType !== 'insertParagraph' && e.inputType !== 'insertLineBreak') {
+        skipBeforeInputEnter = false;
+        return;
+      }
+      normalizeCheckboxes(editorEl);
+      if (skipBeforeInputEnter) {
+        skipBeforeInputEnter = false;
+        e.preventDefault();
+        return;
+      }
+      if (handleEnter(e)) {
+        skipBeforeInputEnter = true;
+      }
+    }, { capture: true });
+
     editorEl.addEventListener('keydown', (e) => {
       normalizeCheckboxes(editorEl);
       if (e.key === 'Enter') {
-        const ctx = getLineContext(editorEl);
-        if (!ctx) return;
-        if (!lineStartsWithCb(ctx)) return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (lineEmptyAfterCb(editorEl, ctx)) {
-          e.stopImmediatePropagation();
-          removeLeadingCbAndKeepSameLine(editorEl, ctx);
-          return;
-        }
-        insertBreakWithCheckbox(editorEl);
-        return;
+        const handled = handleEnter(e);
+        skipBeforeInputEnter = handled;
+        if (handled) return;
+      } else {
+        skipBeforeInputEnter = false;
       }
       if (e.key === 'Backspace') {
         if (deleteAdjacentCb(editorEl, 'back')) {
