@@ -29,6 +29,9 @@ const INVALID_TOKEN_ERRORS = new Set([
   "messaging/invalid-registration-token",
 ]);
 
+const BILAN_MODULE_ID = "bilan";
+const moduleSettingsCache = new Map();
+
 const DOCUMENT_ID_FIELD = admin.firestore.FieldPath.documentId();
 const REMINDER_DATE_FIELDS = ["notifyAt", "notifyDate", "notificationDate"];
 
@@ -80,6 +83,101 @@ function sanitizeDataForFcm(data = {}) {
     }
   });
   return output;
+}
+
+function normalizeWeekdayIndex(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  const rounded = Math.round(num);
+  return ((rounded % 7) + 7) % 7;
+}
+
+function normalizeReminderFlag(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  if (value && typeof value === "object") {
+    if (typeof value.enabled === "boolean") {
+      return value.enabled;
+    }
+  }
+  return false;
+}
+
+function normalizeBilanSettings(raw) {
+  const data = raw && typeof raw === "object" ? raw : {};
+  const weekEndsOn = normalizeWeekdayIndex(data.weekEndsOn ?? data.weekEnd ?? 0);
+  const monthlyEnabled = data.monthlyEnabled !== false;
+  const weeklyReminderEnabled = normalizeReminderFlag(data.weeklyReminder ?? data.weeklyReminderEnabled);
+  const monthlyReminderEnabled = normalizeReminderFlag(data.monthlyReminder ?? data.monthlyReminderEnabled);
+  return {
+    weekEndsOn,
+    monthlyEnabled,
+    weeklyReminderEnabled,
+    monthlyReminderEnabled,
+  };
+}
+
+async function loadModuleSettingsForUser(uid, moduleId) {
+  if (!uid || !moduleId) return {};
+  const cacheKey = `${uid}::${moduleId}`;
+  if (moduleSettingsCache.has(cacheKey)) {
+    return moduleSettingsCache.get(cacheKey);
+  }
+  try {
+    const snap = await db.collection("u").doc(uid).collection("modules").doc(moduleId).get();
+    if (!snap.exists) {
+      moduleSettingsCache.set(cacheKey, {});
+      return {};
+    }
+    const data = snap.data() || {};
+    moduleSettingsCache.set(cacheKey, data);
+    return data;
+  } catch (error) {
+    functions.logger.warn("moduleSettings:load", { uid, moduleId, message: error?.message });
+    moduleSettingsCache.set(cacheKey, {});
+    return {};
+  }
+}
+
+function startOfDay(value) {
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (!date || Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function weekAnchorForDate(date, weekEndsOn = 0) {
+  const base = startOfDay(date);
+  if (!base) return null;
+  const offset = (weekEndsOn - base.getDay() + 7) % 7;
+  const anchor = new Date(base.getTime());
+  anchor.setDate(anchor.getDate() + offset);
+  return anchor;
+}
+
+function weekRangeFromDateWithConfig(date, weekEndsOn = 0) {
+  const anchor = weekAnchorForDate(date, weekEndsOn);
+  if (!anchor) return null;
+  const end = anchor;
+  const start = new Date(anchor.getTime());
+  start.setDate(start.getDate() - 6);
+  return { start, end };
+}
+
+function weekContainsMonthEnd(range) {
+  if (!range?.start || !range?.end) return false;
+  for (let offset = 0; offset < 7; offset += 1) {
+    const cursor = new Date(range.start.getTime());
+    cursor.setDate(range.start.getDate() + offset);
+    if (cursor > range.end) {
+      break;
+    }
+    const lastDay = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+    if (cursor.getDate() === lastDay) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function sanitizeFcmNotification(notification = {}) {
@@ -778,9 +876,17 @@ async function countVisibleConsignes(uid, context) {
   return visible;
 }
 
-async function sendReminder(uid, tokens, visibleCount, objectiveCount, context, firstName = "") {
+async function sendReminder(
+  uid,
+  tokens,
+  visibleCount,
+  objectiveCount,
+  context,
+  firstName = "",
+  summaryFlags = {},
+) {
   const title = firstName ? `${firstName}, rappel du jour 👋` : "Rappel du jour 👋";
-  const body = buildReminderBody(firstName, visibleCount, objectiveCount);
+  const body = buildReminderBody(firstName, visibleCount, objectiveCount, summaryFlags);
   const link = buildUserDailyLink(uid, context.dateIso);
 
   const message = {
@@ -793,6 +899,8 @@ async function sendReminder(uid, tokens, visibleCount, objectiveCount, context, 
       body,
       title,
       firstName: firstName || "",
+      weeklySummary: summaryFlags.weekly ? "1" : "0",
+      monthlySummary: summaryFlags.monthly ? "1" : "0",
     },
     notification: { title, body },
     webpush: {
@@ -1227,6 +1335,31 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
     };
 
     try {
+      const rawModuleSettings = await loadModuleSettingsForUser(uid, BILAN_MODULE_ID);
+      const bilanSettings = normalizeBilanSettings(rawModuleSettings);
+      const selectedDate = context.selectedDate instanceof Date
+        ? new Date(context.selectedDate.getTime())
+        : startOfDay(context.dateIso);
+      const weekEndsOn = bilanSettings.weekEndsOn;
+      const isWeekEnd = selectedDate instanceof Date && !Number.isNaN(selectedDate?.getTime?.())
+        ? selectedDate.getDay() === weekEndsOn
+        : false;
+      let monthlyReminder = false;
+      if (
+        bilanSettings.monthlyReminderEnabled &&
+        bilanSettings.monthlyEnabled !== false &&
+        isWeekEnd &&
+        selectedDate instanceof Date &&
+        !Number.isNaN(selectedDate?.getTime?.())
+      ) {
+        const range = weekRangeFromDateWithConfig(selectedDate, weekEndsOn);
+        monthlyReminder = weekContainsMonthEnd(range);
+      }
+      const summaryFlags = {
+        weekly: bilanSettings.weeklyReminderEnabled && isWeekEnd,
+        monthly: monthlyReminder,
+      };
+
       let firstName = "";
       let displayName = "";
       try {
@@ -1245,8 +1378,11 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
 
       entry.visibleCount = await countVisibleConsignes(uid, context);
       entry.objectiveCount = await countObjectivesDueToday(uid, context);
+      entry.weeklyReminder = summaryFlags.weekly ? 1 : 0;
+      entry.monthlyReminder = summaryFlags.monthly ? 1 : 0;
 
-      if (entry.visibleCount < 1 && entry.objectiveCount < 1) {
+      const hasSummaryReminder = summaryFlags.weekly || summaryFlags.monthly;
+      if (entry.visibleCount < 1 && entry.objectiveCount < 1 && !hasSummaryReminder) {
         entry.status = "skipped";
         entry.reason = "no_visible_items";
         functions.logger.debug("sendDailyReminders:skip", { uid, reason: "no_visible_items" });
@@ -1268,7 +1404,8 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
         entry.visibleCount,
         entry.objectiveCount,
         context,
-        firstName
+        firstName,
+        summaryFlags,
       );
 
       entry.sent = response.successCount;

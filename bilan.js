@@ -38,15 +38,24 @@
     return `${family}__${id}`;
   }
 
+  function normalizeWeekEndsOn(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 0;
+    const rounded = Math.round(num);
+    return ((rounded % 7) + 7) % 7;
+  }
+
   function computePeriodFromEntry(entry) {
     if (!entry) return null;
     const type = entry.type;
+    const weekEndsOn = normalizeWeekEndsOn(entry?.weekEndsOn);
     if (type === "week" || type === "weekly") {
       const fallbackRange = entry.weekStart && entry.weekEnd
         ? { start: Schema.startOfDay(entry.weekStart), end: Schema.endOfDay(entry.weekEnd) }
-        : Schema.weekRangeFromDate(entry.sunday || new Date(), 0);
+        : Schema.weekRangeFromDate(entry.sunday || entry.weekEnd || new Date(), weekEndsOn);
       if (!fallbackRange) return null;
-      const weekKey = Schema.weekKeyFromDate(entry.weekEnd || entry.sunday || fallbackRange.end, 0);
+      const weekKey = entry.weekKey
+        || Schema.weekKeyFromDate(entry.weekEnd || entry.sunday || fallbackRange.end, weekEndsOn);
       return {
         scope: "week",
         start: fallbackRange.start,
@@ -54,6 +63,7 @@
         key: weekKey,
         label: entry.navSubtitle || entry.navLabel || "",
         entry,
+        weekEndsOn,
       };
     }
     if (type === "month" || type === "monthly") {
@@ -62,7 +72,7 @@
       const fallbackRange = monthRange ||
         (entry.weekStart && entry.weekEnd
           ? { start: Schema.startOfDay(entry.weekStart), end: Schema.endOfDay(entry.weekEnd) }
-          : Schema.weekRangeFromDate(entry.sunday || new Date(), 0));
+          : Schema.weekRangeFromDate(entry.sunday || entry.weekEnd || new Date(), weekEndsOn));
       if (!fallbackRange) return null;
       return {
         scope: "month",
@@ -71,6 +81,7 @@
         key: monthKey || Schema.monthKeyFromDate(fallbackRange.start),
         label: entry.navSubtitle || entry.navLabel || "",
         entry,
+        weekEndsOn,
       };
     }
     return null;
@@ -500,10 +511,18 @@
           label: answer.consigne?.text || null,
           category: answer.consigne?.summaryCategory || answer.consigne?.category || null,
         }));
+        const extras = { weekEndsOn: period.weekEndsOn };
+        if (period.scope === "week" && period.key) {
+          extras.weekKey = period.key;
+        }
+        if (period.scope === "month" && period.key) {
+          extras.monthKey = period.key;
+        }
         await Schema.saveSummaryAnswers(ctx.db, ctx.user.uid, period.scope, period.key, payload, {
           start: period.start,
           end: period.end,
           label: period.label,
+          extras,
         });
         payload.forEach((item) => {
           answersMap.set(item.key, { id: item.key, value: item.value, type: item.type, family: item.family });

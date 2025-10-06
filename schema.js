@@ -158,6 +158,34 @@ const now = () => new Date().toISOString();
 const col = (db, uid, sub) => collection(db, "u", uid, sub);
 const docIn = (db, uid, sub, id) => doc(db, "u", uid, sub, id);
 
+async function loadModuleSettings(db, uid, moduleId) {
+  if (!db || !uid || !moduleId) return {};
+  try {
+    const snap = await getDoc(docIn(db, uid, "modules", moduleId));
+    if (!snapshotExists(snap)) {
+      return {};
+    }
+    const data = snap.data() || {};
+    return { ...data };
+  } catch (error) {
+    schemaLog("moduleSettings:load:error", { uid, moduleId, error });
+    return {};
+  }
+}
+
+async function saveModuleSettings(db, uid, moduleId, payload = {}) {
+  if (!db || !uid || !moduleId) return;
+  try {
+    await setDoc(
+      docIn(db, uid, "modules", moduleId),
+      { ...payload, updatedAt: now() },
+      { merge: true },
+    );
+  } catch (error) {
+    schemaLog("moduleSettings:save:error", { uid, moduleId, error });
+  }
+}
+
 function buildUserDailyLink(uid, dateIso) {
   const base = "https://vincladef.github.io/code-tracking-prod/";
   return `${base}#/daily?u=${encodeURIComponent(uid)}&d=${dateIso}`;
@@ -1283,6 +1311,8 @@ Object.assign(Schema, {
   loadSummaryAnswers,
   saveSummaryAnswers,
   summaryCollectionName,
+  loadModuleSettings,
+  saveModuleSettings,
 });
 
 if (typeof module !== "undefined" && module.exports) {
@@ -1291,6 +1321,8 @@ if (typeof module !== "undefined" && module.exports) {
     weeksOf,
     weekOfMonthFromDate,
     weekDateRange,
+    loadModuleSettings,
+    saveModuleSettings,
   };
 }
 
