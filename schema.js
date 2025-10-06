@@ -754,10 +754,107 @@ async function deleteHistoryEntry(db, uid, consigneId, dateIso) {
 }
 
 // --- utilitaires temps ---
+function toDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    const copy = new Date(value.getTime());
+    if (!Number.isNaN(copy.getTime())) {
+      return copy;
+    }
+    return null;
+  }
+  if (typeof value?.toDate === "function") {
+    try {
+      const converted = value.toDate();
+      if (converted instanceof Date && !Number.isNaN(converted.getTime())) {
+        return converted;
+      }
+    } catch (error) {
+      schemaLog("toDate:convert:error", error);
+    }
+  }
+  if (typeof value === "number") {
+    const fromNumber = new Date(value);
+    if (!Number.isNaN(fromNumber.getTime())) {
+      return fromNumber;
+    }
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const [yearStr, monthStr, dayStr] = trimmed.split("-");
+      const year = Number(yearStr);
+      const month = Number(monthStr);
+      const day = Number(dayStr);
+      if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+        const parsed = new Date(year, (month || 1) - 1, day || 1);
+        if (!Number.isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function startOfDay(value) {
+  const date = toDate(value);
+  if (!date) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function endOfDay(value) {
+  const date = startOfDay(value);
+  if (!date) return null;
+  date.setHours(23, 59, 59, 999);
+  return date;
+}
+
 function monthKeyFromDate(d) {
-  const dt = d instanceof Date ? d : new Date(d);
+  const dt = d instanceof Date ? new Date(d.getTime()) : new Date(d);
   if (Number.isNaN(dt.getTime())) return "";
+  dt.setHours(0, 0, 0, 0);
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthRangeFromKey(monthKey) {
+  const [yearStr, monthStr] = String(monthKey || "").split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return null;
+  }
+  const start = new Date(year, month - 1, 1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(year, month, 0);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function weekRangeFromDate(value, weekEndsOn = 0) {
+  const target = startOfDay(value);
+  if (!target) return null;
+  const normalizedEnd = ((weekEndsOn % 7) + 7) % 7;
+  const end = new Date(target.getTime());
+  const toEnd = (7 + normalizedEnd - end.getDay()) % 7;
+  end.setDate(end.getDate() + toEnd);
+  end.setHours(23, 59, 59, 999);
+  const start = new Date(end.getTime());
+  start.setDate(end.getDate() - 6);
+  start.setHours(0, 0, 0, 0);
+  return { start, end };
+}
+
+function weekKeyFromDate(value, weekEndsOn = 0) {
+  const range = weekRangeFromDate(value, weekEndsOn);
+  if (!range?.start) return "";
+  return dayKeyFromDate(range.start);
 }
 
 function normalizedWeekday(value) {
@@ -1048,6 +1145,77 @@ async function loadObjectiveEntriesRange(db, uid, objectifId, _fromIso, _toIso) 
   return snap.docs.map((d) => ({ date: d.id, v: d.data().v }));
 }
 
+function summaryCollectionName(scope) {
+  if (scope === "week" || scope === "weekly") return "weekly_summaries";
+  if (scope === "month" || scope === "monthly") return "monthly_summaries";
+  return null;
+}
+
+async function loadSummaryAnswers(db, uid, scope, periodKey) {
+  if (!db || !uid || !scope || !periodKey) return new Map();
+  const collectionName = summaryCollectionName(scope);
+  if (!collectionName) return new Map();
+  try {
+    const answersRef = collection(db, "u", uid, collectionName, periodKey, "answers");
+    const snap = await getDocs(answersRef);
+    const entries = new Map();
+    snap.docs.forEach((docSnap) => {
+      const data = docSnap.data() || {};
+      entries.set(docSnap.id, { id: docSnap.id, ...data });
+    });
+    return entries;
+  } catch (error) {
+    schemaLog("loadSummaryAnswers:error", { scope, periodKey, error });
+    return new Map();
+  }
+}
+
+async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata = {}) {
+  if (!db || !uid || !scope || !periodKey) return;
+  const collectionName = summaryCollectionName(scope);
+  if (!collectionName) return;
+  const baseRef = doc(db, "u", uid, collectionName, periodKey);
+  const periodPayload = {
+    scope,
+    updatedAt: now(),
+  };
+  if (metadata?.start instanceof Date) {
+    periodPayload.periodStart = metadata.start.toISOString();
+  }
+  if (metadata?.end instanceof Date) {
+    periodPayload.periodEnd = metadata.end.toISOString();
+  }
+  if (metadata?.label) {
+    periodPayload.label = metadata.label;
+  }
+  if (metadata?.extras && typeof metadata.extras === "object") {
+    Object.assign(periodPayload, metadata.extras);
+  }
+  await setDoc(baseRef, periodPayload, { merge: true });
+  if (!Array.isArray(answers) || !answers.length) {
+    return;
+  }
+  const writes = answers.map((answer) => {
+    if (!answer || !answer.key) return Promise.resolve();
+    const answerRef = doc(db, "u", uid, collectionName, periodKey, "answers", answer.key);
+    const payload = {
+      consigneId: answer.consigneId || null,
+      family: answer.family || null,
+      type: answer.type || null,
+      value: answer.value,
+      updatedAt: now(),
+    };
+    if (answer.label !== undefined) {
+      payload.label = answer.label;
+    }
+    if (answer.category !== undefined) {
+      payload.category = answer.category;
+    }
+    return setDoc(answerRef, payload, { merge: true });
+  });
+  await Promise.all(writes);
+}
+
 Object.assign(Schema, {
   isAdmin,
   now,
@@ -1093,7 +1261,13 @@ Object.assign(Schema, {
   loadConsigneHistory,
   saveHistoryEntry,
   deleteHistoryEntry,
+  toDate,
+  startOfDay,
+  endOfDay,
   monthKeyFromDate,
+  monthRangeFromKey,
+  weekRangeFromDate,
+  weekKeyFromDate,
   weeksOf,
   weekOfMonthFromDate,
   weekDateRange,
@@ -1106,6 +1280,9 @@ Object.assign(Schema, {
   saveObjectiveEntry,
   getObjectiveEntry,
   loadObjectiveEntriesRange,
+  loadSummaryAnswers,
+  saveSummaryAnswers,
+  summaryCollectionName,
 });
 
 if (typeof module !== "undefined" && module.exports) {
