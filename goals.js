@@ -674,6 +674,12 @@
     `;
     document.body.appendChild(wrap);
 
+    wrap.querySelectorAll("textarea").forEach((textarea) => {
+      if (typeof window.autoGrowTextarea === "function") {
+        window.autoGrowTextarea(textarea);
+      }
+    });
+
     const close = () => wrap.remove();
     wrap.addEventListener("click", (event) => {
       if (event.target === wrap) close();

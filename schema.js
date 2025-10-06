@@ -177,7 +177,7 @@ const todayKey = (d = new Date()) => dayKeyFromDate(d); // YYYY-MM-DD
 
 const PRIORITIES = ["high","medium","low"];
 const MODES = ["daily","practice"];
-const TYPES = ["short","long","likert6","likert5","yesno","num","info"];
+const TYPES = ["short","long","likert6","likert5","yesno","num","checklist","info"];
 
 const LIKERT = ["no_answer","no","rather_no","medium","rather_yes","yes"];
 const LIKERT_POINTS = {
@@ -257,6 +257,22 @@ function normalizeParentId(value) {
   return trimmed ? String(trimmed) : null;
 }
 
+function normalizeChecklistItems(items) {
+  if (!Array.isArray(items)) return [];
+  const seen = new Set();
+  const result = [];
+  items.forEach((raw) => {
+    if (typeof raw !== "string") return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(trimmed);
+  });
+  return result;
+}
+
 function hydrateConsigne(doc) {
   const data = doc.data();
   return {
@@ -266,6 +282,7 @@ function hydrateConsigne(doc) {
     days: normalizeDays(data.days),
     srEnabled: data.srEnabled !== false,
     parentId: normalizeParentId(data.parentId),
+    checklistItems: normalizeChecklistItems(data.checklistItems),
   };
 }
 
@@ -391,12 +408,21 @@ function nextCooldownAfterAnswer(meta, prevState, value) {
 }
 
 async function resetSRForConsigne(db, uid, consigneId) {
-  const today = new Date().toISOString();
-  await upsertSRState(db, uid, consigneId, "consigne", {
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const immediate = new Date(midnight.getTime() - 1).toISOString();
+  const canDeleteField = typeof deleteField === "function";
+  const state = {
     streak: 0,
     nextAllowedIndex: 0,
-    nextVisibleOn: today
-  });
+    nextVisibleOn: immediate,
+  };
+  if (canDeleteField) {
+    state.hideUntil = deleteField();
+  } else {
+    state.hideUntil = null;
+  }
+  await upsertSRState(db, uid, consigneId, "consigne", state);
 }
 
 async function delayConsigne({ db, uid, consigne, mode, amount, sessionIndex }) {
@@ -575,6 +601,7 @@ async function addConsigne(db, uid, payload) {
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
     parentId: normalizeParentId(payload.parentId),
+    checklistItems: normalizeChecklistItems(payload.checklistItems),
     createdAt: serverTimestamp()
   });
   return ref;
@@ -588,6 +615,7 @@ async function updateConsigne(db, uid, id, payload) {
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
     parentId: normalizeParentId(payload.parentId),
+    checklistItems: normalizeChecklistItems(payload.checklistItems),
     updatedAt: serverTimestamp()
   });
 }
@@ -680,6 +708,16 @@ function valueToNumericPoint(type, value) {
   if (type === "likert5") return Number(value) || 0;  // 0..4
   if (type === "yesno")   return value === "yes" ? 1 : 0;
   if (type === "num") return Number(value) || 0;
+  if (type === "checklist") {
+    const values = Array.isArray(value)
+      ? value
+      : value && typeof value === "object" && Array.isArray(value.items)
+        ? value.items
+        : [];
+    if (!values.length) return null;
+    const completed = values.filter(Boolean).length;
+    return values.length ? completed / values.length : null;
+  }
   return null; // pour short/long -> pas de graph
 }
 

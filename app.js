@@ -80,6 +80,168 @@
     route: "#/admin",
   };
 
+  function ensureRichTextModalCheckboxBehavior() {
+    if (typeof document === "undefined") return;
+
+    const resolveCheckboxSetupFn = () =>
+      window.setupCheckboxLikeBullets ||
+      window.setupCheckboxListBehavior ||
+      window.setupChecklistEditor;
+
+    const setupEditorOnce = (editorEl, insertBtn) => {
+      const setupFn = resolveCheckboxSetupFn();
+      if (typeof setupFn !== "function") return false;
+      if (!editorEl) return false;
+      if (editorEl.__cbInstalled) return true;
+      try {
+        setupFn(editorEl, insertBtn || null);
+      } catch (error) {
+        console.warn("[app] checklist-editor:setup", error);
+      }
+      return true;
+    };
+
+    const upgradeTextarea = (textarea) => {
+      if (!(textarea instanceof HTMLElement) || textarea.tagName !== "TEXTAREA") {
+        return textarea;
+      }
+      if (textarea.dataset.rtEditorDisplayId) {
+        const existing = document.getElementById(textarea.dataset.rtEditorDisplayId);
+        if (existing) return existing;
+      }
+
+      const doc = textarea.ownerDocument || document;
+      const originalId = textarea.id || "rt-editor";
+      const display = doc.createElement("div");
+      display.id = originalId;
+      const classList = new Set((textarea.className || "").split(/\s+/).filter(Boolean));
+      classList.add("rt-editor");
+      display.className = Array.from(classList).join(" ");
+      display.setAttribute("contenteditable", "true");
+      const placeholder = textarea.getAttribute("placeholder");
+      if (placeholder) {
+        display.setAttribute("data-placeholder", placeholder);
+      }
+
+      const setDisplayContent = (value) => {
+        const raw = value || "";
+        if (
+          raw &&
+          /<\s*(div|p|span|ul|ol|li|input|br|strong|em|h[1-6]|blockquote|section|article|header|footer|pre|code|table|tbody|thead|tr|td|th|label|form|button|a)\b/i.test(raw)
+        ) {
+          display.innerHTML = raw;
+          return;
+        }
+        display.innerHTML = "";
+        const fragment = doc.createDocumentFragment();
+        const lines = raw.split(/\r?\n/);
+        if (lines.length === 1 && lines[0] === "") {
+          fragment.appendChild(doc.createElement("br"));
+        } else {
+          lines.forEach((line, index) => {
+            if (index > 0) fragment.appendChild(doc.createElement("br"));
+            if (line) fragment.appendChild(doc.createTextNode(line));
+          });
+        }
+        display.appendChild(fragment);
+      };
+
+      setDisplayContent(textarea.value || "");
+
+      const hidden = textarea;
+      const hiddenId = `${originalId}-hidden`;
+      hidden.id = hiddenId;
+      hidden.hidden = true;
+      hidden.style.display = "none";
+      hidden.setAttribute("aria-hidden", "true");
+      hidden.dataset.rtEditorDisplayId = originalId;
+      hidden.classList.add("rt-editor__hidden-input");
+
+      textarea.insertAdjacentElement("beforebegin", display);
+
+      const syncHidden = (dispatch = false) => {
+        hidden.value = display.innerHTML;
+        if (dispatch) {
+          try {
+            hidden.dispatchEvent(new Event("input", { bubbles: true }));
+          } catch (err) {
+            console.warn("[app] rt-editor:hidden:input", err);
+          }
+        }
+      };
+
+      display.addEventListener("input", () => syncHidden(true));
+      display.addEventListener("blur", () => syncHidden(false));
+
+      const form = hidden.closest("form");
+      if (form && !form.__rtEditorEnterGuard) {
+        form.__rtEditorEnterGuard = true;
+        form.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && document.activeElement === display) {
+            event.preventDefault();
+          }
+        });
+      }
+      if (form) {
+        form.addEventListener("reset", () => {
+          window.setTimeout(() => {
+            const defaultValue = hidden.defaultValue || "";
+            setDisplayContent(defaultValue);
+            syncHidden(false);
+          }, 0);
+        });
+      }
+
+      syncHidden(false);
+
+      const insertBtn = document.getElementById("insert-checkbox");
+      setupEditorOnce(display, insertBtn || null);
+
+      return display;
+    };
+
+    const trySetup = () => {
+      let editorEl = document.getElementById("rt-editor");
+      if (!editorEl) return false;
+      if (editorEl.tagName === "TEXTAREA") {
+        editorEl = upgradeTextarea(editorEl);
+      }
+      if (!editorEl) return false;
+      if (!editorEl.isContentEditable) {
+        editorEl.setAttribute("contenteditable", "true");
+      }
+      if (!editorEl.classList.contains("rt-editor")) {
+        editorEl.classList.add("rt-editor");
+      }
+      const insertBtn = document.getElementById("insert-checkbox");
+      return setupEditorOnce(editorEl, insertBtn || null);
+    };
+
+    const hasSetupFn = () => typeof resolveCheckboxSetupFn() === "function";
+
+    trySetup();
+
+    if (!hasSetupFn() && typeof window.setTimeout === "function") {
+      const waitForFn = () => {
+        if (hasSetupFn()) {
+          trySetup();
+          return;
+        }
+        window.setTimeout(waitForFn, 120);
+      };
+      window.setTimeout(waitForFn, 120);
+    }
+
+    if (typeof MutationObserver === "function" && document.body) {
+      const observer = new MutationObserver(() => {
+        trySetup();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+  }
+
+  ensureRichTextModalCheckboxBehavior();
+
   const badgeManager = (() => {
     const DOW = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
     let refreshPromise = null;
@@ -1687,30 +1849,72 @@
     appLog("sidebar:render", { profile: ctx.profile, categories: ctx.categories?.length });
 
     if (!ctx.user?.uid) {
-      box.innerHTML = '<span class="muted">Aucun utilisateur sélectionné.</span>';
+      const empty = document.createElement("span");
+      empty.className = "muted";
+      empty.textContent = "Aucun utilisateur sélectionné.";
+      box.replaceChildren(empty);
       if (status) status.textContent = "Sélectionnez un utilisateur pour accéder aux paramètres.";
       const catBoxEmpty = queryOne("#category-box");
       if (catBoxEmpty) {
-        catBoxEmpty.innerHTML = '<span class="muted">Sélectionnez un utilisateur pour voir ses catégories.</span>';
+        const catEmpty = document.createElement("span");
+        catEmpty.className = "muted";
+        catEmpty.textContent = "Sélectionnez un utilisateur pour voir ses catégories.";
+        catBoxEmpty.replaceChildren(catEmpty);
       }
       return;
     }
 
+    const profileName = ctx.profile?.displayName || ctx.profile?.name || "Utilisateur";
     const link = `${location.origin}${location.pathname}#/u/${ctx.user.uid}`;
-    box.innerHTML = `
-      <div><strong>${ctx.profile.displayName || ctx.profile.name || "Utilisateur"}</strong></div>
-      <div class="muted">UID : <code>${ctx.user.uid}</code></div>
-      <div class="muted">Lien direct : <a class="link" href="${link}">${link}</a></div>
-    `;
+
+    const nameDiv = document.createElement("div");
+    const strong = document.createElement("strong");
+    strong.textContent = profileName;
+    nameDiv.appendChild(strong);
+
+    const uidDiv = document.createElement("div");
+    uidDiv.className = "muted";
+    uidDiv.append(document.createTextNode("UID : "));
+    const code = document.createElement("code");
+    code.textContent = ctx.user.uid;
+    uidDiv.appendChild(code);
+
+    const linkDiv = document.createElement("div");
+    linkDiv.className = "muted";
+    linkDiv.append(document.createTextNode("Lien direct : "));
+    const anchor = document.createElement("a");
+    anchor.className = "link";
+    anchor.href = link;
+    anchor.textContent = link;
+    linkDiv.appendChild(anchor);
+
+    box.replaceChildren(nameDiv, uidDiv, linkDiv);
 
     syncNotificationButtonsForUid(ctx.user.uid);
 
     const catBox = queryOne("#category-box");
     if (catBox) {
       if (!ctx.categories.length) {
-        catBox.innerHTML = '<span class="muted">Aucune catégorie. Elles seront créées automatiquement lors de l’ajout d’une consigne.</span>';
+        const empty = document.createElement("span");
+        empty.className = "muted";
+        empty.textContent = "Aucune catégorie. Elles seront créées automatiquement lors de l’ajout d’une consigne.";
+        catBox.replaceChildren(empty);
       } else {
-        catBox.innerHTML = ctx.categories.map(c => `<div class="flex"><span>${c.name}</span><span class="pill">${c.mode}</span></div>`).join("");
+        const fragments = ctx.categories.map((c) => {
+          const row = document.createElement("div");
+          row.className = "flex";
+
+          const nameSpan = document.createElement("span");
+          nameSpan.textContent = c?.name ?? "";
+
+          const modeSpan = document.createElement("span");
+          modeSpan.className = "pill";
+          modeSpan.textContent = c?.mode ?? "";
+
+          row.append(nameSpan, modeSpan);
+          return row;
+        });
+        catBox.replaceChildren(...fragments);
       }
     }
   }
