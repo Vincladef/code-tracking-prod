@@ -5003,28 +5003,34 @@ function attachConsigneEditor(row, consigne, options = {}) {
   }
 }
 
+function hasValueForConsigne(consigne, value) {
+  const type = consigne?.type;
+  if (type === "long") {
+    return richTextHasContent(value);
+  }
+  if (type === "short") {
+    return typeof value === "string" && value.trim().length > 0;
+  }
+  if (type === "checklist") {
+    if (Array.isArray(value)) return value.some(Boolean);
+    if (value && typeof value === "object" && Array.isArray(value.items)) {
+      return value.items.some(Boolean);
+    }
+    return false;
+  }
+  if (type === "num") {
+    if (value === null || value === undefined || value === "") return false;
+    const num = Number(value);
+    return Number.isFinite(num);
+  }
+  return !(value === null || value === undefined || value === "");
+}
+
 function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
   if (!row || !consigne) return;
-  const hasValueForConsigne = (value) => {
-    const type = consigne.type;
-    if (type === "long") {
-      return richTextHasContent(value);
-    }
-    if (type === "short") {
-      return typeof value === "string" && value.trim().length > 0;
-    }
-    if (type === "checklist") {
-      if (Array.isArray(value)) return value.some(Boolean);
-      if (value && typeof value === "object" && Array.isArray(value.items)) {
-        return value.items.some(Boolean);
-      }
-      return false;
-    }
-    return !(value === null || value === undefined || value === "");
-  };
   const mapValueForStatus = (value) => {
     if (row?.dataset?.skipAnswered === "1") {
-      if (hasValueForConsigne(value)) {
+      if (hasValueForConsigne(consigne, value)) {
         delete row.dataset.skipAnswered;
         return value;
       }
@@ -6531,6 +6537,8 @@ Modes.groupConsignes = groupConsignes;
 Modes.priorityTone = priorityTone;
 Modes.prioChip = prioChip;
 Modes.showToast = showToast;
+Modes.bindConsigneRowValue = bindConsigneRowValue;
+Modes.hasValueForConsigne = hasValueForConsigne;
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {

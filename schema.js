@@ -1244,6 +1244,32 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
   await Promise.all(writes);
 }
 
+async function deleteSummaryAnswer(db, uid, scope, periodKey, answerKey, metadata = {}) {
+  if (!db || !uid || !scope || !periodKey || !answerKey) return;
+  const collectionName = summaryCollectionName(scope);
+  if (!collectionName) return;
+  const baseRef = doc(db, "u", uid, collectionName, periodKey);
+  const periodPayload = {
+    scope,
+    updatedAt: now(),
+  };
+  if (metadata?.start instanceof Date) {
+    periodPayload.periodStart = metadata.start.toISOString();
+  }
+  if (metadata?.end instanceof Date) {
+    periodPayload.periodEnd = metadata.end.toISOString();
+  }
+  if (metadata?.label) {
+    periodPayload.label = metadata.label;
+  }
+  if (metadata?.extras && typeof metadata.extras === "object") {
+    Object.assign(periodPayload, metadata.extras);
+  }
+  await setDoc(baseRef, periodPayload, { merge: true });
+  const answerRef = doc(db, "u", uid, collectionName, periodKey, "answers", answerKey);
+  await deleteDoc(answerRef);
+}
+
 Object.assign(Schema, {
   isAdmin,
   now,
@@ -1310,6 +1336,7 @@ Object.assign(Schema, {
   loadObjectiveEntriesRange,
   loadSummaryAnswers,
   saveSummaryAnswers,
+  deleteSummaryAnswer,
   summaryCollectionName,
   loadModuleSettings,
   saveModuleSettings,

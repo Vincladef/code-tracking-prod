@@ -331,7 +331,7 @@
     };
   }
 
-  function createRow(consigne, options = {}) {
+  function createConsigneRow(consigne, options = {}) {
     const previous = options.previous || null;
     const isChild = options.isChild === true;
     const tone = Modes.priorityTone ? Modes.priorityTone(consigne.priority) : "medium";
@@ -339,6 +339,7 @@
     row.className = `consigne-row priority-surface priority-surface-${tone}`;
     row.dataset.id = String(consigne.id || "");
     row.dataset.family = consigne.family || "";
+    row.dataset.priorityTone = tone;
     if (isChild) {
       row.classList.add("consigne-row--child");
       if (consigne.parentId) {
@@ -363,17 +364,25 @@
       <div class="consigne-row__header">
         <div class="consigne-row__main">
           <span class="consigne-row__title">${escapeHtml(consigne.text)}</span>
+          ${typeof Modes.prioChip === "function" ? Modes.prioChip(Number(consigne.priority) || 2) : ""}
         </div>
-        <div class="consigne-row__meta">${metaHtml}</div>
+        <div class="consigne-row__meta">
+          <span class="consigne-row__status" data-status="na">
+            <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+            <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
+            <span class="sr-only" data-status-live aria-live="polite"></span>
+          </span>
+          ${metaHtml}
+        </div>
       </div>
       ${descriptionHtml}
       <div class="consigne-row__body" data-consigne-input-holder></div>
     `;
     const holder = row.querySelector("[data-consigne-input-holder]");
+    const initialValue = previous && Object.prototype.hasOwnProperty.call(previous, "value")
+      ? previous.value
+      : previous?.v ?? null;
     if (holder) {
-      const initialValue = previous && Object.prototype.hasOwnProperty.call(previous, "value")
-        ? previous.value
-        : previous?.v ?? null;
       holder.innerHTML = typeof Modes.inputForType === "function"
         ? Modes.inputForType(consigne, initialValue)
         : "";
@@ -381,10 +390,34 @@
         Modes.enhanceRangeMeters(holder);
       }
     }
+    if (typeof Modes.bindConsigneRowValue === "function") {
+      const stableSerialize = (input) => {
+        if (input === undefined) return "__undefined__";
+        try {
+          return JSON.stringify(input);
+        } catch (error) {
+          return String(input);
+        }
+      };
+      let lastSerialized = stableSerialize(initialValue);
+      Modes.bindConsigneRowValue(row, consigne, {
+        initialValue,
+        onChange: (value) => {
+          const serialized = stableSerialize(value);
+          if (serialized === lastSerialized) {
+            return;
+          }
+          lastSerialized = serialized;
+          if (typeof options.onChange === "function") {
+            options.onChange(value, { consigne, row });
+          }
+        },
+      });
+    }
     return row;
   }
 
-  function renderItemsInChunks(container, items, answersMap) {
+  function renderItemsInChunks(container, items, answersMap, options = {}) {
     if (!items.length) {
       const empty = document.createElement("p");
       empty.className = "text-sm text-[var(--muted)]";
@@ -399,27 +432,34 @@
       slice.forEach((entry) => {
         const key = summaryKey(entry.consigne);
         const previous = answersMap.get(key) || null;
-        const row = createRow(entry.consigne, { previous, isChild: entry.isChild });
+        const row = createConsigneRow(entry.consigne, {
+          previous,
+          isChild: entry.isChild,
+          onChange: (value, ctx) => {
+            if (typeof options.onChange === "function") {
+              options.onChange(value, { ...ctx, key });
+            }
+          },
+        });
         container.appendChild(row);
       });
       index += slice.length;
       if (index < items.length) {
         window.requestAnimationFrame(renderBatch);
+      } else if (typeof window.ensureRichTextModalCheckboxBehavior === "function") {
+        window.ensureRichTextModalCheckboxBehavior();
       }
     };
     renderBatch();
   }
 
-  function buildFamilySection(form, family, data, answersMap, registry) {
+  function buildFamilySection(container, family, data, answersMap, options = {}) {
     const items = Array.isArray(data) ? data : [];
     const sorted = sortConsignes(items);
     const groups = typeof Modes.groupConsignes === "function"
       ? Modes.groupConsignes(sorted)
       : sorted.map((consigne) => ({ consigne, children: [] }));
     const flattened = flattenConsigneGroups(groups);
-    flattened.forEach((entry) => {
-      registry.push(entry.consigne);
-    });
     const section = document.createElement("section");
     section.className = "daily-category daily-grid__item";
     const label = FAMILY_LABELS[family] || family;
@@ -433,8 +473,84 @@
     const stack = document.createElement("div");
     stack.className = "daily-category__items";
     section.appendChild(stack);
-    form.appendChild(section);
-    renderItemsInChunks(stack, flattened, answersMap);
+    container.appendChild(section);
+    renderItemsInChunks(stack, flattened, answersMap, {
+      onChange: (value, ctx) => {
+        if (typeof options.onValueChange === "function") {
+          options.onValueChange(ctx.consigne, value, ctx.row, ctx.key);
+        }
+      },
+    });
+  }
+
+  function buildSummarySaver(ctx, period, answersMap) {
+    const pending = new Map();
+    const extras = { weekEndsOn: period.weekEndsOn };
+    if (period.scope === "week" && period.key) {
+      extras.weekKey = period.key;
+    }
+    if (period.scope === "month" && period.key) {
+      extras.monthKey = period.key;
+    }
+    const metadata = {
+      start: period.start,
+      end: period.end,
+      label: period.label,
+      extras,
+    };
+
+    const persist = async (consigne, value, row, key) => {
+      if (!ctx?.db || !ctx?.user?.uid || !key) return;
+      const hasValue = typeof Modes.hasValueForConsigne === "function"
+        ? Modes.hasValueForConsigne(consigne, value)
+        : !(value === null || value === undefined || value === "");
+      if (row) {
+        row.dataset.saving = "1";
+      }
+      try {
+        if (hasValue) {
+          const payload = {
+            key,
+            consigneId: consigne?.id || null,
+            family: consigne?.family || null,
+            type: consigne?.type || null,
+            value,
+            label: consigne?.text || null,
+            category: consigne?.summaryCategory || consigne?.category || null,
+          };
+          await Schema.saveSummaryAnswers(ctx.db, ctx.user.uid, period.scope, period.key, [payload], metadata);
+          answersMap.set(key, { id: key, value, type: consigne?.type || null, family: consigne?.family || null });
+        } else {
+          await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, period.scope, period.key, key, metadata);
+          answersMap.delete(key);
+        }
+        if (row) {
+          delete row.dataset.error;
+        }
+      } catch (error) {
+        bilanLogger?.error?.("bilan.save.single", { error, scope: period.scope, periodKey: period.key, consigneId: consigne?.id });
+        if (row) {
+          row.dataset.error = "1";
+        }
+      } finally {
+        if (row) {
+          delete row.dataset.saving;
+        }
+      }
+    };
+
+    return (consigne, value, row, key) => {
+      if (!consigne || !key) return;
+      const existing = pending.get(key);
+      if (existing?.timer) {
+        window.clearTimeout(existing.timer);
+      }
+      const timer = window.setTimeout(() => {
+        pending.delete(key);
+        persist(consigne, value, row, key);
+      }, 240);
+      pending.set(key, { timer, value });
+    };
   }
 
   async function renderSummary(options) {
@@ -479,68 +595,19 @@
       mount.appendChild(empty);
       return;
     }
-    const form = document.createElement("form");
-    form.className = "daily-grid";
-    mount.appendChild(form);
-    const registry = [];
-    FAMILY_ORDER.forEach((family) => {
-      buildFamilySection(form, family, sectionsData?.[family] || [], answersMap, registry);
-    });
-    const actions = document.createElement("div");
-    actions.className = "flex justify-end daily-grid__item daily-grid__actions";
-    actions.innerHTML = `<button type="submit" class="btn btn-primary">Enregistrer</button>`;
-    form.appendChild(actions);
+    const autosaveInfo = document.createElement("p");
+    autosaveInfo.className = "text-xs text-[var(--muted)]";
+    autosaveInfo.textContent = "Chaque réponse est enregistrée automatiquement pour cette période.";
+    mount.appendChild(autosaveInfo);
+    const grid = document.createElement("div");
+    grid.className = "daily-grid";
+    mount.appendChild(grid);
 
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const submitBtn = form.querySelector("button[type=submit]");
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.textContent = "Enregistrement…";
-      }
-      try {
-        const answers = typeof Modes.collectAnswers === "function"
-          ? Modes.collectAnswers(form, registry)
-          : [];
-        const payload = answers.map((answer) => ({
-          key: summaryKey(answer.consigne),
-          consigneId: answer.consigne?.id || null,
-          family: answer.consigne?.family || null,
-          type: answer.consigne?.type || null,
-          value: answer.value,
-          label: answer.consigne?.text || null,
-          category: answer.consigne?.summaryCategory || answer.consigne?.category || null,
-        }));
-        const extras = { weekEndsOn: period.weekEndsOn };
-        if (period.scope === "week" && period.key) {
-          extras.weekKey = period.key;
-        }
-        if (period.scope === "month" && period.key) {
-          extras.monthKey = period.key;
-        }
-        await Schema.saveSummaryAnswers(ctx.db, ctx.user.uid, period.scope, period.key, payload, {
-          start: period.start,
-          end: period.end,
-          label: period.label,
-          extras,
-        });
-        payload.forEach((item) => {
-          answersMap.set(item.key, { id: item.key, value: item.value, type: item.type, family: item.family });
-        });
-        if (typeof Modes.showToast === "function") {
-          Modes.showToast(payload.length ? "Bilan enregistré" : "Bilan enregistré (aucune réponse)");
-        }
-      } catch (error) {
-        bilanLogger?.error?.("bilan.save.error", error);
-        if (typeof alert === "function") {
-          alert("Impossible d'enregistrer le bilan.");
-        }
-      } finally {
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.textContent = "Enregistrer";
-        }
-      }
+    const onValueChange = buildSummarySaver(ctx, period, answersMap);
+    FAMILY_ORDER.forEach((family) => {
+      buildFamilySection(grid, family, sectionsData?.[family] || [], answersMap, {
+        onValueChange,
+      });
     });
   }
 

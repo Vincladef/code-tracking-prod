@@ -240,6 +240,7 @@
     }
   }
 
+  window.ensureRichTextModalCheckboxBehavior = ensureRichTextModalCheckboxBehavior;
   ensureRichTextModalCheckboxBehavior();
 
   const badgeManager = (() => {
