@@ -5621,6 +5621,95 @@ const DAILY_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", 
 const DAILY_SHORT_RANGE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
 const DAILY_LONG_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "2-digit", month: "long" });
 const DAILY_MONTH_LABEL_FORMATTER = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+const BILAN_MODULE_ID = "bilan";
+const BILAN_DEFAULT_SETTINGS = {
+  weekEndsOn: 0,
+  monthlyEnabled: true,
+  weeklyReminderEnabled: false,
+  monthlyReminderEnabled: false,
+};
+
+let DAILY_WEEK_ENDS_ON = BILAN_DEFAULT_SETTINGS.weekEndsOn;
+let DAILY_MONTHLY_ENABLED = BILAN_DEFAULT_SETTINGS.monthlyEnabled;
+
+let bilanSettingsCache = null;
+let bilanSettingsUid = null;
+let bilanSettingsPromise = null;
+
+function normalizeWeekdayIndex(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  const rounded = Math.round(num);
+  return ((rounded % 7) + 7) % 7;
+}
+
+function normalizeBilanReminder(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  if (value && typeof value === "object") {
+    if (typeof value.enabled === "boolean") {
+      return value.enabled;
+    }
+  }
+  return false;
+}
+
+function normalizeBilanSettings(raw) {
+  const data = raw && typeof raw === "object" ? raw : {};
+  const weekEndsOn = normalizeWeekdayIndex(data.weekEndsOn ?? data.weekEnd ?? BILAN_DEFAULT_SETTINGS.weekEndsOn);
+  const monthlyEnabled = data.monthlyEnabled !== false;
+  const weeklyReminderEnabled = normalizeBilanReminder(data.weeklyReminder ?? data.weeklyReminderEnabled);
+  const monthlyReminderEnabled = normalizeBilanReminder(data.monthlyReminder ?? data.monthlyReminderEnabled);
+  return {
+    weekEndsOn,
+    monthlyEnabled,
+    weeklyReminderEnabled,
+    monthlyReminderEnabled,
+  };
+}
+
+function setBilanRuntimeSettings(settings) {
+  const normalized = normalizeBilanSettings(settings);
+  DAILY_WEEK_ENDS_ON = normalized.weekEndsOn;
+  DAILY_MONTHLY_ENABLED = normalized.monthlyEnabled;
+  bilanSettingsCache = normalized;
+  return normalized;
+}
+
+function weekdayNameFromIndex(index) {
+  const normalized = normalizeWeekdayIndex(index);
+  const sample = new Date(Date.UTC(2023, 0, 1 + normalized));
+  const raw = DAILY_WEEKDAY_FORMATTER.format(sample) || "";
+  if (!raw) return "";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+async function loadBilanSettings(ctx) {
+  const uid = ctx?.user?.uid;
+  if (!uid || !ctx?.db || typeof Schema?.loadModuleSettings !== "function") {
+    return setBilanRuntimeSettings(BILAN_DEFAULT_SETTINGS);
+  }
+  if (bilanSettingsCache && bilanSettingsUid === uid) {
+    return bilanSettingsCache;
+  }
+  if (bilanSettingsPromise && bilanSettingsUid === uid) {
+    return bilanSettingsPromise;
+  }
+  bilanSettingsUid = uid;
+  bilanSettingsPromise = (async () => {
+    try {
+      const raw = await Schema.loadModuleSettings(ctx.db, uid, BILAN_MODULE_ID);
+      return setBilanRuntimeSettings(raw);
+    } catch (error) {
+      console.warn("bilan.settings.load", error);
+      return setBilanRuntimeSettings(BILAN_DEFAULT_SETTINGS);
+    } finally {
+      bilanSettingsPromise = null;
+    }
+  })();
+  return bilanSettingsPromise;
+}
+
 function toStartOfDay(dateInput) {
   const date = dateInput instanceof Date ? new Date(dateInput.getTime()) : new Date(dateInput);
   if (Number.isNaN(date.getTime())) return null;
@@ -5650,23 +5739,24 @@ function formatLongDateLabel(date) {
   const raw = DAILY_LONG_DATE_FORMATTER.format(date);
   return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "";
 }
-function sundayForDate(dateInput) {
+function weekAnchorForDate(dateInput) {
   const base = toStartOfDay(dateInput);
   if (!base) return null;
-  const offset = (7 - base.getDay()) % 7;
-  const sunday = new Date(base.getTime());
-  sunday.setDate(sunday.getDate() + offset);
-  return sunday;
+  const offset = (DAILY_WEEK_ENDS_ON - base.getDay() + 7) % 7;
+  const anchor = new Date(base.getTime());
+  anchor.setDate(anchor.getDate() + offset);
+  return anchor;
 }
-function weekWindowForSunday(sunday) {
-  const end = toStartOfDay(sunday);
+function weekWindowForAnchor(anchor) {
+  const end = toStartOfDay(anchor);
   if (!end) return null;
   const start = new Date(end.getTime());
   start.setDate(start.getDate() - 6);
   return { start, end };
 }
-function monthlySummaryInfoForSunday(sunday) {
-  const range = weekWindowForSunday(sunday);
+function monthlySummaryInfoForAnchor(anchor) {
+  if (!DAILY_MONTHLY_ENABLED) return null;
+  const range = weekWindowForAnchor(anchor);
   if (!range) return null;
   let monthEnd = null;
   for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
@@ -5702,24 +5792,29 @@ function createDayEntry(date) {
     isToday: isTodaySelected,
   };
 }
-function createWeeklySummaryEntry(sunday) {
-  const anchor = sundayForDate(sunday);
+function createWeeklySummaryEntry(anchorDate) {
+  const anchor = weekAnchorForDate(anchorDate);
   if (!anchor) return null;
-  const range = weekWindowForSunday(anchor);
+  const range = weekWindowForAnchor(anchor);
   if (!range) return null;
+  const weekKey = typeof Schema?.weekKeyFromDate === "function"
+    ? Schema.weekKeyFromDate(anchor, DAILY_WEEK_ENDS_ON)
+    : null;
   return {
     type: DAILY_ENTRY_TYPES.WEEKLY,
     sunday: anchor,
     weekStart: range.start,
     weekEnd: range.end,
+    weekEndsOn: DAILY_WEEK_ENDS_ON,
+    weekKey,
     navLabel: "Bilan de la semaine",
     navSubtitle: formatWeekRangeLabel(range.start, range.end),
   };
 }
-function createMonthlySummaryEntry(sunday) {
-  const weekly = createWeeklySummaryEntry(sunday);
+function createMonthlySummaryEntry(anchorDate) {
+  const weekly = createWeeklySummaryEntry(anchorDate);
   if (!weekly) return null;
-  const monthInfo = monthlySummaryInfoForSunday(weekly.sunday);
+  const monthInfo = monthlySummaryInfoForAnchor(weekly.sunday);
   if (!monthInfo) return null;
   return {
     ...weekly,
@@ -5731,10 +5826,12 @@ function createMonthlySummaryEntry(sunday) {
     navSubtitle: monthInfo.monthLabel || weekly.navSubtitle,
   };
 }
-function entryDayAfterSunday(entrySunday) {
-  const monday = new Date(entrySunday.getTime());
-  monday.setDate(monday.getDate() + 1);
-  return monday;
+function entryDayAfterAnchor(anchorDate) {
+  const base = toStartOfDay(anchorDate);
+  if (!base) return null;
+  const next = new Date(base.getTime());
+  next.setDate(next.getDate() + 1);
+  return next;
 }
 function entryToDayKey(entry) {
   if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
@@ -5748,7 +5845,7 @@ function entryToDayKey(entry) {
 function computeNextEntry(entry) {
   if (!entry) return null;
   if (entry.type === DAILY_ENTRY_TYPES.DAY) {
-    if (entry.date?.getDay?.() === 0) {
+    if (entry.date?.getDay?.() === DAILY_WEEK_ENDS_ON) {
       return createWeeklySummaryEntry(entry.date);
     }
     const nextDate = new Date(entry.date.getTime());
@@ -5756,40 +5853,46 @@ function computeNextEntry(entry) {
     return createDayEntry(nextDate);
   }
   if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
-    const monthCandidate = createMonthlySummaryEntry(entry.sunday);
+    const anchor = entry.weekEnd || entry.sunday;
+    const monthCandidate = createMonthlySummaryEntry(anchor);
     if (monthCandidate) {
       return monthCandidate;
     }
-    const monday = entryDayAfterSunday(entry.sunday);
-    return createDayEntry(monday);
+    const nextDay = entryDayAfterAnchor(anchor);
+    return nextDay ? createDayEntry(nextDay) : null;
   }
   if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
-    const monday = entryDayAfterSunday(entry.sunday);
-    return createDayEntry(monday);
+    const anchor = entry.weekEnd || entry.sunday;
+    const nextDay = entryDayAfterAnchor(anchor);
+    return nextDay ? createDayEntry(nextDay) : null;
   }
   return null;
 }
 function computePrevEntry(entry) {
   if (!entry) return null;
   if (entry.type === DAILY_ENTRY_TYPES.DAY) {
-    if (entry.date?.getDay?.() === 1) {
-      const sunday = new Date(entry.date.getTime());
-      sunday.setDate(sunday.getDate() - 1);
-      const monthCandidate = createMonthlySummaryEntry(sunday);
+    const day = entry.date?.getDay?.();
+    const startOfWeekDay = (DAILY_WEEK_ENDS_ON + 1) % 7;
+    if (day === startOfWeekDay) {
+      const anchor = new Date(entry.date.getTime());
+      anchor.setDate(anchor.getDate() - 1);
+      const monthCandidate = createMonthlySummaryEntry(anchor);
       if (monthCandidate) {
         return monthCandidate;
       }
-      return createWeeklySummaryEntry(sunday);
+      return createWeeklySummaryEntry(anchor);
     }
     const prevDate = new Date(entry.date.getTime());
     prevDate.setDate(prevDate.getDate() - 1);
     return createDayEntry(prevDate);
   }
   if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
-    return createDayEntry(entry.sunday);
+    const anchor = entry.weekEnd || entry.sunday;
+    return createDayEntry(anchor);
   }
   if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
-    return createWeeklySummaryEntry(entry.sunday);
+    const anchor = entry.weekEnd || entry.sunday;
+    return createWeeklySummaryEntry(anchor);
   }
   return null;
 }
@@ -5814,12 +5917,23 @@ function entryToQuery(entry, basePath, qp) {
   const search = params.toString();
   return `${basePath}${search ? `?${search}` : ""}`;
 }
+function buildSummaryHintText() {
+  const endName = weekdayNameFromIndex(DAILY_WEEK_ENDS_ON);
+  const nextName = weekdayNameFromIndex((DAILY_WEEK_ENDS_ON + 1) % 7);
+  if (!endName || !nextName) {
+    return "Les consignes s’affichent ici à la fin de chaque période pour garder le rythme des bilans.";
+  }
+  const endLower = endName.toLocaleLowerCase("fr-FR");
+  const nextLower = nextName.toLocaleLowerCase("fr-FR");
+  return `Les consignes s’affichent ici entre le ${endLower} de fin de semaine et le ${nextLower} suivant pour conserver le rythme “${endLower} → bilans → ${nextLower}”.`;
+}
 async function appendSummaryCard(container, entry, ctx) {
   if (!(container instanceof HTMLElement) || !entry) return;
   const card = document.createElement("section");
   card.className = "daily-summary card space-y-4 p-4 sm:p-5";
   const isMonthly = entry.type === DAILY_ENTRY_TYPES.MONTHLY;
   const title = isMonthly ? "Bilan du mois" : "Bilan de la semaine";
+  const icon = isMonthly ? "🌕" : "🗓️";
   const period = isMonthly
     ? entry.monthLabel || (entry.monthEnd ? formatMonthLabel(entry.monthEnd) : "")
     : entry.weekStart && entry.weekEnd
@@ -5835,9 +5949,10 @@ async function appendSummaryCard(container, entry, ctx) {
   const description = isMonthly
     ? "Ce bloc regroupe l’ensemble des consignes actives du mois et fait le lien avec les objectifs mensuels ou annuels."
     : "Ce bloc réunit les consignes de la semaine écoulée : journalier, pratique et objectifs hebdomadaires.";
+  const hintText = buildSummaryHintText();
   card.innerHTML = `
     <header class="daily-summary__header">
-      <div class="daily-summary__title">${escapeHtml(title)}</div>
+      <div class="daily-summary__title"><span class="daily-summary__icon" aria-hidden="true">${icon}</span><span>${escapeHtml(title)}</span></div>
       ${period ? `<div class="daily-summary__meta">${escapeHtml(period)}</div>` : ""}
     </header>
     <div class="daily-summary__body">
@@ -5845,7 +5960,7 @@ async function appendSummaryCard(container, entry, ctx) {
       ${detailLines.length
         ? `<ul class="daily-summary__details">${detailLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
         : ""}
-      <p class="daily-summary__hint">Les consignes s’affichent ici entre le dimanche de fin de semaine et le lundi suivant pour conserver le rythme “dimanche → bilans → lundi”.</p>
+      ${hintText ? `<p class="daily-summary__hint">${escapeHtml(hintText)}</p>` : ""}
       <div class="daily-summary__content space-y-4" data-bilan-root>
         <p class="text-sm text-[var(--muted)]">Chargement du bilan…</p>
       </div>
@@ -5891,12 +6006,16 @@ async function renderDaily(ctx, root, opts = {}) {
 
   const currentHash = ctx.route || window.location.hash || "#/daily";
   const qp = new URLSearchParams(currentHash.split("?")[1] || "");
+  await loadBilanSettings(ctx);
   const viewParamRaw = String(opts.view || qp.get("view") || "").toLowerCase();
-  const normalizedView = viewParamRaw === "week"
+  let normalizedView = viewParamRaw === "week"
     ? DAILY_ENTRY_TYPES.WEEKLY
     : viewParamRaw === "month"
       ? DAILY_ENTRY_TYPES.MONTHLY
       : DAILY_ENTRY_TYPES.DAY;
+  if (normalizedView === DAILY_ENTRY_TYPES.MONTHLY && !DAILY_MONTHLY_ENABLED) {
+    normalizedView = DAILY_ENTRY_TYPES.WEEKLY;
+  }
   const dateIso = opts.dateIso || qp.get("d");
   const explicitDate = dateIso ? toStartOfDay(dateIso) : null;
   const requestedDay = normalizeDay(opts.day) || normalizeDay(qp.get("day"));
@@ -5930,11 +6049,11 @@ async function renderDaily(ctx, root, opts = {}) {
       }
     }
     anchor.setHours(0, 0, 0, 0);
-    const sunday = sundayForDate(anchor);
+    const weekAnchor = weekAnchorForDate(anchor);
     if (normalizedView === DAILY_ENTRY_TYPES.MONTHLY) {
-      entry = createMonthlySummaryEntry(sunday) || createWeeklySummaryEntry(sunday);
+      entry = createMonthlySummaryEntry(weekAnchor) || createWeeklySummaryEntry(weekAnchor);
     } else {
-      entry = createWeeklySummaryEntry(sunday);
+      entry = createWeeklySummaryEntry(weekAnchor);
     }
     if (!entry) {
       entry = createDayEntry(anchor);
