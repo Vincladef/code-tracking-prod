@@ -5814,7 +5814,7 @@ function entryToQuery(entry, basePath, qp) {
   const search = params.toString();
   return `${basePath}${search ? `?${search}` : ""}`;
 }
-function appendSummaryCard(container, entry) {
+async function appendSummaryCard(container, entry, ctx) {
   if (!(container instanceof HTMLElement) || !entry) return;
   const card = document.createElement("section");
   card.className = "daily-summary card space-y-4 p-4 sm:p-5";
@@ -5846,9 +5846,26 @@ function appendSummaryCard(container, entry) {
         ? `<ul class="daily-summary__details">${detailLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
         : ""}
       <p class="daily-summary__hint">Les consignes s’affichent ici entre le dimanche de fin de semaine et le lundi suivant pour conserver le rythme “dimanche → bilans → lundi”.</p>
+      <div class="daily-summary__content space-y-4" data-bilan-root>
+        <p class="text-sm text-[var(--muted)]">Chargement du bilan…</p>
+      </div>
     </div>
   `;
   container.appendChild(card);
+  const mount = card.querySelector("[data-bilan-root]");
+  if (!mount) {
+    return;
+  }
+  if (!window.Bilan || typeof window.Bilan.renderSummary !== "function") {
+    mount.innerHTML = `<p class="text-sm text-[var(--muted)]">Module de bilan non disponible.</p>`;
+    return;
+  }
+  try {
+    await window.Bilan.renderSummary({ ctx, entry, mount });
+  } catch (error) {
+    console.error("bilan.render", error);
+    mount.innerHTML = `<p class="text-sm text-red-600">Impossible de charger les consignes du bilan.</p>`;
+  }
 }
 function dateForDayFromToday(label){
   const target = DOW.indexOf(label);
@@ -6006,7 +6023,7 @@ async function renderDaily(ctx, root, opts = {}) {
   }
 
   if (!isDayEntry) {
-    appendSummaryCard(container, entry);
+    await appendSummaryCard(container, entry, ctx);
     modesLogger.groupEnd();
     return;
   }
@@ -6388,6 +6405,13 @@ Modes.renderPractice = renderPractice;
 Modes.renderDaily = renderDaily;
 Modes.renderHistory = renderHistory;
 Modes.attachConsignesDragDrop = window.attachConsignesDragDrop;
+Modes.inputForType = inputForType;
+Modes.collectAnswers = collectAnswers;
+Modes.enhanceRangeMeters = enhanceRangeMeters;
+Modes.groupConsignes = groupConsignes;
+Modes.priorityTone = priorityTone;
+Modes.prioChip = prioChip;
+Modes.showToast = showToast;
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
