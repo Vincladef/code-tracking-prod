@@ -83,6 +83,24 @@
   function ensureRichTextModalCheckboxBehavior() {
     if (typeof document === "undefined") return;
 
+    const resolveCheckboxSetupFn = () =>
+      window.setupCheckboxLikeBullets ||
+      window.setupCheckboxListBehavior ||
+      window.setupChecklistEditor;
+
+    const setupEditorOnce = (editorEl, insertBtn) => {
+      const setupFn = resolveCheckboxSetupFn();
+      if (typeof setupFn !== "function") return false;
+      if (!editorEl) return false;
+      if (editorEl.__cbInstalled) return true;
+      try {
+        setupFn(editorEl, insertBtn || null);
+      } catch (error) {
+        console.warn("[app] checklist-editor:setup", error);
+      }
+      return true;
+    };
+
     const upgradeTextarea = (textarea) => {
       if (!(textarea instanceof HTMLElement) || textarea.tagName !== "TEXTAREA") {
         return textarea;
@@ -176,25 +194,10 @@
 
       syncHidden(false);
 
+      const insertBtn = document.getElementById("insert-checkbox");
+      setupEditorOnce(display, insertBtn || null);
+
       return display;
-    };
-
-    const resolveCheckboxSetupFn = () =>
-      window.setupCheckboxLikeBullets ||
-      window.setupCheckboxListBehavior ||
-      window.setupChecklistEditor;
-
-    const setupEditorOnce = (editorEl, insertBtn) => {
-      const setupFn = resolveCheckboxSetupFn();
-      if (typeof setupFn !== "function") return false;
-      if (!editorEl) return false;
-      if (editorEl.__cbInstalled) return true;
-      try {
-        setupFn(editorEl, insertBtn || null);
-      } catch (error) {
-        console.warn("[app] checklist-editor:setup", error);
-      }
-      return true;
     };
 
     const trySetup = () => {
@@ -216,7 +219,7 @@
 
     const hasSetupFn = () => typeof resolveCheckboxSetupFn() === "function";
 
-    if (trySetup()) return;
+    trySetup();
 
     if (!hasSetupFn() && typeof window.setTimeout === "function") {
       const waitForFn = () => {
@@ -231,9 +234,7 @@
 
     if (typeof MutationObserver === "function" && document.body) {
       const observer = new MutationObserver(() => {
-        if (trySetup()) {
-          observer.disconnect();
-        }
+        trySetup();
       });
       observer.observe(document.body, { childList: true, subtree: true });
     }
