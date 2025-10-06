@@ -5611,14 +5611,244 @@ async function renderPractice(ctx, root, _opts = {}) {
 }
 
 const DOW = ["DIM","LUN","MAR","MER","JEU","VEN","SAM"];
+const DAILY_ENTRY_TYPES = {
+  DAY: "day",
+  WEEKLY: "week",
+  MONTHLY: "month",
+};
 const DAILY_WEEKDAY_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
 const DAILY_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
+const DAILY_SHORT_RANGE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+const DAILY_LONG_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "2-digit", month: "long" });
+const DAILY_MONTH_LABEL_FORMATTER = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+function toStartOfDay(dateInput) {
+  const date = dateInput instanceof Date ? new Date(dateInput.getTime()) : new Date(dateInput);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
 function formatDailyNavLabel(date) {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
   const weekday = DAILY_WEEKDAY_FORMATTER.format(date) || "";
   const digits = DAILY_DATE_FORMATTER.format(date) || "";
   const capitalized = weekday ? `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}` : "";
   return [capitalized, digits].filter(Boolean).join(" ");
+}
+function formatWeekRangeLabel(start, end) {
+  if (!(start instanceof Date) || !(end instanceof Date)) return "";
+  const startLabel = DAILY_SHORT_RANGE_FORMATTER.format(start);
+  const endLabel = DAILY_SHORT_RANGE_FORMATTER.format(end);
+  return `${startLabel} → ${endLabel}`;
+}
+function formatMonthLabel(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const raw = DAILY_MONTH_LABEL_FORMATTER.format(date);
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "";
+}
+function formatLongDateLabel(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const raw = DAILY_LONG_DATE_FORMATTER.format(date);
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "";
+}
+function sundayForDate(dateInput) {
+  const base = toStartOfDay(dateInput);
+  if (!base) return null;
+  const offset = (7 - base.getDay()) % 7;
+  const sunday = new Date(base.getTime());
+  sunday.setDate(sunday.getDate() + offset);
+  return sunday;
+}
+function weekWindowForSunday(sunday) {
+  const end = toStartOfDay(sunday);
+  if (!end) return null;
+  const start = new Date(end.getTime());
+  start.setDate(start.getDate() - 6);
+  return { start, end };
+}
+function monthlySummaryInfoForSunday(sunday) {
+  const range = weekWindowForSunday(sunday);
+  if (!range) return null;
+  let monthEnd = null;
+  for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
+    const cursor = new Date(range.start.getTime());
+    cursor.setDate(range.start.getDate() + dayOffset);
+    const lastDay = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+    if (cursor.getDate() === lastDay) {
+      monthEnd = cursor;
+      break;
+    }
+  }
+  if (!monthEnd) return null;
+  const monthKey = typeof Schema?.monthKeyFromDate === "function"
+    ? Schema.monthKeyFromDate(monthEnd)
+    : `${monthEnd.getFullYear()}-${String(monthEnd.getMonth() + 1).padStart(2, "0")}`;
+  const monthLabel = formatMonthLabel(monthEnd);
+  return { monthEnd, monthKey, monthLabel };
+}
+function createDayEntry(date) {
+  const normalized = toStartOfDay(date);
+  if (!normalized) return null;
+  const dayCode = DOW[normalized.getDay()];
+  const navLabel = formatDailyNavLabel(normalized);
+  const todayKey = typeof Schema?.todayKey === "function" ? Schema.todayKey() : null;
+  const dayKey = typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(normalized) : null;
+  const isTodaySelected = todayKey && dayKey ? todayKey === dayKey : false;
+  return {
+    type: DAILY_ENTRY_TYPES.DAY,
+    date: normalized,
+    dayCode,
+    navLabel,
+    navSubtitle: isTodaySelected ? "Aujourd’hui" : "",
+    isToday: isTodaySelected,
+  };
+}
+function createWeeklySummaryEntry(sunday) {
+  const anchor = sundayForDate(sunday);
+  if (!anchor) return null;
+  const range = weekWindowForSunday(anchor);
+  if (!range) return null;
+  return {
+    type: DAILY_ENTRY_TYPES.WEEKLY,
+    sunday: anchor,
+    weekStart: range.start,
+    weekEnd: range.end,
+    navLabel: "Bilan de la semaine",
+    navSubtitle: formatWeekRangeLabel(range.start, range.end),
+  };
+}
+function createMonthlySummaryEntry(sunday) {
+  const weekly = createWeeklySummaryEntry(sunday);
+  if (!weekly) return null;
+  const monthInfo = monthlySummaryInfoForSunday(weekly.sunday);
+  if (!monthInfo) return null;
+  return {
+    ...weekly,
+    type: DAILY_ENTRY_TYPES.MONTHLY,
+    monthEnd: monthInfo.monthEnd,
+    monthKey: monthInfo.monthKey,
+    monthLabel: monthInfo.monthLabel,
+    navLabel: "Bilan du mois",
+    navSubtitle: monthInfo.monthLabel || weekly.navSubtitle,
+  };
+}
+function entryDayAfterSunday(entrySunday) {
+  const monday = new Date(entrySunday.getTime());
+  monday.setDate(monday.getDate() + 1);
+  return monday;
+}
+function entryToDayKey(entry) {
+  if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
+    return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.date) : null;
+  }
+  if ((entry?.type === DAILY_ENTRY_TYPES.WEEKLY || entry?.type === DAILY_ENTRY_TYPES.MONTHLY) && entry.sunday) {
+    return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.sunday) : null;
+  }
+  return null;
+}
+function computeNextEntry(entry) {
+  if (!entry) return null;
+  if (entry.type === DAILY_ENTRY_TYPES.DAY) {
+    if (entry.date?.getDay?.() === 0) {
+      return createWeeklySummaryEntry(entry.date);
+    }
+    const nextDate = new Date(entry.date.getTime());
+    nextDate.setDate(nextDate.getDate() + 1);
+    return createDayEntry(nextDate);
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
+    const monthCandidate = createMonthlySummaryEntry(entry.sunday);
+    if (monthCandidate) {
+      return monthCandidate;
+    }
+    const monday = entryDayAfterSunday(entry.sunday);
+    return createDayEntry(monday);
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
+    const monday = entryDayAfterSunday(entry.sunday);
+    return createDayEntry(monday);
+  }
+  return null;
+}
+function computePrevEntry(entry) {
+  if (!entry) return null;
+  if (entry.type === DAILY_ENTRY_TYPES.DAY) {
+    if (entry.date?.getDay?.() === 1) {
+      const sunday = new Date(entry.date.getTime());
+      sunday.setDate(sunday.getDate() - 1);
+      const monthCandidate = createMonthlySummaryEntry(sunday);
+      if (monthCandidate) {
+        return monthCandidate;
+      }
+      return createWeeklySummaryEntry(sunday);
+    }
+    const prevDate = new Date(entry.date.getTime());
+    prevDate.setDate(prevDate.getDate() - 1);
+    return createDayEntry(prevDate);
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
+    return createDayEntry(entry.sunday);
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
+    return createWeeklySummaryEntry(entry.sunday);
+  }
+  return null;
+}
+function entryToQuery(entry, basePath, qp) {
+  const params = new URLSearchParams(qp);
+  params.delete("day");
+  if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
+    params.delete("view");
+    const key = entryToDayKey(entry);
+    if (key) {
+      params.set("d", key);
+    } else {
+      params.delete("d");
+    }
+  } else if (entry?.type === DAILY_ENTRY_TYPES.WEEKLY || entry?.type === DAILY_ENTRY_TYPES.MONTHLY) {
+    params.set("view", entry.type === DAILY_ENTRY_TYPES.WEEKLY ? "week" : "month");
+    const key = entryToDayKey(entry);
+    if (key) {
+      params.set("d", key);
+    }
+  }
+  const search = params.toString();
+  return `${basePath}${search ? `?${search}` : ""}`;
+}
+function appendSummaryCard(container, entry) {
+  if (!(container instanceof HTMLElement) || !entry) return;
+  const card = document.createElement("section");
+  card.className = "daily-summary card space-y-4 p-4 sm:p-5";
+  const isMonthly = entry.type === DAILY_ENTRY_TYPES.MONTHLY;
+  const title = isMonthly ? "Bilan du mois" : "Bilan de la semaine";
+  const period = isMonthly
+    ? entry.monthLabel || (entry.monthEnd ? formatMonthLabel(entry.monthEnd) : "")
+    : entry.weekStart && entry.weekEnd
+      ? formatWeekRangeLabel(entry.weekStart, entry.weekEnd)
+      : "";
+  const detailLines = [];
+  if (!isMonthly && entry.weekStart && entry.weekEnd) {
+    detailLines.push(`Du ${formatLongDateLabel(entry.weekStart)} au ${formatLongDateLabel(entry.weekEnd)}`);
+  }
+  if (isMonthly && entry.weekStart && entry.weekEnd) {
+    detailLines.push(`Point d’ancrage : ${formatWeekRangeLabel(entry.weekStart, entry.weekEnd)}`);
+  }
+  const description = isMonthly
+    ? "Ce bloc regroupe l’ensemble des consignes actives du mois et fait le lien avec les objectifs mensuels ou annuels."
+    : "Ce bloc réunit les consignes de la semaine écoulée : journalier, pratique et objectifs hebdomadaires.";
+  card.innerHTML = `
+    <header class="daily-summary__header">
+      <div class="daily-summary__title">${escapeHtml(title)}</div>
+      ${period ? `<div class="daily-summary__meta">${escapeHtml(period)}</div>` : ""}
+    </header>
+    <div class="daily-summary__body">
+      <p class="daily-summary__text">${escapeHtml(description)}</p>
+      ${detailLines.length
+        ? `<ul class="daily-summary__details">${detailLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
+        : ""}
+      <p class="daily-summary__hint">Les consignes s’affichent ici entre le dimanche de fin de semaine et le lundi suivant pour conserver le rythme “dimanche → bilans → lundi”.</p>
+    </div>
+  `;
+  container.appendChild(card);
 }
 function dateForDayFromToday(label){
   const target = DOW.indexOf(label);
@@ -5644,41 +5874,90 @@ async function renderDaily(ctx, root, opts = {}) {
 
   const currentHash = ctx.route || window.location.hash || "#/daily";
   const qp = new URLSearchParams(currentHash.split("?")[1] || "");
-  const jours = ["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"];
-  const todayIdx = (new Date().getDay() + 6) % 7;
+  const viewParamRaw = String(opts.view || qp.get("view") || "").toLowerCase();
+  const normalizedView = viewParamRaw === "week"
+    ? DAILY_ENTRY_TYPES.WEEKLY
+    : viewParamRaw === "month"
+      ? DAILY_ENTRY_TYPES.MONTHLY
+      : DAILY_ENTRY_TYPES.DAY;
   const dateIso = opts.dateIso || qp.get("d");
-  let explicitDate = null;
-  if (dateIso) {
-    const parsed = new Date(dateIso);
-    if (!Number.isNaN(parsed.getTime())) {
-      parsed.setHours(0, 0, 0, 0);
-      explicitDate = parsed;
-    }
-  }
-  const isoDay = explicitDate ? DOW[explicitDate.getDay()] : null;
-  const requested = normalizeDay(opts.day) || normalizeDay(qp.get("day")) || isoDay;
-  const currentDay = requested || jours[todayIdx];
-  modesLogger.group("screen.daily.render", { hash: ctx.route, day: currentDay, date: explicitDate?.toISOString?.() });
+  const explicitDate = dateIso ? toStartOfDay(dateIso) : null;
+  const requestedDay = normalizeDay(opts.day) || normalizeDay(qp.get("day"));
 
-  const selectedDate = explicitDate ? new Date(explicitDate) : dateForDayFromToday(currentDay);
-  selectedDate.setHours(0, 0, 0, 0);
-  const selectedKey = Schema.dayKeyFromDate(selectedDate);
-  const navLabel = formatDailyNavLabel(selectedDate) || selectedKey;
-  const isTodaySelected = Schema.todayKey() === selectedKey;
+  let entry = null;
+  let selectedDate = null;
+  let currentDay = null;
+
+  if (normalizedView === DAILY_ENTRY_TYPES.DAY) {
+    if (explicitDate) {
+      selectedDate = new Date(explicitDate.getTime());
+      entry = createDayEntry(selectedDate);
+      currentDay = entry?.dayCode || null;
+    } else if (requestedDay) {
+      selectedDate = dateForDayFromToday(requestedDay);
+      selectedDate.setHours(0, 0, 0, 0);
+      entry = createDayEntry(selectedDate);
+      currentDay = requestedDay;
+    } else {
+      selectedDate = toStartOfDay(new Date());
+      entry = createDayEntry(selectedDate);
+      currentDay = entry?.dayCode || null;
+    }
+  } else {
+    let anchor = explicitDate ? new Date(explicitDate.getTime()) : null;
+    if (!anchor) {
+      if (requestedDay) {
+        anchor = dateForDayFromToday(requestedDay);
+      } else {
+        anchor = new Date();
+      }
+    }
+    anchor.setHours(0, 0, 0, 0);
+    const sunday = sundayForDate(anchor);
+    if (normalizedView === DAILY_ENTRY_TYPES.MONTHLY) {
+      entry = createMonthlySummaryEntry(sunday) || createWeeklySummaryEntry(sunday);
+    } else {
+      entry = createWeeklySummaryEntry(sunday);
+    }
+    if (!entry) {
+      entry = createDayEntry(anchor);
+    }
+    selectedDate = entry?.date ? new Date(entry.date.getTime()) : anchor;
+    currentDay = entry?.dayCode || (selectedDate ? DOW[selectedDate.getDay()] : null);
+  }
+
+  if (!entry) {
+    selectedDate = toStartOfDay(new Date());
+    entry = createDayEntry(selectedDate);
+    currentDay = entry?.dayCode || null;
+  }
+
+  const navLabel = entry?.navLabel || (selectedDate ? formatDailyNavLabel(selectedDate) : "Journalier");
+  const navSubtitle = entry?.navSubtitle || "";
+  const isDayEntry = entry?.type === DAILY_ENTRY_TYPES.DAY;
+  const selectedKey = isDayEntry && selectedDate && typeof Schema?.dayKeyFromDate === "function"
+    ? Schema.dayKeyFromDate(selectedDate)
+    : null;
+  modesLogger.group("screen.daily.render", {
+    hash: ctx.route,
+    entryType: entry?.type || DAILY_ENTRY_TYPES.DAY,
+    day: currentDay,
+    date: selectedDate?.toISOString?.(),
+  });
 
   const card = document.createElement("section");
   card.className = "card space-y-4 p-3 sm:p-4";
   card.innerHTML = `
     <div class="flex flex-wrap items-center gap-2">
       <div class="day-nav" data-day-nav>
-        <button type="button" class="day-nav-btn" data-dir="prev" aria-label="Jour précédent">
+        <button type="button" class="day-nav-btn" data-dir="prev" aria-label="Entrée précédente">
           <span aria-hidden="true">←</span>
         </button>
         <div class="day-nav-label">
-          <span>${escapeHtml(navLabel)}</span>
-          ${isTodaySelected ? '<span class="day-nav-today">Aujourd\u2019hui</span>' : ""}
+          <span data-nav-main>${escapeHtml(navLabel)}</span>
+          ${navSubtitle ? `<span class="day-nav-sub">${escapeHtml(navSubtitle)}</span>` : ""}
         </div>
-        <button type="button" class="day-nav-btn" data-dir="next" aria-label="Jour suivant">
+        <button type="button" class="day-nav-btn" data-dir="next" aria-label="Entrée suivante">
           <span aria-hidden="true">→</span>
         </button>
       </div>
@@ -5690,19 +5969,33 @@ async function renderDaily(ctx, root, opts = {}) {
   const navContainer = card.querySelector("[data-day-nav]");
   if (navContainer) {
     const basePath = toAppPath((currentHash.split("?")[0]) || "#/daily");
-    const goTo = (delta) => {
-      const target = new Date(selectedDate);
-      target.setDate(target.getDate() + delta);
-      const params = new URLSearchParams(qp);
-      params.set("d", Schema.dayKeyFromDate(target));
-      params.delete("day");
-      const search = params.toString();
-      navigate(`${basePath}${search ? `?${search}` : ""}`);
-    };
+    const prevEntry = computePrevEntry(entry);
+    const nextEntry = computeNextEntry(entry);
     const prevBtn = navContainer.querySelector('[data-dir="prev"]');
     const nextBtn = navContainer.querySelector('[data-dir="next"]');
-    if (prevBtn) prevBtn.onclick = () => goTo(-1);
-    if (nextBtn) nextBtn.onclick = () => goTo(1);
+    if (prevBtn) {
+      prevBtn.disabled = !prevEntry;
+      prevBtn.classList.toggle("opacity-50", !prevEntry);
+      prevBtn.onclick = prevEntry
+        ? () => navigate(entryToQuery(prevEntry, basePath, qp))
+        : null;
+    }
+    if (nextBtn) {
+      nextBtn.disabled = !nextEntry;
+      nextBtn.classList.toggle("opacity-50", !nextEntry);
+      nextBtn.onclick = nextEntry
+        ? () => navigate(entryToQuery(nextEntry, basePath, qp))
+        : null;
+    }
+    const mainLabel = navContainer.querySelector("[data-nav-main]");
+    if (mainLabel) {
+      mainLabel.textContent = navLabel;
+    }
+    const subLabel = navContainer.querySelector(".day-nav-sub");
+    if (subLabel) {
+      subLabel.textContent = navSubtitle;
+      subLabel.hidden = !navSubtitle;
+    }
   }
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
   const dashBtn = card.querySelector(".js-dashboard");
@@ -5710,6 +6003,12 @@ async function renderDaily(ctx, root, opts = {}) {
     dashBtn.onclick = () => {
       window.openCategoryDashboard(ctx, "", { mode: "daily" });
     };
+  }
+
+  if (!isDayEntry) {
+    appendSummaryCard(container, entry);
+    modesLogger.groupEnd();
+    return;
   }
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
