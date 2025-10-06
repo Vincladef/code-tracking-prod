@@ -1,126 +1,214 @@
 (function () {
+  function getSelectionFor(rootEl) {
+    const doc = rootEl?.ownerDocument || document;
+    return doc.getSelection ? doc.getSelection() : window.getSelection();
+  }
+
   function installChecklistEnterExit(rootEl) {
     if (!rootEl || rootEl.__checklistExitInstalled) return;
     rootEl.__checklistExitInstalled = true;
 
     rootEl.addEventListener(
       "beforeinput",
-      (e) => {
-        if (e.defaultPrevented) return;
-        if (e.inputType === "insertParagraph") {
-          const selection = getSelection();
-          const li = closestTaskItemWithCheckbox(selection?.anchorNode, rootEl);
-          if (!li) return;
-          if (!isTaskItemEmpty(li)) return;
+      (event) => {
+        if (event.defaultPrevented) return;
+        const selection = getSelectionFor(rootEl);
+        if (!selection || !selection.isCollapsed) return;
 
-          e.preventDefault();
-          exitEmptyTaskItem(li);
-        } else if (e.inputType === "deleteContentBackward") {
-          const selection = getSelection();
-          if (!selection || !selection.isCollapsed) return;
-          const li = closestTaskItemWithCheckbox(selection.anchorNode, rootEl);
-          if (!li) return;
-          if (!isCaretAtStartOf(li, selection)) return;
-          if (!isTaskItemEmpty(li)) return;
+        if (event.inputType === "insertParagraph") {
+          const context = closestTaskContainer(selection.anchorNode, rootEl);
+          if (!context) return;
+          if (!isTaskEmpty(context.container)) return;
 
-          e.preventDefault();
-          exitEmptyTaskItem(li);
+          event.preventDefault();
+          exitEmptyTask(context);
+        } else if (event.inputType === "deleteContentBackward") {
+          const context = closestTaskContainer(selection.anchorNode, rootEl);
+          if (!context) return;
+          if (!isAtStartOfNode(selection, context.textHost)) return;
+          if (!isTaskEmpty(context.container)) return;
+
+          event.preventDefault();
+          exitEmptyTask(context);
         }
       },
       { capture: true }
     );
 
-    rootEl.addEventListener("keydown", (e) => {
-      if (e.defaultPrevented || e.isComposing) return;
-      if (e.key === "Enter") {
-        const selection = getSelection();
-        const li = closestTaskItemWithCheckbox(selection?.anchorNode, rootEl);
-        if (!li) return;
-        if (!isTaskItemEmpty(li)) return;
+    rootEl.addEventListener("keydown", (event) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      const selection = getSelectionFor(rootEl);
+      if (!selection || !selection.isCollapsed) return;
 
-        e.preventDefault();
-        exitEmptyTaskItem(li);
-      } else if (e.key === "Backspace") {
-        const selection = getSelection();
-        if (!selection || !selection.isCollapsed) return;
-        const li = closestTaskItemWithCheckbox(selection.anchorNode, rootEl);
-        if (!li) return;
-        if (!isCaretAtStartOf(li, selection)) return;
-        if (!isTaskItemEmpty(li)) return;
+      if (event.key === "Enter") {
+        const context = closestTaskContainer(selection.anchorNode, rootEl);
+        if (!context) return;
+        if (!isTaskEmpty(context.container)) return;
 
-        e.preventDefault();
-        exitEmptyTaskItem(li);
+        event.preventDefault();
+        exitEmptyTask(context);
+      } else if (event.key === "Backspace") {
+        const context = closestTaskContainer(selection.anchorNode, rootEl);
+        if (!context) return;
+        if (!isAtStartOfNode(selection, context.textHost)) return;
+        if (!isTaskEmpty(context.container)) return;
+
+        event.preventDefault();
+        exitEmptyTask(context);
       }
     });
   }
 
-  function closestTaskItemWithCheckbox(node, rootEl) {
-    for (let n = node; n && n !== rootEl; n = n.parentNode) {
-      if (n.nodeType === 1 && n.nodeName === "LI") {
-        if (n.querySelector?.('input[type="checkbox"]')) {
-          return n;
+  function closestTaskContainer(node, stop) {
+    let current = node;
+    while (current && current !== stop) {
+      if (current.nodeType === 1) {
+        if (current.nodeName === "LI" && containsCheckbox(current)) {
+          return {
+            type: "list",
+            container: current,
+            list: current.parentElement,
+            textHost: current,
+          };
+        }
+        if (isBlockCheckboxHost(current)) {
+          return {
+            type: "block",
+            container: current,
+            list: null,
+            textHost: current,
+          };
         }
       }
+      current = current.parentNode;
     }
+
+    if (stop && current === stop && current.nodeType === 1 && containsCheckbox(current)) {
+      if (current.nodeName === "LI") {
+        return {
+          type: "list",
+          container: current,
+          list: current.parentElement,
+          textHost: current,
+        };
+      }
+      if (isBlockCheckboxHost(current)) {
+        return {
+          type: "block",
+          container: current,
+          list: null,
+          textHost: current,
+        };
+      }
+    }
+
     return null;
   }
 
-  function isTaskItemEmpty(li) {
-    if (!li) return false;
-    const clone = li.cloneNode(true);
-    clone.querySelectorAll('input[type="checkbox"], br').forEach((n) => n.remove());
-    const text = clone.textContent.replace(/\u200B/g, "").trim();
+  function containsCheckbox(element) {
+    return !!element.querySelector?.('input[type="checkbox"]');
+  }
+
+  function isBlockCheckboxHost(element) {
+    if (!element || element.nodeType !== 1) return false;
+    const name = element.nodeName;
+    if (name !== "P" && name !== "DIV") return false;
+
+    let child = element.firstChild;
+    while (child) {
+      if (child.nodeType === 1) {
+        if (isCheckboxElement(child)) return true;
+        if (isCheckboxWrapper(child) && containsCheckbox(child)) return true;
+        break;
+      }
+      if (child.nodeType === 3 && child.textContent.trim().length > 0) {
+        return false;
+      }
+      child = child.nextSibling;
+    }
+    return false;
+  }
+
+  function isCheckboxElement(node) {
+    return !!(node && node.nodeType === 1 && node.tagName === "INPUT" && node.type === "checkbox");
+  }
+
+  function isCheckboxWrapper(node) {
+    if (!node || node.nodeType !== 1) return false;
+    if (node.classList?.contains("cb-wrap")) return true;
+    return node.getAttribute?.("data-rich-checkbox-wrapper") === "1";
+  }
+
+  function isTaskEmpty(container) {
+    if (!container) return false;
+    const clone = container.cloneNode(true);
+    clone.querySelectorAll('input[type="checkbox"], label, br, .cb-wrap, [data-rich-checkbox-wrapper="1"]').forEach((node) =>
+      node.remove()
+    );
+    const text = (clone.textContent || "").replace(/\u200B/g, "").trim();
     return text.length === 0;
   }
 
-  function exitEmptyTaskItem(li) {
-    if (!li) return;
-    const list = li.parentElement;
-    if (!list) return;
-    const doc = li.ownerDocument || document;
-    const onlyItem = list.children.length === 1;
+  function isAtStartOfNode(selection, node) {
+    if (!selection || selection.rangeCount === 0 || !node) return false;
+    const range = selection.getRangeAt(0);
+    if (!range.collapsed) return false;
+    const doc = node.ownerDocument || document;
+    const startRange = doc.createRange();
+    startRange.selectNodeContents(node);
+    startRange.collapse(true);
+    return range.compareBoundaryPoints(Range.START_TO_START, startRange) === 0;
+  }
 
+  function exitEmptyTask(context) {
+    if (!context || !context.container) return;
+    const doc = context.container.ownerDocument || document;
     const paragraph = doc.createElement("p");
     paragraph.appendChild(doc.createElement("br"));
 
-    if (onlyItem) {
-      list.replaceWith(paragraph);
-    } else {
-      let afterList = list.nextSibling;
-      while (afterList && afterList.nodeType === 3 && !afterList.textContent.trim()) {
-        afterList = afterList.nextSibling;
+    if (context.type === "list" && context.list) {
+      const list = context.list;
+      const onlyItem = list.children.length === 1;
+
+      if (onlyItem) {
+        list.replaceWith(paragraph);
+        placeCaret(paragraph);
+        return;
       }
-      li.remove();
+
+      const afterList = nextMeaningfulSibling(list);
+      context.container.remove();
       if (afterList && afterList.nodeName === "P") {
-        placeCaretAtStart(afterList);
+        placeCaret(afterList);
         return;
       }
       list.insertAdjacentElement("afterend", paragraph);
+      placeCaret(paragraph);
+      return;
     }
 
-    placeCaretAtStart(paragraph);
+    context.container.replaceWith(paragraph);
+    placeCaret(paragraph);
   }
 
-  function placeCaretAtStart(el) {
-    if (!el) return;
-    const doc = el.ownerDocument || document;
-    const range = doc.createRange();
-    range.setStart(el, 0);
-    range.collapse(true);
+  function nextMeaningfulSibling(node) {
+    let next = node?.nextSibling || null;
+    while (next && next.nodeType === 3 && !next.textContent.trim()) {
+      next = next.nextSibling;
+    }
+    return next;
+  }
+
+  function placeCaret(target) {
+    if (!target) return;
+    const doc = target.ownerDocument || document;
     const selection = doc.getSelection ? doc.getSelection() : window.getSelection();
     if (!selection) return;
+    const range = doc.createRange();
+    range.setStart(target, 0);
+    range.collapse(true);
     selection.removeAllRanges();
     selection.addRange(range);
-  }
-
-  function isCaretAtStartOf(li, selection) {
-    if (!selection || selection.rangeCount === 0) return false;
-    const caretRange = selection.getRangeAt(0);
-    if (!caretRange.collapsed) return false;
-    const startRange = caretRange.cloneRange();
-    startRange.selectNodeContents(li);
-    startRange.collapse(true);
-    return caretRange.compareBoundaryPoints(Range.START_TO_START, startRange) === 0;
   }
 
   if (typeof window !== "undefined") {
