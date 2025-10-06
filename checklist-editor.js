@@ -391,6 +391,16 @@
     if (!editor || editor.__cbInstalled) return;
     editor.__cbInstalled = true;
 
+    if (typeof window.installChecklistEnterExit === "function") {
+      try {
+        window.installChecklistEnterExit(editor);
+      } catch (error) {
+        if (window.console && typeof window.console.warn === "function") {
+          console.warn("[checklist-editor] installChecklistEnterExit", error);
+        }
+      }
+    }
+
     normalizeCheckboxes(editor);
 
     let normalizeScheduled = false;
@@ -410,6 +420,7 @@
     editor.addEventListener(
       "beforeinput",
       (e) => {
+        if (e.defaultPrevented) return;
         normalizeCheckboxes(editor);
         if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
           if (onInsertParagraph(editor)) {
@@ -433,6 +444,7 @@
 
     editor.addEventListener("keydown", (e) => {
       normalizeCheckboxes(editor);
+      if (e.defaultPrevented) return;
       if (e.key === "Enter") {
         if (onInsertParagraph(editor)) {
           e.preventDefault();
