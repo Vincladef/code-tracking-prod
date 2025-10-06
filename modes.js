@@ -5,8 +5,92 @@ const modesFirestore = Schema.firestore || window.firestoreAPI || {};
 
 const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
 
+let checkboxBehaviorSetupPromise = null;
+
+function waitForCheckboxSetupFunction() {
+  if (typeof window === "undefined") {
+    return Promise.resolve(null);
+  }
+  const existing = window.setupChecklistEditor || window.setupCheckboxListBehavior;
+  if (typeof existing === "function") {
+    return Promise.resolve(existing);
+  }
+  if (!checkboxBehaviorSetupPromise) {
+    checkboxBehaviorSetupPromise = new Promise((resolve) => {
+      const poll = () => {
+        const fn = window.setupChecklistEditor || window.setupCheckboxListBehavior;
+        if (typeof fn === "function") {
+          resolve(fn);
+          return;
+        }
+        window.setTimeout(poll, 50);
+      };
+      poll();
+    });
+  }
+  return checkboxBehaviorSetupPromise;
+}
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+function consigneCategoryStorageKey(uid, mode) {
+  if (!uid || !mode) return null;
+  return ["consigne", "last-category", uid, mode].map((part) => String(part)).join(":");
+}
+
+function readStoredConsigneCategory(uid, mode) {
+  const key = consigneCategoryStorageKey(uid, mode);
+  if (!key) return null;
+  try {
+    return typeof localStorage !== "undefined" ? localStorage.getItem(key) || null : null;
+  } catch (error) {
+    modesLogger?.debug?.("consigne.category.read.error", error);
+    return null;
+  }
+}
+
+function storeConsigneCategory(uid, mode, category) {
+  const key = consigneCategoryStorageKey(uid, mode);
+  if (!key) return;
+  try {
+    if (typeof localStorage === "undefined") return;
+    if (category) {
+      localStorage.setItem(key, category);
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch (error) {
+    modesLogger?.debug?.("consigne.category.store.error", error);
+  }
+}
+
+// Default limits for auto-growing textareas. The max height can be overridden
+// with a `data-auto-grow-max` attribute when needed, but defaults to 320px to
+// avoid runaway layouts while keeping enough room for comfortable editing.
+const AUTO_GROW_MIN_HEIGHT = 120;
+const AUTO_GROW_DEFAULT_MAX_HEIGHT = 320;
+
+function autoGrowTextarea(el) {
+  if (!(el instanceof HTMLTextAreaElement)) return;
+  if (el.dataset.autoGrowBound === "true") return;
+  const rawMax = Number.parseInt(el.dataset.autoGrowMax || "", 10);
+  const maxHeight = Math.max(
+    AUTO_GROW_MIN_HEIGHT,
+    Number.isFinite(rawMax) && rawMax > 0 ? rawMax : AUTO_GROW_DEFAULT_MAX_HEIGHT,
+  );
+  const resize = () => {
+    el.style.height = "auto";
+    const scrollHeight = el.scrollHeight;
+    const clampedHeight = Math.max(AUTO_GROW_MIN_HEIGHT, Math.min(scrollHeight, maxHeight));
+    el.style.height = `${clampedHeight}px`;
+    el.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
+  };
+  el.addEventListener("input", resize);
+  el.addEventListener("change", resize);
+  el.dataset.autoGrowBound = "true";
+  resize();
+}
 
 // --- Normalisation du jour (LUN..DIM ou mon..sun) ---
 const DAY_ALIAS = Schema.DAY_ALIAS || { mon: "LUN", tue: "MAR", wed: "MER", thu: "JEU", fri: "VEN", sat: "SAM", sun: "DIM" };
@@ -29,17 +113,371 @@ function escapeHtml(str) {
     .replace(/'/g, "&#39;");
 }
 
+const RICH_TEXT_VERSION = 1;
+const RICH_TEXT_ALLOWED_TAGS = new Set([
+  "P",
+  "BR",
+  "STRONG",
+  "B",
+  "EM",
+  "I",
+  "UL",
+  "OL",
+  "LI",
+  "DIV",
+  "SPAN",
+  "INPUT",
+]);
+const RICH_TEXT_ALLOWED_ATTRS = {
+  input: ["type", "checked", "data-rich-checkbox", "data-rich-checkbox-index"],
+  span: ["data-rich-checkbox-wrapper", "style"],
+  div: [],
+  p: [],
+  br: [],
+  strong: [],
+  b: [],
+  em: [],
+  i: [],
+  ul: [],
+  ol: [],
+  li: [],
+};
+
+const INLINE_BOLD_REGEX = /font-weight\s*:\s*(bold|[5-9]00)\b/i;
+const INLINE_ITALIC_REGEX = /font-style\s*:\s*italic\b/i;
+
+function sanitizeRichTextElement(root) {
+  if (!root) return "";
+  const stack = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+  while (walker.nextNode()) {
+    stack.push(walker.currentNode);
+  }
+  stack.forEach((node) => {
+    if (!(node instanceof Element)) return;
+    const tagName = node.tagName;
+    if (!RICH_TEXT_ALLOWED_TAGS.has(tagName)) {
+      const parent = node.parentNode;
+      if (parent) {
+        while (node.firstChild) {
+          parent.insertBefore(node.firstChild, node);
+        }
+        parent.removeChild(node);
+      } else {
+        node.remove();
+      }
+      return;
+    }
+    const lowerTag = tagName.toLowerCase();
+    const styleValue = node.getAttribute("style") || "";
+    const hasBold = INLINE_BOLD_REGEX.test(styleValue);
+    const hasItalic = INLINE_ITALIC_REGEX.test(styleValue);
+    const isCheckboxWrapper = lowerTag === "span" && node.hasAttribute("data-rich-checkbox-wrapper");
+    const shouldPreserveNode = lowerTag !== "span" || isCheckboxWrapper || !node.parentNode;
+    if (!isCheckboxWrapper && (hasBold || hasItalic)) {
+      let content = document.createDocumentFragment();
+      while (node.firstChild) {
+        content.appendChild(node.firstChild);
+      }
+      let transformed = content;
+      if (hasItalic && lowerTag !== "em" && lowerTag !== "i") {
+        const em = document.createElement("em");
+        em.appendChild(transformed);
+        transformed = em;
+      }
+      if (hasBold && lowerTag !== "strong" && lowerTag !== "b") {
+        const strong = document.createElement("strong");
+        strong.appendChild(transformed);
+        transformed = strong;
+      }
+      if (shouldPreserveNode) {
+        node.appendChild(transformed);
+      } else {
+        const parent = node.parentNode;
+        if (parent) {
+          parent.replaceChild(transformed, node);
+        } else {
+          node.replaceWith(transformed);
+        }
+        return;
+      }
+    }
+    const allowedAttrs = RICH_TEXT_ALLOWED_ATTRS[lowerTag] || [];
+    Array.from(node.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      if (!allowedAttrs.includes(name)) {
+        node.removeAttribute(attr.name);
+        return;
+      }
+      if (lowerTag === "input" && name === "type") {
+        const typeValue = (attr.value || "").toLowerCase();
+        if (typeValue !== "checkbox") {
+          node.remove();
+          return;
+        }
+        node.setAttribute("type", "checkbox");
+      }
+    });
+    if (node.hasAttribute("style")) {
+      node.removeAttribute("style");
+    }
+    if (lowerTag === "input") {
+      const isChecked = node.checked || node.hasAttribute("checked");
+      if (isChecked) node.setAttribute("checked", "");
+      else node.removeAttribute("checked");
+      node.setAttribute("data-rich-checkbox", "1");
+    }
+  });
+  return root.innerHTML;
+}
+
+function sanitizeRichTextHtml(html) {
+  const template = document.createElement("template");
+  template.innerHTML = html || "";
+  sanitizeRichTextElement(template.content);
+  return template.innerHTML;
+}
+
+function plainTextToRichHtml(text) {
+  const safe = escapeHtml(text || "");
+  if (!safe) return "";
+  return `<p>${safe
+    .replace(/\r?\n\r?\n/g, "</p><p>")
+    .replace(/\r?\n/g, "<br>")}</p>`;
+}
+
+function richTextHtmlToPlainText(html) {
+  const container = document.createElement("div");
+  container.innerHTML = html || "";
+  container.querySelectorAll("br").forEach((br) => br.replaceWith("\n"));
+  container.querySelectorAll("li").forEach((li) => {
+    if (!li.lastChild || li.lastChild.nodeType !== Node.TEXT_NODE) {
+      li.appendChild(document.createTextNode(""));
+    }
+    li.appendChild(document.createTextNode("\n"));
+  });
+  container.querySelectorAll("p,div").forEach((el) => {
+    if (!el.lastChild || el.lastChild.nodeType !== Node.TEXT_NODE) {
+      el.appendChild(document.createTextNode(""));
+    }
+    el.appendChild(document.createTextNode("\n"));
+  });
+  container.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    const mark = input.hasAttribute("checked") ? "[x]" : "[ ]";
+    input.replaceWith(document.createTextNode(mark));
+  });
+  const text = container.textContent || "";
+  return text.replace(/\u00a0/g, " ").replace(/[ \t]*\n[ \t]*/g, "\n").trim();
+}
+
+function extractRichTextCheckboxStates(html) {
+  const container = document.createElement("div");
+  container.innerHTML = html || "";
+  return Array.from(container.querySelectorAll('input[type="checkbox"]')).map((input) =>
+    input.hasAttribute("checked") || input.checked
+  );
+}
+
+function normalizeRichTextValue(raw) {
+  if (raw && typeof raw === "object" && typeof raw.toDate === "function") {
+    return {
+      kind: "richtext",
+      version: RICH_TEXT_VERSION,
+      html: "",
+      text: "",
+      checkboxes: [],
+    };
+  }
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return {
+        kind: "richtext",
+        version: RICH_TEXT_VERSION,
+        html: "",
+        text: "",
+        checkboxes: [],
+      };
+    }
+    if (trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === "object") {
+          return normalizeRichTextValue(parsed);
+        }
+      } catch (error) {
+        // ignore and treat as plain text
+      }
+    }
+    const sanitizedHtml = sanitizeRichTextHtml(plainTextToRichHtml(trimmed));
+    const html = ensureRichTextStructure(sanitizedHtml) || "";
+    const text = richTextHtmlToPlainText(html);
+    return {
+      kind: "richtext",
+      version: RICH_TEXT_VERSION,
+      html,
+      text,
+      checkboxes: extractRichTextCheckboxStates(html),
+    };
+  }
+  if (raw && typeof raw === "object") {
+    const sourceHtml = typeof raw.html === "string" ? raw.html : "";
+    const sanitized = sanitizeRichTextHtml(sourceHtml);
+    const html = ensureRichTextStructure(sanitized) || "";
+    const textSource = typeof raw.text === "string" ? raw.text.trim() : "";
+    const text = textSource || richTextHtmlToPlainText(html);
+    const checkboxesSource = Array.isArray(raw.checkboxes) ? raw.checkboxes.map((item) => item === true) : null;
+    const checkboxes = checkboxesSource || extractRichTextCheckboxStates(html);
+    return {
+      kind: "richtext",
+      version: RICH_TEXT_VERSION,
+      html,
+      text,
+      checkboxes,
+    };
+  }
+  return {
+    kind: "richtext",
+    version: RICH_TEXT_VERSION,
+    html: "",
+    text: "",
+    checkboxes: [],
+  };
+}
+
+function richTextHasContent(value) {
+  const normalized = normalizeRichTextValue(value);
+  if (normalized.text && normalized.text.trim()) {
+    return true;
+  }
+  if (Array.isArray(normalized.checkboxes) && normalized.checkboxes.some(Boolean)) {
+    return true;
+  }
+  const html = normalized.html || "";
+  const stripped = html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").trim();
+  return stripped.length > 0;
+}
+
+function ensureRichTextStructure(html) {
+  const trimmed = (html || "").trim();
+  if (!trimmed) return "";
+  const container = document.createElement("div");
+  container.innerHTML = trimmed;
+  if (!container.querySelector("p") && !container.querySelector("div")) {
+    return `<p>${trimmed}</p>`;
+  }
+  return trimmed;
+}
+
+window.Modes.richText = {
+  version: RICH_TEXT_VERSION,
+  sanitizeElement: sanitizeRichTextElement,
+  sanitizeHtml: sanitizeRichTextHtml,
+  normalizeValue: normalizeRichTextValue,
+  hasContent: richTextHasContent,
+  toPlainText: richTextHtmlToPlainText,
+  ensureStructure: ensureRichTextStructure,
+};
+
 function modal(html) {
   const wrap = document.createElement("div");
-  wrap.className = "fixed inset-0 z-50 grid place-items-center bg-black/40 p-4";
+  wrap.className = "modal fixed inset-0 z-50 bg-black/40 p-4 phone-center";
   wrap.innerHTML = `
-    <div class="w-[min(680px,92vw)] max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl">
+    <div class="modal__dialog w-[min(680px,92vw)] overflow-y-auto rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl" data-modal-content style="max-height:var(--viewport-safe-height, calc(100vh - 2rem));">
       ${html}
     </div>`;
+  const modalEl = wrap.querySelector("[data-modal-content]");
+  const cleanupFns = [];
+  const viewport = window.visualViewport;
+  const VIEWPORT_MARGIN_BOTTOM = 32;
+  const SAFE_PADDING = 16;
+  const docEl = document.documentElement;
+  const previousSafeHeight = docEl?.style?.getPropertyValue("--viewport-safe-height") ?? null;
+  const hadInlineSafeHeight = Boolean(previousSafeHeight && previousSafeHeight.trim() !== "");
+  const originalWrapAlignItems = wrap.style.alignItems;
+  const originalWrapJustifyContent = wrap.style.justifyContent;
+  const originalWrapPaddingTop = wrap.style.paddingTop;
+  const originalWrapPaddingBottom = wrap.style.paddingBottom;
+  const originalModalPaddingBottom = modalEl?.style?.paddingBottom;
+
+  // iOS Safari et Chrome Android contractent le visualViewport lorsque le clavier logiciel
+  // est affiché, en particulier sur des champs texte très longs. On ajuste donc les
+  // paddings pour conserver SAFE_PADDING tout en n'appliquant le décalage vertical qu'une
+  // seule fois. Comportement vérifié manuellement sur les deux navigateurs.
+  const updateFromViewport = () => {
+    if (!modalEl) return;
+    const height = viewport ? viewport.height : window.innerHeight;
+    const offsetTop = viewport ? viewport.offsetTop : 0;
+    const offsetLeft = viewport ? viewport.offsetLeft : 0;
+    const hiddenBottom = Math.max(0, window.innerHeight - (height + offsetTop));
+    const keyboardVisible = viewport ? height + offsetTop < window.innerHeight : false;
+    const reservedTop = keyboardVisible ? offsetTop + SAFE_PADDING : 0;
+    const reservedBottom = keyboardVisible ? SAFE_PADDING : VIEWPORT_MARGIN_BOTTOM;
+    const maxHeight = Math.max(0, height - reservedTop - reservedBottom);
+
+    modalEl.style.maxHeight = `${maxHeight}px`;
+    modalEl.style.transform = viewport
+      ? `translate3d(${offsetLeft}px, ${keyboardVisible ? 0 : offsetTop}px, 0)`
+      : "";
+    docEl?.style?.setProperty("--viewport-safe-height", `${maxHeight}px`);
+
+    if (keyboardVisible) {
+      wrap.style.alignItems = "flex-start";
+      wrap.style.justifyContent = "flex-start";
+      wrap.style.paddingTop = `${offsetTop + SAFE_PADDING}px`;
+      wrap.style.paddingBottom = `${hiddenBottom + SAFE_PADDING}px`;
+      modalEl.style.paddingBottom = originalModalPaddingBottom;
+    } else {
+      wrap.style.alignItems = originalWrapAlignItems;
+      wrap.style.justifyContent = originalWrapJustifyContent;
+      wrap.style.paddingTop = originalWrapPaddingTop;
+      wrap.style.paddingBottom = originalWrapPaddingBottom;
+      modalEl.style.paddingBottom = originalModalPaddingBottom;
+    }
+  };
+
+  if (viewport) {
+    const updateHandler = () => updateFromViewport();
+    viewport.addEventListener("resize", updateHandler);
+    viewport.addEventListener("scroll", updateHandler);
+    cleanupFns.push(() => viewport.removeEventListener("resize", updateHandler));
+    cleanupFns.push(() => viewport.removeEventListener("scroll", updateHandler));
+  } else {
+    const windowUpdateHandler = () => updateFromViewport();
+    window.addEventListener("resize", windowUpdateHandler);
+    cleanupFns.push(() => window.removeEventListener("resize", windowUpdateHandler));
+  }
+
   wrap.addEventListener("click", (e) => {
     if (e.target === wrap) wrap.remove();
   });
+
+  const originalRemove = wrap.remove.bind(wrap);
+  wrap.remove = () => {
+    while (cleanupFns.length) {
+      const fn = cleanupFns.pop();
+      try {
+        fn();
+      } catch (error) {
+        modesLogger?.warn?.("modal:cleanup", error);
+      }
+    }
+    if (docEl) {
+      if (hadInlineSafeHeight) docEl.style.setProperty("--viewport-safe-height", previousSafeHeight);
+      else docEl.style.removeProperty("--viewport-safe-height");
+    }
+    wrap.style.alignItems = originalWrapAlignItems;
+    wrap.style.justifyContent = originalWrapJustifyContent;
+    wrap.style.paddingTop = originalWrapPaddingTop;
+    wrap.style.paddingBottom = originalWrapPaddingBottom;
+    if (modalEl) {
+      modalEl.style.paddingBottom = originalModalPaddingBottom;
+    }
+    originalRemove();
+  };
+
   document.body.appendChild(wrap);
+  updateFromViewport();
   return wrap;
 }
 
@@ -68,14 +506,64 @@ function pill(text) {
 const INFO_RESPONSE_LABEL = "Pas de réponse requise";
 const INFO_STATIC_BLOCK = `<p class="text-sm text-[var(--muted)]" data-static-info></p>`;
 
-function srBadge(c){
-  const enabled = c?.srEnabled !== false;
-  const title = enabled ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
-  const cls = enabled ? "" : "opacity-50";
-  return `<button type="button"
-            class="inline-flex items-center px-2 py-0.5 rounded-full border text-xs text-[var(--muted)] js-sr-toggle ${cls}"
-            data-id="${c.id}" data-enabled="${enabled ? 1 : 0}"
-            aria-pressed="${enabled}" title="${title}">⏳</button>`;
+const LIKERT6_ORDER = ["no", "rather_no", "medium", "rather_yes", "yes"];
+const LIKERT6_LABELS = {
+  no: "Non",
+  rather_no: "Plutôt non",
+  medium: "Neutre",
+  rather_yes: "Plutôt oui",
+  yes: "Oui",
+  no_answer: "Pas de réponse",
+};
+
+const NOTE_IGNORED_VALUES = new Set(["no_answer"]);
+
+function formatConsigneValue(type, value, options = {}) {
+  const wantsHtml = options.mode === "html";
+  if (type === "info") return "";
+  if (value && typeof value === "object" && value.skipped) {
+    const label = "Passée";
+    return wantsHtml ? escapeHtml(label) : label;
+  }
+  if (type === "long") {
+    const normalized = normalizeRichTextValue(value);
+    if (!richTextHasContent(normalized)) {
+      return wantsHtml ? "—" : "—";
+    }
+    if (wantsHtml) {
+      const html = ensureRichTextStructure(normalized.html) || "";
+      return html && html.trim() ? html : escapeHtml(normalized.text || "—");
+    }
+    return normalized.text || "—";
+  }
+  if (value === null || value === undefined || value === "") return "—";
+  if (type === "checklist") {
+    let items = [];
+    if (Array.isArray(value)) {
+      items = value;
+    } else if (value && typeof value === "object" && Array.isArray(value.items)) {
+      items = value.items;
+    }
+    if (!items.length) return "—";
+    const done = items.filter((item) => item === true).length;
+    const text = `${done} / ${items.length}`;
+    return wantsHtml ? escapeHtml(text) : text;
+  }
+  if (type === "yesno") {
+    const text = value === "yes" ? "Oui" : value === "no" ? "Non" : String(value);
+    return wantsHtml ? escapeHtml(text) : text;
+  }
+  if (type === "likert5") {
+    const text = String(value);
+    return wantsHtml ? escapeHtml(text) : text;
+  }
+  if (type === "likert6") {
+    const mapped = LIKERT6_LABELS[String(value)];
+    const text = mapped || String(value);
+    return wantsHtml ? escapeHtml(text) : text;
+  }
+  const fallback = String(value);
+  return wantsHtml ? escapeHtml(fallback) : fallback;
 }
 
 function priorityTone(p) {
@@ -223,31 +711,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (type === "likert5") return "Échelle ×5";
     if (type === "yesno") return "Oui / Non";
     if (type === "num") return "Numérique";
+    if (type === "checklist") return "Checklist";
     if (type === "long") return "Texte long";
     if (type === "short") return "Texte court";
     if (type === "info") return "";
     return "Libre";
-  }
-
-  const LIKERT6_ORDER = ["no", "rather_no", "medium", "rather_yes", "yes"];
-  const LIKERT6_LABELS = {
-    no: "Non",
-    rather_no: "Plutôt non",
-    medium: "Neutre",
-    rather_yes: "Plutôt oui",
-    yes: "Oui",
-  };
-
-  function formatValue(type, value) {
-    if (type === "info") return "";
-    if (value === null || value === undefined || value === "") return "—";
-    if (type === "yesno") return value === "yes" ? "Oui" : value === "no" ? "Non" : String(value);
-    if (type === "likert5") return String(value);
-    if (type === "likert6") {
-      if (value === "no_answer") return "Pas de réponse";
-      return LIKERT6_LABELS[value] || String(value);
-    }
-    return String(value);
   }
 
   function likert6NumericPoint(value) {
@@ -271,6 +739,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (type === "likert5") return Math.max(0, Math.min(1, value / 4));
     if (type === "likert6") return Math.max(0, Math.min(1, value / (LIKERT6_ORDER.length - 1 || 1)));
     if (type === "yesno") return Math.max(0, Math.min(1, value));
+    if (type === "checklist") {
+      if (!Array.isArray(value) || value.length === 0) return null;
+      const completed = value.filter(Boolean).length;
+      return Math.max(0, Math.min(1, completed / value.length));
+    }
     return null;
   }
 
@@ -757,6 +1230,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           : "Aucune donnée disponible pour le moment.";
 
       const name = consigne.text || consigne.titre || consigne.name || consigne.id;
+      const lastFormattedText = formatConsigneValue(consigne.type, lastValue);
+      const lastFormattedHtml = formatConsigneValue(consigne.type, lastValue, { mode: "html" });
       const stat = {
         id: consigne.id,
         name,
@@ -777,7 +1252,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         lastDateFull: lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais",
         lastRelative: formatRelativeDate(lastDateObj || lastDateIso),
         lastValue,
-        lastFormatted: formatValue(consigne.type, lastValue),
+        lastFormatted: lastFormattedText,
+        lastFormattedHtml,
         lastCommentRaw: lastNote,
         commentDisplay: truncateText(lastNote, 180),
         statusKind: dotColor(consigne.type, lastValue),
@@ -903,9 +1379,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         return;
       }
       const statusLabels = {
-        ok: "Positive",
+        "ok-strong": "Très positif",
+        "ok-soft": "Plutôt positif",
         mid: "Intermédiaire",
-        ko: "À surveiller",
+        "ko-soft": "Plutôt négatif",
+        "ko-strong": "Très négatif",
+        note: "Réponse notée",
         na: "Sans donnée",
       };
       const cards = stats
@@ -927,10 +1406,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               const statusLabel = statusLabels[statusKind] || "Valeur";
               const dateLabel = meta?.fullLabel || meta?.label || entry.date;
               const relativeLabel = formatRelativeDate(meta?.dateObj || entry.date);
-              const valueText = formatValue(stat.type, entry.value);
+              const valueText = formatConsigneValue(stat.type, entry.value);
+              const valueHtml = formatConsigneValue(stat.type, entry.value, { mode: "html" });
               const normalizedValue = valueText == null ? "" : String(valueText).trim();
+              const hasValue = normalizedValue && normalizedValue !== "—";
               const fallbackValue = stat.type === "info" ? "" : "—";
-              const safeValue = normalizedValue && normalizedValue !== "—" ? escapeHtml(normalizedValue) : fallbackValue;
+              const safeValue = hasValue ? valueHtml : escapeHtml(fallbackValue);
               const noteMarkup = entry.note && entry.note.trim()
                 ? `<span class="practice-dashboard__history-note">${escapeHtml(entry.note)}</span>`
                 : "";
@@ -976,6 +1457,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           const totalEntries = stat.totalEntries || 0;
           const entriesLabel = totalEntries > 1 ? `${totalEntries} entrées` : `${totalEntries} entrée`;
           const typeChip = stat.typeLabel ? `<span class="practice-dashboard__chip">${escapeHtml(stat.typeLabel)}</span>` : "";
+          const lastValueText = stat.lastFormatted || "";
+          const hasLastValue = lastValueText && lastValueText.trim() && lastValueText !== "—";
+          const lastValueMarkup = hasLastValue
+            ? stat.lastFormattedHtml || escapeHtml(lastValueText)
+            : escapeHtml(stat.type === "info" ? "" : "—");
           return `
             <section class="practice-dashboard__history-section" data-id="${stat.id}"${accentStyle}>
               <header class="practice-dashboard__history-header">
@@ -992,7 +1478,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               <div class="practice-dashboard__history-summary" role="list">
                 <div class="practice-dashboard__history-summary-item" role="listitem">
                   <span class="practice-dashboard__history-summary-label">Dernière valeur</span>
-                  <span class="practice-dashboard__history-summary-value">${escapeHtml(stat.lastFormatted || (stat.type === "info" ? "" : "—"))}</span>
+                  <span class="practice-dashboard__history-summary-value">${lastValueMarkup}</span>
                 </div>
                 <div class="practice-dashboard__history-summary-item" role="listitem">
                   <span class="practice-dashboard__history-summary-label">Moyenne</span>
@@ -1063,7 +1549,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         </select>`;
       }
       if (type === "long") {
-        return `<textarea id="${fieldId}" name="value" rows="4" class="practice-editor__textarea" placeholder="Réponse">${escapeHtml(String(value ?? ""))}</textarea>`;
+        return renderRichTextInput("value", {
+          initialValue: value,
+          placeholder: "Réponse",
+          inputId: fieldId,
+        });
       }
       return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Réponse" value="${escapeHtml(String(value ?? ""))}">`;
     }
@@ -1075,7 +1565,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       }
       const field = form.elements.value;
       if (!field) return "";
-      if (type === "long" || type === "short") {
+      if (type === "long") {
+        const normalized = normalizeRichTextValue(field.value || "");
+        return richTextHasContent(normalized) ? normalized : "";
+      }
+      if (type === "short") {
         return (field.value || "").trim();
       }
       if (type === "num") {
@@ -1151,7 +1645,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       stat.lastDateFull = lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais";
       stat.lastRelative = formatRelativeDate(lastDateObj || lastDateIso);
       stat.lastValue = lastValue;
-      stat.lastFormatted = formatValue(stat.type, lastValue);
+      stat.lastFormatted = formatConsigneValue(stat.type, lastValue);
+      stat.lastFormattedHtml = formatConsigneValue(stat.type, lastValue, { mode: "html" });
       stat.lastCommentRaw = lastEntry?.note ?? "";
       stat.commentDisplay = truncateText(stat.lastCommentRaw, 180);
       stat.statusKind = dotColor(stat.type, lastValue);
@@ -1195,7 +1690,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           </div>
           <div class="practice-editor__section">
             <label class="practice-editor__label" for="${valueId}-note">Commentaire</label>
-            <textarea id="${valueId}-note" name="note" rows="3" class="practice-editor__textarea" placeholder="Ajouter un commentaire">${escapeHtml(noteValue)}</textarea>
+            <textarea id="${valueId}-note" name="note" class="consigne-editor__textarea" placeholder="Ajouter un commentaire">${escapeHtml(noteValue)}</textarea>
           </div>
           <div class="practice-editor__actions">
             <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
@@ -1273,7 +1768,7 @@ window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx
   let dragWrapper = null;
 
   container.addEventListener('dragstart', (e) => {
-    const el = e.target.closest('.consigne-card');
+    const el = e.target.closest('.consigne-row');
     if (!el || el.dataset.parentId) return;
     dragId = el.dataset.id;
     dragWrapper = el.closest('.consigne-group') || el;
@@ -1283,9 +1778,9 @@ window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx
   container.addEventListener('dragover', (e) => {
     if (!dragId || !dragWrapper) return;
     e.preventDefault();
-    let over = e.target.closest('.consigne-card');
+    let over = e.target.closest('.consigne-row');
     if (!over || over.dataset.parentId) {
-      over = e.target.closest('.consigne-group')?.querySelector('.consigne-card');
+      over = e.target.closest('.consigne-group')?.querySelector('.consigne-row');
     }
     if (!over || over.dataset.id === dragId || over.dataset.parentId) return;
     const overWrapper = over.closest('.consigne-group') || over;
@@ -1300,7 +1795,7 @@ window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx
   container.addEventListener('drop', async (e) => {
     if (!dragId) return;
     e.preventDefault();
-    const cards = [...container.querySelectorAll('.consigne-card:not([data-parent-id])')];
+    const cards = [...container.querySelectorAll('.consigne-row:not([data-parent-id])')];
     try {
       await Promise.all(cards.map((el, idx) =>
         Schema.updateConsigneOrder(ctx.db, ctx.user.uid, el.dataset.id, (idx+1)*10)
@@ -1341,14 +1836,1338 @@ async function categorySelect(ctx, mode, currentName = "") {
 }
 
 function consigneActions() {
+  const actionBtn = (label, cls = "") => `
+    <button type="button" class="btn btn-ghost text-sm text-left ${cls}" role="menuitem">${label}</button>
+  `;
   return `
-    <div class="daily-consigne__actions" role="group" aria-label="Actions">
-      ${smallBtn("Historique", "js-histo")}
-      ${smallBtn("Modifier", "js-edit")}
-      ${smallBtn("Décaler", "js-delay")}
-      ${smallBtn("Supprimer", "js-del")}
+    <div class="daily-consigne__actions js-consigne-actions" role="group" aria-label="Actions" style="position:relative;">
+      <button type="button"
+              class="btn btn-ghost text-sm consigne-actions__trigger js-actions-trigger"
+              aria-haspopup="true"
+              aria-expanded="false"
+              title="Actions">
+        <span aria-hidden="true">⋮</span>
+        <span class="sr-only">Actions</span>
+      </button>
+      <div class="consigne-actions__panel js-actions-panel card"
+           role="menu"
+           aria-hidden="true"
+           hidden>
+        ${actionBtn("Historique", "js-histo")}
+        ${actionBtn("Modifier", "js-edit")}
+        ${actionBtn("Décaler", "js-delay")}
+        ${actionBtn("Activer la répétition espacée", "js-sr-toggle")}
+        ${actionBtn("Supprimer", "js-del text-red-600")}
+      </div>
     </div>
   `;
+}
+
+const CONSIGNE_ACTION_SELECTOR = ".js-consigne-actions";
+let openConsigneActionsRoot = null;
+let consigneActionsDocListenersBound = false;
+
+function getConsigneActionElements(root) {
+  if (!root) return { trigger: null, panel: null };
+  return {
+    trigger: root.querySelector(".js-actions-trigger"),
+    panel: root.querySelector(".js-actions-panel"),
+  };
+}
+
+function removeConsigneActionListeners() {
+  if (!consigneActionsDocListenersBound) return;
+  document.removeEventListener("click", onDocumentClickConsigneActions, true);
+  document.removeEventListener("keydown", onDocumentKeydownConsigneActions, true);
+  consigneActionsDocListenersBound = false;
+}
+
+function ensureConsigneActionListeners() {
+  if (consigneActionsDocListenersBound) return;
+  document.addEventListener("click", onDocumentClickConsigneActions, true);
+  document.addEventListener("keydown", onDocumentKeydownConsigneActions, true);
+  consigneActionsDocListenersBound = true;
+}
+
+function closeConsigneActionMenu(root, { focusTrigger = false } = {}) {
+  if (!root) return;
+  const { trigger, panel } = getConsigneActionElements(root);
+  if (panel && !panel.hidden) {
+    panel.hidden = true;
+    panel.setAttribute("aria-hidden", "true");
+  }
+  if (trigger) {
+    trigger.setAttribute("aria-expanded", "false");
+    if (focusTrigger) {
+      trigger.focus();
+    }
+  }
+  if (openConsigneActionsRoot === root) {
+    openConsigneActionsRoot = null;
+    removeConsigneActionListeners();
+  }
+}
+
+function openConsigneActionMenu(root) {
+  if (!root) return;
+  if (openConsigneActionsRoot && openConsigneActionsRoot !== root) {
+    closeConsigneActionMenu(openConsigneActionsRoot);
+  }
+  const { trigger, panel } = getConsigneActionElements(root);
+  if (panel) {
+    panel.hidden = false;
+    panel.setAttribute("aria-hidden", "false");
+    if (!panel.hasAttribute("tabindex")) {
+      panel.setAttribute("tabindex", "-1");
+    }
+  }
+  if (trigger) {
+    trigger.setAttribute("aria-expanded", "true");
+  }
+  openConsigneActionsRoot = root;
+  ensureConsigneActionListeners();
+}
+
+function toggleConsigneActionMenu(root) {
+  if (!root) return;
+  const { panel } = getConsigneActionElements(root);
+  const isOpen = openConsigneActionsRoot === root && panel && !panel.hidden;
+  if (isOpen) {
+    closeConsigneActionMenu(root);
+  } else {
+    openConsigneActionMenu(root);
+    if (panel && typeof panel.focus === "function") {
+      try {
+        panel.focus({ preventScroll: true });
+      } catch (err) {
+        panel.focus();
+      }
+    }
+  }
+}
+
+function onDocumentClickConsigneActions(event) {
+  if (!openConsigneActionsRoot) return;
+  if (openConsigneActionsRoot.contains(event.target)) return;
+  closeConsigneActionMenu(openConsigneActionsRoot);
+}
+
+function onDocumentKeydownConsigneActions(event) {
+  if (!openConsigneActionsRoot) return;
+  if (event.key === "Escape" || event.key === "Esc") {
+    closeConsigneActionMenu(openConsigneActionsRoot, { focusTrigger: true });
+    event.stopPropagation();
+  }
+}
+
+function setupConsigneActionMenus(scope = document, configure) {
+  $$(CONSIGNE_ACTION_SELECTOR, scope).forEach((actionsRoot) => {
+    if (actionsRoot.dataset.actionsMenuReady === "1") return;
+    const config = typeof configure === "function" ? configure(actionsRoot) : configure || {};
+    const { trigger, panel } = getConsigneActionElements(actionsRoot);
+    if (!trigger || !panel) return;
+    actionsRoot.dataset.actionsMenuReady = "1";
+    panel.hidden = true;
+    panel.setAttribute("aria-hidden", "true");
+    trigger.setAttribute("aria-haspopup", "true");
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleConsigneActionMenu(actionsRoot);
+    });
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" || event.key === "Esc") {
+        closeConsigneActionMenu(actionsRoot, { focusTrigger: true });
+        event.stopPropagation();
+      }
+    });
+    panel.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" || event.key === "Esc") {
+        closeConsigneActionMenu(actionsRoot, { focusTrigger: true });
+        event.stopPropagation();
+      }
+    });
+
+    const srToggleBtn = actionsRoot.querySelector(".js-sr-toggle");
+    const srToggleConfig = config?.srToggle;
+    if (srToggleBtn && srToggleConfig) {
+      const resolveEnabled = () => {
+        if (typeof srToggleConfig.getEnabled === "function") {
+          try {
+            return Boolean(srToggleConfig.getEnabled());
+          } catch (err) {
+            console.error(err);
+            return true;
+          }
+        }
+        return true;
+      };
+      const updateButton = (enabled) => {
+        const nextEnabled = Boolean(enabled);
+        srToggleBtn.dataset.enabled = nextEnabled ? "1" : "0";
+        srToggleBtn.setAttribute("aria-pressed", nextEnabled ? "true" : "false");
+        const title = nextEnabled
+          ? "Désactiver la répétition espacée"
+          : "Activer la répétition espacée";
+        srToggleBtn.textContent = title;
+        srToggleBtn.title = title;
+      };
+      updateButton(resolveEnabled());
+      srToggleBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const current = resolveEnabled();
+        const next = !current;
+        srToggleBtn.disabled = true;
+        try {
+          const result = await srToggleConfig.onToggle?.(next, {
+            event,
+            current,
+            next,
+            update: updateButton,
+            close: () => closeConsigneActionMenu(actionsRoot),
+            actionsRoot,
+          });
+          const finalState = typeof result === "boolean" ? result : next;
+          updateButton(finalState);
+        } catch (err) {
+          updateButton(current);
+        } finally {
+          srToggleBtn.disabled = false;
+          closeConsigneActionMenu(actionsRoot);
+        }
+      });
+    }
+  });
+}
+
+function closeConsigneActionMenuFromNode(node, options) {
+  if (!node) return;
+  const root = node.closest(CONSIGNE_ACTION_SELECTOR);
+  if (root) {
+    closeConsigneActionMenu(root, options);
+  }
+}
+
+function renderRichTextInput(name, { consigneId = "", initialValue = null, placeholder = "", inputId = "" } = {}) {
+  const normalized = normalizeRichTextValue(initialValue);
+  const structuredHtml = ensureRichTextStructure(normalized.html) || "";
+  const initialHtml = structuredHtml.trim() ? structuredHtml : "<p><br></p>";
+  const serialized = escapeHtml(JSON.stringify(normalized));
+  const consigneAttr = consigneId !== null && consigneId !== undefined
+    ? ` data-consigne-id="${escapeHtml(String(consigneId))}"`
+    : "";
+  const placeholderAttr = placeholder
+    ? ` data-placeholder="${escapeHtml(String(placeholder))}"`
+    : "";
+  const hiddenIdAttr = inputId ? ` id="${escapeHtml(String(inputId))}"` : "";
+  return `
+    <div class="consigne-rich-text" data-rich-text-root${consigneAttr}>
+      <div class="consigne-rich-text__toolbar" data-rich-text-toolbar role="toolbar" aria-label="Mise en forme">
+        <button type="button" class="btn btn-ghost text-xs" data-rich-command="bold" title="Gras" aria-label="Gras"><strong>B</strong></button>
+        <button type="button" class="btn btn-ghost text-xs" data-rich-command="italic" title="Italique" aria-label="Italique"><em>I</em></button>
+        <button type="button" class="btn btn-ghost text-xs" data-rich-command="insertUnorderedList" title="Liste à puces" aria-label="Liste à puces">•</button>
+        <button type="button" class="btn btn-ghost text-xs" data-rich-command="insertOrderedList" title="Liste numérotée" aria-label="Liste numérotée">1.</button>
+        <button type="button" class="btn btn-ghost text-xs" data-rich-command="checkbox" title="Insérer une case à cocher" aria-label="Insérer une case à cocher">☐</button>
+      </div>
+      <div class="consigne-rich-text__content consigne-editor__textarea" data-rich-text-content contenteditable="true"${placeholderAttr}>${initialHtml}</div>
+      <input type="hidden"${hiddenIdAttr} name="${escapeHtml(String(name))}" value="${serialized}" data-rich-text-input data-rich-text-version="${RICH_TEXT_VERSION}">
+    </div>
+  `;
+}
+
+function setupRichTextEditor(root) {
+  if (!(root instanceof HTMLElement)) return;
+  if (root.dataset.richTextReady === "1") return;
+
+  const utils = window.Modes?.richText || {};
+  const content = root.querySelector("[data-rich-text-content]");
+  const hidden = root.querySelector("[data-rich-text-input]");
+  const toolbar = root.querySelector("[data-rich-text-toolbar]");
+
+  if (!hidden || !content) return;
+
+  const ensureCheckboxBehavior = () => {
+    if (!content || typeof window === "undefined") return;
+    waitForCheckboxSetupFunction().then((setupFn) => {
+      if (typeof setupFn !== "function") return;
+      try {
+        const checkboxButton = toolbar?.querySelector('[data-rich-command="checkbox"]');
+        setupFn(content, checkboxButton || null);
+      } catch (error) {
+        modesLogger?.warn?.("richtext:checkboxes:setup", error);
+      }
+    });
+  };
+
+  ensureCheckboxBehavior();
+
+  const sanitizeElement = typeof utils.sanitizeElement === "function" ? utils.sanitizeElement : null;
+  const sanitizeHtml = typeof utils.sanitizeHtml === "function" ? utils.sanitizeHtml : (value) => value;
+  const toPlainText = typeof utils.toPlainText === "function" ? utils.toPlainText : (value) => value;
+  const hasContent = typeof utils.hasContent === "function" ? utils.hasContent : null;
+  const ensureStructure = typeof utils.ensureStructure === "function" ? utils.ensureStructure : null;
+  const raf = window.requestAnimationFrame || ((cb) => window.setTimeout(cb, 16));
+  const caf = window.cancelAnimationFrame || window.clearTimeout;
+
+  const ensureNotEmpty = () => {
+    if (!content) return;
+    if (!content.innerHTML || !content.innerHTML.trim()) {
+      content.innerHTML = "<p><br></p>";
+    }
+  };
+
+  const applyInitialState = () => {
+    if (!content || !hidden) return;
+    let parsed = null;
+    try {
+      parsed = JSON.parse(hidden.value || "{}");
+    } catch (error) {
+      parsed = null;
+    }
+    if (parsed && parsed.html) {
+      const html = ensureStructure ? ensureStructure(parsed.html) : parsed.html;
+      content.innerHTML = html && html.trim() ? html : "<p><br></p>";
+    }
+    const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
+    boxes.forEach((box, index) => {
+      ensureCheckboxWrapper(box);
+      box.setAttribute("data-rich-checkbox-index", String(index));
+      if (parsed && Array.isArray(parsed.checkboxes) && parsed.checkboxes[index]) {
+        box.checked = true;
+        box.setAttribute("checked", "");
+      } else if (box.checked) {
+        box.setAttribute("checked", "");
+      } else {
+        box.removeAttribute("checked");
+      }
+    });
+    ensureNotEmpty();
+  };
+
+  applyInitialState();
+
+  let pending = null;
+  let lastSerialized = hidden ? hidden.value : null;
+  let savedSelection = null;
+  let savedSelectionInfo = null;
+  let selectionFrame = null;
+
+  const ownerDocument = content?.ownerDocument || document;
+  const boldButton = toolbar?.querySelector('[data-rich-command="bold"]');
+  const italicButton = toolbar?.querySelector('[data-rich-command="italic"]');
+
+  const isCheckboxWrapper = (node) => node?.nodeType === Node.ELEMENT_NODE
+    && node.getAttribute?.("data-rich-checkbox-wrapper") === "1";
+
+  const isWhitespaceNode = (node) => {
+    if (!node || node.nodeType !== Node.TEXT_NODE) return false;
+    const text = node.textContent || "";
+    return text.replace(/\u00a0/g, " ").trim().length === 0;
+  };
+
+  const ensureCheckboxWrapper = (input) => {
+    if (!input || input.nodeName !== "INPUT") return null;
+    input.setAttribute("type", "checkbox");
+    input.setAttribute("data-rich-checkbox", "1");
+    input.setAttribute("tabindex", "-1");
+    input.setAttribute("contenteditable", "false");
+    input.tabIndex = -1;
+    input.contentEditable = "false";
+
+    let wrapper = input.closest('[data-rich-checkbox-wrapper]');
+    if (!wrapper && ownerDocument && typeof ownerDocument.createElement === "function") {
+      wrapper = ownerDocument.createElement("span");
+      wrapper.setAttribute("data-rich-checkbox-wrapper", "1");
+      wrapper.classList.add("cb-wrap");
+      wrapper.setAttribute("contenteditable", "false");
+      wrapper.contentEditable = "false";
+      const parent = input.parentNode;
+      if (parent) {
+        parent.insertBefore(wrapper, input);
+        wrapper.appendChild(input);
+      } else {
+        wrapper.appendChild(input);
+      }
+    }
+    if (wrapper) {
+      wrapper.setAttribute("data-rich-checkbox-wrapper", "1");
+      wrapper.classList.add("cb-wrap");
+      wrapper.setAttribute("contenteditable", "false");
+      wrapper.contentEditable = "false";
+      const nextSibling = wrapper.nextSibling;
+      if (isWhitespaceNode(nextSibling) && nextSibling.textContent?.includes("\u00a0")) {
+        nextSibling.textContent = nextSibling.textContent.replace(/\u00a0/g, " ");
+      }
+    }
+    return wrapper || null;
+  };
+
+  const createCheckboxWrapper = () => {
+    if (!ownerDocument || typeof ownerDocument.createElement !== "function") return null;
+    const wrapper = ownerDocument.createElement("span");
+    wrapper.setAttribute("data-rich-checkbox-wrapper", "1");
+    wrapper.classList.add("cb-wrap");
+    wrapper.setAttribute("contenteditable", "false");
+    wrapper.contentEditable = "false";
+    const input = ownerDocument.createElement("input");
+    input.setAttribute("type", "checkbox");
+    input.setAttribute("data-rich-checkbox", "1");
+    input.setAttribute("tabindex", "-1");
+    input.setAttribute("contenteditable", "false");
+    input.tabIndex = -1;
+    input.contentEditable = "false";
+    wrapper.appendChild(input);
+    return { wrapper, input };
+  };
+
+  const updateToolbarStates = () => {
+    if (!toolbar) return;
+    const getSelection = ownerDocument && typeof ownerDocument.getSelection === "function"
+      ? ownerDocument.getSelection.bind(ownerDocument)
+      : (typeof document.getSelection === "function" ? document.getSelection.bind(document) : null);
+    const selection = getSelection ? getSelection() : null;
+    const anchorNode = selection?.anchorNode || null;
+    const focusNode = selection?.focusNode || null;
+    const inside = anchorNode && focusNode && content
+      ? content.contains(anchorNode) && content.contains(focusNode)
+      : false;
+    const toggle = (button, active) => {
+      if (!button) return;
+      button.classList.toggle("active", Boolean(active));
+    };
+    if (!inside) {
+      toggle(boldButton, false);
+      toggle(italicButton, false);
+      return;
+    }
+    let boldActive = false;
+    let italicActive = false;
+    if (typeof document.queryCommandState === "function") {
+      try {
+        boldActive = document.queryCommandState("bold");
+      } catch (error) {
+        boldActive = false;
+      }
+      try {
+        italicActive = document.queryCommandState("italic");
+      } catch (error) {
+        italicActive = false;
+      }
+    }
+    toggle(boldButton, boldActive);
+    toggle(italicButton, italicActive);
+  };
+
+  const isRangeInsideContent = (range) => {
+    if (!content || !range) return false;
+    const ancestor = range.commonAncestorContainer;
+    if (!ancestor) return false;
+    return content === ancestor || content.contains(ancestor);
+  };
+
+  const computeNodePath = (node) => {
+    if (!content || !node) return null;
+    if (node === content) return [];
+    const path = [];
+    let current = node;
+    while (current && current !== content) {
+      const parent = current.parentNode;
+      if (!parent) return null;
+      const index = Array.prototype.indexOf.call(parent.childNodes || [], current);
+      if (index < 0) return null;
+      path.unshift(index);
+      current = parent;
+    }
+    return current === content ? path : null;
+  };
+
+  const resolveNodePath = (path) => {
+    if (!content || !Array.isArray(path)) return null;
+    let current = content;
+    for (let i = 0; i < path.length; i += 1) {
+      if (!current || !current.childNodes) return null;
+      current = current.childNodes[path[i]] || null;
+    }
+    return current;
+  };
+
+  const clampOffset = (node, offset) => {
+    if (!node) return 0;
+    const length = node.nodeType === Node.TEXT_NODE
+      ? (node.textContent || "").length
+      : (node.childNodes ? node.childNodes.length : 0);
+    if (!Number.isFinite(offset)) return length;
+    return Math.max(0, Math.min(offset, length));
+  };
+
+  const cloneSelectionInfo = (info) => {
+    if (!info) return null;
+    try {
+      return JSON.parse(JSON.stringify(info));
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const computeTextIndex = (node, offset) => {
+    if (!content || !ownerDocument || typeof ownerDocument.createRange !== "function") {
+      return null;
+    }
+    try {
+      const range = ownerDocument.createRange();
+      range.selectNodeContents(content);
+      const clampedOffset = clampOffset(node, offset);
+      range.setEnd(node, clampedOffset);
+      return range.toString().length;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const storeSelectionInfo = (range) => {
+    if (!range) {
+      savedSelectionInfo = null;
+      return;
+    }
+    const startPath = computeNodePath(range.startContainer);
+    const endPath = computeNodePath(range.endContainer);
+    if (!startPath || !endPath) {
+      savedSelectionInfo = null;
+      return;
+    }
+    const startOffset = clampOffset(range.startContainer, range.startOffset);
+    const endOffset = clampOffset(range.endContainer, range.endOffset);
+    const startIndex = computeTextIndex(range.startContainer, startOffset);
+    const endIndex = computeTextIndex(range.endContainer, endOffset);
+    const selectionText = typeof range.toString === "function" ? range.toString() : "";
+    savedSelectionInfo = {
+      start: {
+        path: startPath,
+        offset: startOffset,
+        textIndex: Number.isFinite(startIndex) ? startIndex : null,
+      },
+      end: {
+        path: endPath,
+        offset: endOffset,
+        textIndex: Number.isFinite(endIndex) ? endIndex : null,
+      },
+      collapsed: Boolean(range.collapsed),
+      text: selectionText,
+    };
+  };
+
+  const resolveTextIndex = (index) => {
+    if (!content || !Number.isFinite(index) || !ownerDocument) {
+      return null;
+    }
+    const walker = ownerDocument.createTreeWalker(content, NodeFilter.SHOW_TEXT, null);
+    let remaining = index;
+    let lastNode = null;
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const length = (node.textContent || "").length;
+      lastNode = node;
+      if (remaining <= length) {
+        return {
+          node,
+          offset: Math.max(0, Math.min(remaining, length)),
+        };
+      }
+      remaining -= length;
+    }
+    if (!lastNode) return null;
+    const tailLength = (lastNode.textContent || "").length;
+    return {
+      node: lastNode,
+      offset: tailLength,
+    };
+  };
+
+  const buildRangeFromInfo = (info) => {
+    if (!info || !ownerDocument || typeof ownerDocument.createRange !== "function") return null;
+    const range = ownerDocument.createRange();
+    const startNode = resolveNodePath(info.start?.path);
+    const endNode = resolveNodePath(info.end?.path);
+    if (!startNode || !endNode) return null;
+    const startOffset = clampOffset(startNode, info.start?.offset);
+    const endOffset = clampOffset(endNode, info.end?.offset);
+    try {
+      range.setStart(startNode, startOffset);
+      range.setEnd(endNode, endOffset);
+      return range;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const buildRangeFromTextIndex = (info) => {
+    if (!info || !ownerDocument || typeof ownerDocument.createRange !== "function") return null;
+    const startIndex = Number.isFinite(info?.start?.textIndex) ? info.start.textIndex : null;
+    let endIndex = Number.isFinite(info?.end?.textIndex) ? info.end.textIndex : null;
+    if (endIndex == null && startIndex != null) {
+      if (info?.collapsed) {
+        endIndex = startIndex;
+      } else if (typeof info?.text === "string") {
+        endIndex = startIndex + info.text.length;
+      }
+    }
+    const start = resolveTextIndex(startIndex);
+    const end = resolveTextIndex(endIndex);
+    if (!start || !end) return null;
+    try {
+      const range = ownerDocument.createRange();
+      range.setStart(start.node, clampOffset(start.node, start.offset));
+      range.setEnd(end.node, clampOffset(end.node, end.offset));
+      return range;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const buildFallbackRange = () => {
+    if (!content || !ownerDocument || typeof ownerDocument.createRange !== "function") return null;
+    try {
+      const range = ownerDocument.createRange();
+      range.selectNodeContents(content);
+      range.collapse(false);
+      return range;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const captureSelection = () => {
+    if (!ownerDocument || typeof ownerDocument.getSelection !== "function") {
+      savedSelection = null;
+      savedSelectionInfo = null;
+      return;
+    }
+    const selection = ownerDocument.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    if (!isRangeInsideContent(range)) {
+      return;
+    }
+    savedSelection = range.cloneRange();
+    storeSelectionInfo(savedSelection);
+  };
+
+  const scheduleSelectionCapture = () => {
+    if (selectionFrame !== null) {
+      caf(selectionFrame);
+    }
+    selectionFrame = raf(() => {
+      selectionFrame = null;
+      if (!ownerDocument || typeof ownerDocument.getSelection !== "function") {
+        return;
+      }
+      const selection = ownerDocument.getSelection();
+      if (!selection || selection.rangeCount === 0) {
+        return;
+      }
+      let range = null;
+      try {
+        range = selection.getRangeAt(0);
+      } catch (error) {
+        range = null;
+      }
+      if (!range || !isRangeInsideContent(range)) {
+        return;
+      }
+      captureSelection();
+      updateToolbarStates();
+    });
+  };
+
+  const restoreSelection = () => {
+    if (!ownerDocument || typeof ownerDocument.getSelection !== "function") return;
+    const selection = ownerDocument.getSelection();
+    if (!selection) return;
+
+    const attemptAddRange = (range, { persist = true } = {}) => {
+      if (!range) return false;
+      selection.removeAllRanges();
+      try {
+        selection.addRange(range);
+        if (persist) {
+          savedSelection = range.cloneRange ? range.cloneRange() : range;
+          storeSelectionInfo(savedSelection);
+        }
+        return true;
+      } catch (error) {
+        selection.removeAllRanges();
+        return false;
+      }
+    };
+
+    const selectionInfoBackup = cloneSelectionInfo(savedSelectionInfo);
+    const savedSelectionBackup = savedSelection && savedSelection.cloneRange
+      ? savedSelection.cloneRange()
+      : savedSelection;
+    const primaryRange = savedSelection && savedSelection.cloneRange
+      ? savedSelection.cloneRange()
+      : savedSelection;
+
+    if (attemptAddRange(primaryRange)) {
+      return;
+    }
+
+    const fallbackCandidates = [];
+    if (selectionInfoBackup) {
+      const rebuiltFromInfo = buildRangeFromInfo(selectionInfoBackup);
+      const rebuiltFromIndex = buildRangeFromTextIndex(selectionInfoBackup);
+      if (rebuiltFromInfo) {
+        fallbackCandidates.push({ range: rebuiltFromInfo, persist: true });
+      }
+      if (rebuiltFromIndex) {
+        fallbackCandidates.push({ range: rebuiltFromIndex, persist: true });
+      }
+    }
+    fallbackCandidates.push({ range: buildFallbackRange(), persist: false });
+
+    for (let i = 0; i < fallbackCandidates.length; i += 1) {
+      const candidate = fallbackCandidates[i];
+      if (attemptAddRange(candidate.range, { persist: candidate.persist })) {
+        if (!candidate.persist && selectionInfoBackup) {
+          savedSelection = savedSelectionBackup && savedSelectionBackup.cloneRange
+            ? savedSelectionBackup.cloneRange()
+            : savedSelectionBackup;
+          savedSelectionInfo = selectionInfoBackup;
+        }
+        return;
+      }
+    }
+
+    savedSelection = null;
+    if (selectionInfoBackup) {
+      savedSelectionInfo = selectionInfoBackup;
+    }
+  };
+
+  const sync = () => {
+    pending = null;
+    if (!content || !hidden) return;
+    if (sanitizeElement) {
+      const selectionInfoBackup = cloneSelectionInfo(savedSelectionInfo);
+      sanitizeElement(content);
+      if (savedSelectionInfo) {
+        let refreshed = buildRangeFromInfo(savedSelectionInfo);
+        let shouldPersist = Boolean(refreshed);
+        if (!refreshed && selectionInfoBackup) {
+          refreshed = buildRangeFromTextIndex(selectionInfoBackup);
+          shouldPersist = Boolean(refreshed);
+        }
+        if (!refreshed) {
+          refreshed = buildFallbackRange();
+          shouldPersist = false;
+        }
+        if (refreshed) {
+          if (shouldPersist) {
+            savedSelection = refreshed.cloneRange ? refreshed.cloneRange() : refreshed;
+            storeSelectionInfo(savedSelection);
+          } else {
+            savedSelection = null;
+            if (selectionInfoBackup) {
+              savedSelectionInfo = selectionInfoBackup;
+            }
+          }
+        } else {
+          savedSelection = null;
+          if (selectionInfoBackup) {
+            savedSelectionInfo = selectionInfoBackup;
+          }
+        }
+      }
+    }
+    const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
+    boxes.forEach((box, index) => {
+      ensureCheckboxWrapper(box);
+      box.setAttribute("data-rich-checkbox-index", String(index));
+      if (box.checked) {
+        box.setAttribute("checked", "");
+      } else {
+        box.removeAttribute("checked");
+      }
+    });
+    ensureNotEmpty();
+    const html = sanitizeHtml(content.innerHTML);
+    const plain = toPlainText(html);
+    const payload = {
+      kind: "richtext",
+      version: utils.version || RICH_TEXT_VERSION,
+      html,
+      text: plain,
+      checkboxes: boxes.map((box) => Boolean(box.checked)),
+    };
+    const serializedValue = JSON.stringify(payload);
+    if (content) {
+      if (hasContent && hasContent(payload)) {
+        content.removeAttribute("data-rich-text-empty");
+      } else {
+        content.setAttribute("data-rich-text-empty", "1");
+      }
+    }
+    if (serializedValue === lastSerialized) return;
+    lastSerialized = serializedValue;
+    hidden.value = serializedValue;
+    if (hasContent) {
+      if (hasContent(payload)) delete hidden.dataset.richTextEmpty;
+      else hidden.dataset.richTextEmpty = "1";
+    }
+    hidden.dispatchEvent(new Event("input", { bubbles: true }));
+    hidden.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+
+  const schedule = () => {
+    if (pending !== null) {
+      caf(pending);
+    }
+    pending = raf(() => {
+      pending = null;
+      sync();
+    });
+  };
+
+  const handleSelectionEvent = () => {
+    scheduleSelectionCapture();
+    updateToolbarStates();
+  };
+
+  if (content) {
+    content.addEventListener("mouseup", handleSelectionEvent);
+    content.addEventListener("keyup", handleSelectionEvent);
+    content.addEventListener("focus", handleSelectionEvent);
+    content.addEventListener("blur", updateToolbarStates);
+  }
+
+  if (ownerDocument && typeof ownerDocument.addEventListener === "function") {
+    ownerDocument.addEventListener("selectionchange", handleSelectionEvent);
+  }
+
+  const tryExecCommand = (cmd, value = null) => {
+    if (typeof document.execCommand !== "function") return false;
+    try {
+      const result = document.execCommand(cmd, false, value);
+      return result !== false;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  const getActiveRange = () => {
+    if (!ownerDocument || typeof ownerDocument.getSelection !== "function") return null;
+    const selection = ownerDocument.getSelection();
+    if (!selection || selection.rangeCount === 0) return null;
+    let range = null;
+    try {
+      range = selection.getRangeAt(0);
+    } catch (error) {
+      range = null;
+    }
+    if (!range || !isRangeInsideContent(range)) return null;
+    return range;
+  };
+
+  const reapplyRangeSelection = (range) => {
+    if (!range || !ownerDocument || typeof ownerDocument.getSelection !== "function") return false;
+    const selection = ownerDocument.getSelection();
+    if (!selection) return false;
+    selection.removeAllRanges();
+    try {
+      selection.addRange(range);
+    } catch (error) {
+      selection.removeAllRanges();
+      return false;
+    }
+    savedSelection = range.cloneRange ? range.cloneRange() : range;
+    storeSelectionInfo(savedSelection);
+    return true;
+  };
+
+  const trimNbsp = (value) => (value || "").replace(/\u00a0/g, " ").trim();
+
+  const getLineStartNode = (range = null) => {
+    const activeRange = range || getActiveRange();
+    if (!content || !activeRange) return null;
+    const anchor = activeRange.startContainer;
+    const anchorElement = anchor?.nodeType === Node.ELEMENT_NODE ? anchor : anchor?.parentElement;
+    if (anchorElement && typeof anchorElement.closest === "function" && anchorElement.closest("ul,ol")) {
+      return null;
+    }
+    let node = anchor;
+    while (node && node.parentNode !== content) {
+      node = node.parentNode;
+    }
+    if (!node) return null;
+    let probe = node.previousSibling;
+    while (probe && probe.nodeName !== "BR") {
+      node = probe;
+      probe = node.previousSibling;
+    }
+    let first = probe ? probe.nextSibling : content.firstChild;
+    while (first && first.nodeType === Node.TEXT_NODE && !trimNbsp(first.textContent || "")) {
+      first = first.nextSibling;
+    }
+    if (first && first.nodeName === "BR") {
+      first = first.nextSibling;
+      while (first && first.nodeType === Node.TEXT_NODE && !trimNbsp(first.textContent || "")) {
+        first = first.nextSibling;
+      }
+    }
+    return first || null;
+  };
+
+  const lineStartsWithCheckbox = (range = null) => {
+    const first = getLineStartNode(range);
+    if (!first) return false;
+    if (isCheckboxWrapper(first)) {
+      return true;
+    }
+    return first.nodeType === Node.ELEMENT_NODE
+      && first.matches?.('input[type="checkbox"][data-rich-checkbox]');
+  };
+
+  const lineEmptyAfterCheckbox = (range = null) => {
+    const first = getLineStartNode(range);
+    if (!first || !isCheckboxWrapper(first)) {
+      return false;
+    }
+    let sibling = first.nextSibling;
+    while (sibling) {
+      if (sibling.nodeName === "BR") break;
+      if (isCheckboxWrapper(sibling)) {
+        return false;
+      }
+      if (sibling.nodeType === Node.TEXT_NODE) {
+        if (trimNbsp(sibling.textContent || "")) {
+          return false;
+        }
+      } else if (sibling.nodeType === Node.ELEMENT_NODE) {
+        if (trimNbsp(sibling.textContent || "")) {
+          return false;
+        }
+      }
+      sibling = sibling.nextSibling;
+    }
+    return true;
+  };
+
+  const caretAtLineStartAfterCheckbox = (range = null) => {
+    const activeRange = range || getActiveRange();
+    if (!activeRange || !activeRange.collapsed) {
+      return false;
+    }
+    const first = getLineStartNode(activeRange);
+    if (!first || !isCheckboxWrapper(first)) {
+      return false;
+    }
+    const { startContainer, startOffset } = activeRange;
+    if (startContainer.nodeType === Node.TEXT_NODE && startOffset > 0) {
+      const beforeText = startContainer.textContent
+        ? startContainer.textContent.slice(0, startOffset)
+        : "";
+      if (trimNbsp(beforeText)) {
+        return false;
+      }
+    }
+    if (startContainer.nodeType === Node.ELEMENT_NODE && startOffset > 0) {
+      return false;
+    }
+    let node = startContainer;
+    while (node && node.parentNode !== content) {
+      node = node.parentNode;
+    }
+    if (!node) {
+      return false;
+    }
+    if (node === first) {
+      return true;
+    }
+    if (node === first.nextSibling) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const beforeText = node.textContent
+          ? node.textContent.slice(0, activeRange.startOffset)
+          : "";
+        return !trimNbsp(beforeText);
+      }
+      if (isWhitespaceNode(node)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const removeNode = (node) => {
+    if (node && node.parentNode) {
+      node.parentNode.removeChild(node);
+    }
+  };
+
+  const deleteAdjacentCheckbox = (direction) => {
+    const range = getActiveRange();
+    if (!range || !range.collapsed) return false;
+    const first = getLineStartNode(range);
+    if (!first || !isCheckboxWrapper(first)) {
+      return false;
+    }
+
+    if (direction === "back" && caretAtLineStartAfterCheckbox(range)) {
+      const parent = first.parentNode;
+      let caretTarget = first.nextSibling;
+      if (caretTarget && isWhitespaceNode(caretTarget)) {
+        const next = caretTarget.nextSibling;
+        removeNode(caretTarget);
+        caretTarget = next;
+      }
+      removeNode(first);
+
+      if (ownerDocument && typeof ownerDocument.createRange === "function" && ownerDocument.getSelection) {
+        const selection = ownerDocument.getSelection();
+        if (selection) {
+          const newRange = ownerDocument.createRange();
+          let target = caretTarget && caretTarget.parentNode === parent ? caretTarget : null;
+          if (!target && parent === content) {
+            target = content.firstChild;
+          }
+          if (target) {
+            if (target.nodeType === Node.TEXT_NODE) {
+              newRange.setStart(target, 0);
+            } else {
+              newRange.setStartBefore(target);
+            }
+          } else if (parent === content) {
+            newRange.setStart(content, 0);
+          } else {
+            newRange.selectNodeContents(content);
+            newRange.collapse(true);
+          }
+          newRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+          savedSelection = newRange.cloneRange ? newRange.cloneRange() : newRange;
+          storeSelectionInfo(savedSelection);
+        }
+      }
+
+      schedule();
+      scheduleSelectionCapture();
+      updateToolbarStates();
+      return true;
+    }
+
+    const { startContainer, startOffset } = range;
+    if (startContainer.nodeType === Node.TEXT_NODE) {
+      if (direction === "back" && startOffset > 0) {
+        return false;
+      }
+      const len = startContainer.textContent ? startContainer.textContent.length : 0;
+      if (direction === "del" && startOffset < len) {
+        return false;
+      }
+    } else if (startContainer.nodeType === Node.ELEMENT_NODE) {
+      if (direction === "back" && startOffset > 0) {
+        return false;
+      }
+      if (direction === "del" && startOffset < (startContainer.childNodes ? startContainer.childNodes.length : 0)) {
+        return false;
+      }
+    }
+
+    let node = startContainer;
+    while (node && node.parentNode !== content) {
+      node = node.parentNode;
+    }
+    if (!node) {
+      return false;
+    }
+
+    const pickNeighbor = () => (direction === "back" ? node.previousSibling : node.nextSibling);
+    let target = pickNeighbor();
+    if (target && isWhitespaceNode(target)) {
+      const candidate = direction === "back" ? target.previousSibling : target.nextSibling;
+      if (isCheckboxWrapper(candidate)) {
+        removeNode(target);
+        target = candidate;
+      }
+    }
+    if (!isCheckboxWrapper(target)) {
+      return false;
+    }
+    const spacer = direction === "back" ? target.previousSibling : target.nextSibling;
+    if (spacer && isWhitespaceNode(spacer)) {
+      removeNode(spacer);
+    }
+    removeNode(target);
+
+    schedule();
+    scheduleSelectionCapture();
+    updateToolbarStates();
+    return true;
+  };
+
+  const insertPlainBreak = (range) => {
+    if (!range || !ownerDocument || typeof ownerDocument.createElement !== "function") {
+      return false;
+    }
+    const br = ownerDocument.createElement("br");
+    try {
+      range.deleteContents();
+      range.insertNode(br);
+    } catch (error) {
+      return false;
+    }
+    range.setStartAfter(br);
+    range.collapse(true);
+    return reapplyRangeSelection(range);
+  };
+
+  const insertBreakWithCheckbox = (range) => {
+    if (!range || !ownerDocument || typeof ownerDocument.createElement !== "function" || typeof ownerDocument.createRange !== "function") {
+      return false;
+    }
+    try {
+      range.deleteContents();
+    } catch (error) {
+      // ignore deletion issues and continue
+    }
+    const br = ownerDocument.createElement("br");
+    try {
+      range.insertNode(br);
+    } catch (error) {
+      return false;
+    }
+    const afterBr = ownerDocument.createRange();
+    afterBr.setStartAfter(br);
+    afterBr.collapse(true);
+    const pair = createCheckboxWrapper();
+    if (!pair) return false;
+    const { wrapper } = pair;
+    try {
+      afterBr.insertNode(wrapper);
+    } catch (error) {
+      return false;
+    }
+    const space = ownerDocument.createTextNode(" ");
+    const afterWrapper = ownerDocument.createRange();
+    afterWrapper.setStartAfter(wrapper);
+    afterWrapper.collapse(true);
+    afterWrapper.insertNode(space);
+    afterWrapper.setStartAfter(space);
+    afterWrapper.collapse(true);
+    return reapplyRangeSelection(afterWrapper);
+  };
+
+  const insertCheckboxAtCaret = () => {
+    if (!ownerDocument || typeof ownerDocument.createRange !== "function") {
+      return false;
+    }
+    const range = getActiveRange();
+    if (!range) return false;
+    const pair = createCheckboxWrapper();
+    if (!pair) return false;
+    const { wrapper } = pair;
+    const space = ownerDocument.createTextNode(" ");
+    try {
+      range.deleteContents();
+      range.insertNode(wrapper);
+    } catch (error) {
+      wrapper.remove();
+      return false;
+    }
+    const afterWrapper = ownerDocument.createRange();
+    afterWrapper.setStartAfter(wrapper);
+    afterWrapper.collapse(true);
+    afterWrapper.insertNode(space);
+    afterWrapper.setStartAfter(space);
+    afterWrapper.collapse(true);
+    return reapplyRangeSelection(afterWrapper);
+  };
+
+  const fallbackInsertCheckbox = () => insertCheckboxAtCaret();
+
+  const fallbackWrapWithTag = (tagName) => {
+    if (!ownerDocument || typeof ownerDocument.createElement !== "function" || typeof ownerDocument.createRange !== "function") {
+      return false;
+    }
+    const range = getActiveRange();
+    if (!range || range.collapsed) return false;
+    const wrapper = ownerDocument.createElement(tagName);
+    let contents = null;
+    try {
+      contents = range.extractContents();
+    } catch (error) {
+      contents = null;
+    }
+    if (!contents) return false;
+    wrapper.appendChild(contents);
+    try {
+      range.insertNode(wrapper);
+    } catch (error) {
+      return false;
+    }
+    const newRange = ownerDocument.createRange();
+    try {
+      newRange.selectNodeContents(wrapper);
+    } catch (error) {
+      return false;
+    }
+    return reapplyRangeSelection(newRange);
+  };
+
+  if (toolbar && content) {
+    toolbar.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-rich-command]");
+      if (!button) return;
+      const command = button.getAttribute("data-rich-command");
+      if (!command) return;
+
+      if (command === "checkbox" && content.__cbInstalled) {
+        return;
+      }
+
+      event.preventDefault();
+      if (content && typeof content.focus === "function") {
+        content.focus();
+      }
+      restoreSelection();
+      if (command === "checkbox") {
+        insertCheckboxAtCaret() || fallbackInsertCheckbox();
+        scheduleSelectionCapture();
+        schedule();
+        updateToolbarStates();
+        return;
+      }
+      if (!tryExecCommand(command, null) && (command === "bold" || command === "italic")) {
+        fallbackWrapWithTag(command === "bold" ? "strong" : "em");
+      }
+      scheduleSelectionCapture();
+      schedule();
+      updateToolbarStates();
+    });
+  }
+
+  content.addEventListener("input", schedule);
+  content.addEventListener("change", schedule);
+  content.addEventListener("blur", sync);
+  content.addEventListener("click", (event) => {
+    if (event.target && event.target.matches('input[type="checkbox"]')) {
+      schedule();
+    }
+  });
+
+  content.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.shiftKey && typeof document.execCommand === "function") {
+      event.preventDefault();
+      document.execCommand("insertLineBreak", false, null);
+      schedule();
+      scheduleSelectionCapture();
+      updateToolbarStates();
+      return;
+    }
+
+    if (content.__cbInstalled) {
+      if (event.defaultPrevented) {
+        scheduleSelectionCapture();
+        schedule();
+        updateToolbarStates();
+      }
+      return;
+    }
+
+    if (event.key === "Backspace") {
+      if (deleteAdjacentCheckbox("back")) {
+        event.preventDefault();
+        return;
+      }
+    }
+    if (event.key === "Delete") {
+      if (deleteAdjacentCheckbox("del")) {
+        event.preventDefault();
+        return;
+      }
+    }
+    if (event.key !== "Enter") return;
+    if (!event.shiftKey) {
+      const range = getActiveRange();
+      if (lineStartsWithCheckbox(range)) {
+        event.preventDefault();
+        const handled = lineEmptyAfterCheckbox(range)
+          ? insertPlainBreak(range)
+          : insertBreakWithCheckbox(range);
+        if (handled) {
+          scheduleSelectionCapture();
+          schedule();
+          updateToolbarStates();
+        }
+        return;
+      }
+    }
+  });
+
+  root.dataset.richTextReady = "1";
+  sync();
+  updateToolbarStates();
+}
+
+function initializeRichTextEditors(scope = document) {
+  if (!scope) return;
+  const targets = [];
+  if (scope instanceof Element) {
+    if (scope.matches("[data-rich-text-root]")) {
+      targets.push(scope);
+    }
+    targets.push(...scope.querySelectorAll("[data-rich-text-root]"));
+  } else if (scope.querySelectorAll) {
+    targets.push(...scope.querySelectorAll("[data-rich-text-root]"));
+  }
+  targets.forEach((root) => {
+    try {
+      setupRichTextEditor(root);
+    } catch (error) {
+      modesLogger?.warn?.("richtext:init:error", error);
+    }
+  });
+}
+
+(function bootstrapRichTextEditors() {
+  const run = () => {
+    initializeRichTextEditors(document);
+    if (typeof MutationObserver !== "function") {
+      return;
+    }
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof Element) {
+            initializeRichTextEditors(node);
+          }
+        });
+      });
+    });
+    if (document.body) {
+      observer.observe(document.body, { childList: true, subtree: true });
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        if (document.body) {
+          observer.observe(document.body, { childList: true, subtree: true });
+        }
+      }, { once: true });
+    }
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", run, { once: true });
+  } else {
+    run();
+  }
+})();
+
+if (window.Modes?.richText) {
+  window.Modes.richText.setup = setupRichTextEditor;
+  window.Modes.richText.setupAll = initializeRichTextEditors;
 }
 
 function inputForType(consigne, initialValue = null) {
@@ -1360,8 +3179,11 @@ function inputForType(consigne, initialValue = null) {
     return `<input name="short:${consigne.id}" class="w-full" placeholder="Réponse" value="${value}">`;
   }
   if (consigne.type === "long") {
-    const value = escapeHtml(initialValue ?? "");
-    return `<textarea name="long:${consigne.id}" rows="3" class="w-full" placeholder="Réponse">${value}</textarea>`;
+    return renderRichTextInput(`long:${consigne.id}`, {
+      consigneId: consigne.id,
+      initialValue,
+      placeholder: "Réponse",
+    });
   }
   if (consigne.type === "num") {
     const sliderValue = initialValue != null && initialValue !== ""
@@ -1369,9 +3191,13 @@ function inputForType(consigne, initialValue = null) {
       : 5;
     const safeValue = Number.isFinite(sliderValue) ? sliderValue : 5;
     return `
-      <input type="range" min="1" max="10" value="${safeValue}" name="num:${consigne.id}" class="w-full">
-      <div class="text-sm opacity-70 mt-1" data-meter="num:${consigne.id}">${safeValue}</div>
-      <script>(()=>{const slider=document.currentScript.previousElementSibling.previousElementSibling;const label=document.currentScript.previousElementSibling;const sync=()=>{if(label&&slider){label.textContent=slider.value;}};if(slider){sync();slider.addEventListener('input',sync);}})();</script>
+      <div class="scale">
+        <input type="range" min="0" max="10" step="1" value="${safeValue}" data-default-value="${safeValue}" name="num:${consigne.id}" class="w-full">
+        <div class="scale-ticks">
+          <span>0</span><span>1</span><span>2</span><span>3</span><span>4</span>
+          <span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+        </div>
+      </div>
     `;
   }
   if (consigne.type === "likert6") {
@@ -1410,6 +3236,34 @@ function inputForType(consigne, initialValue = null) {
         <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
         <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
       </select>
+    `;
+  }
+  if (consigne.type === "checklist") {
+    const items = Array.isArray(consigne.checklistItems)
+      ? consigne.checklistItems.filter((item) => typeof item === "string" && item.trim().length > 0)
+      : [];
+    const normalizedValue = Array.isArray(initialValue)
+      ? items.map((_, index) => Boolean(initialValue[index]))
+      : items.map(() => false);
+    const checkboxes = items
+      .map((label, index) => {
+        const checked = normalizedValue[index];
+        return `
+          <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm" data-checklist-item>
+            <input type="checkbox" class="h-4 w-4" data-checklist-input ${checked ? "checked" : ""}>
+            <span class="flex-1">${escapeHtml(label)}</span>
+          </label>`;
+      })
+      .join("");
+    const initialSerialized = escapeHtml(JSON.stringify(normalizedValue));
+    return `
+      <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}">
+        ${checkboxes || `<p class="text-sm text-[var(--muted)]">Aucun élément défini</p>`}
+        <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state ${
+          Array.isArray(initialValue) ? 'data-dirty="1"' : ""
+        }>
+      </div>
+      <script>(()=>{const script=document.currentScript;const hidden=script.previousElementSibling;const root=hidden?.closest('[data-checklist-root]');if(!root||!hidden)return;const inputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const sync=()=>{const values=inputs().map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);};const markDirty=()=>{hidden.dataset.dirty="1";};const notify=()=>{hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync();markDirty();notify();}});sync();})();</script>
     `;
   }
   return "";
@@ -1469,8 +3323,13 @@ function collectAnswers(form, consignes, options = {}) {
       const val = form.querySelector(`[name="short:${consigne.id}"]`)?.value?.trim();
       if (val) answers.push({ consigne, value: val, dayKey });
     } else if (consigne.type === "long") {
-      const val = form.querySelector(`[name="long:${consigne.id}"]`)?.value?.trim();
-      if (val) answers.push({ consigne, value: val, dayKey });
+      const input = form.querySelector(`[name="long:${consigne.id}"]`);
+      if (input) {
+        const normalized = normalizeRichTextValue(input.value || "");
+        if (richTextHasContent(normalized)) {
+          answers.push({ consigne, value: normalized, dayKey });
+        }
+      }
     } else if (consigne.type === "num") {
       const val = form.querySelector(`[name="num:${consigne.id}"]`)?.value;
       if (val) answers.push({ consigne, value: Number(val), dayKey });
@@ -1483,15 +3342,47 @@ function collectAnswers(form, consignes, options = {}) {
     } else if (consigne.type === "likert6") {
       const val = form.querySelector(`[name="likert6:${consigne.id}"]`)?.value;
       if (val) answers.push({ consigne, value: val, dayKey });
+    } else if (consigne.type === "checklist") {
+      const hidden = form.querySelector(`[name="checklist:${consigne.id}"]`);
+      if (hidden) {
+        try {
+          const parsed = JSON.parse(hidden.value || "[]");
+          if (Array.isArray(parsed) && parsed.length) {
+            const values = parsed.map((item) => item === true);
+            const hasSelection = values.some(Boolean);
+            const isDirty = hidden.dataset.dirty === "1";
+            if (hasSelection || isDirty) {
+              answers.push({ consigne, value: values, dayKey });
+            }
+          }
+        } catch (error) {
+          console.warn("collectAnswers:checklist", error);
+        }
+      } else {
+        const container = form.querySelector(
+          `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+        );
+        if (container) {
+          const values = Array.from(container.querySelectorAll("[data-checklist-input]"))
+            .map((box) => Boolean(box.checked));
+          if (values.length && values.some(Boolean)) {
+            answers.push({ consigne, value: values, dayKey });
+          }
+        }
+      }
     }
   }
   return answers;
 }
 
-async function openConsigneForm(ctx, consigne = null) {
+async function openConsigneForm(ctx, consigne = null, options = {}) {
   const mode = consigne?.mode || (ctx.route.includes("/practice") ? "practice" : "daily");
   modesLogger.group("ui.consigneForm.open", { mode, consigneId: consigne?.id || null });
-  const catUI = await categorySelect(ctx, mode, consigne?.category || null);
+  const uid = ctx?.user?.uid || null;
+  const lastStoredCategory = readStoredConsigneCategory(uid, mode);
+  const defaultCategory = options?.defaultCategory || null;
+  const initialCategory = consigne?.category ?? defaultCategory ?? lastStoredCategory ?? "";
+  const catUI = await categorySelect(ctx, mode, initialCategory);
   const priority = Number(consigne?.priority ?? 2);
   const monthKey = Schema.monthKeyFromDate(new Date());
   let objectifs = [];
@@ -1607,10 +3498,13 @@ async function openConsigneForm(ctx, consigne = null) {
           <option value="yesno"   ${consigne?.type === "yesno"   ? "selected" : ""}>Oui / Non</option>
           <option value="short"   ${consigne?.type === "short"   ? "selected" : ""}>Texte court</option>
           <option value="long"    ${consigne?.type === "long"    ? "selected" : ""}>Texte long</option>
-          <option value="num"     ${consigne?.type === "num"     ? "selected" : ""}>Échelle numérique (1–10)</option>
+          <option value="num"     ${consigne?.type === "num"     ? "selected" : ""}>Échelle numérique (0–10)</option>
+          <option value="checklist" ${consigne?.type === "checklist" ? "selected" : ""}>Checklist</option>
           <option value="info"    ${consigne?.type === "info"    ? "selected" : ""}>${INFO_RESPONSE_LABEL}</option>
         </select>
       </label>
+
+      <div data-checklist-editor-anchor></div>
 
       ${catUI}
 
@@ -1676,6 +3570,118 @@ async function openConsigneForm(ctx, consigne = null) {
     </form>
   `;
   const m = modal(html);
+  const typeSelectEl = m.querySelector('select[name="type"]');
+  const checklistAnchor = m.querySelector('[data-checklist-editor-anchor]');
+  const checklistEditor = document.createElement('fieldset');
+  checklistEditor.className = 'grid gap-2';
+  checklistEditor.dataset.checklistEditor = '';
+  const checklistLegend = document.createElement('legend');
+  checklistLegend.className = 'text-sm text-[var(--muted)]';
+  checklistLegend.textContent = 'Éléments de checklist';
+  const checklistList = document.createElement('div');
+  checklistList.className = 'grid gap-2';
+  checklistList.dataset.checklistList = '';
+  const checklistActions = document.createElement('div');
+  checklistActions.className = 'flex justify-start';
+  const checklistAddBtn = document.createElement('button');
+  checklistAddBtn.type = 'button';
+  checklistAddBtn.className = 'btn btn-ghost text-sm';
+  checklistAddBtn.dataset.checklistAdd = 'true';
+  checklistAddBtn.textContent = '+ Ajouter un élément';
+  checklistActions.appendChild(checklistAddBtn);
+  checklistEditor.append(checklistLegend, checklistList, checklistActions);
+  let checklistMounted = false;
+  const mountChecklistEditor = () => {
+    if (!checklistAnchor || checklistMounted) return;
+    checklistAnchor.appendChild(checklistEditor);
+    checklistMounted = true;
+  };
+  const unmountChecklistEditor = () => {
+    if (!checklistMounted) return;
+    checklistEditor.remove();
+    checklistMounted = false;
+  };
+  const checklistEmptyClass = 'checklist-editor__empty';
+  const renderChecklistEmptyState = () => {
+    if (!checklistMounted || !checklistList) return;
+    const hasItems = checklistList.querySelector('[name="checklist-item"]');
+    if (hasItems) {
+      const empty = checklistList.querySelector(`.${checklistEmptyClass}`);
+      if (empty) empty.remove();
+      return;
+    }
+    const empty = document.createElement('p');
+    empty.className = `text-sm text-[var(--muted)] ${checklistEmptyClass}`;
+    empty.textContent = "Aucun élément pour l'instant.";
+    checklistList.appendChild(empty);
+  };
+  const addChecklistRow = (initialText = "") => {
+    if (!checklistList) return null;
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.name = 'checklist-item';
+    input.className = 'w-full';
+    input.placeholder = "Intitulé de l'élément";
+    input.value = initialText;
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn btn-ghost text-xs';
+    removeBtn.dataset.removeChecklist = 'true';
+    removeBtn.textContent = 'Supprimer';
+    removeBtn.addEventListener('click', () => {
+      row.remove();
+      renderChecklistEmptyState();
+    });
+    row.append(input, removeBtn);
+    checklistList.appendChild(row);
+    renderChecklistEmptyState();
+    return row;
+  };
+  checklistAddBtn.addEventListener('click', () => {
+    addChecklistRow();
+    const lastInput = checklistList?.querySelector('div:last-of-type input[name="checklist-item"]');
+    if (lastInput) {
+      try {
+        lastInput.focus({ preventScroll: true });
+      } catch (error) {
+        lastInput.focus();
+      }
+    }
+  });
+  const initialChecklistItems = Array.isArray(consigne?.checklistItems)
+    ? consigne.checklistItems.filter((item) => typeof item === 'string' && item.trim().length > 0)
+    : [];
+  if (initialChecklistItems.length) {
+    initialChecklistItems.forEach((item) => addChecklistRow(item));
+  }
+  const ensureChecklistHasRow = () => {
+    if (!checklistMounted || !checklistList) return;
+    if (!checklistList.querySelector('[name="checklist-item"]')) {
+      addChecklistRow();
+    }
+  };
+  const syncChecklistVisibility = () => {
+    const isChecklist = typeSelectEl?.value === 'checklist';
+    if (!isChecklist) {
+      if (checklistList) {
+        checklistList.innerHTML = '';
+      }
+      unmountChecklistEditor();
+      return;
+    }
+    mountChecklistEditor();
+    ensureChecklistHasRow();
+    renderChecklistEmptyState();
+  };
+  if (typeSelectEl) {
+    typeSelectEl.addEventListener('change', () => {
+      syncChecklistVisibility();
+    });
+  }
+  syncChecklistVisibility();
+  renderChecklistEmptyState();
   const objectiveSelectEl = m.querySelector("#objective-select");
   const objectiveMetaBox = m.querySelector("[data-objective-meta]");
   const syncObjectiveMeta = () => {
@@ -1716,7 +3722,8 @@ async function openConsigneForm(ctx, consigne = null) {
             <option value="yesno" ${item.type === "yesno" ? "selected" : ""}>Oui / Non</option>
             <option value="short" ${item.type === "short" ? "selected" : ""}>Texte court</option>
             <option value="long" ${item.type === "long" ? "selected" : ""}>Texte long</option>
-            <option value="num" ${item.type === "num" ? "selected" : ""}>Échelle numérique (1–10)</option>
+            <option value="num" ${item.type === "num" ? "selected" : ""}>Échelle numérique (0–10)</option>
+            <option value="checklist" ${item.type === "checklist" ? "selected" : ""}>Checklist</option>
             <option value="info" ${item.type === "info" ? "selected" : ""}>${INFO_RESPONSE_LABEL}</option>
           </select>
         </div>
@@ -1724,6 +3731,128 @@ async function openConsigneForm(ctx, consigne = null) {
           <button type="button" class="btn btn-ghost text-xs" data-remove>Supprimer</button>
         </div>
       `;
+      const mainSection = row.querySelector(".subconsigne-row__main");
+      const typeSelect = row.querySelector('select[name="sub-type"]');
+      const subChecklistEditor = document.createElement('fieldset');
+      subChecklistEditor.className = 'grid gap-2';
+      subChecklistEditor.dataset.subChecklistEditor = '';
+      const setSubChecklistVisibility = (visible) => {
+        const isVisible = Boolean(visible);
+        subChecklistEditor.hidden = !isVisible;
+        subChecklistEditor.classList.toggle('hidden', !isVisible);
+        if (!isVisible) {
+          subChecklistEditor.style.display = 'none';
+        } else {
+          subChecklistEditor.style.removeProperty('display');
+        }
+      };
+      setSubChecklistVisibility(false);
+      const subChecklistLegend = document.createElement('legend');
+      subChecklistLegend.className = 'text-sm text-[var(--muted)]';
+      subChecklistLegend.textContent = "Éléments de checklist";
+      const subChecklistList = document.createElement('div');
+      subChecklistList.className = 'grid gap-2';
+      subChecklistList.dataset.subChecklistList = '';
+      const subChecklistActions = document.createElement('div');
+      subChecklistActions.className = 'flex justify-start';
+      const subChecklistAddBtn = document.createElement('button');
+      subChecklistAddBtn.type = 'button';
+      subChecklistAddBtn.className = 'btn btn-ghost text-sm';
+      subChecklistAddBtn.dataset.subChecklistAdd = 'true';
+      subChecklistAddBtn.textContent = '+ Ajouter un élément';
+      subChecklistActions.appendChild(subChecklistAddBtn);
+      subChecklistEditor.append(subChecklistLegend, subChecklistList, subChecklistActions);
+      if (mainSection) {
+        mainSection.appendChild(subChecklistEditor);
+      }
+      const subChecklistEmptyClass = 'subchecklist-editor__empty';
+      const renderSubChecklistEmptyState = () => {
+        if (!subChecklistList) return;
+        const empty = subChecklistList.querySelector(`.${subChecklistEmptyClass}`);
+        const hasItems = subChecklistList.querySelector('[name="sub-checklist-item"]');
+        if (subChecklistEditor.hidden) {
+          if (empty) empty.remove();
+          return;
+        }
+        if (hasItems) {
+          if (empty) empty.remove();
+          return;
+        }
+        const emptyState = document.createElement('p');
+        emptyState.className = `text-sm text-[var(--muted)] ${subChecklistEmptyClass}`;
+        emptyState.textContent = "Aucun élément pour l'instant.";
+        subChecklistList.appendChild(emptyState);
+      };
+      const addSubChecklistRow = (initialText = "") => {
+        if (!subChecklistList) return null;
+        const itemRow = document.createElement('div');
+        itemRow.className = 'flex items-center gap-2';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.name = 'sub-checklist-item';
+        input.className = 'w-full';
+        input.placeholder = "Intitulé de l'élément";
+        input.value = initialText;
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'btn btn-ghost text-xs';
+        removeBtn.dataset.removeSubChecklist = 'true';
+        removeBtn.textContent = 'Supprimer';
+        removeBtn.addEventListener('click', () => {
+          itemRow.remove();
+          renderSubChecklistEmptyState();
+        });
+        itemRow.append(input, removeBtn);
+        subChecklistList.appendChild(itemRow);
+        renderSubChecklistEmptyState();
+        return itemRow;
+      };
+      const ensureSubChecklistHasRow = () => {
+        if (subChecklistEditor.hidden) return;
+        if (!subChecklistList) return;
+        if (!subChecklistList.querySelector('[name="sub-checklist-item"]')) {
+          addSubChecklistRow();
+        }
+      };
+      if (subChecklistAddBtn) {
+        subChecklistAddBtn.addEventListener('click', () => {
+          const newRow = addSubChecklistRow();
+          const lastInput = newRow?.querySelector('input[name="sub-checklist-item"]');
+          if (lastInput) {
+            try {
+              lastInput.focus({ preventScroll: true });
+            } catch (error) {
+              lastInput.focus();
+            }
+          }
+        });
+      }
+      const initialSubChecklistItems = Array.isArray(item?.checklistItems)
+        ? item.checklistItems.filter((value) => typeof value === 'string' && value.trim().length > 0)
+        : [];
+      if (initialSubChecklistItems.length) {
+        initialSubChecklistItems.forEach((value) => addSubChecklistRow(value));
+      }
+      const syncSubChecklistVisibility = () => {
+        const isChecklist = typeSelect?.value === 'checklist';
+        if (!isChecklist) {
+          if (subChecklistList) {
+            subChecklistList.innerHTML = '';
+          }
+          setSubChecklistVisibility(false);
+          renderSubChecklistEmptyState();
+          return;
+        }
+        setSubChecklistVisibility(true);
+        ensureSubChecklistHasRow();
+        renderSubChecklistEmptyState();
+      };
+      if (typeSelect) {
+        typeSelect.addEventListener('change', () => {
+          syncSubChecklistVisibility();
+        });
+      }
+      syncSubChecklistVisibility();
       row.querySelector('[data-remove]')?.addEventListener('click', () => {
         if (item.id) {
           removedChildIds.add(item.id);
@@ -1793,6 +3922,8 @@ async function openConsigneForm(ctx, consigne = null) {
 
       await Schema.ensureCategory(ctx.db, ctx.user.uid, cat, mode);
 
+      storeConsigneCategory(ctx?.user?.uid || null, mode, cat);
+
       const payload = {
         ownerUid: ctx.user.uid,
         mode,
@@ -1804,6 +3935,23 @@ async function openConsigneForm(ctx, consigne = null) {
         active: true,
         parentId: consigne?.parentId || null,
       };
+      if (payload.type === "checklist") {
+        const itemInputs = Array.from(m.querySelectorAll('[name="checklist-item"]'));
+        const items = itemInputs.map((input) => input.value.trim());
+        const hasAtLeastOne = items.some((text) => text.length > 0);
+        if (!hasAtLeastOne) {
+          alert("Ajoute au moins un élément à la checklist.");
+          return;
+        }
+        const hasEmpty = items.some((text) => text.length === 0);
+        if (hasEmpty) {
+          alert("Renseigne chaque élément de checklist ou supprime ceux qui sont vides.");
+          return;
+        }
+        payload.checklistItems = items;
+      } else {
+        payload.checklistItems = [];
+      }
       if (mode === "daily") {
         const isAll = m.querySelector("#daily-all")?.checked;
         payload.days = isAll ? [] : $$("input[name=days]:checked", m).map((input) => input.value);
@@ -1817,6 +3965,32 @@ async function openConsigneForm(ctx, consigne = null) {
       if (canManageChildren && subRows.some((row) => !(row.querySelector('input[name="sub-text"]')?.value || "").trim())) {
         alert("Renseigne le texte de chaque sous-consigne ou supprime celles qui sont vides.");
         return;
+      }
+      if (canManageChildren && subRows.length) {
+        let missingSubChecklistItems = false;
+        let hasEmptySubChecklistItem = false;
+        subRows.forEach((row) => {
+          const typeField = row.querySelector('select[name="sub-type"]');
+          if (typeField?.value !== 'checklist') return;
+          const itemInputs = Array.from(row.querySelectorAll('input[name="sub-checklist-item"]'));
+          const items = itemInputs.map((input) => input.value.trim());
+          const hasAtLeastOne = items.some((text) => text.length > 0);
+          if (!hasAtLeastOne) {
+            missingSubChecklistItems = true;
+            return;
+          }
+          if (items.some((text) => text.length === 0)) {
+            hasEmptySubChecklistItem = true;
+          }
+        });
+        if (missingSubChecklistItems) {
+          alert("Ajoute au moins un élément à chaque checklist de sous-consigne.");
+          return;
+        }
+        if (hasEmptySubChecklistItem) {
+          alert("Renseigne chaque élément de checklist de tes sous-consignes ou supprime ceux qui sont vides.");
+          return;
+        }
       }
       let consigneId = consigne?.id || null;
       if (consigne) {
@@ -1852,9 +4026,14 @@ async function openConsigneForm(ctx, consigne = null) {
                 ...childPayloadBase,
                 text: textValue,
                 type: typeValue,
+                checklistItems: [],
               };
               if (mode === "daily") {
                 childPayload.days = Array.isArray(childDays) ? [...childDays] : [];
+              }
+              if (typeValue === 'checklist') {
+                const checklistInputs = Array.from(row.querySelectorAll('input[name="sub-checklist-item"]'));
+                childPayload.checklistItems = checklistInputs.map((input) => input.value.trim());
               }
               if (childId) {
                 updates.push(
@@ -1893,26 +4072,991 @@ async function openConsigneForm(ctx, consigne = null) {
   };
 }
 
+function extractTextualNote(value) {
+  if (value == null) return "";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return "";
+    if (NOTE_IGNORED_VALUES.has(trimmed)) return "";
+    return trimmed;
+  }
+  if (typeof value === "object") {
+    if (value.kind === "richtext") {
+      const plain = typeof value.text === "string" ? value.text.trim() : "";
+      if (plain) return plain;
+      const fromHtml = richTextHtmlToPlainText(value.html || "");
+      if (fromHtml) return fromHtml;
+    }
+    const candidates = ["note", "comment", "remark", "text", "message"];
+    for (const key of candidates) {
+      const candidate = value[key];
+      if (typeof candidate === "string") {
+        const trimmed = candidate.trim();
+        if (trimmed.length === 0) continue;
+        if (NOTE_IGNORED_VALUES.has(trimmed)) continue;
+        return trimmed;
+      }
+    }
+  }
+  return "";
+}
+
+function hasTextualNote(value) {
+  return extractTextualNote(value).length > 0;
+}
+
 function dotColor(type, v){
+  if (v && typeof v === "object" && v.skipped) {
+    return "note";
+  }
   if (type === "info") {
-    return "na";
+    return hasTextualNote(v) ? "note" : "na";
   }
   if (type === "likert6") {
-    const map = { yes:"ok", rather_yes:"ok", medium:"mid", rather_no:"ko", no:"ko", no_answer:"na" };
+    const map = {
+      yes: "ok-strong",
+      rather_yes: "ok-soft",
+      medium: "mid",
+      rather_no: "ko-soft",
+      no: "ko-strong",
+      no_answer: "note",
+    };
     return map[v] || "na";
   }
   if (type === "likert5") {
     const n = Number(v);
-    return n >= 3 ? "ok" : n === 2 ? "mid" : "ko";
+    if (!Number.isFinite(n)) return "na";
+    if (n >= 5) return "ok-strong";
+    if (n === 4) return "ok-soft";
+    if (n === 3) return "mid";
+    if (n === 2) return "ko-soft";
+    if (n <= 1) return "ko-strong";
+    return "na";
   }
   if (type === "yesno") {
-    return v === "yes" ? "ok" : "ko";
+    if (v === "yes") return "ok-strong";
+    if (v === "no") return "ko-strong";
+    return "na";
   }
   if (type === "num") {
-    const n = Number(v) || 0;
-    return n >= 7 ? "ok" : n >= 4 ? "mid" : "ko";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "na";
+    if (n >= 7) return "ok-strong";
+    if (n >= 4) return "mid";
+    return "ko-strong";
+  }
+  if (type === "checklist") {
+    if (v == null) {
+      return "na";
+    }
+    const values = Array.isArray(v)
+      ? v
+      : v && typeof v === "object" && Array.isArray(v.items)
+        ? v.items
+        : [];
+    if (!values.length) return "na";
+    const completed = values.filter(Boolean).length;
+    if (completed === 0) return "ko-strong";
+    if (completed === values.length) return "ok-strong";
+    return "mid";
+  }
+  if (type === "short" || type === "long") {
+    return hasTextualNote(v) ? "note" : "na";
+  }
+  if (hasTextualNote(v)) {
+    return "note";
   }
   return "na";
+}
+
+const STATUS_LABELS = {
+  "ok-strong": "Très positif",
+  "ok-soft": "Plutôt positif",
+  mid: "Intermédiaire",
+  "ko-soft": "Plutôt négatif",
+  "ko-strong": "Très négatif",
+  note: "Réponse notée",
+  na: "Sans donnée",
+};
+
+const consigneRowUpdateTimers = new WeakMap();
+const CONSIGNE_ROW_UPDATE_DURATION = 900;
+
+function clearConsigneRowUpdateHighlight(row) {
+  if (!row) return;
+  const timer = consigneRowUpdateTimers.get(row);
+  if (timer) {
+    clearTimeout(timer);
+    consigneRowUpdateTimers.delete(row);
+  }
+  row.classList.remove("consigne-row--updated");
+}
+
+function triggerConsigneRowUpdateHighlight(row) {
+  if (!row) return;
+  clearConsigneRowUpdateHighlight(row);
+  // Force a reflow to ensure the animation restarts if triggered rapidly.
+  void row.offsetWidth;
+  row.classList.add("consigne-row--updated");
+  const timeoutId = setTimeout(() => {
+    row.classList.remove("consigne-row--updated");
+    consigneRowUpdateTimers.delete(row);
+  }, CONSIGNE_ROW_UPDATE_DURATION);
+  consigneRowUpdateTimers.set(row, timeoutId);
+}
+
+function updateConsigneStatusUI(row, consigne, rawValue) {
+  if (!row || !consigne) return;
+  const skipFlag = row.dataset.skipAnswered === "1";
+  const valueForStatus = skipFlag && (!(rawValue && typeof rawValue === "object" && rawValue.skipped))
+    ? { skipped: true }
+    : rawValue;
+  let status = dotColor(consigne.type, valueForStatus);
+  if (status === "na" && row.dataset.childAnswered === "1") {
+    status = "note";
+  }
+  const statusHolder = row.querySelector("[data-status]");
+  const dot = row.querySelector("[data-status-dot]");
+  const mark = row.querySelector("[data-status-mark]");
+  const live = row.querySelector("[data-status-live]");
+  const tone = row.dataset.priorityTone || priorityTone(consigne.priority);
+  if (tone) {
+    row.dataset.priorityTone = tone;
+    if (statusHolder) {
+      statusHolder.dataset.priorityTone = tone;
+    }
+    if (dot) {
+      dot.dataset.priorityTone = tone;
+    }
+  }
+  row.dataset.status = status;
+  if (statusHolder) {
+    statusHolder.dataset.status = status;
+    statusHolder.setAttribute("data-status", status);
+  }
+  if (dot) {
+    dot.className = `consigne-row__dot consigne-row__dot--${status}`;
+  }
+  if (mark) {
+    const isAnswered = status !== "na";
+    mark.classList.toggle("consigne-row__mark--checked", isAnswered);
+  }
+  if (live) {
+    const textualNote = extractTextualNote(valueForStatus);
+    const isNoteStatus = status === "note";
+    const baseHasValue = (() => {
+      if (skipFlag) return true;
+      if (consigne.type === "long") {
+        return richTextHasContent(valueForStatus);
+      }
+      if (consigne.type === "checklist") {
+        if (Array.isArray(valueForStatus)) return valueForStatus.some(Boolean);
+        if (valueForStatus && typeof valueForStatus === "object" && Array.isArray(valueForStatus.items)) {
+          return valueForStatus.items.some(Boolean);
+        }
+      }
+      return !(valueForStatus === null || valueForStatus === undefined || valueForStatus === "");
+    })();
+    const hasValue = isNoteStatus ? textualNote.length > 0 || baseHasValue : baseHasValue;
+    const formattedValue = (() => {
+      if (isNoteStatus) {
+        if (textualNote) return textualNote;
+        const fallback = formatConsigneValue(consigne.type, valueForStatus);
+        if (fallback === null || fallback === undefined || fallback === "" || fallback === "—") {
+          return skipFlag ? "Passée" : "Réponse enregistrée";
+        }
+        return fallback;
+      }
+      if (consigne.type === "info") return INFO_RESPONSE_LABEL;
+      if (!hasValue) return "Sans donnée";
+      const result = formatConsigneValue(consigne.type, valueForStatus);
+      if (result === null || result === undefined || result === "" || result === "—") {
+        return skipFlag ? "Passée" : "Réponse enregistrée";
+      }
+      return result;
+    })();
+    const label = STATUS_LABELS[status] || "Valeur";
+    live.textContent = `${label}: ${formattedValue}`;
+  }
+  if (status === "na") {
+    clearConsigneRowUpdateHighlight(row);
+  } else {
+    triggerConsigneRowUpdateHighlight(row);
+  }
+  if (typeof CustomEvent === "function") {
+    row.dispatchEvent(new CustomEvent("consigne-status-changed", {
+      detail: { status, consigne, value: rawValue },
+    }));
+  }
+}
+
+function readConsigneCurrentValue(consigne, scope) {
+  if (!consigne || !scope) return "";
+  const id = consigne.id;
+  const type = consigne.type;
+  if (type === "info") return "";
+  if (type === "short") {
+    const input = scope.querySelector(`[name="short:${id}"]`);
+    return input ? input.value.trim() : "";
+  }
+  if (type === "long") {
+    const hidden = scope.querySelector(`[name="long:${id}"]`);
+    if (hidden) {
+      return normalizeRichTextValue(hidden.value || "");
+    }
+    const editor = scope.querySelector(`[data-rich-text-root][data-consigne-id="${String(id ?? "")}"]`);
+    if (editor) {
+      const content = editor.querySelector("[data-rich-text-content]");
+      const html = content ? content.innerHTML : "";
+      return normalizeRichTextValue({ html });
+    }
+    return normalizeRichTextValue("");
+  }
+  if (type === "num") {
+    const range = scope.querySelector(`[name="num:${id}"]`);
+    if (!range || range.value === "" || range.value == null) return "";
+    const num = Number(range.value);
+    return Number.isFinite(num) ? num : "";
+  }
+  if (type === "likert5") {
+    const select = scope.querySelector(`[name="likert5:${id}"]`);
+    if (!select || select.value === "" || select.value == null) return "";
+    const num = Number(select.value);
+    return Number.isFinite(num) ? num : "";
+  }
+  if (type === "yesno") {
+    const select = scope.querySelector(`[name="yesno:${id}"]`);
+    return select ? select.value : "";
+  }
+  if (type === "likert6") {
+    const select = scope.querySelector(`[name="likert6:${id}"]`);
+    return select ? select.value : "";
+  }
+  if (type === "checklist") {
+    const hidden = scope.querySelector(`[name="checklist:${id}"]`);
+    if (hidden) {
+      const isDirty = hidden.dataset && hidden.dataset.dirty === "1";
+      if (!isDirty) {
+        return null;
+      }
+      try {
+        const parsed = JSON.parse(hidden.value || "[]");
+        if (Array.isArray(parsed)) {
+          return parsed.map((value) => value === true);
+        }
+      } catch (error) {
+        console.warn("readConsigneCurrentValue:checklist", error);
+      }
+    }
+    const container = scope.querySelector(
+      `[data-checklist-root][data-consigne-id="${String(id ?? "")}"]`
+    );
+    if (container) {
+      const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
+      if (boxes.length) {
+        return boxes.map((box) => Boolean(box.checked));
+      }
+    }
+    return [];
+  }
+  const input = scope.querySelector(`[name$=":${id}"]`);
+  return input ? input.value : "";
+}
+
+function enhanceRangeMeters(scope) {
+  if (!scope) return;
+  const sliders = scope.querySelectorAll('input[type="range"][name^="num:"]');
+  sliders.forEach((slider) => {
+    const meter = scope.querySelector(`[data-meter="${slider.name}"]`);
+    if (!meter) return;
+    const sync = () => {
+      meter.textContent = slider.value;
+    };
+    slider.addEventListener("input", sync);
+    slider.addEventListener("change", sync);
+    sync();
+  });
+}
+
+function findConsigneInputFields(row, consigne) {
+  if (!row || !consigne) return [];
+  const holder = row.querySelector("[data-consigne-input-holder]");
+  if (!holder) return [];
+  return Array.from(holder.querySelectorAll(`[name$=":${consigne.id}"]`));
+}
+
+function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
+  const row = document.createElement("div");
+  row.className = "consigne-row consigne-row--child consigne-row--virtual";
+  row.dataset.id = consigne?.id || "";
+  const tone = priorityTone(consigne?.priority);
+  if (tone) {
+    row.dataset.priorityTone = tone;
+  }
+  row.hidden = true;
+  row.style.display = "none";
+  row.setAttribute("aria-hidden", "true");
+  const holder = document.createElement("div");
+  holder.hidden = true;
+  holder.setAttribute("data-consigne-input-holder", "");
+  holder.innerHTML = inputForType(consigne, initialValue);
+  row.appendChild(holder);
+  enhanceRangeMeters(row);
+  return row;
+}
+
+function setConsigneRowValue(row, consigne, value) {
+  if (row) {
+    delete row.dataset.skipAnswered;
+  }
+  if (consigne?.type === "long") {
+    const editor = row?.querySelector(
+      `[data-rich-text-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+    );
+    const hidden = row?.querySelector(`[name="long:${consigne.id}"]`);
+    const normalized = normalizeRichTextValue(value);
+    if (editor) {
+      const content = editor.querySelector("[data-rich-text-content]");
+      if (content) {
+        const structured = ensureRichTextStructure(normalized.html) || "";
+        content.innerHTML = structured.trim() ? structured : "<p><br></p>";
+        if (richTextHasContent(normalized)) {
+          content.removeAttribute("data-rich-text-empty");
+        } else {
+          content.setAttribute("data-rich-text-empty", "1");
+        }
+      }
+    }
+    if (hidden) {
+      hidden.value = JSON.stringify(normalized);
+      hidden.dispatchEvent(new Event("input", { bubbles: true }));
+      hidden.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    updateConsigneStatusUI(row, consigne, normalized);
+    return;
+  }
+  if (consigne?.type === "checklist") {
+    const container = row?.querySelector(
+      `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+    );
+    if (!container) {
+      updateConsigneStatusUI(row, consigne, value);
+      return;
+    }
+    const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
+    const normalizedArray = Array.isArray(value) ? value : [];
+    boxes.forEach((box, index) => {
+      box.checked = Boolean(normalizedArray[index]);
+    });
+    const hidden = container.querySelector(`[name="checklist:${String(consigne.id ?? "")}"]`);
+    if (hidden) {
+      const serialized = JSON.stringify(boxes.map((box) => Boolean(box.checked)));
+      hidden.value = serialized;
+      if (Array.isArray(value)) {
+        hidden.dataset.dirty = "1";
+      } else {
+        delete hidden.dataset.dirty;
+      }
+      hidden.dispatchEvent(new Event("input", { bubbles: true }));
+      hidden.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    updateConsigneStatusUI(row, consigne, boxes.map((box) => Boolean(box.checked)));
+    return;
+  }
+  const fields = findConsigneInputFields(row, consigne);
+  if (!fields.length) {
+    updateConsigneStatusUI(row, consigne, value);
+    return;
+  }
+  const normalizedValue = value === null || value === undefined ? "" : value;
+  fields.forEach((field) => {
+    let stringValue = normalizedValue;
+    if (field.type === "range") {
+      const defaultValue = field.getAttribute("data-default-value") || field.defaultValue || field.min || "";
+      stringValue = normalizedValue === "" ? defaultValue : normalizedValue;
+    }
+    if (field.tagName === "SELECT" || field.tagName === "TEXTAREA" || field.tagName === "INPUT") {
+      field.value = stringValue === "" ? "" : String(stringValue);
+    } else {
+      field.value = stringValue === "" ? "" : String(stringValue);
+    }
+    if (field.type === "range") {
+      const meter = row.querySelector(`[data-meter="${field.name}"]`);
+      if (meter) meter.textContent = field.value;
+    }
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    field.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+function attachConsigneEditor(row, consigne, options = {}) {
+  if (!row || !consigne) return;
+  const trigger = options.trigger || row.querySelector("[data-consigne-open]");
+  if (!trigger) return;
+  const variant = options.variant === "drawer" ? "drawer" : "modal";
+  const childConsignes = Array.isArray(options.childConsignes)
+    ? options.childConsignes.filter((item) => item && item.consigne)
+    : [];
+  childConsignes.forEach((child) => {
+    child.srEnabled = child?.srEnabled !== false;
+  });
+  const TEXT_MODAL_TYPES = new Set(["long", "short", "notes", "texte", "long_text", "short_text"]);
+  const CENTER_MODAL_TYPES = new Set(["likert6", "likert5", "yesno", "num", "checklist", "info", "likert", "oui_non", "scale_0_10", "choix", "multiple"]);
+  const pickPhoneModalClass = (item) => {
+    const type = item?.type;
+    if (TEXT_MODAL_TYPES.has(type)) return "phone-top";
+    if (CENTER_MODAL_TYPES.has(type)) return "phone-center";
+    return "phone-center";
+  };
+  const updateParentChildAnsweredFlag = () => {
+    if (!row) return false;
+    if (!childConsignes.length) {
+      delete row.dataset.childAnswered;
+      return false;
+    }
+    const hasChildAnswered = childConsignes.some((childState) => {
+      const childRow = childState?.row;
+      if (!(childRow instanceof HTMLElement)) return false;
+      const status = childRow.dataset?.status;
+      return status && status !== "na";
+    });
+    if (hasChildAnswered) {
+      row.dataset.childAnswered = "1";
+    } else {
+      delete row.dataset.childAnswered;
+    }
+    return hasChildAnswered;
+  };
+  const syncParentAnswered = () => {
+    if (!row) return false;
+    const before = row.dataset.childAnswered === "1";
+    const after = updateParentChildAnsweredFlag();
+    if (before !== after) {
+      const currentValue = readConsigneCurrentValue(consigne, row);
+      updateConsigneStatusUI(row, consigne, currentValue);
+    }
+    return after;
+  };
+  syncParentAnswered();
+  if (childConsignes.length && row) {
+    childConsignes.forEach((childState) => {
+      if (childState?.row instanceof HTMLElement) {
+        childState.row.addEventListener("consigne-status-changed", () => {
+          syncParentAnswered();
+        });
+      }
+    });
+    const rafSync = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (cb) => setTimeout(cb, 16);
+    rafSync(() => {
+      syncParentAnswered();
+    });
+  } else if (row) {
+    delete row.dataset.childAnswered;
+  }
+  enhanceRangeMeters(row.querySelector("[data-consigne-input-holder]"));
+  const openEditor = () => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (trigger && typeof trigger.setAttribute === "function") {
+      trigger.setAttribute("aria-expanded", "true");
+    }
+    const currentValue = readConsigneCurrentValue(consigne, row);
+    const title = consigne.text || consigne.titre || consigne.name || consigne.id;
+    const description = consigne.description || consigne.details || consigne.helper || "";
+    const requiresValidation = consigne.type !== "info" || childConsignes.length > 0;
+    const renderChildEditor = (childState, index) => {
+      const child = childState.consigne || {};
+      const childTitle = child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
+      const childDescription = child.description || child.details || child.helper || "";
+      const childValue = readConsigneCurrentValue(child, childState.row || row);
+      const baseMenuItemClass =
+        "child-menu__item flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 focus:bg-slate-100 focus:outline-none";
+      const dangerMenuItemClass = `${baseMenuItemClass} text-red-600 hover:bg-red-50 focus:bg-red-50`;
+      const actionButtons = [];
+      if (typeof childState.onHistory === "function") {
+        actionButtons.push(
+          `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="history">Historique</button>`
+        );
+      }
+      if (typeof childState.onEdit === "function") {
+        actionButtons.push(
+          `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="edit">Modifier</button>`
+        );
+      }
+      if (typeof childState.onToggleSr === "function") {
+        const srLabel = childState.srEnabled ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
+        actionButtons.push(
+          `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="sr-toggle" data-enabled="${childState.srEnabled ? "1" : "0"}">${srLabel}</button>`
+        );
+      }
+      if (typeof childState.onDelete === "function") {
+        actionButtons.push(
+          `<button type="button" class="${dangerMenuItemClass}" role="menuitem" data-child-action="delete">Supprimer</button>`
+        );
+      }
+      const actionsHtml = actionButtons.length
+        ? `<div class="relative" data-child-menu-root>
+            <button type="button" class="btn btn-ghost btn-sm" data-child-menu-toggle aria-haspopup="true" aria-expanded="false">
+              <span aria-hidden="true">⋯</span>
+              <span class="sr-only">Actions supplémentaires</span>
+            </button>
+            <div class="absolute right-0 z-10 mt-1 hidden min-w-[200px] origin-top-right rounded-xl border border-slate-200 bg-white p-1 shadow-lg focus:outline-none" data-child-menu role="menu">
+              ${actionButtons.map((btn) => `<div role="none">${btn}</div>`).join("")}
+            </div>
+          </div>`
+        : "";
+      return `
+        <article class="space-y-3 rounded-xl border border-slate-200 p-3" data-child-consigne="${escapeHtml(child.id)}">
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div class="space-y-1">
+              <div class="font-medium text-slate-800">${escapeHtml(childTitle)}</div>
+              ${childDescription ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(childDescription)}</p>` : ""}
+            </div>
+            ${actionsHtml}
+          </div>
+          <div class="space-y-2" data-consigne-editor-child-body>
+            ${inputForType(child, childValue)}
+          </div>
+        </article>`;
+    };
+    const childMarkup = childConsignes.length
+      ? `<section class="practice-editor__section space-y-3 border-t border-slate-200 pt-3 mt-3" data-consigne-editor-children>
+          <header class="space-y-1">
+            <h3 class="text-base font-semibold">Sous-consignes</h3>
+            <p class="text-sm text-slate-600">Complète les sous-consignes liées à cette carte.</p>
+          </header>
+          <div class="space-y-3">
+            ${childConsignes.map((child, index) => renderChildEditor(child, index)).join("")}
+          </div>
+        </section>`
+      : "";
+    const actionsMarkup = requiresValidation
+      ? `<footer class="practice-editor__actions">
+          <button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>
+          <button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>
+          <button type="button" class="btn btn-primary" data-consigne-editor-validate>Valider</button>
+        </footer>`
+      : `<footer class="practice-editor__actions">
+          <button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>
+        </footer>`;
+    const markup = `
+      <div class="practice-editor">
+        <header class="practice-editor__header">
+          <h2 class="text-lg font-semibold">${escapeHtml(title)}</h2>
+          ${description ? `<p class="text-sm text-slate-600 whitespace-pre-line" data-consigne-editor-description>${escapeHtml(description)}</p>` : ""}
+        </header>
+        <section class="practice-editor__section space-y-3" data-consigne-editor-body>
+          ${inputForType(consigne, currentValue)}
+        </section>
+        ${childMarkup}
+        ${actionsMarkup}
+      </div>
+    `;
+    const overlay = (variant === "drawer" ? drawer : modal)(markup);
+    if (variant !== "drawer" && overlay instanceof HTMLElement) {
+      overlay.classList.remove("phone-top", "phone-center");
+      const relevantItems = [consigne, ...childConsignes.map((child) => child.consigne).filter(Boolean)];
+      const preferTop = relevantItems.some((item) => pickPhoneModalClass(item) === "phone-top");
+      overlay.classList.add(preferTop ? "phone-top" : "phone-center");
+    }
+    overlay.querySelectorAll("textarea").forEach((textarea) => {
+      autoGrowTextarea(textarea);
+    });
+    const uniqueIdBase = `${Date.now()}-${Math.round(Math.random() * 10000)}`;
+    const dialogNode = variant === "drawer" ? overlay.querySelector("aside") : overlay.firstElementChild;
+    if (dialogNode) {
+      dialogNode.setAttribute("role", "dialog");
+      dialogNode.setAttribute("aria-modal", "true");
+      const heading = dialogNode.querySelector("h2");
+      if (heading && !heading.id) {
+        heading.id = `consigne-editor-title-${uniqueIdBase}`;
+      }
+      if (heading && heading.id) {
+        dialogNode.setAttribute("aria-labelledby", heading.id);
+        dialogNode.removeAttribute("aria-label");
+      } else {
+        dialogNode.setAttribute("aria-label", String(title || ""));
+      }
+      const descriptionEl = dialogNode.querySelector("[data-consigne-editor-description]");
+      if (descriptionEl && !descriptionEl.id) {
+        descriptionEl.id = `consigne-editor-desc-${uniqueIdBase}`;
+      }
+      if (descriptionEl && descriptionEl.id) {
+        dialogNode.setAttribute("aria-describedby", descriptionEl.id);
+      } else {
+        dialogNode.removeAttribute("aria-describedby");
+      }
+    }
+    const body = overlay.querySelector("[data-consigne-editor-body]");
+    enhanceRangeMeters(body);
+    const focusTarget = body?.querySelector("input, select, textarea");
+    if (focusTarget) {
+      try {
+        focusTarget.focus({ preventScroll: true });
+      } catch (err) {
+        focusTarget.focus();
+      }
+    }
+    const childMenuCleanups = [];
+    let isClosed = false;
+    const closeOverlay = () => {
+      if (isClosed) return;
+      isClosed = true;
+      while (childMenuCleanups.length) {
+        const cleanup = childMenuCleanups.pop();
+        try {
+          cleanup?.();
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      document.removeEventListener("keydown", onKeyDown, true);
+      overlay.remove();
+      if (trigger && typeof trigger.setAttribute === "function") {
+        trigger.setAttribute("aria-expanded", "false");
+      }
+      if (trigger && typeof trigger.focus === "function" && document.contains(trigger)) {
+        try {
+          trigger.focus({ preventScroll: true });
+        } catch (err) {
+          trigger.focus();
+        }
+      } else if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        previouslyFocused.focus();
+      }
+      if (typeof options.onClose === "function") {
+        options.onClose();
+      }
+    };
+    const escapeAttrValue = (value) => String(value ?? "").replace(/"/g, '\\"');
+    childConsignes.forEach((childState) => {
+      const childId = childState?.consigne?.id;
+      if (childId == null) return;
+      const node = overlay.querySelector(`[data-child-consigne="${escapeAttrValue(childId)}"]`);
+      if (!node) return;
+      node.querySelectorAll("textarea").forEach((textarea) => {
+        autoGrowTextarea(textarea);
+      });
+      const menuRoot = node.querySelector("[data-child-menu-root]");
+      const menuToggle = menuRoot?.querySelector("[data-child-menu-toggle]");
+      const menu = menuRoot?.querySelector("[data-child-menu]");
+      let menuOpen = false;
+      const onMenuDocumentClick = (event) => {
+        if (!menuRoot || !menu) return;
+        if (!menuRoot.contains(event.target)) {
+          closeMenu();
+        }
+      };
+      const onMenuDocumentKeydown = (event) => {
+        if (event.key === "Escape" && menuOpen) {
+          event.preventDefault();
+          event.stopPropagation();
+          closeMenu();
+        }
+      };
+      const closeMenu = ({ focus } = {}) => {
+        if (!menuRoot || !menuToggle || !menu) return;
+        if (!menuOpen) return;
+        menuOpen = false;
+        menu.classList.add("hidden");
+        menuRoot.classList.remove("is-open");
+        menuToggle.setAttribute("aria-expanded", "false");
+        document.removeEventListener("click", onMenuDocumentClick);
+        document.removeEventListener("keydown", onMenuDocumentKeydown, true);
+        const active = document.activeElement;
+        const shouldFocus =
+          focus !== undefined
+            ? focus
+            : (menu.contains(active) || active === menuToggle);
+        if (shouldFocus && typeof menuToggle.focus === "function") {
+          try {
+            menuToggle.focus({ preventScroll: true });
+          } catch (err) {
+            menuToggle.focus();
+          }
+        }
+      };
+      const openMenu = () => {
+        if (!menuRoot || !menuToggle || !menu) return;
+        if (menuOpen) return;
+        menuOpen = true;
+        menu.classList.remove("hidden");
+        menuRoot.classList.add("is-open");
+        menuToggle.setAttribute("aria-expanded", "true");
+        setTimeout(() => {
+          document.addEventListener("click", onMenuDocumentClick);
+        }, 0);
+        document.addEventListener("keydown", onMenuDocumentKeydown, true);
+        const firstItem = menu.querySelector("[data-child-action]");
+        if (firstItem instanceof HTMLElement) {
+          try {
+            firstItem.focus({ preventScroll: true });
+          } catch (err) {
+            firstItem.focus();
+          }
+        }
+      };
+      if (menuRoot && menuToggle && menu) {
+        menuToggle.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (menuOpen) {
+            closeMenu({ focus: true });
+          } else {
+            openMenu();
+          }
+        });
+        menuToggle.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            if (!menuOpen) {
+              openMenu();
+            }
+          } else if (event.key === "Escape" && menuOpen) {
+            event.preventDefault();
+            closeMenu({ focus: true });
+          }
+        });
+        menu.addEventListener("click", (event) => {
+          event.stopPropagation();
+        });
+        menu.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && menuOpen) {
+            event.preventDefault();
+            event.stopPropagation();
+            closeMenu({ focus: true });
+          }
+        });
+        childMenuCleanups.push(() => closeMenu({ focus: false }));
+      }
+      const callHandler = (handler, event) => {
+        if (typeof handler === "function") {
+          try {
+            handler({ event, close: closeOverlay, consigne: childState.consigne, row: childState.row });
+          } catch (err) {
+            console.error(err);
+          }
+        }
+      };
+      const historyBtn = node.querySelector('[data-child-action="history"]');
+      if (historyBtn) {
+        if (typeof childState.onHistory === "function") {
+          historyBtn.addEventListener("click", (event) => {
+            event.preventDefault();
+            closeMenu({ focus: false });
+            callHandler(childState.onHistory, event);
+          });
+        } else {
+          historyBtn.disabled = true;
+          historyBtn.setAttribute("aria-disabled", "true");
+        }
+      }
+      const editBtn = node.querySelector('[data-child-action="edit"]');
+      if (editBtn) {
+        if (typeof childState.onEdit === "function") {
+          editBtn.addEventListener("click", (event) => {
+            event.preventDefault();
+            closeMenu({ focus: false });
+            callHandler(childState.onEdit, event);
+          });
+        } else {
+          editBtn.disabled = true;
+          editBtn.setAttribute("aria-disabled", "true");
+        }
+      }
+      const srBtn = node.querySelector('[data-child-action="sr-toggle"]');
+      if (srBtn) {
+        if (typeof childState.onToggleSr === "function") {
+          const updateSrButton = (enabled) => {
+            const nextEnabled = Boolean(enabled);
+            const label = nextEnabled
+              ? "Désactiver la répétition espacée"
+              : "Activer la répétition espacée";
+            srBtn.dataset.enabled = nextEnabled ? "1" : "0";
+            srBtn.textContent = label;
+          };
+          updateSrButton(childState.srEnabled);
+          srBtn.addEventListener("click", async (event) => {
+            event.preventDefault();
+            closeMenu({ focus: false });
+            const current = Boolean(childState.srEnabled);
+            srBtn.disabled = true;
+            try {
+              const result = await childState.onToggleSr(!current, {
+                event,
+                close: closeOverlay,
+                update: updateSrButton,
+              });
+              const finalState = typeof result === "boolean" ? result : !current;
+              childState.srEnabled = finalState;
+              updateSrButton(finalState);
+            } catch (err) {
+              console.error(err);
+              updateSrButton(current);
+            } finally {
+              if (overlay.isConnected) {
+                srBtn.disabled = false;
+              }
+            }
+          });
+        } else {
+          srBtn.disabled = true;
+          srBtn.setAttribute("aria-disabled", "true");
+        }
+      }
+      const deleteBtn = node.querySelector('[data-child-action="delete"]');
+      if (deleteBtn) {
+        if (typeof childState.onDelete === "function") {
+          deleteBtn.addEventListener("click", async (event) => {
+            event.preventDefault();
+            closeMenu({ focus: false });
+            deleteBtn.disabled = true;
+            try {
+              const result = await childState.onDelete({ event, close: closeOverlay, consigne: childState.consigne, row: childState.row });
+              if (result === false && overlay.isConnected) {
+                deleteBtn.disabled = false;
+              }
+            } catch (err) {
+              console.error(err);
+              if (overlay.isConnected) {
+                deleteBtn.disabled = false;
+              }
+            }
+          });
+        } else {
+          deleteBtn.disabled = true;
+          deleteBtn.setAttribute("aria-disabled", "true");
+        }
+      }
+    });
+    const background = variant === "drawer" ? overlay.firstElementChild : overlay;
+    if (background) {
+      background.addEventListener("click", (event) => {
+        const isDrawerBg = variant === "drawer" && event.target === background;
+        const isModalBg = variant !== "drawer" && event.target === overlay;
+        if (isDrawerBg || isModalBg) {
+          event.preventDefault();
+          closeOverlay();
+        }
+      });
+    }
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeOverlay();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    const cancelBtn = overlay.querySelector("[data-consigne-editor-cancel]");
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        closeOverlay();
+      });
+    }
+    const skipBtn = overlay.querySelector("[data-consigne-editor-skip]");
+    if (skipBtn) {
+      skipBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        row.dataset.skipAnswered = "1";
+        updateParentChildAnsweredFlag();
+        updateConsigneStatusUI(row, consigne, { skipped: true });
+        syncParentAnswered();
+        if (typeof options.onSkip === "function") {
+          options.onSkip({ event, close: closeOverlay, consigne, row });
+        }
+        closeOverlay();
+      });
+    }
+    const validateBtn = overlay.querySelector("[data-consigne-editor-validate]");
+    if (validateBtn) {
+      validateBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        const newValue = readConsigneCurrentValue(consigne, overlay);
+        const childValueEntries = [];
+        childConsignes.forEach((childState) => {
+          const childValue = readConsigneCurrentValue(childState.consigne, overlay);
+          if (childState.row) {
+            setConsigneRowValue(childState.row, childState.consigne, childValue);
+          }
+          childValueEntries.push([childState.consigne?.id, childValue]);
+        });
+        updateParentChildAnsweredFlag();
+        setConsigneRowValue(row, consigne, newValue);
+        syncParentAnswered();
+        const childValueMap = new Map(childValueEntries.filter(([id]) => id != null));
+        if (typeof options.onSubmit === "function") {
+          options.onSubmit(newValue, { childValues: childValueMap });
+        }
+        closeOverlay();
+      });
+    }
+  };
+  trigger.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openEditor();
+  });
+  if (trigger && typeof trigger.setAttribute === "function") {
+    trigger.setAttribute("aria-expanded", "false");
+  }
+}
+
+function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
+  if (!row || !consigne) return;
+  const hasValueForConsigne = (value) => {
+    const type = consigne.type;
+    if (type === "long") {
+      return richTextHasContent(value);
+    }
+    if (type === "short") {
+      return typeof value === "string" && value.trim().length > 0;
+    }
+    if (type === "checklist") {
+      if (Array.isArray(value)) return value.some(Boolean);
+      if (value && typeof value === "object" && Array.isArray(value.items)) {
+        return value.items.some(Boolean);
+      }
+      return false;
+    }
+    return !(value === null || value === undefined || value === "");
+  };
+  const mapValueForStatus = (value) => {
+    if (row?.dataset?.skipAnswered === "1") {
+      if (hasValueForConsigne(value)) {
+        delete row.dataset.skipAnswered;
+        return value;
+      }
+      return { skipped: true };
+    }
+    return value;
+  };
+  const emit = (value) => {
+    const statusValue = mapValueForStatus(value);
+    if (onChange) onChange(value);
+    updateConsigneStatusUI(row, consigne, statusValue);
+  };
+  const read = () => readConsigneCurrentValue(consigne, row);
+  if (initialValue !== undefined) {
+    emit(initialValue);
+  } else {
+    emit(read());
+  }
+  const raf = typeof requestAnimationFrame === "function"
+    ? requestAnimationFrame
+    : (cb) => setTimeout(cb, 16);
+  const fields = Array.from(row.querySelectorAll(`[name$=":${consigne.id}"]`));
+  if (fields.length) {
+    const handler = () => emit(read());
+    fields.forEach((field) => {
+      field.addEventListener("input", handler);
+      field.addEventListener("change", handler);
+    });
+    raf(() => emit(read()));
+  } else {
+    raf(() => emit(read()));
+  }
 }
 
 async function openHistory(ctx, consigne) {
@@ -1938,8 +5082,11 @@ async function openHistory(ctx, consigne) {
     ok: "Positive",
     mid: "Intermédiaire",
     ko: "À surveiller",
+    note: "Réponse notée",
     na: "Sans donnée",
   };
+
+  const priorityToneValue = priorityTone(consigne.priority);
 
   function relativeLabel(date) {
     if (!date || Number.isNaN(date.getTime())) return "";
@@ -1958,18 +5105,21 @@ async function openHistory(ctx, consigne) {
       const iso = createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "";
       const dateText = createdAt && !Number.isNaN(createdAt.getTime()) ? dateFormatter.format(createdAt) : "Date inconnue";
       const relative = createdAt ? relativeLabel(createdAt) : "";
-      const formatted = formatValue(consigne.type, r.value);
+      const formattedText = formatConsigneValue(consigne.type, r.value);
+      const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html" });
       const status = dotColor(consigne.type, r.value);
       const note = r.note && String(r.note).trim();
       const noteMarkup = note ? `<p class="history-panel__note">${escapeHtml(note)}</p>` : "";
       const relativeMarkup = relative ? `<span class="history-panel__meta">${escapeHtml(relative)}</span>` : "";
       const statusLabel = statusLabels[status] || "Valeur";
+      const hasFormatted = formattedText && formattedText.trim() && formattedText !== "—";
+      const formattedMarkup = hasFormatted ? formattedHtml : escapeHtml(consigne.type === "info" ? "" : "—");
       return `
-        <li class="history-panel__item">
+        <li class="history-panel__item" data-priority-tone="${escapeHtml(priorityToneValue)}">
           <div class="history-panel__item-row">
-            <span class="history-panel__value">
-              <span class="history-panel__dot history-panel__dot--${status}" aria-hidden="true"></span>
-              <span>${escapeHtml(formatted)}</span>
+            <span class="history-panel__value" data-priority-tone="${escapeHtml(priorityToneValue)}">
+              <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
+              <span>${formattedMarkup}</span>
               <span class="sr-only">${escapeHtml(statusLabel)}</span>
             </span>
             <time class="history-panel__date" datetime="${escapeHtml(iso)}">${escapeHtml(dateText)}</time>
@@ -2005,24 +5155,6 @@ async function openHistory(ctx, consigne) {
 
   modesLogger.groupEnd();
 
-  function formatValue(type, v) {
-    if (type === 'info') return '';
-    if (type === 'yesno') return v === 'yes' ? 'Oui' : 'Non';
-    if (type === 'likert5') return String(v ?? '—');
-    if (type === 'likert6') {
-      return (
-        {
-          no: 'Non',
-          rather_no: 'Plutôt non',
-          medium: 'Neutre',
-          rather_yes: 'Plutôt oui',
-          yes: 'Oui',
-          no_answer: 'Pas de réponse'
-        }[v] || v || '—'
-      );
-    }
-    return String(v ?? '—');
-  }
 }
 
 async function renderPractice(ctx, root, _opts = {}) {
@@ -2096,7 +5228,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       navigate(`${toAppPath(base)}?cat=${encodeURIComponent(value)}`);
     };
   }
-  card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
+  card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null, { defaultCategory: currentCat });
   const dashBtn = card.querySelector(".js-dashboard");
   if (dashBtn) {
     const hasCategory = Boolean(currentCat);
@@ -2145,49 +5277,73 @@ async function renderPractice(ctx, root, _opts = {}) {
   } else {
     form.innerHTML = "";
 
-    const makeItem = (c, { isChild = false } = {}) => {
+    const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
       const tone = priorityTone(c.priority);
-      const el = document.createElement("div");
-      el.className = `consigne-card card p-3 space-y-3 priority-surface priority-surface-${tone}`;
-      el.dataset.id = c.id;
+      const row = document.createElement("div");
+      row.className = `consigne-row priority-surface priority-surface-${tone}`;
+      row.dataset.id = c.id;
+      row.dataset.priorityTone = tone;
       if (isChild) {
-        el.classList.add("consigne-card--child");
+        row.classList.add("consigne-row--child");
         if (c.parentId) {
-          el.dataset.parentId = c.parentId;
+          row.dataset.parentId = c.parentId;
         } else {
-          delete el.dataset.parentId;
+          delete row.dataset.parentId;
         }
-        el.draggable = false;
+        row.draggable = false;
       } else {
-        el.classList.add("consigne-card--parent");
-        delete el.dataset.parentId;
-        el.draggable = true;
+        row.classList.add("consigne-row--parent");
+        delete row.dataset.parentId;
+        row.draggable = true;
       }
-      el.innerHTML = `
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex flex-wrap items-center gap-2">
-            <h4 class="font-semibold">${escapeHtml(c.text)}</h4>
-            ${prioChip(Number(c.priority)||2)}
-            ${srBadge(c)}
+      row.innerHTML = `
+        <div class="consigne-row__header">
+          <div class="consigne-row__main">
+            <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
+              <span class="consigne-row__title">${escapeHtml(c.text)}</span>
+              ${prioChip(Number(c.priority) || 2)}
+            </button>
           </div>
-          ${consigneActions()}
+          <div class="consigne-row__meta">
+            <span class="consigne-row__status" data-status="na">
+              <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+              <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
+              <span class="sr-only" data-status-live aria-live="polite"></span>
+            </span>
+            ${consigneActions()}
+          </div>
         </div>
-        ${inputForType(c)}
+        <div data-consigne-input-holder hidden></div>
       `;
-      const bH = el.querySelector(".js-histo");
-      const bE = el.querySelector(".js-edit");
-      const bD = el.querySelector(".js-del");
-      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c); };
-      bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
+      const statusHolder = row.querySelector("[data-status]");
+      if (statusHolder) {
+        statusHolder.dataset.priorityTone = tone;
+      }
+      const statusDot = row.querySelector("[data-status-dot]");
+      if (statusDot) {
+        statusDot.dataset.priorityTone = tone;
+      }
+      const holder = row.querySelector("[data-consigne-input-holder]");
+      if (holder) {
+        holder.innerHTML = inputForType(c);
+        enhanceRangeMeters(holder);
+      }
+      const bH = row.querySelector(".js-histo");
+      const bE = row.querySelector(".js-edit");
+      const bD = row.querySelector(".js-del");
+      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c); };
+      bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
       bD.onclick = async (e) => {
         e.preventDefault(); e.stopPropagation();
+        closeConsigneActionMenuFromNode(bD);
         if (confirm("Supprimer cette consigne ? (historique conservé)")) {
           Schema.D.info("ui.deleteConsigne.confirm", c.id);
           await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, c.id);
           renderPractice(ctx, root);
         }
       };
-      const delayBtn = el.querySelector(".js-delay");
+      let srEnabled = c?.srEnabled !== false;
+      const delayBtn = row.querySelector(".js-delay");
       const updateDelayState = (enabled) => {
         if (!delayBtn) return;
         delayBtn.disabled = !enabled;
@@ -2197,10 +5353,11 @@ async function renderPractice(ctx, root, _opts = {}) {
           : "Active la répétition espacée pour décaler";
       };
       if (delayBtn) {
-        updateDelayState(c?.srEnabled !== false);
+        updateDelayState(srEnabled);
         delayBtn.onclick = async (e) => {
           e.preventDefault();
           e.stopPropagation();
+          closeConsigneActionMenuFromNode(delayBtn);
           if (delayBtn.disabled) {
             showToast("Active la répétition espacée pour utiliser le décalage.");
             return;
@@ -2229,46 +5386,105 @@ async function renderPractice(ctx, root, _opts = {}) {
           } catch (err) {
             console.error(err);
             showToast("Impossible de décaler la consigne.");
-            updateDelayState(c?.srEnabled !== false);
           } finally {
-            updateDelayState(c?.srEnabled !== false);
+            updateDelayState(srEnabled);
           }
         };
       }
-      const srT = el.querySelector(".js-sr-toggle");
-      if (srT) srT.onclick = async (e) => {
-        e.preventDefault(); e.stopPropagation();
-        const on = srT.getAttribute("data-enabled") === "1";
-        await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { srEnabled: !on });
-        c.srEnabled = !on;
-        srT.setAttribute("data-enabled", on ? "0" : "1");
-        srT.setAttribute("aria-pressed", (!on).toString());
-        srT.title = (!on) ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
-        srT.classList.toggle("opacity-50", on);
-        updateDelayState(c?.srEnabled !== false);
-      };
-      return el;
+      setupConsigneActionMenus(row, () => ({
+        srToggle: {
+          getEnabled: () => srEnabled,
+          onToggle: async (next) => {
+            try {
+              await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { srEnabled: next });
+              srEnabled = next;
+              c.srEnabled = next;
+              updateDelayState(srEnabled);
+              return srEnabled;
+            } catch (err) {
+              console.error(err);
+              showToast("Impossible de mettre à jour la répétition espacée.");
+              return srEnabled;
+            }
+          },
+        },
+      }));
+      const editorConfig = { variant: "modal", ...(editorOptions || {}) };
+      if (!deferEditor) {
+        attachConsigneEditor(row, c, editorConfig);
+      }
+      bindConsigneRowValue(row, c, {
+        onChange: (value) => {
+          if (value === null || value === undefined) {
+            delete row.dataset.currentValue;
+          } else {
+            row.dataset.currentValue = String(value);
+          }
+        },
+      });
+      return row;
     };
 
     const grouped = groupConsignes(visible);
     const renderGroup = (group, target) => {
       const wrapper = document.createElement("div");
       wrapper.className = "consigne-group";
-      const parentCard = makeItem(group.consigne, { isChild: false });
+      const parentCard = makeItem(group.consigne, { isChild: false, deferEditor: true });
       wrapper.appendChild(parentCard);
-      if (group.children.length) {
-        const details = document.createElement("details");
-        details.className = "consigne-group__children";
-        details.innerHTML = `<summary class="consigne-group__summary">${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}</summary>`;
-        const list = document.createElement("div");
-        list.className = "consigne-group__list";
-        group.children.forEach((child) => {
-          const childCard = makeItem(child, { isChild: true });
-          list.appendChild(childCard);
-        });
-        details.appendChild(list);
-        wrapper.appendChild(details);
-      }
+      const childConfigs = group.children.map((child) => {
+        const childRow = createHiddenConsigneRow(child);
+        childRow.dataset.parentId = child.parentId || group.consigne.id || "";
+        childRow.draggable = false;
+        parentCard.appendChild(childRow);
+        bindConsigneRowValue(childRow, child);
+        let srEnabled = child?.srEnabled !== false;
+        const config = {
+          consigne: child,
+          row: childRow,
+          srEnabled,
+          onHistory: () => {
+            Schema.D.info("ui.history.click", child.id);
+            openHistory(ctx, child);
+          },
+          onEdit: ({ close } = {}) => {
+            Schema.D.info("ui.editConsigne.click", child.id);
+            if (typeof close === "function") {
+              close();
+            }
+            openConsigneForm(ctx, child);
+          },
+          onDelete: async ({ close } = {}) => {
+            if (!confirm("Supprimer cette consigne ? (historique conservé)")) {
+              return false;
+            }
+            Schema.D.info("ui.deleteConsigne.confirm", child.id);
+            await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, child.id);
+            if (typeof close === "function") {
+              close();
+            }
+            renderPractice(ctx, root);
+            return true;
+          },
+          onToggleSr: async (next) => {
+            try {
+              await Schema.updateConsigne(ctx.db, ctx.user.uid, child.id, { srEnabled: next });
+              srEnabled = next;
+              config.srEnabled = srEnabled;
+              child.srEnabled = next;
+              return srEnabled;
+            } catch (err) {
+              console.error(err);
+              showToast("Impossible de mettre à jour la répétition espacée.");
+              return srEnabled;
+            }
+          },
+        };
+        return config;
+      });
+      attachConsigneEditor(parentCard, group.consigne, {
+        variant: "modal",
+        childConsignes: childConfigs,
+      });
       target.appendChild(wrapper);
     };
 
@@ -2361,6 +5577,19 @@ async function renderPractice(ctx, root, _opts = {}) {
         input.selectedIndex = 0;
       });
       $$("input[type=radio]", form).forEach((input) => (input.checked = false));
+      $$("[data-rich-text-root]", form).forEach((editor) => {
+        const hidden = editor.querySelector("[data-rich-text-input]");
+        const content = editor.querySelector("[data-rich-text-content]");
+        if (content) {
+          content.innerHTML = "<p><br></p>";
+        }
+        if (hidden) {
+          const emptyValue = normalizeRichTextValue("");
+          hidden.value = JSON.stringify(emptyValue);
+          hidden.dispatchEvent(new Event("input", { bubbles: true }));
+          hidden.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      });
 
       showToast(answers.length ? "Itération enregistrée" : "Itération passée");
       saveBtn.classList.add("btn-saved");
@@ -2523,50 +5752,79 @@ async function renderDaily(ctx, root, opts = {}) {
     return [cat, { groups, total }];
   });
 
-  const previousAnswers = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
+  const previousAnswersRaw = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
+  const previousAnswers = previousAnswersRaw instanceof Map
+    ? previousAnswersRaw
+    : new Map(previousAnswersRaw || []);
 
-  const renderItemCard = (item, { isChild = false } = {}) => {
-    const previous = previousAnswers?.get(item.id);
-    const itemCard = document.createElement("div");
+  const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
+    const previous = previousAnswers.get(item.id);
+    const hasPrevValue = previous && Object.prototype.hasOwnProperty.call(previous, "value");
+    const initialValue = hasPrevValue ? previous.value : null;
+    const row = document.createElement("div");
     const tone = priorityTone(item.priority);
-    itemCard.className = `consigne-card card p-3 space-y-3 priority-surface priority-surface-${tone}`;
+    row.className = `consigne-row priority-surface priority-surface-${tone}`;
+    row.dataset.id = item.id;
+    row.dataset.priorityTone = tone;
     if (isChild) {
-      itemCard.classList.add("consigne-card--child");
+      row.classList.add("consigne-row--child");
       if (item.parentId) {
-        itemCard.dataset.parentId = item.parentId;
+        row.dataset.parentId = item.parentId;
       } else {
-        delete itemCard.dataset.parentId;
+        delete row.dataset.parentId;
       }
     } else {
-      itemCard.classList.add("consigne-card--parent");
-      delete itemCard.dataset.parentId;
+      row.classList.add("consigne-row--parent");
+      delete row.dataset.parentId;
     }
-    itemCard.innerHTML = `
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex flex-wrap items-center gap-2">
-          <h4 class="font-semibold">${escapeHtml(item.text)}</h4>
-          ${prioChip(Number(item.priority) || 2)}
-          ${srBadge(item)}
+    row.innerHTML = `
+      <div class="consigne-row__header">
+        <div class="consigne-row__main">
+          <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
+            <span class="consigne-row__title">${escapeHtml(item.text)}</span>
+            ${prioChip(Number(item.priority) || 2)}
+          </button>
         </div>
-        ${consigneActions()}
+        <div class="consigne-row__meta">
+          <span class="consigne-row__status" data-status="na">
+            <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+            <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
+            <span class="sr-only" data-status-live aria-live="polite"></span>
+          </span>
+          ${consigneActions()}
+        </div>
       </div>
-      ${inputForType(item, previous?.value ?? null)}
+      <div data-consigne-input-holder hidden></div>
     `;
-
-    const bH = itemCard.querySelector(".js-histo");
-    const bE = itemCard.querySelector(".js-edit");
-    const bD = itemCard.querySelector(".js-del");
-    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item); };
-    bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
+    const statusHolder = row.querySelector("[data-status]");
+    if (statusHolder) {
+      statusHolder.dataset.priorityTone = tone;
+    }
+    const statusDot = row.querySelector("[data-status-dot]");
+    if (statusDot) {
+      statusDot.dataset.priorityTone = tone;
+    }
+    const holder = row.querySelector("[data-consigne-input-holder]");
+    if (holder) {
+      holder.innerHTML = inputForType(item, previous?.value ?? null);
+      enhanceRangeMeters(holder);
+    }
+    const bH = row.querySelector(".js-histo");
+    const bE = row.querySelector(".js-edit");
+    const bD = row.querySelector(".js-del");
+    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item); };
+    bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
     bD.onclick = async (e) => {
       e.preventDefault(); e.stopPropagation();
+      closeConsigneActionMenuFromNode(bD);
       if (confirm("Supprimer cette consigne ? (historique conservé)")) {
         Schema.D.info("ui.deleteConsigne.confirm", item.id);
         await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, item.id);
         renderDaily(ctx, root, { day: currentDay });
       }
     };
-    const delayBtn = itemCard.querySelector(".js-delay");
+    let srEnabled = item?.srEnabled !== false;
+    const delayBtn = row.querySelector(".js-delay");
     const updateDelayState = (enabled) => {
       if (!delayBtn) return;
       delayBtn.disabled = !enabled;
@@ -2576,10 +5834,11 @@ async function renderDaily(ctx, root, opts = {}) {
         : "Active la répétition espacée pour décaler";
     };
     if (delayBtn) {
-      updateDelayState(item?.srEnabled !== false);
+      updateDelayState(srEnabled);
       delayBtn.onclick = async (e) => {
         e.preventDefault();
         e.stopPropagation();
+        closeConsigneActionMenuFromNode(delayBtn);
         if (delayBtn.disabled) {
           showToast("Active la répétition espacée pour utiliser le décalage.");
           return;
@@ -2608,45 +5867,117 @@ async function renderDaily(ctx, root, opts = {}) {
           console.error(err);
           showToast("Impossible de décaler la consigne.");
         } finally {
-          updateDelayState(item?.srEnabled !== false);
+          updateDelayState(srEnabled);
         }
       };
     }
-    const srT = itemCard.querySelector(".js-sr-toggle");
-    if (srT) srT.onclick = async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const on = srT.getAttribute("data-enabled") === "1";
-      await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { srEnabled: !on });
-      item.srEnabled = !on;
-      srT.setAttribute("data-enabled", on ? "0" : "1");
-      srT.setAttribute("aria-pressed", (!on).toString());
-      srT.title = (!on) ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
-      srT.classList.toggle("opacity-50", on);
-      updateDelayState(item.srEnabled !== false);
-    };
+    setupConsigneActionMenus(row, () => ({
+      srToggle: {
+        getEnabled: () => srEnabled,
+        onToggle: async (next) => {
+          try {
+            await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { srEnabled: next });
+            srEnabled = next;
+            item.srEnabled = next;
+            updateDelayState(srEnabled);
+            return srEnabled;
+          } catch (err) {
+            console.error(err);
+            showToast("Impossible de mettre à jour la répétition espacée.");
+            return srEnabled;
+          }
+        },
+      },
+    }));
 
-    return itemCard;
+    const editorConfig = { variant: "modal", ...(editorOptions || {}) };
+    if (!deferEditor) {
+      attachConsigneEditor(row, item, editorConfig);
+    }
+    bindConsigneRowValue(row, item, {
+      initialValue,
+      onChange: (value) => {
+        const base = previousAnswers.get(item.id) || { consigneId: item.id };
+        previousAnswers.set(item.id, { ...base, value });
+        if (value === null || value === undefined || value === "") {
+          delete row.dataset.currentValue;
+        } else {
+          row.dataset.currentValue = String(value);
+        }
+      },
+    });
+
+    return row;
   };
 
   const renderGroup = (group, target) => {
     const wrapper = document.createElement("div");
     wrapper.className = "consigne-group";
-    const parentCard = renderItemCard(group.consigne, { isChild: false });
+    const parentCard = renderItemCard(group.consigne, { isChild: false, deferEditor: true });
     wrapper.appendChild(parentCard);
-    if (group.children.length) {
-      const details = document.createElement("details");
-      details.className = "consigne-group__children";
-      details.innerHTML = `<summary class="consigne-group__summary">${group.children.length} sous-consigne${group.children.length > 1 ? "s" : ""}</summary>`;
-      const list = document.createElement("div");
-      list.className = "consigne-group__list";
-      group.children.forEach((child) => {
-        const childCard = renderItemCard(child, { isChild: true });
-        list.appendChild(childCard);
+    const childConfigs = group.children.map((child) => {
+      const previous = previousAnswers.get(child.id);
+      const hasPrevValue = previous && Object.prototype.hasOwnProperty.call(previous, "value");
+      const initialValue = hasPrevValue ? previous.value : null;
+      const childRow = createHiddenConsigneRow(child, { initialValue });
+      childRow.dataset.parentId = child.parentId || group.consigne.id || "";
+      childRow.draggable = false;
+      parentCard.appendChild(childRow);
+      bindConsigneRowValue(childRow, child, {
+        initialValue,
+        onChange: (value) => {
+          const base = previousAnswers.get(child.id) || { consigneId: child.id };
+          previousAnswers.set(child.id, { ...base, value });
+        },
       });
-      details.appendChild(list);
-      wrapper.appendChild(details);
-    }
+      let srEnabled = child?.srEnabled !== false;
+      const config = {
+        consigne: child,
+        row: childRow,
+        srEnabled,
+        onHistory: () => {
+          Schema.D.info("ui.history.click", child.id);
+          openHistory(ctx, child);
+        },
+        onEdit: ({ close } = {}) => {
+          Schema.D.info("ui.editConsigne.click", child.id);
+          if (typeof close === "function") {
+            close();
+          }
+          openConsigneForm(ctx, child);
+        },
+        onDelete: async ({ close } = {}) => {
+          if (!confirm("Supprimer cette consigne ? (historique conservé)")) {
+            return false;
+          }
+          Schema.D.info("ui.deleteConsigne.confirm", child.id);
+          await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, child.id);
+          if (typeof close === "function") {
+            close();
+          }
+          renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
+          return true;
+        },
+        onToggleSr: async (next) => {
+          try {
+            await Schema.updateConsigne(ctx.db, ctx.user.uid, child.id, { srEnabled: next });
+            srEnabled = next;
+            config.srEnabled = srEnabled;
+            child.srEnabled = next;
+            return srEnabled;
+          } catch (err) {
+            console.error(err);
+            showToast("Impossible de mettre à jour la répétition espacée.");
+            return srEnabled;
+          }
+        },
+      };
+      return config;
+    });
+    attachConsigneEditor(parentCard, group.consigne, {
+      variant: "modal",
+      childConsignes: childConfigs,
+    });
     target.appendChild(wrapper);
   };
 
@@ -2758,3 +6089,10 @@ Modes.renderPractice = renderPractice;
 Modes.renderDaily = renderDaily;
 Modes.renderHistory = renderHistory;
 Modes.attachConsignesDragDrop = window.attachConsignesDragDrop;
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    readConsigneCurrentValue,
+    dotColor,
+  };
+}
