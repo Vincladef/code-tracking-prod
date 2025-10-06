@@ -29,13 +29,13 @@
     return null;
   }
 
-  const mkCb = () => {
+  const mkCb = (existingInput) => {
     const w = document.createElement("span");
     w.classList.add("cb-wrap");
     w.setAttribute("data-rich-checkbox-wrapper", "1");
     w.setAttribute("contenteditable", "false");
     w.contentEditable = "false";
-    const i = document.createElement("input");
+    const i = existingInput && isCbInput(existingInput) ? existingInput : document.createElement("input");
     i.setAttribute("type", "checkbox");
     i.type = "checkbox";
     i.setAttribute("data-rich-checkbox", "1");
@@ -53,13 +53,8 @@
     if (!wrap) {
       const parent = input.parentNode;
       const next = input.nextSibling;
-      wrap = document.createElement("span");
-      wrap.classList.add("cb-wrap");
-      wrap.setAttribute("data-rich-checkbox-wrapper", "1");
-      wrap.setAttribute("contenteditable", "false");
-      wrap.contentEditable = "false";
+      wrap = mkCb(input);
       if (parent) parent.insertBefore(wrap, next);
-      wrap.appendChild(input);
     } else {
       wrap.classList.add("cb-wrap");
       wrap.setAttribute("data-rich-checkbox-wrapper", "1");
@@ -81,7 +76,14 @@
     if (!editor) return;
     const checkboxes = Array.from(editor.querySelectorAll('input[type="checkbox"]'));
     checkboxes.forEach((input) => {
-      normalizeCheckbox(input);
+      const wrap = normalizeCheckbox(input);
+      if (!wrap) return;
+      const next = wrap.nextSibling;
+      if (!next || next.nodeType !== 3) {
+        wrap.after(document.createTextNode(" "));
+      } else if (isReallyEmptyText(next.textContent)) {
+        next.textContent = " ";
+      }
     });
   }
 
@@ -217,13 +219,59 @@
     s.removeAllRanges();
     s.addRange(r2);
   }
-  function removeLeading(editor, ctx) {
+  function removeLeadingAndKeepLine(editor, ctx) {
     if (!startsWithCb(ctx)) return false;
     const first = cbRoot(ctx.first);
     if (!first) return false;
+
     const space = first.nextSibling;
-    if (space && space.nodeType === 3 && /^\s$/.test(space.textContent)) space.remove();
+    const anchor = (() => {
+      if (space && space.nodeType === 3 && isReallyEmptyText(space.textContent)) {
+        return space.nextSibling;
+      }
+      return first.nextSibling;
+    })();
+
+    if (space && space.nodeType === 3 && isReallyEmptyText(space.textContent)) space.remove();
     first.remove();
+
+    const sel = window.getSelection();
+    if (!sel) return true;
+    const range = document.createRange();
+
+    if (ctx.mode === "block") {
+      let caretNode = null;
+      if (!ctx.block.textContent || isReallyEmptyText(ctx.block.textContent)) {
+        while (ctx.block.firstChild) ctx.block.removeChild(ctx.block.firstChild);
+        caretNode = document.createTextNode("");
+        ctx.block.appendChild(caretNode);
+      } else {
+        caretNode = ctx.block.lastChild;
+        if (!caretNode || caretNode.nodeType !== 3) {
+          caretNode = document.createTextNode("");
+          ctx.block.appendChild(caretNode);
+        }
+      }
+      range.setStart(caretNode, caretNode.textContent.length);
+    } else {
+      let caretNode = null;
+      if (anchor && anchor.parentNode === editor) {
+        if (anchor.nodeType === 3) {
+          caretNode = anchor;
+        } else {
+          caretNode = document.createTextNode("");
+          editor.insertBefore(caretNode, anchor);
+        }
+      } else {
+        caretNode = document.createTextNode("");
+        editor.appendChild(caretNode);
+      }
+      range.setStart(caretNode, 0);
+    }
+
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
     return true;
   }
   function delAdj(editor, dir) {
@@ -237,14 +285,15 @@
       dir === "back" &&
       ((ctx.mode === "block" && ctx.caretAtStart && startsWithCb(ctx)) ||
         (ctx.mode === "inline" && ctx.caretAtStart && startsWithCb(ctx)))
-    )
-      return removeLeading(editor, ctx);
+    ) {
+      return removeLeadingAndKeepLine(editor, ctx);
+    }
 
     function removeTarget(t, prevNext) {
       const root = cbRoot(t);
       if (root) {
         const nb = root[prevNext];
-        if (nb && nb.nodeType === 3 && /^\s$/.test(nb.textContent)) nb.remove();
+        if (nb && nb.nodeType === 3 && isReallyEmptyText(nb.textContent)) nb.remove();
         root.remove();
         return true;
       }
@@ -258,7 +307,7 @@
       if (dir === "back") {
         if (r.startContainer.nodeType === 3 && r.startOffset > 0) return false;
         let t = cont.previousSibling;
-        if (t && t.nodeType === 3 && /^\s$/.test(t.textContent)) {
+        if (t && t.nodeType === 3 && isReallyEmptyText(t.textContent)) {
           const x = t.previousSibling;
           if (cbRoot(x)) {
             t.remove();
@@ -270,7 +319,7 @@
         if (r.startContainer.nodeType === 3 && r.startOffset < r.startContainer.textContent.length)
           return false;
         let t = cont.nextSibling;
-        if (t && t.nodeType === 3 && /^\s$/.test(t.textContent)) {
+        if (t && t.nodeType === 3 && isReallyEmptyText(t.textContent)) {
           const x = t.nextSibling;
           if (cbRoot(x)) {
             t.remove();
@@ -287,7 +336,7 @@
     if (dir === "back") {
       if (r.startContainer.nodeType === 3 && r.startOffset > 0) return false;
       let t = node.previousSibling;
-      if (t && t.nodeType === 3 && /^\s$/.test(t.textContent)) {
+      if (t && t.nodeType === 3 && isReallyEmptyText(t.textContent)) {
         const x = t.previousSibling;
         if (cbRoot(x)) {
           t.remove();
@@ -299,7 +348,7 @@
       if (r.startContainer.nodeType === 3 && r.startOffset < r.startContainer.textContent.length)
         return false;
       let t = node.nextSibling;
-      if (t && t.nodeType === 3 && /^\s$/.test(t.textContent)) {
+      if (t && t.nodeType === 3 && isReallyEmptyText(t.textContent)) {
         const x = t.nextSibling;
         if (cbRoot(x)) {
           t.remove();
