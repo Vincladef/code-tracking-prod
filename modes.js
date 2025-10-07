@@ -5104,6 +5104,79 @@ async function openHistory(ctx, consigne) {
     return "";
   }
 
+  function detectSummaryNote(row) {
+    if (!row || typeof row !== "object") {
+      return { isSummary: false, scope: "" };
+    }
+    const normalizedStrings = [];
+    const pushString = (value) => {
+      if (typeof value === "string" && value.trim()) {
+        normalizedStrings.push(value.trim().toLowerCase());
+      }
+    };
+    pushString(row.summaryScope);
+    pushString(row.summary_scope);
+    pushString(row.summaryKey);
+    pushString(row.summary_key);
+    pushString(row.summaryLabel);
+    pushString(row.summary_label);
+    pushString(row.summaryMode);
+    pushString(row.summary_mode);
+    pushString(row.summaryPeriod);
+    pushString(row.summary_period);
+    pushString(row.period);
+    pushString(row.periodLabel);
+    pushString(row.period_label);
+    pushString(row.mode);
+    pushString(row.source);
+    pushString(row.origin);
+    pushString(row.context);
+    if (typeof row.key === "string") {
+      pushString(row.key);
+    }
+    const hasSummaryObject =
+      Object.prototype.hasOwnProperty.call(row, "summary") &&
+      row.summary &&
+      typeof row.summary === "object";
+    if (hasSummaryObject) {
+      pushString(row.summary.scope);
+      pushString(row.summary.type);
+      pushString(row.summary.mode);
+      pushString(row.summary.label);
+    }
+    const hasSummaryField =
+      Object.prototype.hasOwnProperty.call(row, "summaryScope") ||
+      Object.prototype.hasOwnProperty.call(row, "summary_scope") ||
+      Object.prototype.hasOwnProperty.call(row, "summaryKey") ||
+      Object.prototype.hasOwnProperty.call(row, "summary_key") ||
+      Object.prototype.hasOwnProperty.call(row, "summaryLabel") ||
+      Object.prototype.hasOwnProperty.call(row, "summary_label") ||
+      Object.prototype.hasOwnProperty.call(row, "summaryMode") ||
+      Object.prototype.hasOwnProperty.call(row, "summary_mode") ||
+      Object.prototype.hasOwnProperty.call(row, "summaryPeriod") ||
+      Object.prototype.hasOwnProperty.call(row, "summary_period") ||
+      hasSummaryObject;
+    const hasSummaryKeyword = normalizedStrings.some(
+      (value) => value.includes("summary") || value.includes("bilan")
+    );
+    const hasWeeklyMarker = normalizedStrings.some(
+      (value) => value.includes("hebdo") || value.includes("weekly") || /\bweek/.test(value)
+    );
+    const hasMonthlyMarker = normalizedStrings.some(
+      (value) => value.includes("mensu") || value.includes("mois") || value.includes("month")
+    );
+    if (!hasSummaryField && !hasSummaryKeyword && !hasWeeklyMarker && !hasMonthlyMarker) {
+      return { isSummary: false, scope: "" };
+    }
+    let scope = "";
+    if (hasMonthlyMarker) scope = "monthly";
+    else if (hasWeeklyMarker) scope = "weekly";
+    return {
+      isSummary: hasSummaryField || hasSummaryKeyword || Boolean(scope),
+      scope,
+    };
+  }
+
   const list = rows
     .map((r) => {
       const createdAtRaw = r.createdAt?.toDate?.() ?? r.createdAt;
@@ -5115,7 +5188,27 @@ async function openHistory(ctx, consigne) {
       const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html" });
       const status = dotColor(consigne.type, r.value);
       const note = r.note && String(r.note).trim();
-      const noteMarkup = note ? `<p class="history-panel__note">${escapeHtml(note)}</p>` : "";
+      const summaryInfo = detectSummaryNote(r);
+      const noteClasses = ["history-panel__note"];
+      let noteDataAttrs = "";
+      let noteBadgeMarkup = "";
+      if (note && summaryInfo.isSummary) {
+        noteClasses.push("history-panel__note--bilan");
+        const scopeLabel =
+          summaryInfo.scope === "monthly"
+            ? "Note de bilan mensuel"
+            : summaryInfo.scope === "weekly"
+            ? "Note de bilan hebdomadaire"
+            : "Note de bilan";
+        noteBadgeMarkup = `<span class="history-panel__note-badge">${escapeHtml(scopeLabel)}</span>`;
+        const scopeAttr = summaryInfo.scope
+          ? ` data-note-scope="${escapeHtml(summaryInfo.scope)}"`
+          : "";
+        noteDataAttrs = ` data-note-source="bilan"${scopeAttr}`;
+      }
+      const noteMarkup = note
+        ? `<p class="${noteClasses.join(" ")}"${noteDataAttrs}>${noteBadgeMarkup}${noteBadgeMarkup ? " " : ""}<span class="history-panel__note-text">${escapeHtml(note)}</span></p>`
+        : "";
       const relativeMarkup = relative ? `<span class="history-panel__meta">${escapeHtml(relative)}</span>` : "";
       const statusLabel = statusLabels[status] || "Valeur";
       const hasFormatted = formattedText && formattedText.trim() && formattedText !== "—";
