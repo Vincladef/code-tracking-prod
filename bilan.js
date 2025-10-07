@@ -348,15 +348,7 @@
     } else {
       row.classList.add("consigne-row--parent");
     }
-    const metaParts = [];
-    if (consigne.summaryMeta?.subtitle) {
-      metaParts.push(consigne.summaryMeta.subtitle);
-    } else if (consigne.summaryCategory) {
-      metaParts.push(consigne.summaryCategory);
-    }
-    const metaHtml = metaParts.length
-      ? `<span class="consigne-row__meta-text text-xs text-[var(--muted)]">${escapeHtml(metaParts.join(" • "))}</span>`
-      : "";
+    const metaHtml = "";
     const descriptionHtml = consigne.summaryMeta?.description
       ? `<p class="consigne-row__description text-sm text-[var(--muted)]">${escapeHtml(consigne.summaryMeta.description)}</p>`
       : "";
