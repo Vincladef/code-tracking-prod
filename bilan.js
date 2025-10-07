@@ -631,17 +631,18 @@
       if (!category.flattened.length) {
         return;
       }
-      const group = document.createElement("section");
+      const group = document.createElement("details");
       group.className = "daily-category__group";
       group.dataset.category = category.label;
       if (family === "objective") {
         group.classList.add("daily-category__group--objective");
       }
-      const header = document.createElement("header");
+      const header = document.createElement("summary");
       header.className = "daily-category__group-header";
       header.innerHTML = `
         <h3 class="daily-category__group-title">${escapeHtml(category.label)}</h3>
         <span class="daily-category__group-count">${category.count} élément${category.count > 1 ? "s" : ""}</span>
+        <span class="daily-category__toggle" aria-hidden="true"></span>
       `;
       const groupItems = document.createElement("div");
       groupItems.className = "daily-category__group-items";
@@ -766,10 +767,6 @@
       mount.appendChild(empty);
       return;
     }
-    const autosaveInfo = document.createElement("p");
-    autosaveInfo.className = "text-xs text-[var(--muted)]";
-    autosaveInfo.textContent = "Chaque réponse est enregistrée automatiquement pour cette période.";
-    mount.appendChild(autosaveInfo);
     const grid = document.createElement("div");
     grid.className = "daily-grid";
     mount.appendChild(grid);

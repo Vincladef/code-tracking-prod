@@ -5682,14 +5682,6 @@ function setBilanRuntimeSettings(settings) {
   return normalized;
 }
 
-function weekdayNameFromIndex(index) {
-  const normalized = normalizeWeekdayIndex(index);
-  const sample = new Date(Date.UTC(2023, 0, 1 + normalized));
-  const raw = DAILY_WEEKDAY_FORMATTER.format(sample) || "";
-  if (!raw) return "";
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
-}
-
 async function loadBilanSettings(ctx) {
   const uid = ctx?.user?.uid;
   if (!uid || !ctx?.db || typeof Schema?.loadModuleSettings !== "function") {
@@ -5923,16 +5915,6 @@ function entryToQuery(entry, basePath, qp) {
   const search = params.toString();
   return `${basePath}${search ? `?${search}` : ""}`;
 }
-function buildSummaryHintText() {
-  const endName = weekdayNameFromIndex(DAILY_WEEK_ENDS_ON);
-  const nextName = weekdayNameFromIndex((DAILY_WEEK_ENDS_ON + 1) % 7);
-  if (!endName || !nextName) {
-    return "Les consignes s’affichent ici à la fin de chaque période pour garder le rythme des bilans.";
-  }
-  const endLower = endName.toLocaleLowerCase("fr-FR");
-  const nextLower = nextName.toLocaleLowerCase("fr-FR");
-  return `Les consignes s’affichent ici entre le ${endLower} de fin de semaine et le ${nextLower} suivant pour conserver le rythme “${endLower} → bilans → ${nextLower}”.`;
-}
 async function appendSummaryCard(container, entry, ctx) {
   if (!(container instanceof HTMLElement) || !entry) return;
   const card = document.createElement("section");
@@ -5949,24 +5931,15 @@ async function appendSummaryCard(container, entry, ctx) {
   if (!isMonthly && entry.weekStart && entry.weekEnd) {
     detailLines.push(`Du ${formatLongDateLabel(entry.weekStart)} au ${formatLongDateLabel(entry.weekEnd)}`);
   }
-  if (isMonthly && entry.weekStart && entry.weekEnd) {
-    detailLines.push(`Point d’ancrage : ${formatWeekRangeLabel(entry.weekStart, entry.weekEnd)}`);
-  }
-  const description = isMonthly
-    ? "Ce bloc regroupe l’ensemble des consignes actives du mois et fait le lien avec les objectifs mensuels ou annuels."
-    : "Ce bloc réunit les consignes de la semaine écoulée : journalier, pratique et objectifs hebdomadaires.";
-  const hintText = buildSummaryHintText();
   card.innerHTML = `
     <header class="daily-summary__header">
       <div class="daily-summary__title"><span class="daily-summary__icon" aria-hidden="true">${icon}</span><span>${escapeHtml(title)}</span></div>
       ${period ? `<div class="daily-summary__meta">${escapeHtml(period)}</div>` : ""}
     </header>
     <div class="daily-summary__body">
-      <p class="daily-summary__text">${escapeHtml(description)}</p>
       ${detailLines.length
         ? `<ul class="daily-summary__details">${detailLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
         : ""}
-      ${hintText ? `<p class="daily-summary__hint">${escapeHtml(hintText)}</p>` : ""}
       <div class="daily-summary__content space-y-4" data-bilan-root>
         <p class="text-sm text-[var(--muted)]">Chargement du bilan…</p>
       </div>
