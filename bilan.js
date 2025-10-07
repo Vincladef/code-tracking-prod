@@ -32,6 +32,26 @@
       .replace(/'/g, "&#39;");
   }
 
+  function stableSerializeValue(input) {
+    if (input === undefined) return "__undefined__";
+    try {
+      return JSON.stringify(input);
+    } catch (error) {
+      return String(input);
+    }
+  }
+
+  function resolveAnswerValue(answer) {
+    if (!answer) return null;
+    if (Object.prototype.hasOwnProperty.call(answer, "value")) {
+      return answer.value;
+    }
+    if (Object.prototype.hasOwnProperty.call(answer || {}, "v")) {
+      return answer.v;
+    }
+    return null;
+  }
+
   function summaryKey(consigne) {
     const family = consigne?.family ? String(consigne.family) : "autre";
     const id = consigne?.id ? String(consigne.id) : "__";
@@ -128,17 +148,59 @@
   function flattenConsigneGroups(groups) {
     const flattened = [];
     groups.forEach((group) => {
-      if (!group) return;
-      if (group.consigne) {
-        flattened.push({ consigne: group.consigne, isChild: false });
-      }
-      if (Array.isArray(group.children) && group.children.length) {
-        group.children.forEach((child) => {
-          flattened.push({ consigne: child, isChild: true });
-        });
-      }
+      if (!group?.consigne) return;
+      const children = Array.isArray(group.children)
+        ? group.children.filter(Boolean)
+        : [];
+      flattened.push({ consigne: group.consigne, children });
     });
     return flattened;
+  }
+
+  function createVirtualChildRow(consigne, initialValue, parentId) {
+    if (typeof Modes.createHiddenConsigneRow === "function") {
+      try {
+        const row = Modes.createHiddenConsigneRow(consigne, { initialValue });
+        if (row) {
+          if (parentId) {
+            row.dataset.parentId = String(parentId);
+          }
+          if (consigne?.family) {
+            row.dataset.family = consigne.family;
+          }
+        }
+        return row;
+      } catch (error) {
+        bilanLogger?.warn?.("bilan.childRow.hidden.create", error);
+      }
+    }
+    const row = document.createElement("div");
+    row.className = "consigne-row consigne-row--child consigne-row--virtual";
+    row.dataset.id = consigne?.id || "";
+    row.dataset.family = consigne?.family || "";
+    if (parentId) {
+      row.dataset.parentId = String(parentId);
+    }
+    const tone = typeof Modes.priorityTone === "function"
+      ? Modes.priorityTone(consigne?.priority)
+      : null;
+    if (tone) {
+      row.dataset.priorityTone = tone;
+    }
+    row.hidden = true;
+    row.style.display = "none";
+    row.setAttribute("aria-hidden", "true");
+    const holder = document.createElement("div");
+    holder.hidden = true;
+    holder.setAttribute("data-consigne-input-holder", "");
+    holder.innerHTML = typeof Modes.inputForType === "function"
+      ? Modes.inputForType(consigne, initialValue)
+      : "";
+    row.appendChild(holder);
+    if (typeof Modes.enhanceRangeMeters === "function") {
+      Modes.enhanceRangeMeters(row);
+    }
+    return row;
   }
 
   function monthKeysForPeriod(period) {
@@ -373,9 +435,7 @@
       <div class="consigne-row__body" data-consigne-input-holder></div>
     `;
     const holder = row.querySelector("[data-consigne-input-holder]");
-    const initialValue = previous && Object.prototype.hasOwnProperty.call(previous, "value")
-      ? previous.value
-      : previous?.v ?? null;
+    const initialValue = resolveAnswerValue(previous);
     if (holder) {
       holder.innerHTML = typeof Modes.inputForType === "function"
         ? Modes.inputForType(consigne, initialValue)
@@ -385,19 +445,11 @@
       }
     }
     if (typeof Modes.bindConsigneRowValue === "function") {
-      const stableSerialize = (input) => {
-        if (input === undefined) return "__undefined__";
-        try {
-          return JSON.stringify(input);
-        } catch (error) {
-          return String(input);
-        }
-      };
-      let lastSerialized = stableSerialize(initialValue);
+      let lastSerialized = stableSerializeValue(initialValue);
       Modes.bindConsigneRowValue(row, consigne, {
         initialValue,
         onChange: (value) => {
-          const serialized = stableSerialize(value);
+          const serialized = stableSerializeValue(value);
           if (serialized === lastSerialized) {
             return;
           }
@@ -433,9 +485,51 @@
       slice.forEach((entry) => {
         const key = summaryKey(entry.consigne);
         const previous = answersMap.get(key) || null;
+        const childConsignes = Array.isArray(entry.children)
+          ? entry.children.filter(Boolean)
+          : [];
+        const childConfigs = childConsignes.map((child) => {
+          const childKey = summaryKey(child);
+          const childPrevious = answersMap.get(childKey) || null;
+          const childInitialValue = resolveAnswerValue(childPrevious);
+          const parentId = entry.consigne?.id || null;
+          const childRow = createVirtualChildRow(child, childInitialValue, parentId);
+          if (childRow && typeof Modes.bindConsigneRowValue === "function") {
+            let lastChildSerialized = stableSerializeValue(childInitialValue);
+            Modes.bindConsigneRowValue(childRow, child, {
+              initialValue: childInitialValue,
+              onChange: (value) => {
+                const serialized = stableSerializeValue(value);
+                if (serialized === lastChildSerialized) {
+                  return;
+                }
+                lastChildSerialized = serialized;
+                if (typeof options.onChange === "function") {
+                  options.onChange(value, {
+                    consigne: child,
+                    row: childRow,
+                    key: childKey,
+                    parentConsigne: entry.consigne,
+                  });
+                }
+              },
+            });
+          }
+          return { consigne: child, row: childRow };
+        });
+        const baseEditorConfig = typeof options.editorConfig === "function"
+          ? options.editorConfig(entry.consigne, childConfigs)
+          : options.editorConfig || {};
+        const editorConfig = {
+          ...baseEditorConfig,
+          childConsignes: [
+            ...((Array.isArray(baseEditorConfig.childConsignes) && baseEditorConfig.childConsignes) || []),
+            ...childConfigs,
+          ],
+        };
         const row = createConsigneRow(entry.consigne, {
           previous,
-          isChild: entry.isChild,
+          editorConfig,
           onChange: (value, ctx) => {
             if (typeof options.onChange === "function") {
               options.onChange(value, { ...ctx, key });
@@ -464,7 +558,10 @@
     const section = document.createElement("section");
     section.className = "daily-category daily-grid__item";
     const label = FAMILY_LABELS[family] || family;
-    const count = flattened.length;
+    const count = groups.reduce((acc, group) => {
+      const childrenCount = Array.isArray(group?.children) ? group.children.length : 0;
+      return acc + 1 + childrenCount;
+    }, 0);
     section.innerHTML = `
       <div class="daily-category__header">
         <div class="daily-category__name">${escapeHtml(label)}</div>
