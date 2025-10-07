@@ -752,8 +752,15 @@
     .daily-category__group-header {
       display:flex;
       align-items:center;
-      justify-content:space-between;
+      justify-content:flex-start;
       gap:.65rem;
+      cursor:pointer;
+      list-style:none;
+      padding:0;
+    }
+    .daily-category__group-header::-webkit-details-marker,
+    .daily-category__group-header::marker {
+      display:none;
     }
     .daily-category__group-title {
       margin:0;
@@ -768,6 +775,23 @@
       letter-spacing:.1em;
       font-weight:600;
       color:var(--muted);
+      margin-left:auto;
+    }
+    .daily-category__toggle {
+      flex:0 0 auto;
+      width:.75rem;
+      height:.75rem;
+      border-right:2px solid currentColor;
+      border-bottom:2px solid currentColor;
+      transform:rotate(-45deg);
+      transition:transform .2s ease, opacity .2s ease;
+      margin-left:.6rem;
+      opacity:.65;
+      color:rgba(15,23,42,.55);
+    }
+    .daily-category__group[open] .daily-category__toggle {
+      transform:rotate(45deg);
+      opacity:.9;
     }
     .daily-category__group-items {
       display:grid;
@@ -787,6 +811,9 @@
     .daily-category__group--objective .daily-category__group-count {
       color:rgba(30,64,175,.7);
     }
+    .daily-category__group--objective .daily-category__toggle {
+      color:rgba(30,64,175,.6);
+    }
     .daily-category--practice .daily-category__group {
       border-color:rgba(34,197,94,.24);
       background:rgba(240,253,244,.94);
@@ -801,6 +828,9 @@
     .daily-category--practice .daily-category__group-count {
       color:rgba(22,101,52,.66);
     }
+    .daily-category--practice .daily-category__toggle {
+      color:rgba(22,101,52,.55);
+    }
     .daily-category--daily .daily-category__group {
       border-color:rgba(14,165,233,.22);
       background:rgba(240,249,255,.94);
@@ -814,6 +844,9 @@
     }
     .daily-category--daily .daily-category__group-count {
       color:rgba(12,74,110,.62);
+    }
+    .daily-category--daily .daily-category__toggle {
+      color:rgba(12,74,110,.58);
     }
     .daily-category__low {
       margin-top:.2rem;
