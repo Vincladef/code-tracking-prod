@@ -634,6 +634,9 @@
       const group = document.createElement("details");
       group.className = "daily-category__group";
       group.dataset.category = category.label;
+      if (family !== "practice") {
+        group.setAttribute("open", "");
+      }
       if (family === "objective") {
         group.classList.add("daily-category__group--objective");
       }
