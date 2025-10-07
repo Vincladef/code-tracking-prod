@@ -363,8 +363,10 @@
     row.innerHTML = `
       <div class="consigne-row__header">
         <div class="consigne-row__main">
-          <span class="consigne-row__title">${escapeHtml(consigne.text)}</span>
-          ${typeof Modes.prioChip === "function" ? Modes.prioChip(Number(consigne.priority) || 2) : ""}
+          <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
+            <span class="consigne-row__title">${escapeHtml(consigne.text)}</span>
+            ${typeof Modes.prioChip === "function" ? Modes.prioChip(Number(consigne.priority) || 2) : ""}
+          </button>
         </div>
         <div class="consigne-row__meta">
           <span class="consigne-row__status" data-status="na">
@@ -413,6 +415,13 @@
           }
         },
       });
+    }
+    if (typeof Modes.attachConsigneEditor === "function") {
+      try {
+        Modes.attachConsigneEditor(row, consigne, options.editorConfig || {});
+      } catch (error) {
+        bilanLogger?.warn?.("bilan.attachConsigneEditor", error);
+      }
     }
     return row;
   }
