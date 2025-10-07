@@ -6538,6 +6538,7 @@ Modes.priorityTone = priorityTone;
 Modes.prioChip = prioChip;
 Modes.showToast = showToast;
 Modes.bindConsigneRowValue = bindConsigneRowValue;
+Modes.attachConsigneEditor = attachConsigneEditor;
 Modes.hasValueForConsigne = hasValueForConsigne;
 
 if (typeof module !== "undefined" && module.exports) {
