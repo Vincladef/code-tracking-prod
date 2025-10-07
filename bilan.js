@@ -16,11 +16,24 @@
     groupEnd: () => {},
   };
 
-  const FAMILY_ORDER = ["daily", "practice", "objective"];
+  const FAMILY_ORDER = ["objective", "daily", "practice"];
   const FAMILY_LABELS = {
     daily: "Journalier",
     practice: "Pratique",
     objective: "Objectifs",
+  };
+  const FAMILY_DECOR = {
+    daily: {
+      icon: "🗓️",
+    },
+    practice: {
+      icon: "🛠️",
+      intro: "Classées par catégorie pour un suivi plus précis.",
+    },
+    objective: {
+      icon: "🎯",
+      intro: "Ce qui compte le plus pour cette période.",
+    },
   };
 
   function escapeHtml(str) {
@@ -551,33 +564,93 @@
   function buildFamilySection(container, family, data, answersMap, options = {}) {
     const items = Array.isArray(data) ? data : [];
     const sorted = sortConsignes(items);
-    const groups = typeof Modes.groupConsignes === "function"
+    const grouped = typeof Modes.groupConsignes === "function"
       ? Modes.groupConsignes(sorted)
       : sorted.map((consigne) => ({ consigne, children: [] }));
-    const flattened = flattenConsigneGroups(groups);
+    const categoriesOrder = [];
+    const categoriesMap = new Map();
+    grouped.forEach((entry) => {
+      const rawLabel = (entry?.consigne?.summaryCategory || entry?.consigne?.category || "Général").trim();
+      const categoryLabel = rawLabel || "Général";
+      let bucket = categoriesMap.get(categoryLabel);
+      if (!bucket) {
+        bucket = { label: categoryLabel, groups: [] };
+        categoriesMap.set(categoryLabel, bucket);
+        categoriesOrder.push(bucket);
+      }
+      bucket.groups.push(entry);
+    });
+    const processedCategories = categoriesOrder.map((category) => {
+      const flattened = flattenConsigneGroups(category.groups);
+      const count = category.groups.reduce((acc, group) => {
+        const childrenCount = Array.isArray(group?.children) ? group.children.length : 0;
+        return acc + 1 + childrenCount;
+      }, 0);
+      return { ...category, flattened, count };
+    });
+    const totalCount = processedCategories.reduce((acc, category) => acc + category.count, 0);
+    if (!totalCount) {
+      return;
+    }
     const section = document.createElement("section");
     section.className = "daily-category daily-grid__item";
+    if (family) {
+      section.classList.add(`daily-category--${family}`);
+    }
+    section.dataset.family = family || "";
     const label = FAMILY_LABELS[family] || family;
-    const count = groups.reduce((acc, group) => {
-      const childrenCount = Array.isArray(group?.children) ? group.children.length : 0;
-      return acc + 1 + childrenCount;
-    }, 0);
+    const decor = FAMILY_DECOR[family] || {};
+    const iconHtml = decor.icon
+      ? `<span class="daily-category__icon" aria-hidden="true">${escapeHtml(decor.icon)}</span>`
+      : "";
     section.innerHTML = `
       <div class="daily-category__header">
-        <div class="daily-category__name">${escapeHtml(label)}</div>
-        <span class="daily-category__count">${count} consigne${count > 1 ? "s" : ""}</span>
+        <div class="daily-category__name">
+          ${iconHtml}
+          <span class="daily-category__title-text">${escapeHtml(label)}</span>
+        </div>
+        <span class="daily-category__count">${totalCount} consigne${totalCount > 1 ? "s" : ""}</span>
       </div>
     `;
+    if (decor.intro) {
+      const intro = document.createElement("p");
+      intro.className = "daily-category__intro";
+      intro.textContent = decor.intro;
+      section.appendChild(intro);
+    }
     const stack = document.createElement("div");
     stack.className = "daily-category__items";
     section.appendChild(stack);
     container.appendChild(section);
-    renderItemsInChunks(stack, flattened, answersMap, {
-      onChange: (value, ctx) => {
-        if (typeof options.onValueChange === "function") {
-          options.onValueChange(ctx.consigne, value, ctx.row, ctx.key);
-        }
-      },
+    const handleValueChange = (value, ctx) => {
+      if (typeof options.onValueChange === "function") {
+        options.onValueChange(ctx.consigne, value, ctx.row, ctx.key);
+      }
+    };
+    processedCategories.forEach((category) => {
+      if (!category.flattened.length) {
+        return;
+      }
+      const group = document.createElement("section");
+      group.className = "daily-category__group";
+      group.dataset.category = category.label;
+      if (family === "objective") {
+        group.classList.add("daily-category__group--objective");
+      }
+      const header = document.createElement("header");
+      header.className = "daily-category__group-header";
+      header.innerHTML = `
+        <h3 class="daily-category__group-title">${escapeHtml(category.label)}</h3>
+        <span class="daily-category__group-count">${category.count} élément${category.count > 1 ? "s" : ""}</span>
+      `;
+      const groupItems = document.createElement("div");
+      groupItems.className = "daily-category__group-items";
+      group.appendChild(header);
+      group.appendChild(groupItems);
+      stack.appendChild(group);
+      renderItemsInChunks(groupItems, category.flattened, answersMap, {
+        onChange: handleValueChange,
+      });
     });
   }
 
