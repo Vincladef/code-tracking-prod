@@ -5665,15 +5665,10 @@ function renderHistoryChart(data, { type, mode } = {}) {
           const recordedAt = point.recordedAt instanceof Date && !Number.isNaN(point.recordedAt.getTime())
             ? point.recordedAt
             : null;
-          const tooltipLabel = useIterationAxis ? iterationText : dateLabel;
+          const tooltipLabel = dateLabel || iterationText;
           const metaParts = [];
-          if (useIterationAxis) {
-            if (dateLabel) metaParts.push(dateLabel);
-          } else {
-            if (iterationText) metaParts.push(iterationText);
-            if (historyMode === "daily" && recordedAt && (!point.date || recordedAt.getTime() !== point.date.getTime())) {
-              metaParts.push(`Enregistré le ${recordedMetaFormatter.format(recordedAt)}`);
-            }
+          if (iterationText && tooltipLabel !== iterationText) {
+            metaParts.push(iterationText);
           }
           const tooltipMeta = metaParts.join(" · ");
           const valueLabel = formatHistoryChartValue(type, point.value);
@@ -6276,14 +6271,12 @@ async function openHistory(ctx, consigne, options = {}) {
       }
       case "7d": {
         const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
-        const startOfWeek = new Date(anchor);
-        startOfWeek.setHours(0, 0, 0, 0);
-        const day = startOfWeek.getDay();
-        const diffToMonday = (day + 6) % 7;
-        startOfWeek.setDate(startOfWeek.getDate() - diffToMonday + normalizedOffset * 7);
-        const endOfWeek = new Date(startOfWeek.getTime() + 7 * DAY_MS);
-        const filtered = sortedAsc.filter((pt) => pt.date >= startOfWeek && pt.date < endOfWeek);
-        return buildResult(filtered, { start: startOfWeek, end: endOfWeek }, { axis: "week" });
+        anchor.setHours(0, 0, 0, 0);
+        const startOfWindow = new Date(anchor);
+        startOfWindow.setDate(startOfWindow.getDate() - 6 + normalizedOffset * 7);
+        const endOfWindow = new Date(startOfWindow.getTime() + 7 * DAY_MS);
+        const filtered = sortedAsc.filter((pt) => pt.date >= startOfWindow && pt.date < endOfWindow);
+        return buildResult(filtered, { start: startOfWindow, end: endOfWindow }, { axis: "rolling7d" });
       }
       case "30d": {
         const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
@@ -6573,6 +6566,16 @@ async function openHistory(ctx, consigne, options = {}) {
     const end = result.range.end instanceof Date && !Number.isNaN(result.range.end.getTime()) ? result.range.end : null;
     if (!start || !end) return "";
     const axis = typeof result.axis === "string" ? result.axis.toLowerCase() : "";
+    if (axis === "rolling7d") {
+      let inclusiveEnd = new Date(end.getTime() - 86400000);
+      if (inclusiveEnd < start) {
+        inclusiveEnd = new Date(start);
+      }
+      const sameYear = start.getFullYear() === inclusiveEnd.getFullYear();
+      const startLabel = `${weekRangeFormatter.format(start)}${sameYear ? "" : ` ${yearRangeFormatter.format(start)}`}`;
+      const endLabel = `${weekRangeFormatter.format(inclusiveEnd)} ${yearRangeFormatter.format(inclusiveEnd)}`;
+      return `Du ${startLabel} au ${endLabel}`;
+    }
     if (axis === "week") {
       let inclusiveEnd = new Date(end.getTime() - 86400000);
       if (inclusiveEnd < start) {
