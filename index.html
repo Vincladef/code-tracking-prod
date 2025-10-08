@@ -1764,12 +1764,18 @@
     .history-panel__chart-point{ --history-point-color:#2563eb; outline:none; cursor:default; }
     .history-panel__chart-point-hit{ fill:var(--history-point-color); opacity:0; transition:opacity .15s ease; pointer-events:all; }
     .history-panel__chart-point-node{ fill:var(--history-point-color); transition:transform .15s ease, stroke-width .15s ease, filter .15s ease; }
+    .history-panel__chart-point-summary-ring{ stroke:var(--history-point-color); stroke-width:2.5; opacity:.8; transition:opacity .15s ease, transform .15s ease; }
+    .history-panel__chart-point--summary .history-panel__chart-point-node{ fill:#fff; stroke:var(--history-point-color); stroke-width:2.5; }
+    .history-panel__chart-point--summary .history-panel__chart-point-summary-ring{ opacity:1; }
     .history-panel__chart-point.is-active .history-panel__chart-point-hit,
     .history-panel__chart-point:focus-visible .history-panel__chart-point-hit,
     .history-panel__chart-point:hover .history-panel__chart-point-hit{ opacity:.18; }
     .history-panel__chart-point.is-active .history-panel__chart-point-node,
     .history-panel__chart-point:focus-visible .history-panel__chart-point-node,
     .history-panel__chart-point:hover .history-panel__chart-point-node{ transform:scale(1.2); stroke-width:2.5; filter:drop-shadow(0 0 6px rgba(37,99,235,0.35)); }
+    .history-panel__chart-point.is-active .history-panel__chart-point-summary-ring,
+    .history-panel__chart-point:focus-visible .history-panel__chart-point-summary-ring,
+    .history-panel__chart-point:hover .history-panel__chart-point-summary-ring{ opacity:1; transform:scale(1.05); }
     .history-panel__chart-point:focus-visible{ outline:none; }
     .history-panel__chart-tooltip{ position:absolute; top:0; left:0; transform:translate(-50%, calc(-100% - 12px)); background:#0f172a; color:#fff; border-radius:.75rem; padding:.55rem .75rem; font-size:.75rem; line-height:1.4; box-shadow:0 12px 28px rgba(15,23,42,0.24); pointer-events:none; opacity:0; transition:opacity .15s ease, transform .15s ease; z-index:5; min-width:9rem; }
     .history-panel__chart-tooltip.is-visible{ opacity:1; transform:translate(-50%, calc(-100% - 18px)); }

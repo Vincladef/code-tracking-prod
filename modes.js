@@ -5225,7 +5225,38 @@ function renderHistoryChart(data, { type } = {}) {
             entry.value !== undefined &&
             Number.isFinite(Number(entry.value))
         )
-        .map((entry) => ({ date: new Date(entry.date), value: Number(entry.value) }))
+        .map((entry) => {
+          const rawScope =
+            typeof entry.summaryScope === "string"
+              ? entry.summaryScope
+              : typeof entry.summary_scope === "string"
+              ? entry.summary_scope
+              : "";
+          const normalizedScope = rawScope.trim().toLowerCase();
+          let summaryScope = "";
+          if (normalizedScope.includes("mensu") || normalizedScope.includes("month")) {
+            summaryScope = "monthly";
+          } else if (
+            normalizedScope.includes("hebdo") ||
+            normalizedScope.includes("week") ||
+            /\bhebdomadaire\b/.test(normalizedScope)
+          ) {
+            summaryScope = "weekly";
+          } else if (normalizedScope.includes("bilan") || normalizedScope.includes("summary")) {
+            summaryScope = "";
+          }
+          const hasSummaryFlag =
+            Boolean(entry.isSummary) ||
+            Boolean(summaryScope) ||
+            normalizedScope.includes("bilan") ||
+            normalizedScope.includes("summary");
+          return {
+            date: new Date(entry.date),
+            value: Number(entry.value),
+            isSummary: hasSummaryFlag,
+            summaryScope,
+          };
+        })
     : [];
 
   const sorted = sanitizedPoints.slice().sort((a, b) => a.date - b.date);
@@ -5488,6 +5519,8 @@ function renderHistoryChart(data, { type } = {}) {
       date: entry.date,
       value: entry.value,
       iteration: index + 1,
+      isSummary: Boolean(entry.isSummary),
+      summaryScope: typeof entry.summaryScope === "string" ? entry.summaryScope : "",
     };
   });
 
@@ -5581,23 +5614,47 @@ function renderHistoryChart(data, { type } = {}) {
           const tooltipLabel = useIterationAxis ? iterationText : dateLabel;
           const tooltipMeta = useIterationAxis ? dateLabel : iterationText;
           const valueLabel = formatHistoryChartValue(type, point.value);
-          const titleParts = [tooltipLabel, valueLabel, tooltipMeta].filter(Boolean);
+          const isSummaryPoint = Boolean(point.isSummary);
+          const summaryScope = typeof point.summaryScope === "string" ? point.summaryScope : "";
+          const summaryLabel =
+            summaryScope === "monthly"
+              ? "Bilan mensuel"
+              : summaryScope === "weekly"
+              ? "Bilan hebdomadaire"
+              : isSummaryPoint
+              ? "Bilan"
+              : "";
+          const titleParts = [summaryLabel, tooltipLabel, valueLabel, tooltipMeta].filter(Boolean);
           const titleTag = titleParts.length
             ? `<title>${escapeHtml(titleParts.join(" · "))}</title>`
             : "";
           const labelAttr = tooltipLabel ? ` data-point-label="${escapeHtml(tooltipLabel)}"` : "";
           const valueAttr = valueLabel ? ` data-point-value="${escapeHtml(valueLabel)}"` : "";
           const metaAttr = tooltipMeta ? ` data-point-meta="${escapeHtml(tooltipMeta)}"` : "";
-          const ariaParts = [tooltipLabel, valueLabel, tooltipMeta].filter(Boolean);
+          const ariaParts = [summaryLabel, tooltipLabel, valueLabel, tooltipMeta].filter(Boolean);
           const ariaAttr = ariaParts.length ? ` aria-label="${escapeHtml(ariaParts.join(" — "))}"` : "";
+          const summaryAttrs = isSummaryPoint
+            ? ` data-summary="1"${summaryScope ? ` data-summary-scope="${escapeHtml(summaryScope)}"` : ""}`
+            : "";
+          const pointClasses = ["history-panel__chart-point"];
+          if (isSummaryPoint) {
+            pointClasses.push("history-panel__chart-point--summary");
+          }
           return `
-            <g class="history-panel__chart-point" tabindex="0"${labelAttr}${valueAttr}${metaAttr}${ariaAttr} style="--history-point-color:${escapeHtml(
+            <g class="${pointClasses.join(" ")}" tabindex="0"${labelAttr}${valueAttr}${metaAttr}${ariaAttr}${summaryAttrs} style="--history-point-color:${escapeHtml(
               colorPalette.circle
             )};">
               ${titleTag}
               <circle class="history-panel__chart-point-hit" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(
             2
           )}" r="11" fill="${escapeHtml(colorPalette.circle)}" fill-opacity="0.001" stroke="transparent"></circle>
+              ${
+                isSummaryPoint
+                  ? `<circle class="history-panel__chart-point-summary-ring" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(
+                      2
+                    )}" r="8" stroke="${escapeHtml(colorPalette.circle)}" stroke-width="2.5" fill="none"></circle>`
+                  : ""
+              }
               <circle class="history-panel__chart-point-node" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(
             2
           )}" r="5.5" fill="${escapeHtml(colorPalette.circle)}" stroke="#fff" stroke-width="2"></circle>
@@ -6064,7 +6121,12 @@ async function openHistory(ctx, consigne, options = {}) {
       const hasFormatted = formattedText && formattedText.trim() && formattedText !== "—";
       const formattedMarkup = hasFormatted ? formattedHtml : escapeHtml(consigne.type === "info" ? "" : "—");
       if (createdAt && numericValue !== null && !Number.isNaN(numericValue)) {
-        chartPoints.push({ date: createdAt, value: Number(numericValue) });
+        chartPoints.push({
+          date: createdAt,
+          value: Number(numericValue),
+          isSummary: Boolean(summaryInfo.isSummary),
+          summaryScope: summaryInfo.scope || "",
+        });
       }
       const summaryAttr = summaryInfo.isSummary
         ? ` data-summary="1"${summaryInfo.scope ? ` data-summary-scope="${escapeHtml(summaryInfo.scope)}"` : ""}`
