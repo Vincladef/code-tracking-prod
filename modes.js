@@ -549,6 +549,22 @@ const LIKERT6_LABELS = {
 
 const NOTE_IGNORED_VALUES = new Set(["no_answer"]);
 
+function likert6NumericPoint(value) {
+  if (!value) return null;
+  const index = LIKERT6_ORDER.indexOf(String(value));
+  if (index === -1) return null;
+  return index;
+}
+
+function numericPoint(type, value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (type === "likert6") {
+    return likert6NumericPoint(value);
+  }
+  const point = Schema.valueToNumericPoint(type, value);
+  return Number.isFinite(point) ? point : null;
+}
+
 function formatConsigneValue(type, value, options = {}) {
   const wantsHtml = options.mode === "html";
   if (type === "info") return "";
@@ -747,22 +763,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (type === "short") return "Texte court";
     if (type === "info") return "";
     return "Libre";
-  }
-
-  function likert6NumericPoint(value) {
-    if (!value) return null;
-    const index = LIKERT6_ORDER.indexOf(String(value));
-    if (index === -1) return null;
-    return index;
-  }
-
-  function numericPoint(type, value) {
-    if (value === null || value === undefined || value === "") return null;
-    if (type === "likert6") {
-      return likert6NumericPoint(value);
-    }
-    const point = Schema.valueToNumericPoint(type, value);
-    return Number.isFinite(point) ? point : null;
   }
 
   function normalizeScore(type, value) {
