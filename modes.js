@@ -5298,13 +5298,22 @@ function renderHistoryChart(data, { type } = {}) {
 
   const chartWidth = 640;
   const chartHeight = 200;
-  const padding = 28;
-  const innerWidth = chartWidth - padding * 2;
-  const innerHeight = chartHeight - padding * 2;
+  const basePadding = 28;
+  const paddingTop = basePadding;
+  const paddingRight = basePadding;
+  const paddingLeft = basePadding;
+  const minBottomPadding = 8;
+  let paddingBottom = basePadding;
+  if (type === "likert6" && min === 0) {
+    paddingBottom = minBottomPadding;
+  }
+  const innerWidth = chartWidth - paddingLeft - paddingRight;
+  const innerHeight = chartHeight - paddingTop - paddingBottom;
   const axisDuration = axisStart && axisEnd ? axisEnd.getTime() - axisStart.getTime() : 0;
   const axisMarkers = [];
-  const axisOffsetPercent = (padding / chartWidth) * 100;
+  const axisOffsetPercent = (paddingLeft / chartWidth) * 100;
   const axisRangePercent = (innerWidth / chartWidth) * 100;
+  const axisRightOffsetPercent = (paddingRight / chartWidth) * 100;
   if (useIterationAxis) {
     const totalPoints = sorted.length;
     if (totalPoints > 0) {
@@ -5471,8 +5480,8 @@ function renderHistoryChart(data, { type } = {}) {
       ratio = sorted.length === 1 ? 0.5 : index / Math.max(sorted.length - 1, 1);
     }
     const normalized = range === 0 ? 0.5 : (entry.value - min) / range;
-    const x = padding + ratio * innerWidth;
-    const y = padding + (1 - normalized) * innerHeight;
+    const x = paddingLeft + ratio * innerWidth;
+    const y = paddingTop + (1 - normalized) * innerHeight;
     return {
       x,
       y,
@@ -5489,9 +5498,9 @@ function renderHistoryChart(data, { type } = {}) {
       .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
       .join(" ");
   } else {
-    const startX = padding.toFixed(2);
-    const endX = (padding + innerWidth).toFixed(2);
-    const baselineY = (padding + innerHeight).toFixed(2);
+    const startX = paddingLeft.toFixed(2);
+    const endX = (paddingLeft + innerWidth).toFixed(2);
+    const baselineY = (paddingTop + innerHeight).toFixed(2);
     linePath = `M${startX},${baselineY} L${endX},${baselineY}`;
   }
 
@@ -5510,6 +5519,7 @@ function renderHistoryChart(data, { type } = {}) {
   if (hasLikertScale) {
     figureClasses.push("history-panel__chart-figure--with-scale");
   }
+  const figureStyleAttr = ` style="--history-chart-padding-top:${paddingTop}px; --history-chart-padding-right:${paddingRight}px; --history-chart-padding-bottom:${paddingBottom}px; --history-chart-padding-left:${paddingLeft}px;"`;
 
   const axisLines = axisMarkers
     .filter(
@@ -5519,7 +5529,7 @@ function renderHistoryChart(data, { type } = {}) {
         (marker.type === "month" || marker.type === "week" || marker.type === "day")
     )
     .map((marker) => {
-      const x = padding + marker.ratio * innerWidth;
+      const x = paddingLeft + marker.ratio * innerWidth;
       let stroke = "rgba(148,163,184,0.2)";
       let dash = "";
       if (marker.type === "month") {
@@ -5529,9 +5539,9 @@ function renderHistoryChart(data, { type } = {}) {
       } else if (marker.type === "day") {
         stroke = "rgba(148,163,184,0.18)";
       }
-      return `<line x1="${x.toFixed(2)}" y1="${padding}" x2="${x.toFixed(2)}" y2="${(padding + innerHeight).toFixed(
-        2
-      )}" stroke="${stroke}" stroke-width="1"${dash}></line>`;
+      const yStart = paddingTop.toFixed(2);
+      const yEnd = (paddingTop + innerHeight).toFixed(2);
+      return `<line x1="${x.toFixed(2)}" y1="${yStart}" x2="${x.toFixed(2)}" y2="${yEnd}" stroke="${stroke}" stroke-width="1"${dash}></line>`;
     })
     .join("");
 
@@ -5597,8 +5607,7 @@ function renderHistoryChart(data, { type } = {}) {
         .join("")
     : "";
 
-  const axisTrackStyle = `left:${axisOffsetPercent.toFixed(2)}%; right:${axisOffsetPercent
-    .toFixed(2)}%`;
+  const axisTrackStyle = `left:${axisOffsetPercent.toFixed(2)}%; right:${axisRightOffsetPercent.toFixed(2)}%`;
 
   return `
     <div class="history-panel__chart"${averageStatus ? ` data-average-status="${escapeHtml(averageStatus)}"` : ""}>
@@ -5610,7 +5619,7 @@ function renderHistoryChart(data, { type } = {}) {
         <span>${escapeHtml(minLabel)}</span>
         <span>${escapeHtml(maxLabel)}</span>
       </div>
-      <figure class="${figureClasses.join(" ")}">
+      <figure class="${figureClasses.join(" ")}"${figureStyleAttr}>
         ${hasLikertScale ? `<div class="history-panel__chart-scale">${likertScaleMarkup}</div>` : ""}
         <div class="history-panel__chart-canvas">
           <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Évolution des réponses enregistrées">
