@@ -5412,6 +5412,14 @@ function renderHistoryChart(data, { type } = {}) {
     );
   }
 
+  const pointLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
   const coords = sorted.map((entry, index) => {
     let ratio;
     if (axisStart && axisEnd && axisEnd > axisStart) {
@@ -5423,7 +5431,7 @@ function renderHistoryChart(data, { type } = {}) {
     const normalized = range === 0 ? 0.5 : (entry.value - min) / range;
     const x = padding + ratio * innerWidth;
     const y = padding + (1 - normalized) * innerHeight;
-    return { x, y };
+    return { x, y, date: entry.date };
   });
 
   const hasCoords = coords.length > 0;
@@ -5504,10 +5512,12 @@ function renderHistoryChart(data, { type } = {}) {
 
   const circles = hasCoords
     ? coords
-        .map(
-          (point) =>
-            `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" fill="${escapeHtml(colorPalette.circle)}" stroke="#fff" stroke-width="1.5"></circle>`
-        )
+        .map((point) => {
+          const hasValidDate = point.date instanceof Date && !Number.isNaN(point.date.getTime());
+          const dateLabel = hasValidDate ? pointLabelFormatter.format(point.date) : "";
+          const titleTag = dateLabel ? `<title>${escapeHtml(dateLabel)}</title>` : "";
+          return `<g class="history-panel__chart-point">${titleTag}<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" fill="${escapeHtml(colorPalette.circle)}" stroke="#fff" stroke-width="1.5"></circle></g>`;
+        })
         .join("")
     : "";
 
