@@ -5247,6 +5247,7 @@ function renderHistoryChart(data, { type } = {}) {
   const axisHint = typeof dataset.axis === "string" ? dataset.axis : "";
   const normalizedAxisHint = axisHint.toLowerCase();
   const dayMs = 86400000;
+  let axisMode = "";
   if (axisStart && axisEnd && axisEnd > axisStart) {
     const shouldAlignToMonth = !validRangeStart && !validRangeEnd && normalizedAxisHint === "month";
     const shouldAlignToYear = !validRangeStart && !validRangeEnd && normalizedAxisHint === "year";
@@ -5373,7 +5374,6 @@ function renderHistoryChart(data, { type } = {}) {
     };
 
     const normalizedHint = normalizedAxisHint;
-    let axisMode = "";
     if (normalizedHint === "year" || normalizedHint === "month" || normalizedHint === "week") {
       axisMode = normalizedHint;
     } else {
@@ -5423,7 +5423,13 @@ function renderHistoryChart(data, { type } = {}) {
   const coords = sorted.map((entry, index) => {
     let ratio;
     if (axisStart && axisEnd && axisEnd > axisStart) {
-      const clampedTime = Math.min(Math.max(entry.date.getTime(), axisStart.getTime()), axisEnd.getTime());
+      let normalizedTime = entry.date.getTime();
+      if (axisMode === "week") {
+        const aligned = new Date(entry.date);
+        aligned.setHours(0, 0, 0, 0);
+        normalizedTime = aligned.getTime();
+      }
+      const clampedTime = Math.min(Math.max(normalizedTime, axisStart.getTime()), axisEnd.getTime());
       ratio = (clampedTime - axisStart.getTime()) / (axisEnd.getTime() - axisStart.getTime());
     } else {
       ratio = sorted.length === 1 ? 0.5 : index / Math.max(sorted.length - 1, 1);
