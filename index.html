@@ -1748,7 +1748,21 @@
     .history-panel__chart-values{ display:flex; align-items:center; justify-content:space-between; font-size:.75rem; color:#475569; text-transform:uppercase; letter-spacing:.08em; }
     .history-panel__chart-figure{ margin:0; }
     .history-panel__chart svg{ width:100%; height:auto; display:block; }
-    .history-panel__chart-axis{ display:flex; align-items:center; justify-content:space-between; font-size:.75rem; color:#475569; }
+    .history-panel__chart-axis{ position:relative; min-height:2.5rem; padding-top:.75rem; font-size:.7rem; color:#475569; }
+    .history-panel__chart-axis-track{ position:absolute; left:0; right:0; bottom:.85rem; height:1px; background:rgba(148,163,184,0.35); }
+    .history-panel__chart-axis-marker{ position:absolute; bottom:.2rem; display:flex; flex-direction:column; align-items:center; gap:.25rem; transform:translateX(-50%); pointer-events:none; text-transform:uppercase; letter-spacing:.08em; }
+    .history-panel__chart-axis-marker--start{ transform:translateX(0); align-items:flex-start; }
+    .history-panel__chart-axis-marker--end{ transform:translateX(-100%); align-items:flex-end; }
+    .history-panel__chart-axis-tick{ display:block; width:1px; height:.55rem; background:rgba(148,163,184,0.4); border-radius:999px; }
+    .history-panel__chart-axis-label{ display:block; white-space:nowrap; font-weight:500; }
+    .history-panel__chart-axis-marker--month .history-panel__chart-axis-tick{ height:.75rem; background:rgba(15,23,42,0.35); }
+    .history-panel__chart-axis-marker--month .history-panel__chart-axis-label{ font-weight:600; color:#0f172a; }
+    .history-panel__chart-axis-marker--week .history-panel__chart-axis-tick{ height:.6rem; background:rgba(148,163,184,0.45); }
+    .history-panel__chart-axis-marker--week .history-panel__chart-axis-label{ color:#1f2937; opacity:.85; }
+    .history-panel__chart-axis-marker--day .history-panel__chart-axis-tick{ height:.45rem; background:rgba(148,163,184,0.35); }
+    .history-panel__chart-axis-marker--day .history-panel__chart-axis-label{ color:#475569; opacity:.7; font-size:.65rem; }
+    .history-panel__chart-axis-marker--data .history-panel__chart-axis-tick{ height:.85rem; background:#2563eb; }
+    .history-panel__chart-axis-marker--data .history-panel__chart-axis-label{ color:#2563eb; font-weight:600; }
     .history-panel__chart--empty{ align-items:center; justify-content:center; text-align:center; }
     .history-panel__chart-empty-text{ margin:0; font-size:.85rem; color:#475569; }
     .history-panel__item--summary{ border-color:rgba(59,130,246,0.25); background:linear-gradient(180deg, rgba(191,219,254,0.18), rgba(255,255,255,0.95)); }
