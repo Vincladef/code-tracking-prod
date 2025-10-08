@@ -5636,28 +5636,38 @@ function renderHistoryChart(data, { type } = {}) {
           const summaryAttrs = isSummaryPoint
             ? ` data-summary="1"${summaryScope ? ` data-summary-scope="${escapeHtml(summaryScope)}"` : ""}`
             : "";
+          let pointColor = colorPalette.circle;
+          if (isSummaryPoint) {
+            if (summaryScope === "monthly") {
+              pointColor = "#7c3aed";
+            } else if (summaryScope === "weekly") {
+              pointColor = "#8b5cf6";
+            } else {
+              pointColor = "#6366f1";
+            }
+          }
           const pointClasses = ["history-panel__chart-point"];
           if (isSummaryPoint) {
             pointClasses.push("history-panel__chart-point--summary");
           }
           return `
             <g class="${pointClasses.join(" ")}" tabindex="0"${labelAttr}${valueAttr}${metaAttr}${ariaAttr}${summaryAttrs} style="--history-point-color:${escapeHtml(
-              colorPalette.circle
+              pointColor
             )};">
               ${titleTag}
               <circle class="history-panel__chart-point-hit" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(
             2
-          )}" r="11" fill="${escapeHtml(colorPalette.circle)}" fill-opacity="0.001" stroke="transparent"></circle>
+          )}" r="11" fill="${escapeHtml(pointColor)}" fill-opacity="0.001" stroke="transparent"></circle>
               ${
                 isSummaryPoint
                   ? `<circle class="history-panel__chart-point-summary-ring" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(
                       2
-                    )}" r="8" stroke="${escapeHtml(colorPalette.circle)}" stroke-width="2.5" fill="none"></circle>`
+                    )}" r="8" stroke="${escapeHtml(pointColor)}" stroke-width="2.5" fill="none"></circle>`
                   : ""
               }
               <circle class="history-panel__chart-point-node" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(
             2
-          )}" r="5.5" fill="${escapeHtml(colorPalette.circle)}" stroke="#fff" stroke-width="2"></circle>
+          )}" r="5.5" fill="${escapeHtml(pointColor)}" stroke="#fff" stroke-width="2"></circle>
             </g>
           `;
         })
@@ -5914,6 +5924,79 @@ async function openHistory(ctx, consigne, options = {}) {
   modesLogger.info("ui.history.rows", size);
   let rows = docs.map((d) => ({ id: d.id, ...d.data() }));
   rows = mergeRowsWithRecent(rows, consigneId);
+
+  const DAILY_MODE_KEYS = new Set(["daily"]);
+
+  function normalizeMode(row) {
+    const candidates = [row?.mode, row?.source, row?.origin, row?.context];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.trim()) {
+        return candidate.trim().toLowerCase();
+      }
+    }
+    return "";
+  }
+
+  function parseDateForDaily(value) {
+    if (!value) return null;
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+    }
+    if (typeof value.toDate === "function") {
+      try {
+        const parsed = value.toDate();
+        return Number.isNaN(parsed?.getTime?.()) ? null : parsed;
+      } catch (error) {
+        modesLogger.warn("ui.history.daily.parse", error);
+      }
+    }
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function resolveDayKey(row, createdAt) {
+    const rawDay =
+      row?.dayKey ||
+      row?.day_key ||
+      row?.date ||
+      row?.day ||
+      (typeof row?.getDayKey === "function" ? row.getDayKey() : null);
+    if (typeof rawDay === "string" && rawDay.trim()) {
+      return rawDay.trim();
+    }
+    if (rawDay instanceof Date && !Number.isNaN(rawDay.getTime())) {
+      return Schema?.dayKeyFromDate ? Schema.dayKeyFromDate(rawDay) : "";
+    }
+    if (typeof rawDay === "number" && Number.isFinite(rawDay)) {
+      const fromNumber = new Date(rawDay);
+      if (!Number.isNaN(fromNumber.getTime())) {
+        return Schema?.dayKeyFromDate ? Schema.dayKeyFromDate(fromNumber) : "";
+      }
+    }
+    if (createdAt instanceof Date && Schema?.dayKeyFromDate) {
+      return Schema.dayKeyFromDate(createdAt);
+    }
+    return "";
+  }
+
+  const seenDailyDayKeys = new Set();
+  rows = rows.filter((row) => {
+    const modeKey = normalizeMode(row);
+    if (!DAILY_MODE_KEYS.has(modeKey)) {
+      return true;
+    }
+    const createdAtSource = row?.createdAt ?? row?.updatedAt ?? null;
+    const createdAt = parseDateForDaily(createdAtSource);
+    const dayKey = resolveDayKey(row, createdAt);
+    if (!dayKey) {
+      return true;
+    }
+    if (seenDailyDayKeys.has(dayKey)) {
+      return false;
+    }
+    seenDailyDayKeys.add(dayKey);
+    return true;
+  });
 
   const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
