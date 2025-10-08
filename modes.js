@@ -5239,12 +5239,86 @@ function renderHistoryChart(data, { type } = {}) {
   if (axisStart && axisEnd && axisEnd <= axisStart) {
     axisEnd = new Date(axisStart.getTime() + 86400000);
   }
+  const originalAxisStart = axisStart ? new Date(axisStart.getTime()) : null;
+  const originalAxisEnd = axisEnd ? new Date(axisEnd.getTime()) : null;
+  const dayMs = 86400000;
+  if (axisStart && axisEnd && axisEnd > axisStart) {
+    const alignedStart = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
+    let alignedEnd = new Date(axisEnd.getFullYear(), axisEnd.getMonth(), 1);
+    if (alignedEnd <= axisEnd) {
+      alignedEnd = new Date(alignedEnd.getFullYear(), alignedEnd.getMonth() + 1, 1);
+    }
+    axisStart = alignedStart;
+    axisEnd = alignedEnd;
+  }
 
   const chartWidth = 640;
   const chartHeight = 200;
   const padding = 28;
   const innerWidth = chartWidth - padding * 2;
   const innerHeight = chartHeight - padding * 2;
+  const axisDuration = axisStart && axisEnd ? axisEnd.getTime() - axisStart.getTime() : 0;
+  const axisMarkers = [];
+  if (axisStart && axisEnd && axisDuration > 0) {
+    const markersMap = new Map();
+    const axisStartTime = axisStart.getTime();
+    const axisEndTime = axisEnd.getTime();
+    const axisSpanDays = axisDuration / dayMs;
+    const axisLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
+      day: "2-digit",
+      month: "short",
+      ...(axisSpanDays > 365 ? { year: "2-digit" } : {}),
+    });
+    const addMarker = (date, type, priority) => {
+      if (!(date instanceof Date)) return;
+      const time = date.getTime();
+      if (Number.isNaN(time)) return;
+      if (time < axisStartTime || time > axisEndTime) return;
+      const ratio = (time - axisStartTime) / axisDuration;
+      if (ratio < 0 || ratio > 1) return;
+      const existing = markersMap.get(time);
+      if (existing && existing.priority > priority) {
+        return;
+      }
+      markersMap.set(time, {
+        date,
+        ratio,
+        type,
+        priority,
+        label: axisLabelFormatter.format(date),
+      });
+    };
+
+    let monthCursor = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
+    while (monthCursor.getTime() <= axisEndTime) {
+      addMarker(new Date(monthCursor.getTime()), "month", 3);
+      monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1);
+    }
+
+    if (axisSpanDays <= 120) {
+      for (let time = axisStartTime + 7 * dayMs; time < axisEndTime; time += 7 * dayMs) {
+        addMarker(new Date(time), "week", 1);
+      }
+    }
+
+    if (axisSpanDays <= 12) {
+      for (let time = axisStartTime + dayMs; time < axisEndTime; time += dayMs) {
+        addMarker(new Date(time), "day", 0);
+      }
+    }
+
+    if (originalAxisStart) {
+      addMarker(originalAxisStart, "data", 2);
+    }
+    if (originalAxisEnd) {
+      addMarker(originalAxisEnd, "data", 2);
+    }
+
+    axisMarkers.push(
+      ...Array.from(markersMap.values()).sort((a, b) => a.date.getTime() - b.date.getTime())
+    );
+  }
+
   const coords = sorted.map((entry, index) => {
     let ratio;
     if (axisStart && axisEnd && axisEnd > axisStart) {
@@ -5270,14 +5344,40 @@ function renderHistoryChart(data, { type } = {}) {
   ].join(" ");
 
   const gradientId = `history-chart-${Math.random().toString(36).slice(2)}`;
-  const startDate = axisStart || sorted[0]?.date || null;
-  const endDate = axisEnd || sorted[sorted.length - 1]?.date || null;
-  const dateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
-  const startLabel = startDate ? dateFormatter.format(startDate) : "";
-  const endLabel = endDate ? dateFormatter.format(endDate) : "";
   const minLabel = formatHistoryChartValue(type, min);
   const maxLabel = formatHistoryChartValue(type, max);
   const plural = sorted.length > 1 ? "s" : "";
+
+  const axisLines = axisMarkers
+    .filter((marker) => marker.ratio > 0 && marker.ratio < 1 && (marker.type === "month" || marker.type === "week"))
+    .map((marker) => {
+      const x = padding + marker.ratio * innerWidth;
+      const stroke = marker.type === "month" ? "rgba(148,163,184,0.35)" : "rgba(148,163,184,0.2)";
+      const dash = marker.type === "week" ? " stroke-dasharray=\"4 6\"" : "";
+      return `<line x1="${x.toFixed(2)}" y1="${padding}" x2="${x.toFixed(2)}" y2="${(padding + innerHeight).toFixed(
+        2
+      )}" stroke="${stroke}" stroke-width="1"${dash}></line>`;
+    })
+    .join("");
+
+  const axisLabels = axisMarkers
+    .map((marker) => {
+      const ratio = Math.min(Math.max(marker.ratio, 0), 1);
+      const position = (ratio * 100).toFixed(2);
+      const extraClass =
+        ratio < 0.001
+          ? " history-panel__chart-axis-marker--start"
+          : ratio > 0.999
+          ? " history-panel__chart-axis-marker--end"
+          : "";
+      return `
+        <div class="history-panel__chart-axis-marker history-panel__chart-axis-marker--${marker.type}${extraClass}" style="left:${position}%">
+          <span class="history-panel__chart-axis-tick"></span>
+          <span class="history-panel__chart-axis-label">${escapeHtml(marker.label)}</span>
+        </div>
+      `;
+    })
+    .join("");
 
   const circles = coords
     .map(
@@ -5305,13 +5405,14 @@ function renderHistoryChart(data, { type } = {}) {
             </linearGradient>
           </defs>
           <path d="${areaPath}" fill="url(#${escapeHtml(gradientId)})"></path>
+          ${axisLines}
           <path d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
           ${circles}
         </svg>
       </figure>
       <div class="history-panel__chart-axis">
-        <span>${escapeHtml(startLabel)}</span>
-        <span>${escapeHtml(endLabel)}</span>
+        <div class="history-panel__chart-axis-track"></div>
+        ${axisLabels}
       </div>
     </div>
   `;
