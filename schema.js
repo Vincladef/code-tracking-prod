@@ -715,6 +715,25 @@ async function saveResponses(db, uid, mode, answers) {
   }
   const results = await Promise.all(batch);
   registerRecentResponses(mode, results);
+  const shouldForceConsoleLog = Schema?.D?.on === false;
+  results.forEach((entry) => {
+    const logPayload = {
+      mode: entry.mode || mode || null,
+      consigneId: entry.consigneId || null,
+      responseId: entry.id || null,
+      createdAt: entry.createdAt || null,
+      dayKey: entry.dayKey || null,
+      summaryScope: entry.summaryScope || entry.summary_scope || null,
+    };
+    if (Schema?.D?.info) {
+      Schema.D.info("responses.history.saved", logPayload);
+      if (shouldForceConsoleLog && typeof console !== "undefined" && typeof console.info === "function") {
+        console.info("[HP][history] Réponse enregistrée", logPayload);
+      }
+    } else if (typeof console !== "undefined" && typeof console.info === "function") {
+      console.info("[HP][history] Réponse enregistrée", logPayload);
+    }
+  });
   return results;
 }
 
