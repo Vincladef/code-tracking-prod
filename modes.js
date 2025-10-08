@@ -5393,17 +5393,14 @@ function renderHistoryChart(data, { type } = {}) {
       const lastDayOfYear = new Date(axisEnd.getTime() - dayMs);
       addMarker(axisStart, "boundary", 4, boundaryLabelFormatter);
       addMarker(lastDayOfYear, "boundary", 4, boundaryLabelFormatter);
-      addMonthlyMarkers();
     } else if (axisMode === "month") {
       const monthEnd = new Date(axisEnd.getTime() - dayMs);
       addMarker(axisStart, "boundary", 4, boundaryLabelFormatter);
       addMarker(monthEnd, "boundary", 4, boundaryLabelFormatter);
-      addWeeklyMarkers();
     } else if (axisMode === "week") {
       const weekEnd = new Date(axisEnd.getTime() - dayMs);
       addMarker(axisStart, "boundary", 4, boundaryLabelFormatter);
       addMarker(weekEnd, "boundary", 4, boundaryLabelFormatter);
-      addDailyMarkers();
     } else {
       addMarker(axisStart, "boundary", 3, boundaryLabelFormatter);
       addMarker(axisEnd, "boundary", 3, boundaryLabelFormatter);
