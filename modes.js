@@ -5602,8 +5602,18 @@ function renderHistoryChart(data, { type, mode } = {}) {
   const likertScaleMarkup = hasLikertScale
     ? LIKERT6_ORDER.map((key, index) => {
         const label = LIKERT6_LABELS[key] || key;
-        const row = scaleSteps - index;
-        return `<span class="history-panel__chart-scale-label" style="grid-row:${row};">${escapeHtml(label)}</span>`;
+        const denominator = Math.max(scaleSteps - 1, 1);
+        const positionValue = denominator === 0 ? 0 : index / denominator;
+        const position = Number.isFinite(positionValue) ? positionValue : 0;
+        const anchorAttr =
+          index === 0
+            ? ' data-scale-anchor="bottom"'
+            : index === scaleSteps - 1
+            ? ' data-scale-anchor="top"'
+            : "";
+        return `<span class="history-panel__chart-scale-label"${anchorAttr} style="--history-chart-scale-position:${position.toFixed(4)};">${escapeHtml(
+          label
+        )}</span>`;
       }).join("")
     : "";
   const buildYAxisMarkers = () => {
