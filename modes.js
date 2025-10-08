@@ -5437,6 +5437,63 @@ async function openHistory(ctx, consigne) {
   }
 
   const chartPoints = [];
+  const historyRangePresets = [
+    { value: "last5", label: "5 dernières itérations" },
+    { value: "last10", label: "10 dernières itérations" },
+    { value: "last20", label: "20 dernières itérations" },
+    { value: "last50", label: "50 dernières itérations" },
+    { value: "7d", label: "7 derniers jours" },
+    { value: "30d", label: "Dernier mois" },
+    { value: "365d", label: "Dernière année" },
+    { value: "all", label: "Toutes les entrées" },
+  ];
+  const defaultHistoryRange = "last20";
+
+  function applyHistoryRange(points, rangeKey) {
+    if (!Array.isArray(points) || points.length === 0) {
+      return [];
+    }
+    const validPoints = points
+      .filter((pt) => pt && pt.date instanceof Date && !Number.isNaN(pt.date.getTime()))
+      .map((pt) => ({ ...pt }));
+    if (!validPoints.length) {
+      return [];
+    }
+    const DAY_MS = 86400000;
+    switch (rangeKey) {
+      case "last5":
+      case "last10":
+      case "last20":
+      case "last50": {
+        const count = Number(rangeKey.replace("last", ""));
+        const sortedDesc = validPoints.slice().sort((a, b) => b.date - a.date);
+        return sortedDesc.slice(0, count);
+      }
+      case "7d":
+      case "30d":
+      case "365d": {
+        const days = Number(rangeKey.replace("d", ""));
+        if (!Number.isFinite(days) || days <= 0) {
+          return validPoints;
+        }
+        const now = new Date();
+        const cutoff = new Date(now.getTime() - days * DAY_MS);
+        return validPoints.filter((pt) => pt.date >= cutoff);
+      }
+      case "all":
+      default:
+        return validPoints;
+    }
+  }
+
+  const historyRangeOptions = historyRangePresets
+    .map(
+      (option) =>
+        `<option value="${escapeHtml(option.value)}"${
+          option.value === defaultHistoryRange ? " selected" : ""
+        }>${escapeHtml(option.label)}</option>`
+    )
+    .join("");
 
   const list = rows
     .map((r) => {
@@ -5518,7 +5575,8 @@ async function openHistory(ctx, consigne) {
     .join("");
 
   const totalLabel = rows.length === 0 ? "Aucune entrée" : rows.length === 1 ? "1 entrée" : `${rows.length} entrées`;
-  const chartMarkup = renderHistoryChart(chartPoints, { type: consigne.type });
+  const initialChartPoints = applyHistoryRange(chartPoints, defaultHistoryRange);
+  const chartMarkup = renderHistoryChart(initialChartPoints, { type: consigne.type });
 
   const html = `
     <div class="history-panel">
@@ -5528,18 +5586,34 @@ async function openHistory(ctx, consigne) {
           <p class="history-panel__subtitle">Dernières réponses enregistrées</p>
         </div>
         <div class="history-panel__actions">
+          <label class="history-panel__range">
+            <span>Vue</span>
+            <select data-history-range>${historyRangeOptions}</select>
+          </label>
           <span class="history-panel__badge">${escapeHtml(totalLabel)}</span>
           <button class="btn btn-ghost text-sm" data-close>Fermer</button>
         </div>
       </header>
       <div class="history-panel__body">
-        ${chartMarkup}
+        <div data-history-chart>${chartMarkup}</div>
         <ul class="history-panel__list">${list || '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>'}</ul>
       </div>
     </div>
   `;
   const panel = drawer(html);
   panel.querySelector('[data-close]')?.addEventListener('click', () => panel.remove());
+
+  const chartContainer = panel.querySelector('[data-history-chart]');
+  const rangeSelector = panel.querySelector('[data-history-range]');
+  if (chartContainer && rangeSelector) {
+    const updateChart = () => {
+      const selected = rangeSelector.value || defaultHistoryRange;
+      const filteredPoints = applyHistoryRange(chartPoints, selected);
+      chartContainer.innerHTML = renderHistoryChart(filteredPoints, { type: consigne.type });
+    };
+    rangeSelector.addEventListener("change", updateChart);
+    updateChart();
+  }
 
   modesLogger.groupEnd();
 
