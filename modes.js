@@ -491,8 +491,8 @@ function drawer(html) {
     left: "0",
     zIndex: "9999",
     display: "flex",
-    justifyContent: "flex-end",
-    alignItems: "stretch",
+    justifyContent: "center",
+    alignItems: "center",
     background: "rgba(15,23,42,0.35)",
     overscrollBehavior: "contain",
   });
@@ -501,17 +501,18 @@ function drawer(html) {
   const aside = document.createElement("aside");
   aside.innerHTML = html;
   Object.assign(aside.style, {
-    width: "min(480px, 92vw)",
+    width: "min(960px, 94vw)",
     maxWidth: "100%",
-    height: "100%",
+    maxHeight: "90vh",
     background: "#fff",
-    borderLeft: "1px solid rgba(226, 232, 240, 0.9)",
-    boxShadow: "-6px 0 24px rgba(15,23,42,0.15)",
-    padding: "1rem",
+    borderRadius: "1.25rem",
+    boxShadow: "0 24px 48px rgba(15,23,42,0.25)",
+    padding: "1.5rem",
     overflowY: "auto",
-    transform: "translateX(100%)",
-    transition: "transform 0.2s ease-out",
-    willChange: "transform",
+    transform: "translateY(24px) scale(0.98)",
+    opacity: "0",
+    transition: "transform 0.2s ease-out, opacity 0.2s ease-out",
+    willChange: "transform, opacity",
   });
   aside.setAttribute("role", "dialog");
   aside.setAttribute("aria-modal", "true");
@@ -524,7 +525,8 @@ function drawer(html) {
 
   document.body.appendChild(wrap);
   requestAnimationFrame(() => {
-    aside.style.transform = "translateX(0)";
+    aside.style.transform = "translateY(0) scale(1)";
+    aside.style.opacity = "1";
   });
 
   return wrap;
