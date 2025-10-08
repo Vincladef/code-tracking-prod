@@ -5189,15 +5189,40 @@ function renderHistoryChart(points, { type } = {}) {
 
 async function openHistory(ctx, consigne) {
   modesLogger.group("ui.history.open", { consigneId: consigne.id, type: consigne.type });
-  const qy = modesFirestore.query(
-    modesFirestore.collection(ctx.db, `u/${ctx.user.uid}/responses`),
-    modesFirestore.where("consigneId", "==", consigne.id),
-    modesFirestore.orderBy("createdAt", "desc"),
-    modesFirestore.limit(60)
+
+  const missingFirestoreFns = ["collection", "where", "orderBy", "limit", "query", "getDocs"].filter(
+    (fn) => typeof modesFirestore?.[fn] !== "function"
   );
-  const ss = await modesFirestore.getDocs(qy);
-  modesLogger.info("ui.history.rows", ss.size);
-  const rows = ss.docs.map((d) => ({ id: d.id, ...d.data() }));
+  if (!ctx?.db || missingFirestoreFns.length) {
+    modesLogger.warn("ui.history.firestore.missing", {
+      hasDb: Boolean(ctx?.db),
+      missing: missingFirestoreFns,
+    });
+    showToast("Historique indisponible : connexion aux données manquante.");
+    modesLogger.groupEnd();
+    return null;
+  }
+
+  let ss;
+  try {
+    const qy = modesFirestore.query(
+      modesFirestore.collection(ctx.db, `u/${ctx.user.uid}/responses`),
+      modesFirestore.where("consigneId", "==", consigne.id),
+      modesFirestore.orderBy("createdAt", "desc"),
+      modesFirestore.limit(60)
+    );
+    ss = await modesFirestore.getDocs(qy);
+  } catch (error) {
+    modesLogger.warn("ui.history.firestore.error", error);
+    showToast("Impossible de charger l’historique pour le moment.");
+    modesLogger.groupEnd();
+    return null;
+  }
+
+  const docs = Array.isArray(ss?.docs) ? ss.docs : [];
+  const size = typeof ss?.size === "number" ? ss.size : docs.length;
+  modesLogger.info("ui.history.rows", size);
+  const rows = docs.map((d) => ({ id: d.id, ...d.data() }));
 
   const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
