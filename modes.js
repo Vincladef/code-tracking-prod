@@ -34,6 +34,18 @@ function waitForCheckboxSetupFunction() {
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+function withAlpha(hex, alpha) {
+  const safe = String(hex || "").replace("#", "");
+  if (safe.length !== 6) {
+    return `rgba(99, 102, 241, ${alpha})`;
+  }
+  const value = parseInt(safe, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function consigneCategoryStorageKey(uid, mode) {
   if (!uid || !mode) return null;
   return ["consigne", "last-category", uid, mode].map((part) => String(part)).join(":");
@@ -735,18 +747,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     }
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? null : d;
-  }
-
-  function withAlpha(hex, alpha) {
-    const safe = String(hex || "").replace("#", "");
-    if (safe.length !== 6) {
-      return `rgba(99, 102, 241, ${alpha})`;
-    }
-    const value = parseInt(safe, 16);
-    const r = (value >> 16) & 255;
-    const g = (value >> 8) & 255;
-    const b = value & 255;
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
   function normalizePriorityValue(value) {
