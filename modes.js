@@ -5906,7 +5906,7 @@ async function openHistory(ctx, consigne, options = {}) {
   let ss;
   try {
     const qy = modesFirestore.query(
-      modesFirestore.collection(ctx.db, `u/${uid}/responses`),
+      modesFirestore.collection(ctx.db, uid, "responses"),
       modesFirestore.where("consigneId", "==", consigneId),
       modesFirestore.orderBy("createdAt", "desc"),
       modesFirestore.limit(60)
