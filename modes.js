@@ -6245,9 +6245,9 @@ async function openHistory(ctx, consigne, options = {}) {
       { value: "last50", label: "50 dernières itérations" },
     ],
     periods: [
-      { value: "7d", label: "7 derniers jours" },
-      { value: "30d", label: "Dernier mois" },
-      { value: "365d", label: "Dernière année" },
+      { value: "7d", label: "Hebdomadaire" },
+      { value: "30d", label: "Mensuel" },
+      { value: "365d", label: "Annuel" },
       { value: "all", label: "Toutes les entrées" },
     ],
   };
