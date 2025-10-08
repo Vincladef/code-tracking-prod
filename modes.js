@@ -5294,6 +5294,8 @@ function renderHistoryChart(data, { type } = {}) {
   const innerHeight = chartHeight - padding * 2;
   const axisDuration = axisStart && axisEnd ? axisEnd.getTime() - axisStart.getTime() : 0;
   const axisMarkers = [];
+  const axisOffsetPercent = (padding / chartWidth) * 100;
+  const axisRangePercent = (innerWidth / chartWidth) * 100;
   if (axisStart && axisEnd && axisDuration > 0) {
     const markersMap = new Map();
     const axisStartTime = axisStart.getTime();
@@ -5493,7 +5495,7 @@ function renderHistoryChart(data, { type } = {}) {
   const axisLabels = axisMarkers
     .map((marker) => {
       const ratio = Math.min(Math.max(marker.ratio, 0), 1);
-      const position = (ratio * 100).toFixed(2);
+      const position = (axisOffsetPercent + ratio * axisRangePercent).toFixed(2);
       const isNearStart =
         axisStart && marker.date instanceof Date
           ? Math.abs(marker.date.getTime() - axisStart.getTime()) < dayMs * 0.5
@@ -5527,6 +5529,9 @@ function renderHistoryChart(data, { type } = {}) {
         .join("")
     : "";
 
+  const axisTrackStyle = `left:${axisOffsetPercent.toFixed(2)}%; right:${axisOffsetPercent
+    .toFixed(2)}%`;
+
   return `
     <div class="history-panel__chart"${averageStatus ? ` data-average-status="${escapeHtml(averageStatus)}"` : ""}>
       <div class="history-panel__chart-header">
@@ -5552,7 +5557,7 @@ function renderHistoryChart(data, { type } = {}) {
         </svg>
       </figure>
       <div class="history-panel__chart-axis">
-        <div class="history-panel__chart-axis-track"></div>
+        <div class="history-panel__chart-axis-track" style="${axisTrackStyle}"></div>
         ${axisLabels}
       </div>
     </div>
