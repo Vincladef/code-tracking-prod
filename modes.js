@@ -5473,26 +5473,17 @@ function renderHistoryChart(data, { type } = {}) {
 
   const hasCoords = coords.length > 0;
   let linePath = "";
-  let areaPath = "";
   if (hasCoords) {
     linePath = coords
       .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
       .join(" ");
-    areaPath = [
-      `M${coords[0].x.toFixed(2)},${(padding + innerHeight).toFixed(2)}`,
-      ...coords.map((point) => `L${point.x.toFixed(2)},${point.y.toFixed(2)}`),
-      `L${coords[coords.length - 1].x.toFixed(2)},${(padding + innerHeight).toFixed(2)}`,
-      "Z",
-    ].join(" ");
   } else {
     const startX = padding.toFixed(2);
     const endX = (padding + innerWidth).toFixed(2);
     const baselineY = (padding + innerHeight).toFixed(2);
     linePath = `M${startX},${baselineY} L${endX},${baselineY}`;
-    areaPath = `M${startX},${baselineY} L${endX},${baselineY} L${endX},${baselineY} Z`;
   }
 
-  const gradientId = `history-chart-${Math.random().toString(36).slice(2)}`;
   const minLabel = hasValidPoints ? formatHistoryChartValue(type, min) : "—";
   const maxLabel = hasValidPoints ? formatHistoryChartValue(type, max) : "—";
   const plural = sorted.length > 1 ? "s" : "";
@@ -5573,13 +5564,6 @@ function renderHistoryChart(data, { type } = {}) {
       </div>
       <figure class="history-panel__chart-figure">
         <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Évolution des réponses enregistrées">
-          <defs>
-            <linearGradient id="${escapeHtml(gradientId)}" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="${escapeHtml(colorPalette.gradientTop)}"></stop>
-              <stop offset="100%" stop-color="${escapeHtml(colorPalette.gradientBottom)}"></stop>
-            </linearGradient>
-          </defs>
-          <path d="${areaPath}" fill="url(#${escapeHtml(gradientId)})"></path>
           ${axisLines}
           <path d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
           ${circles}
