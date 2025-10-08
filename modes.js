@@ -5525,7 +5525,7 @@ function renderHistoryChart(data, { type } = {}) {
   `;
 }
 
-async function openHistory(ctx, consigne) {
+async function openHistory(ctx, consigne, options = {}) {
   const consigneId = consigne?.id || "";
   const consigneType = consigne?.type || "";
   modesLogger.group("ui.history.open", { consigneId, type: consigneType });
@@ -5672,17 +5672,41 @@ async function openHistory(ctx, consigne) {
   }
 
   const chartPoints = [];
-  const historyRangePresets = [
-    { value: "last5", label: "5 dernières itérations" },
-    { value: "last10", label: "10 dernières itérations" },
-    { value: "last20", label: "20 dernières itérations" },
-    { value: "last50", label: "50 dernières itérations" },
-    { value: "7d", label: "7 derniers jours" },
-    { value: "30d", label: "Dernier mois" },
-    { value: "365d", label: "Dernière année" },
-    { value: "all", label: "Toutes les entrées" },
-  ];
-  const defaultHistoryRange = "last20";
+  const HISTORY_RANGE_PRESETS = {
+    iterations: [
+      { value: "last5", label: "5 dernières itérations" },
+      { value: "last10", label: "10 dernières itérations" },
+      { value: "last20", label: "20 dernières itérations" },
+      { value: "last50", label: "50 dernières itérations" },
+    ],
+    periods: [
+      { value: "7d", label: "7 derniers jours" },
+      { value: "30d", label: "Dernier mois" },
+      { value: "365d", label: "Dernière année" },
+      { value: "all", label: "Toutes les entrées" },
+    ],
+  };
+  const FALLBACK_HISTORY_RANGE = "last20";
+
+  function buildHistoryRangePresets(source) {
+    const iterationPresets = HISTORY_RANGE_PRESETS.iterations.slice();
+    const periodPresets = HISTORY_RANGE_PRESETS.periods.slice();
+    if (source === "daily") {
+      return periodPresets;
+    }
+    if (source === "practice") {
+      return periodPresets.concat(iterationPresets);
+    }
+    return iterationPresets.concat(periodPresets);
+  }
+
+  function ensureHistoryRangeKey(rangeKey, presets) {
+    const values = new Set(presets.map((preset) => preset.value));
+    if (values.has(rangeKey)) {
+      return rangeKey;
+    }
+    return presets[0]?.value || FALLBACK_HISTORY_RANGE;
+  }
 
   function applyHistoryRange(points, rangeKey) {
     if (!Array.isArray(points) || points.length === 0) {
@@ -5759,13 +5783,14 @@ async function openHistory(ctx, consigne) {
     }
   }
 
+  const historySource = typeof options.source === "string" ? options.source.toLowerCase() : "";
+  const historyRangePresets = buildHistoryRangePresets(historySource);
+  const defaultHistoryRange = ensureHistoryRangeKey(FALLBACK_HISTORY_RANGE, historyRangePresets);
   const historyRangeOptions = historyRangePresets
-    .map(
-      (option) =>
-        `<option value="${escapeHtml(option.value)}"${
-          option.value === defaultHistoryRange ? " selected" : ""
-        }>${escapeHtml(option.label)}</option>`
-    )
+    .map((option) => {
+      const selectedAttr = option.value === defaultHistoryRange ? " selected" : "";
+      return `<option value="${escapeHtml(option.value)}"${selectedAttr}>${escapeHtml(option.label)}</option>`;
+    })
     .join("");
 
   const list = rows
@@ -5880,7 +5905,7 @@ async function openHistory(ctx, consigne) {
   const rangeSelector = panel.querySelector('[data-history-range]');
   if (chartContainer && rangeSelector) {
     const updateChart = () => {
-      const selected = rangeSelector.value || defaultHistoryRange;
+      const selected = ensureHistoryRangeKey(rangeSelector.value || defaultHistoryRange, historyRangePresets);
       const filteredPoints = applyHistoryRange(chartPoints, selected);
       chartContainer.innerHTML = renderHistoryChart(filteredPoints, { type: consigne.type });
     };
@@ -6066,7 +6091,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       const bH = row.querySelector(".js-histo");
       const bE = row.querySelector(".js-edit");
       const bD = row.querySelector(".js-del");
-      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c); };
+      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c, { source: "practice" }); };
       bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
       bD.onclick = async (e) => {
         e.preventDefault(); e.stopPropagation();
@@ -6179,7 +6204,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           srEnabled,
           onHistory: () => {
             Schema.D.info("ui.history.click", child.id);
-            openHistory(ctx, child);
+            openHistory(ctx, child, { source: "practice" });
           },
           onEdit: ({ close } = {}) => {
             Schema.D.info("ui.editConsigne.click", child.id);
@@ -6266,7 +6291,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (!id) return;
       if (e.target.classList.contains("js-histo-hidden")) {
         const c = hidden.find((x) => x.c.id === id)?.c;
-        if (c) openHistory(ctx, c);
+        if (c) openHistory(ctx, c, { source: "practice" });
       } else if (e.target.classList.contains("js-reset-sr")) {
         await Schema.resetSRForConsigne(ctx.db, ctx.user.uid, id);
         renderPractice(ctx, root);
@@ -6955,7 +6980,7 @@ async function renderDaily(ctx, root, opts = {}) {
     const bH = row.querySelector(".js-histo");
     const bE = row.querySelector(".js-edit");
     const bD = row.querySelector(".js-del");
-    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item); };
+    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item, { source: "daily" }); };
     bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
     bD.onclick = async (e) => {
       e.preventDefault(); e.stopPropagation();
@@ -7080,7 +7105,7 @@ async function renderDaily(ctx, root, opts = {}) {
         srEnabled,
         onHistory: () => {
           Schema.D.info("ui.history.click", child.id);
-          openHistory(ctx, child);
+          openHistory(ctx, child, { source: "daily" });
         },
         onEdit: ({ close } = {}) => {
           Schema.D.info("ui.editConsigne.click", child.id);
@@ -7189,7 +7214,7 @@ async function renderDaily(ctx, root, opts = {}) {
       if (!id) return;
       if (e.target.classList.contains("js-histo-hidden")) {
         const c = hidden.find((x) => x.c.id === id)?.c;
-        if (c) openHistory(ctx, c);
+        if (c) openHistory(ctx, c, { source: "daily" });
       } else if (e.target.classList.contains("js-reset-sr")) {
         await Schema.resetSRForConsigne(ctx.db, ctx.user.uid, id);
         renderDaily(ctx, root, { day: currentDay });
