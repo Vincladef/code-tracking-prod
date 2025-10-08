@@ -7284,6 +7284,210 @@ async function renderDaily(ctx, root, opts = {}) {
     ? previousAnswersRaw
     : new Map(previousAnswersRaw || []);
 
+  const observedValues = new Map();
+  const autoSaveStates = new Map();
+  const autoSaveErrorState = { lastShownAt: 0 };
+
+  const AUTO_SAVE_DEFAULT_DELAY = 900;
+  const AUTO_SAVE_LONG_DELAY = 1400;
+  const AUTO_SAVE_FAST_DELAY = 200;
+
+  const serializeValueForComparison = (consigne, value) => {
+    if (consigne?.type === "long") {
+      try {
+        return JSON.stringify(normalizeRichTextValue(value));
+      } catch (error) {
+        console.warn("daily.autosave.serialize.richtext", error);
+        return JSON.stringify({ value });
+      }
+    }
+    if (Array.isArray(value) || (value && typeof value === "object")) {
+      try {
+        return JSON.stringify(value);
+      } catch (error) {
+        console.warn("daily.autosave.serialize.object", error);
+        return String(value);
+      }
+    }
+    if (value === null || value === undefined) {
+      return "";
+    }
+    return String(value);
+  };
+
+  const resolveAutoSaveDelay = (consigne) => {
+    const type = consigne?.type;
+    if (type === "long") return AUTO_SAVE_LONG_DELAY;
+    if (type === "short") return AUTO_SAVE_DEFAULT_DELAY;
+    if (type === "checklist") return AUTO_SAVE_FAST_DELAY;
+    if (type === "yesno" || type === "likert6" || type === "likert5" || type === "num") {
+      return AUTO_SAVE_FAST_DELAY;
+    }
+    return AUTO_SAVE_DEFAULT_DELAY;
+  };
+
+  const markAnswerAsSaved = (consigne, value, serialized) => {
+    const base = previousAnswers.get(consigne.id) || { consigneId: consigne.id };
+    const entry = {
+      ...base,
+      value,
+      dayKey,
+      updatedAt: new Date().toISOString(),
+      __serialized: serialized,
+    };
+    previousAnswers.set(consigne.id, entry);
+  };
+
+  const notifyAutoSaveError = () => {
+    const now = Date.now();
+    if (now - autoSaveErrorState.lastShownAt < 8000) {
+      return;
+    }
+    autoSaveErrorState.lastShownAt = now;
+    showToast("Impossible d’enregistrer automatiquement. Vérifie ta connexion.");
+  };
+
+  const runAutoSave = (consigneId) => {
+    const state = autoSaveStates.get(consigneId);
+    if (!state) return;
+    state.timeout = null;
+    if (!state.pendingHasContent) {
+      autoSaveStates.delete(consigneId);
+      return;
+    }
+    if (!ctx?.db || !ctx?.user?.uid) {
+      notifyAutoSaveError();
+      const retryDelay = Math.max(2000, resolveAutoSaveDelay(state.consigne));
+      state.timeout = setTimeout(() => runAutoSave(consigneId), retryDelay);
+      autoSaveStates.set(consigneId, state);
+      return;
+    }
+    const { consigne, pendingValue, pendingSerialized } = state;
+    state.inFlight = true;
+    autoSaveStates.set(consigneId, state);
+    const answers = [{ consigne, value: pendingValue, dayKey }];
+    Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers)
+      .then(async () => {
+        markAnswerAsSaved(consigne, pendingValue, pendingSerialized);
+        if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+          try {
+            await window.__appBadge.refresh(ctx.user?.uid);
+          } catch (error) {
+            console.warn("daily.autosave.badge", error);
+          }
+        }
+      })
+      .catch((error) => {
+        console.error("daily.autosave.error", error);
+        notifyAutoSaveError();
+        const retryDelay = Math.min(10000, Math.max(2000, resolveAutoSaveDelay(consigne) * 2));
+        state.timeout = setTimeout(() => runAutoSave(consigneId), retryDelay);
+      })
+      .finally(() => {
+        const latest = autoSaveStates.get(consigneId);
+        if (!latest) {
+          return;
+        }
+        latest.inFlight = false;
+        const hasPendingChange = latest.pendingHasContent && latest.pendingSerialized !== pendingSerialized;
+        if (hasPendingChange && !latest.timeout) {
+          const delay = resolveAutoSaveDelay(latest.consigne);
+          latest.timeout = setTimeout(() => runAutoSave(consigneId), delay);
+          autoSaveStates.set(consigneId, latest);
+          return;
+        }
+        if (latest.timeout) {
+          autoSaveStates.set(consigneId, latest);
+          return;
+        }
+        if (hasPendingChange) {
+          const delay = resolveAutoSaveDelay(latest.consigne);
+          latest.timeout = setTimeout(() => runAutoSave(consigneId), delay);
+          autoSaveStates.set(consigneId, latest);
+          return;
+        }
+        autoSaveStates.delete(consigneId);
+      });
+  };
+
+  const scheduleAutoSave = (consigne, value, { serialized, hasContent } = {}) => {
+    if (!consigne || !consigne.id) return;
+    const consigneId = consigne.id;
+    const computedSerialized = serialized !== undefined ? serialized : serializeValueForComparison(consigne, value);
+    const effectiveHasContent = hasContent !== undefined ? hasContent : hasValueForConsigne(consigne, value);
+    const state = autoSaveStates.get(consigneId) || {
+      consigne,
+      pendingValue: null,
+      pendingSerialized: null,
+      pendingHasContent: false,
+      timeout: null,
+      inFlight: false,
+    };
+    state.consigne = consigne;
+    state.pendingValue = value;
+    state.pendingSerialized = computedSerialized;
+    state.pendingHasContent = effectiveHasContent;
+
+    const savedEntry = previousAnswers.get(consigneId);
+    if (savedEntry && savedEntry.__serialized === undefined && Object.prototype.hasOwnProperty.call(savedEntry, "value")) {
+      try {
+        savedEntry.__serialized = serializeValueForComparison(consigne, savedEntry.value);
+        previousAnswers.set(consigneId, savedEntry);
+      } catch (error) {
+        console.warn("daily.autosave.serialize.previous", error);
+      }
+    }
+    if (savedEntry && savedEntry.__serialized === computedSerialized && !state.inFlight) {
+      if (state.timeout) {
+        clearTimeout(state.timeout);
+      }
+      autoSaveStates.delete(consigneId);
+      return;
+    }
+
+    if (!effectiveHasContent) {
+      if (state.timeout) {
+        clearTimeout(state.timeout);
+      }
+      if (!state.inFlight) {
+        autoSaveStates.delete(consigneId);
+      } else {
+        autoSaveStates.set(consigneId, state);
+      }
+      return;
+    }
+
+    if (state.inFlight) {
+      autoSaveStates.set(consigneId, state);
+      return;
+    }
+
+    if (state.timeout) {
+      clearTimeout(state.timeout);
+    }
+    const delay = resolveAutoSaveDelay(consigne);
+    state.timeout = setTimeout(() => runAutoSave(consigneId), delay);
+    autoSaveStates.set(consigneId, state);
+  };
+
+  const handleValueChange = (consigne, row, value, { serialized } = {}) => {
+    const valueSerialized = serialized !== undefined ? serialized : serializeValueForComparison(consigne, value);
+    const hasContent = hasValueForConsigne(consigne, value);
+    if (!hasContent) {
+      previousAnswers.delete(consigne.id);
+    }
+    if (row) {
+      if (!hasContent) {
+        delete row.dataset.currentValue;
+      } else if (typeof value === "object") {
+        row.dataset.currentValue = valueSerialized;
+      } else {
+        row.dataset.currentValue = String(value);
+      }
+    }
+    scheduleAutoSave(consigne, value, { serialized: valueSerialized, hasContent });
+  };
+
   const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
     const previous = previousAnswers.get(item.id);
     const hasPrevValue = previous && Object.prototype.hasOwnProperty.call(previous, "value");
@@ -7424,13 +7628,17 @@ async function renderDaily(ctx, root, opts = {}) {
     bindConsigneRowValue(row, item, {
       initialValue,
       onChange: (value) => {
-        const base = previousAnswers.get(item.id) || { consigneId: item.id };
-        previousAnswers.set(item.id, { ...base, value });
-        if (value === null || value === undefined || value === "") {
-          delete row.dataset.currentValue;
-        } else {
-          row.dataset.currentValue = String(value);
+        const serialized = serializeValueForComparison(item, value);
+        const previousSerialized = observedValues.get(item.id);
+        if (previousSerialized === undefined) {
+          observedValues.set(item.id, serialized);
+          return;
         }
+        if (previousSerialized === serialized) {
+          return;
+        }
+        observedValues.set(item.id, serialized);
+        handleValueChange(item, row, value, { serialized });
       },
     });
 
@@ -7453,8 +7661,17 @@ async function renderDaily(ctx, root, opts = {}) {
       bindConsigneRowValue(childRow, child, {
         initialValue,
         onChange: (value) => {
-          const base = previousAnswers.get(child.id) || { consigneId: child.id };
-          previousAnswers.set(child.id, { ...base, value });
+          const serialized = serializeValueForComparison(child, value);
+          const prevSerialized = observedValues.get(child.id);
+          if (prevSerialized === undefined) {
+            observedValues.set(child.id, serialized);
+            return;
+          }
+          if (prevSerialized === serialized) {
+            return;
+          }
+          observedValues.set(child.id, serialized);
+          handleValueChange(child, childRow, value, { serialized });
         },
       });
       let srEnabled = child?.srEnabled !== false;
@@ -7510,6 +7727,9 @@ async function renderDaily(ctx, root, opts = {}) {
 
   const form = document.createElement("form");
   form.className = "daily-grid";
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+  });
   card.appendChild(form);
 
   if (!visible.length) {
@@ -7582,24 +7802,15 @@ async function renderDaily(ctx, root, opts = {}) {
   }
 
   const actions = document.createElement("div");
-  actions.className = "flex justify-end daily-grid__item daily-grid__actions";
-  actions.innerHTML = `<button type="submit" class="btn btn-primary">Enregistrer</button>`;
+  actions.className = "daily-grid__item daily-grid__actions";
+  actions.innerHTML = `
+    <div class="flex w-full justify-end text-sm text-[var(--muted)]">
+      <span class="inline-flex items-center gap-2 rounded-full border border-dashed border-slate-300/60 px-3 py-1">
+        <span aria-hidden="true">💾</span>
+        <span>Enregistrement automatique</span>
+      </span>
+    </div>`;
   form.appendChild(actions);
-
-  form.onsubmit = async (e) => {
-    e.preventDefault();
-    const answers = collectAnswers(form, visible, { dayKey });
-    if (!answers.length) {
-      alert("Aucune réponse");
-      return;
-    }
-    await Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers);
-    if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
-      window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
-    }
-    showToast("Journal enregistré");
-    renderDaily(ctx, root, { day: currentDay, dateIso: dayKey });
-  };
 
   modesLogger.groupEnd();
   if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
