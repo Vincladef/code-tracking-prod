@@ -1755,13 +1755,15 @@
     .history-panel__chart-values{ display:flex; align-items:center; justify-content:space-between; font-size:.75rem; color:#475569; text-transform:uppercase; letter-spacing:.08em; }
     .history-panel__chart-figure{ margin:0; }
     .history-panel__chart svg{ width:100%; height:auto; display:block; }
-    .history-panel__chart-axis{ position:relative; min-height:2.5rem; padding-top:.75rem; font-size:.7rem; color:#475569; }
+    .history-panel__chart-axis{ position:relative; min-height:3rem; padding-top:.75rem; font-size:.7rem; color:#475569; }
     .history-panel__chart-axis-track{ position:absolute; left:0; right:0; bottom:.85rem; height:1px; background:rgba(148,163,184,0.35); }
     .history-panel__chart-axis-marker{ position:absolute; bottom:.2rem; display:flex; flex-direction:column; align-items:center; gap:.25rem; transform:translateX(-50%); pointer-events:none; text-transform:uppercase; letter-spacing:.08em; }
     .history-panel__chart-axis-marker--start{ transform:translateX(0); align-items:flex-start; }
     .history-panel__chart-axis-marker--end{ transform:translateX(-100%); align-items:flex-end; }
     .history-panel__chart-axis-tick{ display:block; width:1px; height:.55rem; background:rgba(148,163,184,0.4); border-radius:999px; }
-    .history-panel__chart-axis-label{ display:block; white-space:nowrap; font-weight:500; }
+    .history-panel__chart-axis-label{ display:block; white-space:normal; font-weight:500; text-align:center; line-height:1.2; max-width:4.5rem; word-break:break-word; hyphens:auto; font-size:clamp(.55rem,2.5vw,.7rem); }
+    .history-panel__chart-axis-marker--start .history-panel__chart-axis-label{ text-align:left; }
+    .history-panel__chart-axis-marker--end .history-panel__chart-axis-label{ text-align:right; }
     .history-panel__chart-axis-marker--month .history-panel__chart-axis-tick{ height:.75rem; background:rgba(15,23,42,0.35); }
     .history-panel__chart-axis-marker--month .history-panel__chart-axis-label{ font-weight:600; color:#0f172a; }
     .history-panel__chart-axis-marker--week .history-panel__chart-axis-tick{ height:.6rem; background:rgba(148,163,184,0.45); }
