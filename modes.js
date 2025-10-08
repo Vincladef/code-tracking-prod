@@ -5192,8 +5192,21 @@ function formatHistoryChartValue(type, value) {
   return String(value);
 }
 
-function renderHistoryChart(points, { type } = {}) {
-  if (!Array.isArray(points) || points.length === 0) {
+function renderHistoryChart(data, { type } = {}) {
+  const dataset = Array.isArray(data)
+    ? { points: data }
+    : data && typeof data === "object"
+    ? data
+    : { points: [] };
+  const rawPoints = Array.isArray(dataset.points) ? dataset.points : [];
+  const validRangeStart = dataset?.range?.start instanceof Date && !Number.isNaN(dataset.range.start.getTime())
+    ? dataset.range.start
+    : null;
+  const validRangeEnd = dataset?.range?.end instanceof Date && !Number.isNaN(dataset.range.end.getTime())
+    ? dataset.range.end
+    : null;
+
+  if (!Array.isArray(rawPoints) || rawPoints.length === 0) {
     const reason = type === "long" || type === "short" || type === "info"
       ? "Ce type de consigne ne génère pas de graphique."
       : "Pas encore de données pour tracer un graphique.";
@@ -5203,7 +5216,7 @@ function renderHistoryChart(points, { type } = {}) {
       </div>
     `;
   }
-  if (points.length < 2) {
+  if (rawPoints.length < 2) {
     return `
       <div class="history-panel__chart history-panel__chart--empty">
         <p class="history-panel__chart-empty-text">Ajoute encore quelques réponses pour voir apparaître le graphique.</p>
@@ -5211,7 +5224,7 @@ function renderHistoryChart(points, { type } = {}) {
     `;
   }
 
-  const sorted = points.slice().sort((a, b) => a.date - b.date);
+  const sorted = rawPoints.slice().sort((a, b) => a.date - b.date);
   const values = sorted.map((entry) => entry.value);
   const averageStatus = historyStatusFromAverage(type, values);
   const colorPalette = resolveHistoryStatusColors(averageStatus);
@@ -5219,13 +5232,27 @@ function renderHistoryChart(points, { type } = {}) {
   const max = Math.max(...values);
   const range = max - min || 1;
 
+  let axisStart = validRangeStart || (sorted[0]?.date ?? null);
+  let axisEnd = validRangeEnd || (sorted[sorted.length - 1]?.date ?? null);
+  if (axisStart instanceof Date && Number.isNaN(axisStart.getTime())) axisStart = null;
+  if (axisEnd instanceof Date && Number.isNaN(axisEnd.getTime())) axisEnd = null;
+  if (axisStart && axisEnd && axisEnd <= axisStart) {
+    axisEnd = new Date(axisStart.getTime() + 86400000);
+  }
+
   const chartWidth = 640;
   const chartHeight = 200;
   const padding = 28;
   const innerWidth = chartWidth - padding * 2;
   const innerHeight = chartHeight - padding * 2;
   const coords = sorted.map((entry, index) => {
-    const ratio = sorted.length === 1 ? 0.5 : index / (sorted.length - 1);
+    let ratio;
+    if (axisStart && axisEnd && axisEnd > axisStart) {
+      const clampedTime = Math.min(Math.max(entry.date.getTime(), axisStart.getTime()), axisEnd.getTime());
+      ratio = (clampedTime - axisStart.getTime()) / (axisEnd.getTime() - axisStart.getTime());
+    } else {
+      ratio = sorted.length === 1 ? 0.5 : index / (sorted.length - 1);
+    }
     const normalized = range === 0 ? 0.5 : (entry.value - min) / range;
     const x = padding + ratio * innerWidth;
     const y = padding + (1 - normalized) * innerHeight;
@@ -5243,8 +5270,8 @@ function renderHistoryChart(points, { type } = {}) {
   ].join(" ");
 
   const gradientId = `history-chart-${Math.random().toString(36).slice(2)}`;
-  const startDate = sorted[0]?.date || null;
-  const endDate = sorted[sorted.length - 1]?.date || null;
+  const startDate = axisStart || sorted[0]?.date || null;
+  const endDate = axisEnd || sorted[sorted.length - 1]?.date || null;
   const dateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
   const startLabel = startDate ? dateFormatter.format(startDate) : "";
   const endLabel = endDate ? dateFormatter.format(endDate) : "";
@@ -5451,38 +5478,60 @@ async function openHistory(ctx, consigne) {
 
   function applyHistoryRange(points, rangeKey) {
     if (!Array.isArray(points) || points.length === 0) {
-      return [];
+      return { points: [] };
     }
     const validPoints = points
       .filter((pt) => pt && pt.date instanceof Date && !Number.isNaN(pt.date.getTime()))
       .map((pt) => ({ ...pt }));
     if (!validPoints.length) {
-      return [];
+      return { points: [] };
     }
+
     const DAY_MS = 86400000;
+    const sortedAsc = validPoints.slice().sort((a, b) => a.date - b.date);
+
+    const buildResult = (items, range = {}) => {
+      const sanitized = (Array.isArray(items) ? items : []).slice().sort((a, b) => a.date - b.date);
+      const firstDate = sanitized[0]?.date ?? null;
+      const lastDate = sanitized[sanitized.length - 1]?.date ?? null;
+      let start = range.start instanceof Date && !Number.isNaN(range.start.getTime()) ? range.start : firstDate;
+      let end = range.end instanceof Date && !Number.isNaN(range.end.getTime()) ? range.end : lastDate;
+      if (start && end && end <= start) {
+        end = new Date(start.getTime() + DAY_MS);
+      }
+      return {
+        points: sanitized,
+        range: {
+          start: start || null,
+          end: end || null,
+        },
+      };
+    };
+
     switch (rangeKey) {
       case "last5":
       case "last10":
       case "last20":
       case "last50": {
         const count = Number(rangeKey.replace("last", ""));
-        const sortedDesc = validPoints.slice().sort((a, b) => b.date - a.date);
-        return sortedDesc.slice(0, count);
+        const subset = sortedAsc.slice(-count);
+        return buildResult(subset);
       }
       case "7d":
       case "30d":
       case "365d": {
         const days = Number(rangeKey.replace("d", ""));
         if (!Number.isFinite(days) || days <= 0) {
-          return validPoints;
+          return buildResult(sortedAsc);
         }
         const now = new Date();
         const cutoff = new Date(now.getTime() - days * DAY_MS);
-        return validPoints.filter((pt) => pt.date >= cutoff);
+        const filtered = sortedAsc.filter((pt) => pt.date >= cutoff);
+        return buildResult(filtered, { start: cutoff, end: now });
       }
       case "all":
       default:
-        return validPoints;
+        return buildResult(sortedAsc);
     }
   }
 
