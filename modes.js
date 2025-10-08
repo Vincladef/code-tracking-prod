@@ -5240,7 +5240,7 @@ function renderHistoryChart(data, { type } = {}) {
     axisEnd = new Date(axisStart.getTime() + 86400000);
   }
   const dayMs = 86400000;
-  if (axisStart && axisEnd && axisEnd > axisStart) {
+  if (!validRangeStart && !validRangeEnd && axisStart && axisEnd && axisEnd > axisStart) {
     const alignedStart = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
     let alignedEnd = new Date(axisEnd.getFullYear(), axisEnd.getMonth(), 1);
     if (alignedEnd <= axisEnd) {
@@ -5267,7 +5267,22 @@ function renderHistoryChart(data, { type } = {}) {
       month: "short",
       ...(axisSpanDays > 365 ? { year: "2-digit" } : {}),
     });
-    const addMarker = (date, type, priority) => {
+    const monthLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
+      month: "short",
+    });
+    const weekLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
+      day: "2-digit",
+      month: "short",
+    });
+    const dayLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
+      weekday: "short",
+      day: "2-digit",
+    });
+    const boundaryLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
+      day: "2-digit",
+      month: "short",
+    });
+    const addMarker = (date, type, priority, labelFormatter = axisLabelFormatter) => {
       if (!(date instanceof Date)) return;
       const time = date.getTime();
       if (Number.isNaN(time)) return;
@@ -5283,12 +5298,64 @@ function renderHistoryChart(data, { type } = {}) {
         ratio,
         type,
         priority,
-        label: axisLabelFormatter.format(date),
+        label: labelFormatter.format(date),
       });
     };
 
-    addMarker(axisStart, "data", 3);
-    addMarker(axisEnd, "data", 3);
+    const addDailyMarkers = () => {
+      if (!axisStart || !axisEnd) return;
+      const start = new Date(axisStart);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(axisEnd);
+      for (let cursor = new Date(start.getTime() + dayMs); cursor < end; cursor = new Date(cursor.getTime() + dayMs)) {
+        addMarker(cursor, "day", 1, dayLabelFormatter);
+      }
+    };
+
+    const addWeeklyMarkers = () => {
+      if (!axisStart || !axisEnd) return;
+      const start = new Date(axisStart);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(axisEnd);
+      const firstMarker = new Date(start);
+      const day = firstMarker.getDay();
+      const offsetToMonday = (7 + 1 - day) % 7;
+      firstMarker.setDate(firstMarker.getDate() + offsetToMonday);
+      for (let cursor = new Date(firstMarker); cursor < end; cursor = new Date(cursor.getTime() + 7 * dayMs)) {
+        if (cursor <= start) continue;
+        addMarker(cursor, "week", 2, weekLabelFormatter);
+      }
+    };
+
+    const addMonthlyMarkers = () => {
+      if (!axisStart || !axisEnd) return;
+      const start = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
+      const end = new Date(axisEnd.getFullYear(), axisEnd.getMonth(), 1);
+      for (let cursor = new Date(start.getFullYear(), start.getMonth() + 1, 1); cursor < end; cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)) {
+        addMarker(cursor, "month", 2, monthLabelFormatter);
+      }
+    };
+
+    const spanRounded = Math.round(axisSpanDays);
+    if (spanRounded >= 360 && spanRounded <= 370) {
+      const lastDayOfYear = new Date(axisEnd.getTime() - dayMs);
+      addMarker(axisStart, "boundary", 4, boundaryLabelFormatter);
+      addMarker(lastDayOfYear, "boundary", 4, boundaryLabelFormatter);
+      addMonthlyMarkers();
+    } else if (spanRounded >= 27 && spanRounded <= 32) {
+      const monthEnd = new Date(axisEnd.getTime() - dayMs);
+      addMarker(axisStart, "boundary", 4, boundaryLabelFormatter);
+      addMarker(monthEnd, "boundary", 4, boundaryLabelFormatter);
+      addWeeklyMarkers();
+    } else if (spanRounded >= 6 && spanRounded <= 8) {
+      const weekEnd = new Date(axisEnd.getTime() - dayMs);
+      addMarker(axisStart, "boundary", 4, boundaryLabelFormatter);
+      addMarker(weekEnd, "boundary", 4, boundaryLabelFormatter);
+      addDailyMarkers();
+    } else {
+      addMarker(axisStart, "boundary", 3, boundaryLabelFormatter);
+      addMarker(axisEnd, "boundary", 3, boundaryLabelFormatter);
+    }
 
     axisMarkers.push(
       ...Array.from(markersMap.values()).sort((a, b) => a.date.getTime() - b.date.getTime())
@@ -5325,11 +5392,23 @@ function renderHistoryChart(data, { type } = {}) {
   const plural = sorted.length > 1 ? "s" : "";
 
   const axisLines = axisMarkers
-    .filter((marker) => marker.ratio > 0 && marker.ratio < 1 && (marker.type === "month" || marker.type === "week"))
+    .filter(
+      (marker) =>
+        marker.ratio > 0 &&
+        marker.ratio < 1 &&
+        (marker.type === "month" || marker.type === "week" || marker.type === "day")
+    )
     .map((marker) => {
       const x = padding + marker.ratio * innerWidth;
-      const stroke = marker.type === "month" ? "rgba(148,163,184,0.35)" : "rgba(148,163,184,0.2)";
-      const dash = marker.type === "week" ? " stroke-dasharray=\"4 6\"" : "";
+      let stroke = "rgba(148,163,184,0.2)";
+      let dash = "";
+      if (marker.type === "month") {
+        stroke = "rgba(148,163,184,0.35)";
+      } else if (marker.type === "week") {
+        dash = " stroke-dasharray=\"4 6\"";
+      } else if (marker.type === "day") {
+        stroke = "rgba(148,163,184,0.18)";
+      }
       return `<line x1="${x.toFixed(2)}" y1="${padding}" x2="${x.toFixed(2)}" y2="${(padding + innerHeight).toFixed(
         2
       )}" stroke="${stroke}" stroke-width="1"${dash}></line>`;
@@ -5340,12 +5419,19 @@ function renderHistoryChart(data, { type } = {}) {
     .map((marker) => {
       const ratio = Math.min(Math.max(marker.ratio, 0), 1);
       const position = (ratio * 100).toFixed(2);
-      const extraClass =
-        ratio < 0.001
-          ? " history-panel__chart-axis-marker--start"
-          : ratio > 0.999
-          ? " history-panel__chart-axis-marker--end"
-          : "";
+      const isNearStart =
+        axisStart && marker.date instanceof Date
+          ? Math.abs(marker.date.getTime() - axisStart.getTime()) < dayMs * 0.5
+          : ratio < 0.001;
+      const isNearEnd =
+        axisEnd && marker.date instanceof Date
+          ? marker.date.getTime() > axisEnd.getTime() - dayMs * 1.25
+          : ratio > 0.999;
+      const extraClass = isNearStart
+        ? " history-panel__chart-axis-marker--start"
+        : isNearEnd
+        ? " history-panel__chart-axis-marker--end"
+        : "";
       return `
         <div class="history-panel__chart-axis-marker history-panel__chart-axis-marker--${marker.type}${extraClass}" style="left:${position}%">
           <span class="history-panel__chart-axis-tick"></span>
@@ -5585,6 +5671,8 @@ async function openHistory(ctx, consigne) {
       };
     };
 
+    const mostRecentPoint = sortedAsc[sortedAsc.length - 1]?.date ?? new Date();
+
     switch (rangeKey) {
       case "last5":
       case "last10":
@@ -5594,17 +5682,30 @@ async function openHistory(ctx, consigne) {
         const subset = sortedAsc.slice(-count);
         return buildResult(subset);
       }
-      case "7d":
-      case "30d":
+      case "7d": {
+        const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
+        const startOfWeek = new Date(anchor);
+        startOfWeek.setHours(0, 0, 0, 0);
+        const day = startOfWeek.getDay();
+        const diffToMonday = (day + 6) % 7;
+        startOfWeek.setDate(startOfWeek.getDate() - diffToMonday);
+        const endOfWeek = new Date(startOfWeek.getTime() + 7 * DAY_MS);
+        const filtered = sortedAsc.filter((pt) => pt.date >= startOfWeek && pt.date < endOfWeek);
+        return buildResult(filtered, { start: startOfWeek, end: endOfWeek });
+      }
+      case "30d": {
+        const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
+        const startOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+        const endOfMonth = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1);
+        const filtered = sortedAsc.filter((pt) => pt.date >= startOfMonth && pt.date < endOfMonth);
+        return buildResult(filtered, { start: startOfMonth, end: endOfMonth });
+      }
       case "365d": {
-        const days = Number(rangeKey.replace("d", ""));
-        if (!Number.isFinite(days) || days <= 0) {
-          return buildResult(sortedAsc);
-        }
-        const now = new Date();
-        const cutoff = new Date(now.getTime() - days * DAY_MS);
-        const filtered = sortedAsc.filter((pt) => pt.date >= cutoff);
-        return buildResult(filtered, { start: cutoff, end: now });
+        const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
+        const startOfYear = new Date(anchor.getFullYear(), 0, 1);
+        const endOfYear = new Date(anchor.getFullYear() + 1, 0, 1);
+        const filtered = sortedAsc.filter((pt) => pt.date >= startOfYear && pt.date < endOfYear);
+        return buildResult(filtered, { start: startOfYear, end: endOfYear });
       }
       case "all":
       default:
