@@ -5233,8 +5233,12 @@ function renderHistoryChart(data, { type } = {}) {
   const values = sorted.map((entry) => entry.value);
   const averageStatus = historyStatusFromAverage(type, values) || "na";
   const colorPalette = resolveHistoryStatusColors(averageStatus);
-  const min = hasValidPoints ? Math.min(...values) : 0;
-  const max = hasValidPoints ? Math.max(...values) : 0;
+  let min = hasValidPoints ? Math.min(...values) : 0;
+  let max = hasValidPoints ? Math.max(...values) : 0;
+  if (type === "likert6") {
+    min = 0;
+    max = LIKERT6_ORDER.length - 1;
+  }
   const range = hasValidPoints && Number.isFinite(max - min) && max - min !== 0 ? max - min : 1;
 
   let axisStart = validRangeStart || (sorted[0]?.date ?? null);
@@ -5484,9 +5488,21 @@ function renderHistoryChart(data, { type } = {}) {
     linePath = `M${startX},${baselineY} L${endX},${baselineY}`;
   }
 
-  const minLabel = hasValidPoints ? formatHistoryChartValue(type, min) : "—";
-  const maxLabel = hasValidPoints ? formatHistoryChartValue(type, max) : "—";
+  const minLabel = hasValidPoints || type === "likert6" ? formatHistoryChartValue(type, min) : "—";
+  const maxLabel = hasValidPoints || type === "likert6" ? formatHistoryChartValue(type, max) : "—";
   const plural = sorted.length > 1 ? "s" : "";
+
+  const hasLikertScale = type === "likert6";
+  const likertScaleMarkup = hasLikertScale
+    ? LIKERT6_ORDER.map((key) => {
+        const label = LIKERT6_LABELS[key] || key;
+        return `<span class="history-panel__chart-scale-label">${escapeHtml(label)}</span>`;
+      }).join("")
+    : "";
+  const figureClasses = ["history-panel__chart-figure"];
+  if (hasLikertScale) {
+    figureClasses.push("history-panel__chart-figure--with-scale");
+  }
 
   const axisLines = axisMarkers
     .filter(
@@ -5555,21 +5571,24 @@ function renderHistoryChart(data, { type } = {}) {
   return `
     <div class="history-panel__chart"${averageStatus ? ` data-average-status="${escapeHtml(averageStatus)}"` : ""}>
       <div class="history-panel__chart-header">
-        <h4 class="history-panel__chart-title">Tendance des réponses</h4>
+        <h4 class="history-panel__chart-title">Réponses enregistrées</h4>
         <span class="history-panel__chart-count">${sorted.length} point${plural}</span>
       </div>
       <div class="history-panel__chart-values">
         <span>${escapeHtml(minLabel)}</span>
         <span>${escapeHtml(maxLabel)}</span>
       </div>
-      <figure class="history-panel__chart-figure">
-        <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Évolution des réponses enregistrées">
-          ${axisLines}
-          <path d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
-          ${circles}
-        </svg>
+      <figure class="${figureClasses.join(" ")}">
+        ${hasLikertScale ? `<div class="history-panel__chart-scale">${likertScaleMarkup}</div>` : ""}
+        <div class="history-panel__chart-canvas">
+          <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Évolution des réponses enregistrées">
+            ${axisLines}
+            <path d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+            ${circles}
+          </svg>
+        </div>
       </figure>
-      <div class="history-panel__chart-axis">
+      <div class="history-panel__chart-axis"${hasLikertScale ? " data-has-scale" : ""}>
         <div class="history-panel__chart-axis-track" style="${axisTrackStyle}"></div>
         ${axisLabels}
       </div>
