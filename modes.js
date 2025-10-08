@@ -5288,12 +5288,17 @@ function renderHistoryChart(data, { type, mode } = {}) {
   const averageStatus = historyStatusFromAverage(type, values) || "na";
   const colorPalette = resolveHistoryStatusColors(averageStatus);
   let min = hasValidPoints ? Math.min(...values) : 0;
-  let max = hasValidPoints ? Math.max(...values) : 0;
+  let max = hasValidPoints ? Math.max(...values) : 1;
+  if (!hasValidPoints) {
+    min = 0;
+    max = 1;
+  }
   if (type === "likert6") {
     min = 0;
     max = LIKERT6_ORDER.length - 1;
   }
-  const range = hasValidPoints && Number.isFinite(max - min) && max - min !== 0 ? max - min : 1;
+  const hasVariance = hasValidPoints ? Math.abs(max - min) > Number.EPSILON : max !== min;
+  const range = hasVariance ? max - min : 1;
 
   let axisStart = validRangeStart || (sorted[0]?.date ?? null);
   let axisEnd = validRangeEnd || (sorted[sorted.length - 1]?.date ?? null);
@@ -5557,7 +5562,7 @@ function renderHistoryChart(data, { type, mode } = {}) {
     } else {
       ratio = sorted.length === 1 ? 0.5 : index / Math.max(sorted.length - 1, 1);
     }
-    const normalized = range === 0 ? 0.5 : (entry.value - min) / range;
+    const normalized = hasVariance ? (entry.value - min) / range : 0.5;
     const x = paddingLeft + ratio * innerWidth;
     const y = paddingTop + (1 - normalized) * innerHeight;
     return {
@@ -5601,6 +5606,34 @@ function renderHistoryChart(data, { type, mode } = {}) {
         return `<span class="history-panel__chart-scale-label" style="grid-row:${row};">${escapeHtml(label)}</span>`;
       }).join("")
     : "";
+  const buildYAxisMarkers = () => {
+    if (hasLikertScale) {
+      const steps = Math.max(scaleSteps - 1, 1);
+      return LIKERT6_ORDER.map((key, index) => {
+        const ratio = steps === 0 ? 0 : index / steps;
+        return {
+          ratio,
+          label: LIKERT6_LABELS[key] || key,
+          isBoundary: index === 0 || index === LIKERT6_ORDER.length - 1,
+          isZero: false,
+        };
+      });
+    }
+    const segments = 4;
+    return Array.from({ length: segments + 1 }, (_, idx) => {
+      const ratio = segments === 0 ? 0 : idx / segments;
+      const value = hasVariance ? min + ratio * range : min;
+      const labelValue = hasVariance ? value : min;
+      const label = hasVariance || idx === 0 || idx === segments ? formatHistoryChartValue(type, labelValue) : "";
+      return {
+        ratio,
+        label,
+        isBoundary: idx === 0 || idx === segments,
+        isZero: Math.abs(labelValue) < 1e-6,
+      };
+    });
+  };
+  const yAxisMarkers = buildYAxisMarkers();
   const figureClasses = ["history-panel__chart-figure"];
   if (hasLikertScale) {
     figureClasses.push("history-panel__chart-figure--with-scale");
@@ -5657,6 +5690,40 @@ function renderHistoryChart(data, { type, mode } = {}) {
       `;
     })
     .join("");
+
+  const horizontalLines = yAxisMarkers
+    .map((marker) => {
+      const y = paddingTop + (1 - marker.ratio) * innerHeight;
+      const classes = ["history-panel__chart-grid-line"];
+      if (marker.isBoundary) {
+        classes.push("history-panel__chart-grid-line--boundary");
+      }
+      if (marker.isZero) {
+        classes.push("history-panel__chart-grid-line--zero");
+      }
+      const xStart = paddingLeft.toFixed(2);
+      const xEnd = (paddingLeft + innerWidth).toFixed(2);
+      return `<line class="${classes.join(" ")}" x1="${xStart}" y1="${y.toFixed(2)}" x2="${xEnd}" y2="${y.toFixed(2)}"></line>`;
+    })
+    .join("");
+
+  const yAxisLabels = !hasLikertScale
+    ? yAxisMarkers
+        .map((marker) => {
+          if (!marker.label) return "";
+          const y = paddingTop + (1 - marker.ratio) * innerHeight;
+          const classes = ["history-panel__chart-ylabel"];
+          if (marker.isBoundary) {
+            classes.push("history-panel__chart-ylabel--boundary");
+          }
+          if (marker.isZero) {
+            classes.push("history-panel__chart-ylabel--zero");
+          }
+          const x = Math.max(4, paddingLeft - 10);
+          return `<text class="${classes.join(" ")}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="end" dominant-baseline="middle">${escapeHtml(marker.label)}</text>`;
+        })
+        .join("")
+    : "";
 
   const circles = hasCoords
     ? coords
@@ -5742,8 +5809,10 @@ function renderHistoryChart(data, { type, mode } = {}) {
         }
         <div class="history-panel__chart-canvas">
           <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Évolution des réponses enregistrées">
+            ${horizontalLines}
             ${axisLines}
             <path d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+            ${yAxisLabels}
             ${circles}
           </svg>
         </div>
