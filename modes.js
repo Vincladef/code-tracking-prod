@@ -5708,7 +5708,7 @@ async function openHistory(ctx, consigne, options = {}) {
     return presets[0]?.value || FALLBACK_HISTORY_RANGE;
   }
 
-  function applyHistoryRange(points, rangeKey) {
+  function applyHistoryRange(points, rangeKey, options = {}) {
     if (!Array.isArray(points) || points.length === 0) {
       return { points: [] };
     }
@@ -5721,6 +5721,7 @@ async function openHistory(ctx, consigne, options = {}) {
 
     const DAY_MS = 86400000;
     const sortedAsc = validPoints.slice().sort((a, b) => a.date - b.date);
+    const normalizedOffset = Number.isFinite(options.offset) ? Math.trunc(options.offset) : 0;
 
     const buildResult = (items, range = {}, options = {}) => {
       const sanitized = (Array.isArray(items) ? items : []).slice().sort((a, b) => a.date - b.date);
@@ -5758,7 +5759,7 @@ async function openHistory(ctx, consigne, options = {}) {
         startOfWeek.setHours(0, 0, 0, 0);
         const day = startOfWeek.getDay();
         const diffToMonday = (day + 6) % 7;
-        startOfWeek.setDate(startOfWeek.getDate() - diffToMonday);
+        startOfWeek.setDate(startOfWeek.getDate() - diffToMonday + normalizedOffset * 7);
         const endOfWeek = new Date(startOfWeek.getTime() + 7 * DAY_MS);
         const filtered = sortedAsc.filter((pt) => pt.date >= startOfWeek && pt.date < endOfWeek);
         return buildResult(filtered, { start: startOfWeek, end: endOfWeek }, { axis: "week" });
@@ -5766,14 +5767,16 @@ async function openHistory(ctx, consigne, options = {}) {
       case "30d": {
         const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
         const startOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-        const endOfMonth = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1);
+        startOfMonth.setMonth(startOfMonth.getMonth() + normalizedOffset);
+        const endOfMonth = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth() + 1, 1);
         const filtered = sortedAsc.filter((pt) => pt.date >= startOfMonth && pt.date < endOfMonth);
         return buildResult(filtered, { start: startOfMonth, end: endOfMonth }, { axis: "month" });
       }
       case "365d": {
         const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
         const startOfYear = new Date(anchor.getFullYear(), 0, 1);
-        const endOfYear = new Date(anchor.getFullYear() + 1, 0, 1);
+        startOfYear.setFullYear(startOfYear.getFullYear() + normalizedOffset);
+        const endOfYear = new Date(startOfYear.getFullYear() + 1, 0, 1);
         const filtered = sortedAsc.filter((pt) => pt.date >= startOfYear && pt.date < endOfYear);
         return buildResult(filtered, { start: startOfYear, end: endOfYear }, { axis: "year" });
       }
@@ -5781,6 +5784,50 @@ async function openHistory(ctx, consigne, options = {}) {
       default:
         return buildResult(sortedAsc);
     }
+  }
+
+  function computeHistoryNavigationBounds(points) {
+    const bounds = {};
+    if (!Array.isArray(points) || !points.length) {
+      return bounds;
+    }
+    const sortedAsc = points
+      .filter((pt) => pt && pt.date instanceof Date && !Number.isNaN(pt.date.getTime()))
+      .slice()
+      .sort((a, b) => a.date - b.date);
+    if (!sortedAsc.length) {
+      return bounds;
+    }
+    const first = sortedAsc[0].date;
+    const last = sortedAsc[sortedAsc.length - 1].date;
+    if (!(first instanceof Date) || !(last instanceof Date)) {
+      return bounds;
+    }
+
+    const DAY_MS = 86400000;
+    const startOfWeek = (date) => {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      const day = d.getDay();
+      const diffToMonday = (day + 6) % 7;
+      d.setDate(d.getDate() - diffToMonday);
+      return d;
+    };
+    const latestWeekStart = startOfWeek(last);
+    const earliestWeekStart = startOfWeek(first);
+    const diffWeeks = Math.max(0, Math.floor((latestWeekStart - earliestWeekStart) / (7 * DAY_MS)));
+    bounds["7d"] = { min: -diffWeeks, max: 0 };
+
+    const monthIndex = (date) => date.getFullYear() * 12 + date.getMonth();
+    const latestMonthIndex = monthIndex(last);
+    const earliestMonthIndex = monthIndex(first);
+    const diffMonths = Math.max(0, latestMonthIndex - earliestMonthIndex);
+    bounds["30d"] = { min: -diffMonths, max: 0 };
+
+    const diffYears = Math.max(0, last.getFullYear() - first.getFullYear());
+    bounds["365d"] = { min: -diffYears, max: 0 };
+
+    return bounds;
   }
 
   const historySource = typeof options.source === "string" ? options.source.toLowerCase() : "";
@@ -5873,6 +5920,7 @@ async function openHistory(ctx, consigne, options = {}) {
     .join("");
 
   const totalLabel = rows.length === 0 ? "Aucune entrée" : rows.length === 1 ? "1 entrée" : `${rows.length} entrées`;
+  const navigationBounds = computeHistoryNavigationBounds(chartPoints);
   const initialChartPoints = applyHistoryRange(chartPoints, defaultHistoryRange);
   const chartMarkup = renderHistoryChart(initialChartPoints, { type: consigne.type });
 
@@ -5888,6 +5936,11 @@ async function openHistory(ctx, consigne, options = {}) {
             <span>Vue</span>
             <select data-history-range>${historyRangeOptions}</select>
           </label>
+          <div class="history-panel__nav" data-history-nav hidden>
+            <button type="button" class="history-panel__nav-btn" data-history-nav-prev aria-label="Période précédente">&larr;</button>
+            <span class="history-panel__nav-label" data-history-range-label></span>
+            <button type="button" class="history-panel__nav-btn" data-history-nav-next aria-label="Période suivante">&rarr;</button>
+          </div>
           <span class="history-panel__badge">${escapeHtml(totalLabel)}</span>
           <button class="btn btn-ghost text-sm" data-close>Fermer</button>
         </div>
@@ -5903,14 +5956,112 @@ async function openHistory(ctx, consigne, options = {}) {
 
   const chartContainer = panel.querySelector('[data-history-chart]');
   const rangeSelector = panel.querySelector('[data-history-range]');
+  const navContainer = panel.querySelector('[data-history-nav]');
+  const navLabel = panel.querySelector('[data-history-range-label]');
+  const navPrev = panel.querySelector('[data-history-nav-prev]');
+  const navNext = panel.querySelector('[data-history-nav-next]');
+  const NAVIGABLE_RANGES = new Set(["7d", "30d", "365d"]);
+  const navigationState = {
+    key: defaultHistoryRange,
+    offsets: {
+      "7d": 0,
+      "30d": 0,
+      "365d": 0,
+    },
+  };
+
+  const weekRangeFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+  const monthRangeFormatter = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+  const yearRangeFormatter = new Intl.DateTimeFormat("fr-FR", { year: "numeric" });
+
+  const formatHistoryRangeLabel = (result) => {
+    if (!result || !result.range) return "";
+    const start = result.range.start instanceof Date && !Number.isNaN(result.range.start.getTime()) ? result.range.start : null;
+    const end = result.range.end instanceof Date && !Number.isNaN(result.range.end.getTime()) ? result.range.end : null;
+    if (!start || !end) return "";
+    const axis = typeof result.axis === "string" ? result.axis.toLowerCase() : "";
+    if (axis === "week") {
+      let inclusiveEnd = new Date(end.getTime() - 86400000);
+      if (inclusiveEnd < start) {
+        inclusiveEnd = new Date(start);
+      }
+      const sameYear = start.getFullYear() === inclusiveEnd.getFullYear();
+      const startLabel = `${weekRangeFormatter.format(start)}${sameYear ? "" : ` ${yearRangeFormatter.format(start)}`}`;
+      const endLabel = `${weekRangeFormatter.format(inclusiveEnd)} ${yearRangeFormatter.format(inclusiveEnd)}`;
+      return `Semaine du ${startLabel} au ${endLabel}`;
+    }
+    if (axis === "month") {
+      return monthRangeFormatter.format(start);
+    }
+    if (axis === "year") {
+      return `Année ${yearRangeFormatter.format(start)}`;
+    }
+    return "";
+  };
+
+  const updateNavControls = (selected, result) => {
+    if (!navContainer || !navLabel || !navPrev || !navNext) return;
+    const isNavigable = NAVIGABLE_RANGES.has(selected) && chartPoints.length > 0;
+    navContainer.hidden = !isNavigable;
+    if (!isNavigable) {
+      navLabel.textContent = "";
+      return;
+    }
+    const bounds = navigationBounds[selected] || { min: 0, max: 0 };
+    const offset = navigationState.offsets[selected] || 0;
+    navLabel.textContent = formatHistoryRangeLabel(result);
+    navPrev.disabled = offset <= (bounds.min ?? offset);
+    navNext.disabled = offset >= (bounds.max ?? 0);
+  };
+
   if (chartContainer && rangeSelector) {
-    const updateChart = () => {
-      const selected = ensureHistoryRangeKey(rangeSelector.value || defaultHistoryRange, historyRangePresets);
-      const filteredPoints = applyHistoryRange(chartPoints, selected);
+    const updateChart = (forcedKey = null) => {
+      const selectedKey = ensureHistoryRangeKey(forcedKey || rangeSelector.value || defaultHistoryRange, historyRangePresets);
+      navigationState.key = selectedKey;
+      if (rangeSelector.value !== selectedKey) {
+        rangeSelector.value = selectedKey;
+      }
+      const offset = navigationState.offsets[selectedKey] || 0;
+      const filteredPoints = applyHistoryRange(chartPoints, selectedKey, { offset });
       chartContainer.innerHTML = renderHistoryChart(filteredPoints, { type: consigne.type });
+      updateNavControls(selectedKey, filteredPoints);
     };
-    rangeSelector.addEventListener("change", updateChart);
-    updateChart();
+
+    rangeSelector.addEventListener("change", () => {
+      const selectedKey = ensureHistoryRangeKey(rangeSelector.value || defaultHistoryRange, historyRangePresets);
+      if (NAVIGABLE_RANGES.has(selectedKey)) {
+        navigationState.offsets[selectedKey] = 0;
+      }
+      updateChart(selectedKey);
+    });
+
+    if (navPrev) {
+      navPrev.addEventListener("click", () => {
+        const selectedKey = navigationState.key;
+        if (!NAVIGABLE_RANGES.has(selectedKey)) return;
+        const bounds = navigationBounds[selectedKey] || { min: 0, max: 0 };
+        const currentOffset = navigationState.offsets[selectedKey] || 0;
+        const nextOffset = Math.max(bounds.min ?? currentOffset, currentOffset - 1);
+        if (nextOffset === currentOffset) return;
+        navigationState.offsets[selectedKey] = nextOffset;
+        updateChart(selectedKey);
+      });
+    }
+
+    if (navNext) {
+      navNext.addEventListener("click", () => {
+        const selectedKey = navigationState.key;
+        if (!NAVIGABLE_RANGES.has(selectedKey)) return;
+        const bounds = navigationBounds[selectedKey] || { min: 0, max: 0 };
+        const currentOffset = navigationState.offsets[selectedKey] || 0;
+        const nextOffset = Math.min(bounds.max ?? 0, currentOffset + 1);
+        if (nextOffset === currentOffset) return;
+        navigationState.offsets[selectedKey] = nextOffset;
+        updateChart(selectedKey);
+      });
+    }
+
+    updateChart(defaultHistoryRange);
   }
 
   modesLogger.groupEnd();
