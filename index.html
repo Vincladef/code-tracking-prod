@@ -1706,6 +1706,9 @@
     .history-panel__item[data-status="na"]{ border-color:rgba(148,163,184,0.32); background:linear-gradient(180deg, rgba(226,232,240,0.2), rgba(255,255,255,0.95)); box-shadow:0 12px 24px rgba(148,163,184,0.16); }
     .history-panel__item-row{ display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem; flex-wrap:wrap; }
     .history-panel__value{ display:flex; align-items:flex-start; gap:.55rem; font-size:1.05rem; font-weight:600; color:#0f172a; transition:color .15s ease; }
+    .history-panel__value--summary{ gap:.75rem; }
+    .history-panel__summary-marker{ display:inline-flex; align-items:center; justify-content:center; width:1.5rem; height:1.5rem; border-radius:999px; background:rgba(59,130,246,0.16); color:#1d4ed8; font-size:.8rem; font-weight:700; line-height:1; box-shadow:0 0 0 1.5px rgba(59,130,246,0.18); margin-top:.1rem; }
+    .history-panel__summary-marker::before{ content:"★"; }
     .history-panel__value[data-status="ok-strong"]{ color:#166534; }
     .history-panel__value[data-status="ok-soft"]{ color:#15803d; }
     .history-panel__value[data-status="mid"]{ color:#92400e; }

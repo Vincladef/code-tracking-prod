@@ -493,8 +493,147 @@ async function delayConsigne({ db, uid, consigne, mode, amount, sessionIndex }) 
   return state;
 }
 
+function ensureRecentResponseStore() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const existing = window.__hpRecentResponses;
+  if (existing instanceof Map) {
+    return existing;
+  }
+  if (existing && typeof existing === "object") {
+    const map = new Map();
+    try {
+      Object.entries(existing).forEach(([key, value]) => {
+        if (!key) return;
+        if (Array.isArray(value)) {
+          map.set(key, value.slice());
+        }
+      });
+    } catch (error) {
+      console.warn("ensureRecentResponseStore:normalize", error);
+    }
+    window.__hpRecentResponses = map;
+    return map;
+  }
+  const map = new Map();
+  window.__hpRecentResponses = map;
+  return map;
+}
+
+function responseIdentity(entry) {
+  if (!entry || typeof entry !== "object") {
+    return "";
+  }
+  if (entry.id) {
+    return `id:${entry.id}`;
+  }
+  const rawDate = entry.createdAt?.toDate?.() ?? entry.createdAt ?? entry.updatedAt ?? null;
+  let iso = "";
+  if (rawDate instanceof Date) {
+    if (!Number.isNaN(rawDate.getTime())) {
+      iso = rawDate.toISOString();
+    }
+  } else if (typeof rawDate === "string" || typeof rawDate === "number") {
+    const parsed = new Date(rawDate);
+    if (!Number.isNaN(parsed.getTime())) {
+      iso = parsed.toISOString();
+    }
+  }
+  let valueKey = "";
+  try {
+    valueKey = JSON.stringify(entry.value ?? null);
+  } catch (error) {
+    valueKey = String(entry.value ?? "");
+  }
+  return `created:${iso}::value:${valueKey}`;
+}
+
+function registerRecentResponses(mode, entries) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (!Array.isArray(entries) || !entries.length) {
+    return;
+  }
+  const store = ensureRecentResponseStore();
+  if (!store) {
+    return;
+  }
+  const sanitized = entries
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const consigneId = entry.consigneId || entry.consigne?.id || null;
+      if (!consigneId) {
+        return null;
+      }
+      const createdAtRaw = entry.createdAt?.toDate?.() ?? entry.createdAt ?? entry.updatedAt ?? null;
+      let createdAtIso = null;
+      if (createdAtRaw instanceof Date) {
+        if (!Number.isNaN(createdAtRaw.getTime())) {
+          createdAtIso = createdAtRaw.toISOString();
+        }
+      } else if (typeof createdAtRaw === "string" || typeof createdAtRaw === "number") {
+        const parsed = new Date(createdAtRaw);
+        if (!Number.isNaN(parsed.getTime())) {
+          createdAtIso = parsed.toISOString();
+        }
+      }
+      const normalized = {
+        id: entry.id || null,
+        consigneId,
+        mode: entry.mode || mode || null,
+        value: entry.value,
+        type: entry.type || entry.consigne?.type || null,
+        note: entry.note ?? null,
+        summaryScope: entry.summaryScope || entry.summary_scope || null,
+        summaryMode: entry.summaryMode || entry.summary_mode || null,
+        summaryLabel: entry.summaryLabel || entry.summary_label || null,
+        summaryPeriod: entry.summaryPeriod || entry.summary_period || null,
+        source: entry.source || null,
+        origin: entry.origin || null,
+        context: entry.context || null,
+        category: entry.category || entry.consigne?.category || null,
+        sessionId: entry.sessionId || null,
+        sessionIndex: entry.sessionIndex ?? null,
+        sessionNumber: entry.sessionNumber ?? null,
+        dayKey: entry.dayKey || null,
+        createdAt: createdAtIso || new Date().toISOString(),
+      };
+      return normalized;
+    })
+    .filter(Boolean);
+  if (!sanitized.length) {
+    return;
+  }
+  sanitized.forEach((entry) => {
+    const list = store.get(entry.consigneId) || [];
+    const withoutDuplicates = list.filter((item) => responseIdentity(item) !== responseIdentity(entry));
+    withoutDuplicates.unshift(entry);
+    withoutDuplicates.sort((a, b) => {
+      const aTime = new Date(a.createdAt || 0).getTime();
+      const bTime = new Date(b.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
+    store.set(entry.consigneId, withoutDuplicates.slice(0, 10));
+  });
+  if (typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+    try {
+      const detail = { mode: mode || null, responses: sanitized.map((entry) => ({ ...entry })) };
+      window.dispatchEvent(new CustomEvent("hp:responses:saved", { detail }));
+    } catch (error) {
+      console.warn("registerRecentResponses:dispatch", error);
+    }
+  }
+}
+
 // answers: [{ consigne, value, sessionId?, sessionIndex?, sessionNumber? }]
 async function saveResponses(db, uid, mode, answers) {
+  if (!Array.isArray(answers) || !answers.length) {
+    return [];
+  }
   const batch = [];
   for (const a of answers) {
     const payload = {
@@ -530,6 +669,30 @@ async function saveResponses(db, uid, mode, answers) {
     if (a.dayKey || mode === "daily") {
       payload.dayKey = a.dayKey || todayKey();
     }
+    if (a.note !== undefined) {
+      payload.note = a.note;
+    }
+    if (a.summaryScope !== undefined) {
+      payload.summaryScope = a.summaryScope;
+    }
+    if (a.summaryMode !== undefined) {
+      payload.summaryMode = a.summaryMode;
+    }
+    if (a.summaryLabel !== undefined) {
+      payload.summaryLabel = a.summaryLabel;
+    }
+    if (a.summaryPeriod !== undefined) {
+      payload.summaryPeriod = a.summaryPeriod;
+    }
+    if (a.source !== undefined) {
+      payload.source = a.source;
+    }
+    if (a.origin !== undefined) {
+      payload.origin = a.origin;
+    }
+    if (a.context !== undefined) {
+      payload.context = a.context;
+    }
     // SR (seulement si activée sur la consigne)
     if (a.consigne?.srEnabled !== false) {
       const prev = await readSRState(db, uid, a.consigne.id, "consigne");
@@ -542,9 +705,17 @@ async function saveResponses(db, uid, mode, answers) {
     }
 
     // write
-    batch.push(addDoc(col(db, uid, "responses"), payload));
+    const write = addDoc(col(db, uid, "responses"), payload).then((ref) => ({
+      id: ref?.id || null,
+      ...payload,
+      mode,
+      type: a.consigne?.type || payload.type || null,
+    }));
+    batch.push(write);
   }
-  await Promise.all(batch);
+  const results = await Promise.all(batch);
+  registerRecentResponses(mode, results);
+  return results;
 }
 
 async function countPracticeSessions(db, uid){
