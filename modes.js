@@ -5593,10 +5593,12 @@ function renderHistoryChart(data, { type, mode } = {}) {
   const plural = sorted.length > 1 ? "s" : "";
 
   const hasLikertScale = type === "likert6";
+  const scaleSteps = hasLikertScale ? LIKERT6_ORDER.length : 0;
   const likertScaleMarkup = hasLikertScale
-    ? LIKERT6_ORDER.map((key) => {
+    ? LIKERT6_ORDER.map((key, index) => {
         const label = LIKERT6_LABELS[key] || key;
-        return `<span class="history-panel__chart-scale-label">${escapeHtml(label)}</span>`;
+        const row = scaleSteps - index;
+        return `<span class="history-panel__chart-scale-label" style="grid-row:${row};">${escapeHtml(label)}</span>`;
       }).join("")
     : "";
   const figureClasses = ["history-panel__chart-figure"];
@@ -5733,7 +5735,11 @@ function renderHistoryChart(data, { type, mode } = {}) {
   return `
     <div class="history-panel__chart"${averageStatus ? ` data-average-status="${escapeHtml(averageStatus)}"` : ""}>
       <figure class="${figureClasses.join(" ")}"${figureStyleAttr}>
-        ${hasLikertScale ? `<div class="history-panel__chart-scale">${likertScaleMarkup}</div>` : ""}
+        ${
+          hasLikertScale
+            ? `<div class="history-panel__chart-scale" style="--history-chart-scale-steps:${scaleSteps};">${likertScaleMarkup}</div>`
+            : ""
+        }
         <div class="history-panel__chart-canvas">
           <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Évolution des réponses enregistrées">
             ${axisLines}
