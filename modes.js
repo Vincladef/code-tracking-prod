@@ -5603,7 +5603,8 @@ function renderHistoryChart(data, { type, mode } = {}) {
   if (hasLikertScale) {
     figureClasses.push("history-panel__chart-figure--with-scale");
   }
-  const figureStyleAttr = ` style="--history-chart-padding-top:${paddingTop}px; --history-chart-padding-right:${paddingRight}px; --history-chart-padding-bottom:${paddingBottom}px; --history-chart-padding-left:${paddingLeft}px;"`;
+  const figureStyleAttr =
+    ` style="--history-chart-width:${chartWidth}px; --history-chart-height:${chartHeight}px; --history-chart-padding-top:${paddingTop}px; --history-chart-padding-right:${paddingRight}px; --history-chart-padding-bottom:${paddingBottom}px; --history-chart-padding-left:${paddingLeft}px;"`;
 
   const axisLines = axisMarkers
     .filter(
