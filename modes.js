@@ -5760,6 +5760,106 @@ function enhanceHistoryChart(container) {
   chartRoot.addEventListener("pointerleave", hideTooltip);
 }
 
+function getRecentResponsesStore() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const existing = window.__hpRecentResponses;
+  if (existing instanceof Map) {
+    return existing;
+  }
+  if (existing && typeof existing === "object") {
+    const map = new Map();
+    try {
+      Object.entries(existing).forEach(([key, value]) => {
+        if (!key) return;
+        if (Array.isArray(value)) {
+          map.set(key, value.slice());
+        }
+      });
+    } catch (error) {
+      console.warn("recentResponsesStore:normalize", error);
+    }
+    window.__hpRecentResponses = map;
+    return map;
+  }
+  return null;
+}
+
+function historyRowIdentity(row) {
+  if (!row || typeof row !== "object") {
+    return "";
+  }
+  if (row.id) {
+    return `id:${row.id}`;
+  }
+  const rawDate = row.createdAt?.toDate?.() ?? row.createdAt ?? row.updatedAt ?? null;
+  let iso = "";
+  if (rawDate instanceof Date) {
+    if (!Number.isNaN(rawDate.getTime())) {
+      iso = rawDate.toISOString();
+    }
+  } else if (typeof rawDate === "string" || typeof rawDate === "number") {
+    const parsed = new Date(rawDate);
+    if (!Number.isNaN(parsed.getTime())) {
+      iso = parsed.toISOString();
+    }
+  }
+  let valueKey = "";
+  try {
+    valueKey = JSON.stringify(row.value ?? null);
+  } catch (error) {
+    valueKey = String(row.value ?? "");
+  }
+  return `created:${iso}::value:${valueKey}`;
+}
+
+function mergeRowsWithRecent(rows, consigneId) {
+  const remoteRows = Array.isArray(rows) ? rows.slice() : [];
+  const store = getRecentResponsesStore();
+  if (!store || !consigneId) {
+    return remoteRows;
+  }
+  const local = store.get(consigneId) || [];
+  if (!Array.isArray(local) || !local.length) {
+    return remoteRows;
+  }
+  const remoteIds = new Set(remoteRows.map((row) => historyRowIdentity(row)).filter(Boolean));
+  const existingIds = new Set(remoteIds);
+  const merged = remoteRows.slice();
+  const pending = [];
+  local.forEach((entry) => {
+    const identity = historyRowIdentity(entry);
+    if (!identity) {
+      return;
+    }
+    if (existingIds.has(identity)) {
+      return;
+    }
+    merged.push(entry);
+    existingIds.add(identity);
+    pending.push(entry);
+  });
+  if (pending.length) {
+    pending.sort((a, b) => {
+      const aTime = new Date(a.createdAt || 0).getTime();
+      const bTime = new Date(b.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
+    store.set(consigneId, pending.slice(0, 10));
+  } else {
+    store.delete(consigneId);
+  }
+  merged.sort((a, b) => {
+    const aRaw = a.createdAt?.toDate?.() ?? a.createdAt ?? a.updatedAt ?? null;
+    const bRaw = b.createdAt?.toDate?.() ?? b.createdAt ?? b.updatedAt ?? null;
+    const aTime = aRaw instanceof Date ? aRaw.getTime() : new Date(aRaw || 0).getTime();
+    const bTime = bRaw instanceof Date ? bRaw.getTime() : new Date(bRaw || 0).getTime();
+    return bTime - aTime;
+  });
+  return merged;
+}
+
 async function openHistory(ctx, consigne, options = {}) {
   const consigneId = consigne?.id || "";
   const consigneType = consigne?.type || "";
@@ -5812,7 +5912,8 @@ async function openHistory(ctx, consigne, options = {}) {
   const docs = Array.isArray(ss?.docs) ? ss.docs : [];
   const size = typeof ss?.size === "number" ? ss.size : docs.length;
   modesLogger.info("ui.history.rows", size);
-  const rows = docs.map((d) => ({ id: d.id, ...d.data() }));
+  let rows = docs.map((d) => ({ id: d.id, ...d.data() }));
+  rows = mergeRowsWithRecent(rows, consigneId);
 
   const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
@@ -6097,17 +6198,26 @@ async function openHistory(ctx, consigne, options = {}) {
       const numericValue = numericPoint(consigne.type, r.value);
       const note = r.note && String(r.note).trim();
       const summaryInfo = detectSummaryNote(r);
+      const summaryLabel = summaryInfo.isSummary
+        ? summaryInfo.scope === "monthly"
+          ? "Bilan mensuel"
+          : summaryInfo.scope === "weekly"
+          ? "Bilan hebdomadaire"
+          : "Bilan"
+        : "";
+      const summaryNoteLabel = summaryInfo.isSummary
+        ? summaryInfo.scope === "monthly"
+          ? "Note de bilan mensuel"
+          : summaryInfo.scope === "weekly"
+          ? "Note de bilan hebdomadaire"
+          : "Note de bilan"
+        : "";
       const noteClasses = ["history-panel__note"];
       let noteDataAttrs = "";
       let noteBadgeMarkup = "";
       if (note && summaryInfo.isSummary) {
         noteClasses.push("history-panel__note--bilan");
-        const scopeLabel =
-          summaryInfo.scope === "monthly"
-            ? "Note de bilan mensuel"
-            : summaryInfo.scope === "weekly"
-            ? "Note de bilan hebdomadaire"
-            : "Note de bilan";
+        const scopeLabel = summaryNoteLabel || "Note de bilan";
         noteBadgeMarkup = `<span class="history-panel__note-badge">${escapeHtml(scopeLabel)}</span>`;
         const scopeAttr = summaryInfo.scope
           ? ` data-note-scope="${escapeHtml(summaryInfo.scope)}"`
@@ -6132,15 +6242,16 @@ async function openHistory(ctx, consigne, options = {}) {
         ? ` data-summary="1"${summaryInfo.scope ? ` data-summary-scope="${escapeHtml(summaryInfo.scope)}"` : ""}`
         : "";
       const summaryClass = summaryInfo.isSummary ? " history-panel__item--summary" : "";
-      const summaryBadge = summaryInfo.isSummary
-        ? `<span class="history-panel__summary-badge">${escapeHtml(
-            summaryInfo.scope === "monthly"
-              ? "Bilan mensuel"
-              : summaryInfo.scope === "weekly"
-              ? "Bilan hebdomadaire"
-              : "Bilan"
-          )}</span>`
+      const summaryBadge = summaryLabel
+        ? `<span class="history-panel__summary-badge">${escapeHtml(summaryLabel)}</span>`
         : "";
+      const summaryMarker = summaryLabel
+        ? `<span class="history-panel__summary-marker" title="${escapeHtml(summaryLabel)}" aria-hidden="true"></span>`
+        : "";
+      const valueClasses = ["history-panel__value"];
+      if (summaryInfo.isSummary) {
+        valueClasses.push("history-panel__value--summary");
+      }
       const metaParts = [];
       if (relative) {
         metaParts.push(`<span class="history-panel__meta">${escapeHtml(relative)}</span>`);
@@ -6154,8 +6265,9 @@ async function openHistory(ctx, consigne, options = {}) {
       return `
         <li class="history-panel__item${summaryClass}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}>
           <div class="history-panel__item-row">
-            <span class="history-panel__value" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}">
+            <span class="${valueClasses.join(" ")}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}">
               <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
+              ${summaryMarker}
               <span>${formattedMarkup}</span>
               <span class="sr-only">${escapeHtml(statusLabel)}</span>
             </span>
