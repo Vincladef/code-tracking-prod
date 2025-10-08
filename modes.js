@@ -5239,8 +5239,6 @@ function renderHistoryChart(data, { type } = {}) {
   if (axisStart && axisEnd && axisEnd <= axisStart) {
     axisEnd = new Date(axisStart.getTime() + 86400000);
   }
-  const originalAxisStart = axisStart ? new Date(axisStart.getTime()) : null;
-  const originalAxisEnd = axisEnd ? new Date(axisEnd.getTime()) : null;
   const dayMs = 86400000;
   if (axisStart && axisEnd && axisEnd > axisStart) {
     const alignedStart = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
@@ -5289,30 +5287,8 @@ function renderHistoryChart(data, { type } = {}) {
       });
     };
 
-    let monthCursor = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
-    while (monthCursor.getTime() <= axisEndTime) {
-      addMarker(new Date(monthCursor.getTime()), "month", 3);
-      monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1);
-    }
-
-    if (axisSpanDays <= 120) {
-      for (let time = axisStartTime + 7 * dayMs; time < axisEndTime; time += 7 * dayMs) {
-        addMarker(new Date(time), "week", 1);
-      }
-    }
-
-    if (axisSpanDays <= 12) {
-      for (let time = axisStartTime + dayMs; time < axisEndTime; time += dayMs) {
-        addMarker(new Date(time), "day", 0);
-      }
-    }
-
-    if (originalAxisStart) {
-      addMarker(originalAxisStart, "data", 2);
-    }
-    if (originalAxisEnd) {
-      addMarker(originalAxisEnd, "data", 2);
-    }
+    addMarker(axisStart, "data", 3);
+    addMarker(axisEnd, "data", 3);
 
     axisMarkers.push(
       ...Array.from(markersMap.values()).sort((a, b) => a.date.getTime() - b.date.getTime())
