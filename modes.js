@@ -5192,7 +5192,7 @@ function formatHistoryChartValue(type, value) {
   return String(value);
 }
 
-function renderHistoryChart(data, { type } = {}) {
+function renderHistoryChart(data, { type, mode } = {}) {
   const dataset = Array.isArray(data)
     ? { points: data }
     : data && typeof data === "object"
@@ -5206,6 +5206,7 @@ function renderHistoryChart(data, { type } = {}) {
     ? dataset.range.end
     : null;
   const supportsChart = !(type === "long" || type === "short" || type === "info");
+  const historyMode = typeof mode === "string" ? mode.toLowerCase() : "";
   if (!supportsChart) {
     return `
       <div class="history-panel__chart history-panel__chart--empty">
@@ -5233,6 +5234,26 @@ function renderHistoryChart(data, { type } = {}) {
               ? entry.summary_scope
               : "";
           const normalizedScope = rawScope.trim().toLowerCase();
+          const recordedAtValue =
+            entry.recordedAt instanceof Date && !Number.isNaN(entry.recordedAt.getTime())
+              ? new Date(entry.recordedAt.getTime())
+              : null;
+          const recordedAtFromString =
+            !recordedAtValue && typeof entry.recordedAt === "string"
+              ? new Date(entry.recordedAt)
+              : null;
+          const recordedAt =
+            recordedAtValue && recordedAtValue instanceof Date && !Number.isNaN(recordedAtValue.getTime())
+              ? recordedAtValue
+              : recordedAtFromString && !Number.isNaN(recordedAtFromString.getTime())
+              ? recordedAtFromString
+              : null;
+          const dayKeyValue =
+            typeof entry.dayKey === "string"
+              ? entry.dayKey
+              : typeof entry.day_key === "string"
+              ? entry.day_key
+              : "";
           let summaryScope = "";
           if (normalizedScope.includes("mensu") || normalizedScope.includes("month")) {
             summaryScope = "monthly";
@@ -5255,6 +5276,8 @@ function renderHistoryChart(data, { type } = {}) {
             value: Number(entry.value),
             isSummary: hasSummaryFlag,
             summaryScope,
+            recordedAt: recordedAt ? new Date(recordedAt.getTime()) : null,
+            dayKey: dayKeyValue,
           };
         })
     : [];
@@ -5487,13 +5510,37 @@ function renderHistoryChart(data, { type } = {}) {
     );
   }
 
-  const pointLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
+  const includeTimeInPointLabels = historyMode !== "daily";
+  const pointLabelFormatter = new Intl.DateTimeFormat("fr-FR", includeTimeInPointLabels
+    ? {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }
+    : {
+        weekday: "long",
+        day: "2-digit",
+        month: "long",
+      });
+  const recordedMetaFormatter = new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
     month: "long",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
+  const formatPointLabel = (date) => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return "";
+    }
+    const raw = pointLabelFormatter.format(date);
+    if (includeTimeInPointLabels) {
+      return raw;
+    }
+    return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : raw;
+  };
   const iterationFormatter = new Intl.NumberFormat("fr-FR");
 
   const coords = sorted.map((entry, index) => {
@@ -5521,6 +5568,10 @@ function renderHistoryChart(data, { type } = {}) {
       iteration: index + 1,
       isSummary: Boolean(entry.isSummary),
       summaryScope: typeof entry.summaryScope === "string" ? entry.summaryScope : "",
+      recordedAt: entry.recordedAt instanceof Date && !Number.isNaN(entry.recordedAt.getTime())
+        ? entry.recordedAt
+        : null,
+      dayKey: typeof entry.dayKey === "string" ? entry.dayKey : "",
     };
   });
 
@@ -5608,11 +5659,23 @@ function renderHistoryChart(data, { type } = {}) {
     ? coords
         .map((point) => {
           const hasValidDate = point.date instanceof Date && !Number.isNaN(point.date.getTime());
-          const dateLabel = hasValidDate ? pointLabelFormatter.format(point.date) : "";
+          const dateLabel = hasValidDate ? formatPointLabel(point.date) : "";
           const iterationLabel = iterationFormatter.format(point.iteration || 0);
           const iterationText = point.iteration ? `Itération ${iterationLabel}` : "";
+          const recordedAt = point.recordedAt instanceof Date && !Number.isNaN(point.recordedAt.getTime())
+            ? point.recordedAt
+            : null;
           const tooltipLabel = useIterationAxis ? iterationText : dateLabel;
-          const tooltipMeta = useIterationAxis ? dateLabel : iterationText;
+          const metaParts = [];
+          if (useIterationAxis) {
+            if (dateLabel) metaParts.push(dateLabel);
+          } else {
+            if (iterationText) metaParts.push(iterationText);
+            if (historyMode === "daily" && recordedAt && (!point.date || recordedAt.getTime() !== point.date.getTime())) {
+              metaParts.push(`Enregistré le ${recordedMetaFormatter.format(recordedAt)}`);
+            }
+          }
+          const tooltipMeta = metaParts.join(" · ");
           const valueLabel = formatHistoryChartValue(type, point.value);
           const isSummaryPoint = Boolean(point.isSummary);
           const summaryScope = typeof point.summaryScope === "string" ? point.summaryScope : "";
@@ -5678,14 +5741,6 @@ function renderHistoryChart(data, { type } = {}) {
 
   return `
     <div class="history-panel__chart"${averageStatus ? ` data-average-status="${escapeHtml(averageStatus)}"` : ""}>
-      <div class="history-panel__chart-header">
-        <h4 class="history-panel__chart-title">Réponses enregistrées</h4>
-        <span class="history-panel__chart-count">${sorted.length} point${plural}</span>
-      </div>
-      <div class="history-panel__chart-values">
-        <span>${escapeHtml(minLabel)}</span>
-        <span>${escapeHtml(maxLabel)}</span>
-      </div>
       <figure class="${figureClasses.join(" ")}"${figureStyleAttr}>
         ${hasLikertScale ? `<div class="history-panel__chart-scale">${likertScaleMarkup}</div>` : ""}
         <div class="history-panel__chart-canvas">
@@ -5979,6 +6034,35 @@ async function openHistory(ctx, consigne, options = {}) {
     return "";
   }
 
+  function parseDayKeyToDate(key) {
+    if (typeof key !== "string") {
+      return null;
+    }
+    const trimmed = key.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const [yearStr, monthStr, dayStr] = trimmed.split("-");
+      const year = Number(yearStr);
+      const month = Number(monthStr);
+      const day = Number(dayStr);
+      if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+        const candidate = new Date(year, (month || 1) - 1, day || 1);
+        if (!Number.isNaN(candidate.getTime())) {
+          candidate.setHours(0, 0, 0, 0);
+          return candidate;
+        }
+      }
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      parsed.setHours(0, 0, 0, 0);
+      return parsed;
+    }
+    return null;
+  }
+
   const seenDailyDayKeys = new Set();
   rows = rows.filter((row) => {
     const modeKey = normalizeMode(row);
@@ -5998,22 +6082,44 @@ async function openHistory(ctx, consigne, options = {}) {
     return true;
   });
 
-  const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
+  const dateTimeFormatter = new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
     month: "long",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
+  const dayDisplayFormatter = new Intl.DateTimeFormat("fr-FR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  });
+  const capitalizeLabel = (value) => (typeof value === "string" && value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value);
+  const formatDisplayDate = (date, { preferDayView = false } = {}) => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return "";
+    }
+    const formatter = preferDayView ? dayDisplayFormatter : dateTimeFormatter;
+    const raw = formatter.format(date);
+    return capitalizeLabel(raw);
+  };
   const priorityToneValue = priorityTone(consigne.priority);
 
   function relativeLabel(date) {
     if (!date || Number.isNaN(date.getTime())) return "";
     const today = new Date();
-    const diffDays = Math.round((today.getTime() - date.getTime()) / 86400000);
-    if (diffDays <= 0) return "Aujourd’hui";
+    today.setHours(0, 0, 0, 0);
+    const base = new Date(date.getTime());
+    base.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((today.getTime() - base.getTime()) / 86400000);
+    if (diffDays === 0) return "Aujourd’hui";
     if (diffDays === 1) return "Hier";
-    if (diffDays < 7) return `Il y a ${diffDays} j`;
+    if (diffDays > 1 && diffDays < 7) return `Il y a ${diffDays} j`;
+    if (diffDays < 0) {
+      const future = Math.abs(diffDays);
+      if (future === 1) return "Demain";
+      if (future < 7) return `Dans ${future} j`;
+    }
     return "";
   }
 
@@ -6270,11 +6376,19 @@ async function openHistory(ctx, consigne, options = {}) {
 
   const list = rows
     .map((r) => {
-      const createdAtRaw = r.createdAt?.toDate?.() ?? r.createdAt;
-      const createdAt = createdAtRaw ? new Date(createdAtRaw) : null;
-      const iso = createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "";
-      const dateText = createdAt && !Number.isNaN(createdAt.getTime()) ? dateFormatter.format(createdAt) : "Date inconnue";
-      const relative = createdAt ? relativeLabel(createdAt) : "";
+      const createdAtSource = r.createdAt?.toDate?.() ?? r.createdAt ?? r.updatedAt ?? null;
+      let createdAt = createdAtSource ? new Date(createdAtSource) : null;
+      if (createdAt && Number.isNaN(createdAt.getTime())) {
+        createdAt = null;
+      }
+      const dayKey = resolveDayKey(r, createdAt);
+      const dayDate = dayKey ? parseDayKeyToDate(dayKey) : null;
+      const displayDate = dayDate || createdAt;
+      const iso = displayDate && !Number.isNaN(displayDate.getTime()) ? displayDate.toISOString() : "";
+      const dateText = displayDate && !Number.isNaN(displayDate.getTime())
+        ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
+        : "Date inconnue";
+      const relative = displayDate ? relativeLabel(displayDate) : "";
       const formattedText = formatConsigneValue(consigne.type, r.value);
       const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html" });
       const status = dotColor(consigne.type, r.value) || "na";
@@ -6313,12 +6427,14 @@ async function openHistory(ctx, consigne, options = {}) {
       const statusLabel = STATUS_LABELS[status] || "Valeur";
       const hasFormatted = formattedText && formattedText.trim() && formattedText !== "—";
       const formattedMarkup = hasFormatted ? formattedHtml : escapeHtml(consigne.type === "info" ? "" : "—");
-      if (createdAt && numericValue !== null && !Number.isNaN(numericValue)) {
+      if (displayDate && numericValue !== null && !Number.isNaN(numericValue)) {
         chartPoints.push({
-          date: createdAt,
+          date: displayDate,
           value: Number(numericValue),
           isSummary: Boolean(summaryInfo.isSummary),
           summaryScope: summaryInfo.scope || "",
+          recordedAt: createdAt instanceof Date && !Number.isNaN(createdAt?.getTime?.()) ? createdAt : null,
+          dayKey: typeof dayKey === "string" ? dayKey : "",
         });
       }
       const summaryAttr = summaryInfo.isSummary
@@ -6335,9 +6451,24 @@ async function openHistory(ctx, consigne, options = {}) {
       if (summaryInfo.isSummary) {
         valueClasses.push("history-panel__value--summary");
       }
+      let recordedMetaLabel = "";
+      if (dayDate && createdAt && !Number.isNaN(createdAt.getTime())) {
+        const sameDay =
+          createdAt.getFullYear() === dayDate.getFullYear() &&
+          createdAt.getMonth() === dayDate.getMonth() &&
+          createdAt.getDate() === dayDate.getDate();
+        if (!sameDay) {
+          recordedMetaLabel = formatDisplayDate(createdAt, { preferDayView: false });
+        }
+      }
       const metaParts = [];
       if (relative) {
         metaParts.push(`<span class="history-panel__meta">${escapeHtml(relative)}</span>`);
+      }
+      if (recordedMetaLabel && recordedMetaLabel !== dateText) {
+        metaParts.push(
+          `<span class="history-panel__meta">${escapeHtml(`Enregistré le ${recordedMetaLabel}`)}</span>`
+        );
       }
       if (summaryBadge) {
         metaParts.push(summaryBadge);
@@ -6345,8 +6476,9 @@ async function openHistory(ctx, consigne, options = {}) {
       const metaRowMarkup = metaParts.length
         ? `<div class="history-panel__meta-row">${metaParts.join(" ")}</div>`
         : "";
+      const dayKeyAttr = dayKey ? ` data-day-key="${escapeHtml(dayKey)}"` : "";
       return `
-        <li class="history-panel__item${summaryClass}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}>
+        <li class="history-panel__item${summaryClass}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}>
           <div class="history-panel__item-row">
             <span class="${valueClasses.join(" ")}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}">
               <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
@@ -6366,7 +6498,7 @@ async function openHistory(ctx, consigne, options = {}) {
   const totalLabel = rows.length === 0 ? "Aucune entrée" : rows.length === 1 ? "1 entrée" : `${rows.length} entrées`;
   const navigationBounds = computeHistoryNavigationBounds(chartPoints);
   const initialChartPoints = applyHistoryRange(chartPoints, defaultHistoryRange);
-  const chartMarkup = renderHistoryChart(initialChartPoints, { type: consigne.type });
+  const chartMarkup = renderHistoryChart(initialChartPoints, { type: consigne.type, mode: historySource });
 
   const resolveNavigationBounds = (key) => {
     const fallbackLimit = HISTORY_NAVIGATION_FALLBACK_LIMITS[key];
@@ -6484,7 +6616,7 @@ async function openHistory(ctx, consigne, options = {}) {
       }
       const offset = navigationState.offsets[selectedKey] || 0;
       const filteredPoints = applyHistoryRange(chartPoints, selectedKey, { offset });
-      chartContainer.innerHTML = renderHistoryChart(filteredPoints, { type: consigne.type });
+      chartContainer.innerHTML = renderHistoryChart(filteredPoints, { type: consigne.type, mode: historySource });
       enhanceHistoryChart(chartContainer);
       updateNavControls(selectedKey, filteredPoints);
     };
