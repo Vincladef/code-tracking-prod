@@ -483,19 +483,50 @@ function modal(html) {
 
 function drawer(html) {
   const wrap = document.createElement("div");
-  wrap.className = "fixed inset-0 z-50";
-  wrap.innerHTML = `
-    <div class="absolute inset-0 bg-black/30"></div>
-    <aside class="absolute right-0 top-0 h-full w-[min(480px,92vw)] bg-white border-l border-gray-200 shadow-xl p-4 translate-x-full transition-transform duration-200 will-change-transform overflow-y-auto">
-      ${html}
-    </aside>`;
-  wrap.addEventListener("click", (e) => {
-    if (e.target === wrap.firstElementChild) wrap.remove();
+  Object.assign(wrap.style, {
+    position: "fixed",
+    top: "0",
+    right: "0",
+    bottom: "0",
+    left: "0",
+    zIndex: "9999",
+    display: "flex",
+    justifyContent: "flex-end",
+    alignItems: "stretch",
+    background: "rgba(15,23,42,0.35)",
+    overscrollBehavior: "contain",
   });
+  wrap.setAttribute("role", "presentation");
+
+  const aside = document.createElement("aside");
+  aside.innerHTML = html;
+  Object.assign(aside.style, {
+    width: "min(480px, 92vw)",
+    maxWidth: "100%",
+    height: "100%",
+    background: "#fff",
+    borderLeft: "1px solid rgba(226, 232, 240, 0.9)",
+    boxShadow: "-6px 0 24px rgba(15,23,42,0.15)",
+    padding: "1rem",
+    overflowY: "auto",
+    transform: "translateX(100%)",
+    transition: "transform 0.2s ease-out",
+    willChange: "transform",
+  });
+  aside.setAttribute("role", "dialog");
+  aside.setAttribute("aria-modal", "true");
+
+  wrap.appendChild(aside);
+
+  wrap.addEventListener("click", (e) => {
+    if (e.target === wrap) wrap.remove();
+  });
+
   document.body.appendChild(wrap);
   requestAnimationFrame(() => {
-    wrap.querySelector("aside").classList.remove("translate-x-full");
+    aside.style.transform = "translateX(0)";
   });
+
   return wrap;
 }
 
