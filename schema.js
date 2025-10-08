@@ -618,7 +618,21 @@ function registerRecentResponses(mode, entries) {
       return bTime - aTime;
     });
     store.set(entry.consigneId, withoutDuplicates.slice(0, 10));
+    if (Schema?.D?.info) {
+      Schema.D.info("history.register.entry", {
+        consigneId: entry.consigneId,
+        mode: entry.mode || mode || null,
+        dayKey: entry.dayKey || null,
+        createdAt: entry.createdAt,
+      });
+    }
   });
+  if (Schema?.D?.info) {
+    Schema.D.info("history.register.batch", {
+      mode: mode || null,
+      count: sanitized.length,
+    });
+  }
   if (typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
     try {
       const detail = { mode: mode || null, responses: sanitized.map((entry) => ({ ...entry })) };
@@ -714,6 +728,20 @@ async function saveResponses(db, uid, mode, answers) {
     batch.push(write);
   }
   const results = await Promise.all(batch);
+  if (Schema?.D?.group) {
+    Schema.D.group("responses.save", { mode, count: results.length });
+    results.forEach((entry) => {
+      Schema?.D?.info?.("responses.save.entry", {
+        consigneId: entry.consigneId,
+        mode: entry.mode || mode || null,
+        createdAt: entry.createdAt,
+        dayKey: entry.dayKey || null,
+      });
+    });
+    Schema?.D?.groupEnd?.();
+  } else if (Schema?.D?.info) {
+    Schema.D.info("responses.save", { mode, count: results.length });
+  }
   registerRecentResponses(mode, results);
   return results;
 }
