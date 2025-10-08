@@ -7284,6 +7284,128 @@ async function renderDaily(ctx, root, opts = {}) {
     ? previousAnswersRaw
     : new Map(previousAnswersRaw || []);
 
+  const autosaveDelayMs = 800;
+  const autosaveControllers = new Map();
+  const canAutosave = Boolean(dayKey && ctx?.db && ctx?.user?.uid);
+
+  const serializeDailyValue = (consigne, value) => {
+    if (!consigne) return "";
+    const type = consigne.type;
+    if (type === "long") {
+      try {
+        return JSON.stringify(normalizeRichTextValue(value || ""));
+      } catch (error) {
+        console.warn("serializeDailyValue:long", error);
+        return JSON.stringify(normalizeRichTextValue(""));
+      }
+    }
+    if (type === "checklist") {
+      const normalized = Array.isArray(value)
+        ? value.map((entry) => entry === true)
+        : [];
+      return JSON.stringify(normalized);
+    }
+    if (type === "short") {
+      return JSON.stringify(typeof value === "string" ? value.trim() : value || "");
+    }
+    if (type === "num" || type === "likert5") {
+      if (value === null || value === undefined || value === "") {
+        return "";
+      }
+      const num = Number(value);
+      return Number.isFinite(num) ? String(num) : "";
+    }
+    if (type === "likert6" || type === "yesno") {
+      return value === null || value === undefined ? "" : String(value);
+    }
+    return value === null || value === undefined ? "" : JSON.stringify(value);
+  };
+
+  const ensureAutosaveController = (consigne) => {
+    if (!consigne?.id) return null;
+    let tracker = autosaveControllers.get(consigne.id);
+    if (!tracker) {
+      const existing = previousAnswers.get(consigne.id);
+      const initialValue = existing && Object.prototype.hasOwnProperty.call(existing, "value")
+        ? existing.value
+        : null;
+      tracker = {
+        lastSerialized: serializeDailyValue(consigne, initialValue),
+        timer: null,
+        inflight: null,
+        pendingValue: undefined,
+        pendingSerialized: undefined,
+      };
+      autosaveControllers.set(consigne.id, tracker);
+    }
+    return tracker;
+  };
+
+  const queueDailyAutosave = (consigne, value) => {
+    if (!canAutosave || !consigne?.id) return;
+    const tracker = ensureAutosaveController(consigne);
+    if (!tracker) return;
+
+    if (!hasValueForConsigne(consigne, value)) {
+      tracker.pendingValue = undefined;
+      tracker.pendingSerialized = undefined;
+      return;
+    }
+
+    const serialized = serializeDailyValue(consigne, value);
+    if (!serialized && !tracker.lastSerialized) {
+      return;
+    }
+    if (serialized === tracker.lastSerialized) {
+      return;
+    }
+
+    if (tracker.timer) {
+      clearTimeout(tracker.timer);
+      tracker.timer = null;
+    }
+
+    tracker.pendingValue = value;
+    tracker.pendingSerialized = serialized;
+
+    tracker.timer = setTimeout(() => {
+      tracker.timer = null;
+      const pendingValue = tracker.pendingValue;
+      const pendingSerialized = tracker.pendingSerialized;
+      tracker.pendingValue = undefined;
+      tracker.pendingSerialized = undefined;
+      if (!hasValueForConsigne(consigne, pendingValue)) {
+        return;
+      }
+      const promise = Schema.saveResponses(ctx.db, ctx.user.uid, "daily", [
+        { consigne, value: pendingValue, dayKey },
+      ])
+        .then(() => {
+          tracker.lastSerialized = pendingSerialized;
+          if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+            window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+          }
+        })
+        .catch((error) => {
+          console.error("dailyAutosave", error);
+          showToast("Impossible d'enregistrer la réponse.");
+        })
+        .finally(() => {
+          if (tracker.inflight === promise) {
+            tracker.inflight = null;
+          }
+        });
+      tracker.inflight = promise;
+    }, autosaveDelayMs);
+  };
+
+  const handleAnswerChange = (consigne, value) => {
+    if (!consigne?.id) return;
+    const base = previousAnswers.get(consigne.id) || { consigneId: consigne.id };
+    previousAnswers.set(consigne.id, { ...base, value });
+    queueDailyAutosave(consigne, value);
+  };
+
   const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
     const previous = previousAnswers.get(item.id);
     const hasPrevValue = previous && Object.prototype.hasOwnProperty.call(previous, "value");
@@ -7424,8 +7546,7 @@ async function renderDaily(ctx, root, opts = {}) {
     bindConsigneRowValue(row, item, {
       initialValue,
       onChange: (value) => {
-        const base = previousAnswers.get(item.id) || { consigneId: item.id };
-        previousAnswers.set(item.id, { ...base, value });
+        handleAnswerChange(item, value);
         if (value === null || value === undefined || value === "") {
           delete row.dataset.currentValue;
         } else {
@@ -7453,8 +7574,7 @@ async function renderDaily(ctx, root, opts = {}) {
       bindConsigneRowValue(childRow, child, {
         initialValue,
         onChange: (value) => {
-          const base = previousAnswers.get(child.id) || { consigneId: child.id };
-          previousAnswers.set(child.id, { ...base, value });
+          handleAnswerChange(child, value);
         },
       });
       let srEnabled = child?.srEnabled !== false;
@@ -7580,26 +7700,6 @@ async function renderDaily(ctx, root, opts = {}) {
       }
     });
   }
-
-  const actions = document.createElement("div");
-  actions.className = "flex justify-end daily-grid__item daily-grid__actions";
-  actions.innerHTML = `<button type="submit" class="btn btn-primary">Enregistrer</button>`;
-  form.appendChild(actions);
-
-  form.onsubmit = async (e) => {
-    e.preventDefault();
-    const answers = collectAnswers(form, visible, { dayKey });
-    if (!answers.length) {
-      alert("Aucune réponse");
-      return;
-    }
-    await Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers);
-    if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
-      window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
-    }
-    showToast("Journal enregistré");
-    renderDaily(ctx, root, { day: currentDay, dateIso: dayKey });
-  };
 
   modesLogger.groupEnd();
   if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
