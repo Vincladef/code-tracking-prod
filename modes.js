@@ -5915,6 +5915,70 @@ async function openHistory(ctx, consigne, options = {}) {
   let rows = docs.map((d) => ({ id: d.id, ...d.data() }));
   rows = mergeRowsWithRecent(rows, consigneId);
 
+  const isDailyHistory = (() => {
+    const source = typeof options.source === "string" ? options.source.toLowerCase() : "";
+    if (source === "daily") return true;
+    const consigneMode = typeof consigne?.mode === "string" ? consigne.mode.toLowerCase() : "";
+    return consigneMode === "daily";
+  })();
+
+  if (isDailyHistory && Array.isArray(rows) && rows.length > 1) {
+    const toDayKey = (row) => {
+      if (!row || typeof row !== "object") return null;
+      const candidates = [
+        row.dayKey,
+        row.day_key,
+        row.daykey,
+        row.day,
+        row.dayISO,
+        row.day_iso,
+        row.dateKey,
+        row.date_key,
+      ];
+      for (const candidate of candidates) {
+        if (typeof candidate === "string" && candidate.trim()) {
+          return candidate.trim();
+        }
+      }
+      const createdAtSource =
+        row.createdAt?.toDate?.() ??
+        row.createdAt ??
+        row.timestamp?.toDate?.() ??
+        row.timestamp ??
+        row.date?.toDate?.() ??
+        row.date ??
+        null;
+      if (!createdAtSource) {
+        return null;
+      }
+      const createdAt = createdAtSource instanceof Date ? createdAtSource : new Date(createdAtSource);
+      if (Number.isNaN(createdAt.getTime())) {
+        return null;
+      }
+      if (typeof Schema?.dayKeyFromDate === "function") {
+        return Schema.dayKeyFromDate(createdAt);
+      }
+      const year = createdAt.getFullYear();
+      const month = String(createdAt.getMonth() + 1).padStart(2, "0");
+      const day = String(createdAt.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    const seenKeys = new Set();
+    const deduped = [];
+    for (const row of rows) {
+      const key = toDayKey(row);
+      if (key && seenKeys.has(key)) {
+        continue;
+      }
+      if (key) {
+        seenKeys.add(key);
+      }
+      deduped.push(row);
+    }
+    rows = deduped;
+  }
+
   const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
     month: "long",
