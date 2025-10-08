@@ -5205,32 +5205,37 @@ function renderHistoryChart(data, { type } = {}) {
   const validRangeEnd = dataset?.range?.end instanceof Date && !Number.isNaN(dataset.range.end.getTime())
     ? dataset.range.end
     : null;
-
-  if (!Array.isArray(rawPoints) || rawPoints.length === 0) {
-    const reason = type === "long" || type === "short" || type === "info"
-      ? "Ce type de consigne ne génère pas de graphique."
-      : "Pas encore de données pour tracer un graphique.";
+  const supportsChart = !(type === "long" || type === "short" || type === "info");
+  if (!supportsChart) {
     return `
       <div class="history-panel__chart history-panel__chart--empty">
-        <p class="history-panel__chart-empty-text">${escapeHtml(reason)}</p>
-      </div>
-    `;
-  }
-  if (rawPoints.length < 2) {
-    return `
-      <div class="history-panel__chart history-panel__chart--empty">
-        <p class="history-panel__chart-empty-text">Ajoute encore quelques réponses pour voir apparaître le graphique.</p>
+        <p class="history-panel__chart-empty-text">Ce type de consigne ne génère pas de graphique.</p>
       </div>
     `;
   }
 
-  const sorted = rawPoints.slice().sort((a, b) => a.date - b.date);
+  const sanitizedPoints = Array.isArray(rawPoints)
+    ? rawPoints
+        .filter(
+          (entry) =>
+            entry &&
+            entry.date instanceof Date &&
+            !Number.isNaN(entry.date.getTime()) &&
+            entry.value !== null &&
+            entry.value !== undefined &&
+            Number.isFinite(Number(entry.value))
+        )
+        .map((entry) => ({ date: new Date(entry.date), value: Number(entry.value) }))
+    : [];
+
+  const sorted = sanitizedPoints.slice().sort((a, b) => a.date - b.date);
+  const hasValidPoints = sorted.length > 0;
   const values = sorted.map((entry) => entry.value);
-  const averageStatus = historyStatusFromAverage(type, values);
+  const averageStatus = historyStatusFromAverage(type, values) || "na";
   const colorPalette = resolveHistoryStatusColors(averageStatus);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
+  const min = hasValidPoints ? Math.min(...values) : 0;
+  const max = hasValidPoints ? Math.max(...values) : 0;
+  const range = hasValidPoints && Number.isFinite(max - min) && max - min !== 0 ? max - min : 1;
 
   let axisStart = validRangeStart || (sorted[0]?.date ?? null);
   let axisEnd = validRangeEnd || (sorted[sorted.length - 1]?.date ?? null);
@@ -5413,7 +5418,7 @@ function renderHistoryChart(data, { type } = {}) {
       const clampedTime = Math.min(Math.max(entry.date.getTime(), axisStart.getTime()), axisEnd.getTime());
       ratio = (clampedTime - axisStart.getTime()) / (axisEnd.getTime() - axisStart.getTime());
     } else {
-      ratio = sorted.length === 1 ? 0.5 : index / (sorted.length - 1);
+      ratio = sorted.length === 1 ? 0.5 : index / Math.max(sorted.length - 1, 1);
     }
     const normalized = range === 0 ? 0.5 : (entry.value - min) / range;
     const x = padding + ratio * innerWidth;
@@ -5421,19 +5426,30 @@ function renderHistoryChart(data, { type } = {}) {
     return { x, y };
   });
 
-  const linePath = coords
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
-    .join(" ");
-  const areaPath = [
-    `M${coords[0].x.toFixed(2)},${(padding + innerHeight).toFixed(2)}`,
-    ...coords.map((point) => `L${point.x.toFixed(2)},${point.y.toFixed(2)}`),
-    `L${coords[coords.length - 1].x.toFixed(2)},${(padding + innerHeight).toFixed(2)}`,
-    "Z",
-  ].join(" ");
+  const hasCoords = coords.length > 0;
+  let linePath = "";
+  let areaPath = "";
+  if (hasCoords) {
+    linePath = coords
+      .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+      .join(" ");
+    areaPath = [
+      `M${coords[0].x.toFixed(2)},${(padding + innerHeight).toFixed(2)}`,
+      ...coords.map((point) => `L${point.x.toFixed(2)},${point.y.toFixed(2)}`),
+      `L${coords[coords.length - 1].x.toFixed(2)},${(padding + innerHeight).toFixed(2)}`,
+      "Z",
+    ].join(" ");
+  } else {
+    const startX = padding.toFixed(2);
+    const endX = (padding + innerWidth).toFixed(2);
+    const baselineY = (padding + innerHeight).toFixed(2);
+    linePath = `M${startX},${baselineY} L${endX},${baselineY}`;
+    areaPath = `M${startX},${baselineY} L${endX},${baselineY} L${endX},${baselineY} Z`;
+  }
 
   const gradientId = `history-chart-${Math.random().toString(36).slice(2)}`;
-  const minLabel = formatHistoryChartValue(type, min);
-  const maxLabel = formatHistoryChartValue(type, max);
+  const minLabel = hasValidPoints ? formatHistoryChartValue(type, min) : "—";
+  const maxLabel = hasValidPoints ? formatHistoryChartValue(type, max) : "—";
   const plural = sorted.length > 1 ? "s" : "";
 
   const axisLines = axisMarkers
@@ -5486,12 +5502,14 @@ function renderHistoryChart(data, { type } = {}) {
     })
     .join("");
 
-  const circles = coords
-    .map(
-      (point) =>
-        `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" fill="${escapeHtml(colorPalette.circle)}" stroke="#fff" stroke-width="1.5"></circle>`
-    )
-    .join("");
+  const circles = hasCoords
+    ? coords
+        .map(
+          (point) =>
+            `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" fill="${escapeHtml(colorPalette.circle)}" stroke="#fff" stroke-width="1.5"></circle>`
+        )
+        .join("")
+    : "";
 
   return `
     <div class="history-panel__chart"${averageStatus ? ` data-average-status="${escapeHtml(averageStatus)}"` : ""}>
@@ -5709,16 +5727,10 @@ async function openHistory(ctx, consigne, options = {}) {
   }
 
   function applyHistoryRange(points, rangeKey, options = {}) {
-    if (!Array.isArray(points) || points.length === 0) {
-      return { points: [] };
-    }
-    const validPoints = points
+    const allPoints = Array.isArray(points) ? points : [];
+    const validPoints = allPoints
       .filter((pt) => pt && pt.date instanceof Date && !Number.isNaN(pt.date.getTime()))
       .map((pt) => ({ ...pt }));
-    if (!validPoints.length) {
-      return { points: [] };
-    }
-
     const DAY_MS = 86400000;
     const sortedAsc = validPoints.slice().sort((a, b) => a.date - b.date);
     const normalizedOffset = Number.isFinite(options.offset) ? Math.trunc(options.offset) : 0;
@@ -5742,7 +5754,9 @@ async function openHistory(ctx, consigne, options = {}) {
       };
     };
 
-    const mostRecentPoint = sortedAsc[sortedAsc.length - 1]?.date ?? new Date();
+    const mostRecentPoint = sortedAsc[sortedAsc.length - 1]?.date instanceof Date
+      ? new Date(sortedAsc[sortedAsc.length - 1].date)
+      : new Date();
 
     switch (rangeKey) {
       case "last5":
@@ -5786,8 +5800,18 @@ async function openHistory(ctx, consigne, options = {}) {
     }
   }
 
+  const HISTORY_NAVIGATION_FALLBACK_LIMITS = {
+    "7d": 52,
+    "30d": 24,
+    "365d": 5,
+  };
+
   function computeHistoryNavigationBounds(points) {
-    const bounds = {};
+    const fallbackBounds = Object.entries(HISTORY_NAVIGATION_FALLBACK_LIMITS).reduce((acc, [key, limit]) => {
+      acc[key] = { min: Number.isFinite(limit) ? -Math.abs(limit) : 0, max: 0 };
+      return acc;
+    }, {});
+    const bounds = { ...fallbackBounds };
     if (!Array.isArray(points) || !points.length) {
       return bounds;
     }
@@ -5816,16 +5840,19 @@ async function openHistory(ctx, consigne, options = {}) {
     const latestWeekStart = startOfWeek(last);
     const earliestWeekStart = startOfWeek(first);
     const diffWeeks = Math.max(0, Math.floor((latestWeekStart - earliestWeekStart) / (7 * DAY_MS)));
-    bounds["7d"] = { min: -diffWeeks, max: 0 };
+    const fallbackWeek = fallbackBounds["7d"]?.min ?? 0;
+    bounds["7d"] = { min: Math.min(-diffWeeks, fallbackWeek), max: 0 };
 
     const monthIndex = (date) => date.getFullYear() * 12 + date.getMonth();
     const latestMonthIndex = monthIndex(last);
     const earliestMonthIndex = monthIndex(first);
     const diffMonths = Math.max(0, latestMonthIndex - earliestMonthIndex);
-    bounds["30d"] = { min: -diffMonths, max: 0 };
+    const fallbackMonth = fallbackBounds["30d"]?.min ?? 0;
+    bounds["30d"] = { min: Math.min(-diffMonths, fallbackMonth), max: 0 };
 
     const diffYears = Math.max(0, last.getFullYear() - first.getFullYear());
-    bounds["365d"] = { min: -diffYears, max: 0 };
+    const fallbackYear = fallbackBounds["365d"]?.min ?? 0;
+    bounds["365d"] = { min: Math.min(-diffYears, fallbackYear), max: 0 };
 
     return bounds;
   }
@@ -5924,6 +5951,23 @@ async function openHistory(ctx, consigne, options = {}) {
   const initialChartPoints = applyHistoryRange(chartPoints, defaultHistoryRange);
   const chartMarkup = renderHistoryChart(initialChartPoints, { type: consigne.type });
 
+  const resolveNavigationBounds = (key) => {
+    const fallbackLimit = HISTORY_NAVIGATION_FALLBACK_LIMITS[key];
+    const defaultBounds = Number.isFinite(fallbackLimit)
+      ? { min: -Math.abs(fallbackLimit), max: 0 }
+      : { min: 0, max: 0 };
+    const bounds = navigationBounds[key];
+    if (bounds && typeof bounds === "object") {
+      const hasMin = Object.prototype.hasOwnProperty.call(bounds, "min");
+      const hasMax = Object.prototype.hasOwnProperty.call(bounds, "max");
+      return {
+        min: hasMin ? bounds.min : defaultBounds.min,
+        max: hasMax ? bounds.max : defaultBounds.max,
+      };
+    }
+    return defaultBounds;
+  };
+
   const html = `
     <div class="history-panel">
       <header class="history-panel__header">
@@ -6001,13 +6045,13 @@ async function openHistory(ctx, consigne, options = {}) {
 
   const updateNavControls = (selected, result) => {
     if (!navContainer || !navLabel || !navPrev || !navNext) return;
-    const isNavigable = NAVIGABLE_RANGES.has(selected) && chartPoints.length > 0;
+    const isNavigable = NAVIGABLE_RANGES.has(selected);
     navContainer.hidden = !isNavigable;
     if (!isNavigable) {
       navLabel.textContent = "";
       return;
     }
-    const bounds = navigationBounds[selected] || { min: 0, max: 0 };
+    const bounds = resolveNavigationBounds(selected);
     const offset = navigationState.offsets[selected] || 0;
     navLabel.textContent = formatHistoryRangeLabel(result);
     navPrev.disabled = offset <= (bounds.min ?? offset);
@@ -6039,7 +6083,7 @@ async function openHistory(ctx, consigne, options = {}) {
       navPrev.addEventListener("click", () => {
         const selectedKey = navigationState.key;
         if (!NAVIGABLE_RANGES.has(selectedKey)) return;
-        const bounds = navigationBounds[selectedKey] || { min: 0, max: 0 };
+        const bounds = resolveNavigationBounds(selectedKey);
         const currentOffset = navigationState.offsets[selectedKey] || 0;
         const nextOffset = Math.max(bounds.min ?? currentOffset, currentOffset - 1);
         if (nextOffset === currentOffset) return;
@@ -6052,7 +6096,7 @@ async function openHistory(ctx, consigne, options = {}) {
       navNext.addEventListener("click", () => {
         const selectedKey = navigationState.key;
         if (!NAVIGABLE_RANGES.has(selectedKey)) return;
-        const bounds = navigationBounds[selectedKey] || { min: 0, max: 0 };
+        const bounds = resolveNavigationBounds(selectedKey);
         const currentOffset = navigationState.offsets[selectedKey] || 0;
         const nextOffset = Math.min(bounds.max ?? 0, currentOffset + 1);
         if (nextOffset === currentOffset) return;
