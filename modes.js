@@ -5682,10 +5682,6 @@ function renderHistoryChart(data, { type, mode } = {}) {
               : isSummaryPoint
               ? "Bilan"
               : "";
-          const titleParts = [summaryLabel, tooltipLabel, valueLabel, tooltipMeta].filter(Boolean);
-          const titleTag = titleParts.length
-            ? `<title>${escapeHtml(titleParts.join(" · "))}</title>`
-            : "";
           const labelAttr = tooltipLabel ? ` data-point-label="${escapeHtml(tooltipLabel)}"` : "";
           const valueAttr = valueLabel ? ` data-point-value="${escapeHtml(valueLabel)}"` : "";
           const metaAttr = tooltipMeta ? ` data-point-meta="${escapeHtml(tooltipMeta)}"` : "";
@@ -5712,7 +5708,6 @@ function renderHistoryChart(data, { type, mode } = {}) {
             <g class="${pointClasses.join(" ")}" tabindex="0"${labelAttr}${valueAttr}${metaAttr}${ariaAttr}${summaryAttrs} style="--history-point-color:${escapeHtml(
               pointColor
             )};">
-              ${titleTag}
               <circle class="history-panel__chart-point-hit" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(
             2
           )}" r="11" fill="${escapeHtml(pointColor)}" fill-opacity="0.001" stroke="transparent"></circle>
