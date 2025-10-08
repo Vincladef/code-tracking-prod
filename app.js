@@ -1766,6 +1766,7 @@
       admin: "#/admin",
       daily: "#/daily",
       practice: "#/practice",
+      history: "#/history",
       goals: "#/goals",
     };
     const activeTarget = map[alias] || "#/admin";
