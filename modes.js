@@ -5319,7 +5319,7 @@ function renderHistoryChart(data, { type } = {}) {
       const numberFormatter = new Intl.NumberFormat("fr-FR");
       uniqueIndexes.forEach((index) => {
         const ratio = totalPoints === 1 ? 0.5 : index / denominator;
-        const label = `Itération ${numberFormatter.format(index + 1)}`;
+        const label = numberFormatter.format(index + 1);
         axisMarkers.push({
           type: "iteration",
           ratio,
