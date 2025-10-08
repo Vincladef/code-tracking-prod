@@ -5454,6 +5454,7 @@ function renderHistoryChart(data, { type } = {}) {
     hour: "2-digit",
     minute: "2-digit",
   });
+  const iterationFormatter = new Intl.NumberFormat("fr-FR");
 
   const coords = sorted.map((entry, index) => {
     let ratio;
@@ -5472,7 +5473,13 @@ function renderHistoryChart(data, { type } = {}) {
     const normalized = range === 0 ? 0.5 : (entry.value - min) / range;
     const x = padding + ratio * innerWidth;
     const y = padding + (1 - normalized) * innerHeight;
-    return { x, y, date: entry.date };
+    return {
+      x,
+      y,
+      date: entry.date,
+      value: entry.value,
+      iteration: index + 1,
+    };
   });
 
   const hasCoords = coords.length > 0;
@@ -5559,8 +5566,33 @@ function renderHistoryChart(data, { type } = {}) {
         .map((point) => {
           const hasValidDate = point.date instanceof Date && !Number.isNaN(point.date.getTime());
           const dateLabel = hasValidDate ? pointLabelFormatter.format(point.date) : "";
-          const titleTag = dateLabel ? `<title>${escapeHtml(dateLabel)}</title>` : "";
-          return `<g class="history-panel__chart-point">${titleTag}<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" fill="${escapeHtml(colorPalette.circle)}" stroke="#fff" stroke-width="1.5"></circle></g>`;
+          const iterationLabel = iterationFormatter.format(point.iteration || 0);
+          const iterationText = point.iteration ? `Itération ${iterationLabel}` : "";
+          const tooltipLabel = useIterationAxis ? iterationText : dateLabel;
+          const tooltipMeta = useIterationAxis ? dateLabel : iterationText;
+          const valueLabel = formatHistoryChartValue(type, point.value);
+          const titleParts = [tooltipLabel, valueLabel, tooltipMeta].filter(Boolean);
+          const titleTag = titleParts.length
+            ? `<title>${escapeHtml(titleParts.join(" · "))}</title>`
+            : "";
+          const labelAttr = tooltipLabel ? ` data-point-label="${escapeHtml(tooltipLabel)}"` : "";
+          const valueAttr = valueLabel ? ` data-point-value="${escapeHtml(valueLabel)}"` : "";
+          const metaAttr = tooltipMeta ? ` data-point-meta="${escapeHtml(tooltipMeta)}"` : "";
+          const ariaParts = [tooltipLabel, valueLabel, tooltipMeta].filter(Boolean);
+          const ariaAttr = ariaParts.length ? ` aria-label="${escapeHtml(ariaParts.join(" — "))}"` : "";
+          return `
+            <g class="history-panel__chart-point" tabindex="0"${labelAttr}${valueAttr}${metaAttr}${ariaAttr} style="--history-point-color:${escapeHtml(
+              colorPalette.circle
+            )};">
+              ${titleTag}
+              <circle class="history-panel__chart-point-hit" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(
+            2
+          )}" r="11" fill="${escapeHtml(colorPalette.circle)}" fill-opacity="0.001" stroke="transparent"></circle>
+              <circle class="history-panel__chart-point-node" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(
+            2
+          )}" r="5.5" fill="${escapeHtml(colorPalette.circle)}" stroke="#fff" stroke-width="2"></circle>
+            </g>
+          `;
         })
         .join("")
     : "";
@@ -5594,6 +5626,72 @@ function renderHistoryChart(data, { type } = {}) {
       </div>
     </div>
   `;
+}
+
+function enhanceHistoryChart(container) {
+  if (!container) return;
+  const chartRoot = container.querySelector(".history-panel__chart");
+  if (!chartRoot) return;
+
+  const tooltipClass = "history-panel__chart-tooltip";
+  let tooltip = chartRoot.querySelector(`.${tooltipClass}`);
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.className = tooltipClass;
+    tooltip.innerHTML = `
+      <div class="history-panel__chart-tooltip-label"></div>
+      <div class="history-panel__chart-tooltip-value"></div>
+      <div class="history-panel__chart-tooltip-meta"></div>
+    `;
+    chartRoot.appendChild(tooltip);
+  }
+
+  const labelEl = tooltip.querySelector(".history-panel__chart-tooltip-label");
+  const valueEl = tooltip.querySelector(".history-panel__chart-tooltip-value");
+  const metaEl = tooltip.querySelector(".history-panel__chart-tooltip-meta");
+
+  const clearActive = () => {
+    chartRoot
+      .querySelectorAll(".history-panel__chart-point.is-active")
+      .forEach((pt) => pt.classList.remove("is-active"));
+  };
+
+  const hideTooltip = () => {
+    clearActive();
+    tooltip.classList.remove("is-visible");
+  };
+
+  const showTooltip = (point) => {
+    if (!point) return;
+    clearActive();
+    point.classList.add("is-active");
+    if (labelEl) labelEl.textContent = point.dataset.pointLabel || "";
+    if (valueEl) valueEl.textContent = point.dataset.pointValue || "";
+    if (metaEl) {
+      const metaText = point.dataset.pointMeta || "";
+      metaEl.textContent = metaText;
+      metaEl.hidden = !metaText;
+    }
+
+    const node = point.querySelector(".history-panel__chart-point-node") || point;
+    const nodeRect = node.getBoundingClientRect();
+    const chartRect = chartRoot.getBoundingClientRect();
+    const left = nodeRect.left + nodeRect.width / 2 - chartRect.left;
+    const top = nodeRect.top - chartRect.top;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    tooltip.classList.add("is-visible");
+  };
+
+  chartRoot.querySelectorAll(".history-panel__chart-point").forEach((point) => {
+    point.addEventListener("pointerenter", () => showTooltip(point));
+    point.addEventListener("pointermove", () => showTooltip(point));
+    point.addEventListener("pointerleave", hideTooltip);
+    point.addEventListener("focus", () => showTooltip(point));
+    point.addEventListener("blur", hideTooltip);
+  });
+
+  chartRoot.addEventListener("pointerleave", hideTooltip);
 }
 
 async function openHistory(ctx, consigne, options = {}) {
@@ -6121,6 +6219,7 @@ async function openHistory(ctx, consigne, options = {}) {
       const offset = navigationState.offsets[selectedKey] || 0;
       const filteredPoints = applyHistoryRange(chartPoints, selectedKey, { offset });
       chartContainer.innerHTML = renderHistoryChart(filteredPoints, { type: consigne.type });
+      enhanceHistoryChart(chartContainer);
       updateNavControls(selectedKey, filteredPoints);
     };
 
@@ -6159,6 +6258,9 @@ async function openHistory(ctx, consigne, options = {}) {
     }
 
     updateChart(defaultHistoryRange);
+  }
+  if (chartContainer && !rangeSelector) {
+    enhanceHistoryChart(chartContainer);
   }
 
   modesLogger.groupEnd();
