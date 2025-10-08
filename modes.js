@@ -5219,7 +5219,24 @@ function renderHistoryChart(points, { type } = {}) {
 }
 
 async function openHistory(ctx, consigne) {
-  modesLogger.group("ui.history.open", { consigneId: consigne.id, type: consigne.type });
+  const consigneId = consigne?.id || "";
+  const consigneType = consigne?.type || "";
+  modesLogger.group("ui.history.open", { consigneId, type: consigneType });
+
+  if (!consigneId) {
+    modesLogger.warn("ui.history.consigne.missing", { consigne });
+    showToast("Historique indisponible : consigne introuvable.");
+    modesLogger.groupEnd();
+    return null;
+  }
+
+  const uid = ctx?.user?.uid;
+  if (!uid) {
+    modesLogger.warn("ui.history.user.missing", { hasCtx: Boolean(ctx) });
+    showToast("Historique indisponible : utilisateur non identifié.");
+    modesLogger.groupEnd();
+    return null;
+  }
 
   const missingFirestoreFns = ["collection", "where", "orderBy", "limit", "query", "getDocs"].filter(
     (fn) => typeof modesFirestore?.[fn] !== "function"
@@ -5237,8 +5254,8 @@ async function openHistory(ctx, consigne) {
   let ss;
   try {
     const qy = modesFirestore.query(
-      modesFirestore.collection(ctx.db, `u/${ctx.user.uid}/responses`),
-      modesFirestore.where("consigneId", "==", consigne.id),
+      modesFirestore.collection(ctx.db, `u/${uid}/responses`),
+      modesFirestore.where("consigneId", "==", consigneId),
       modesFirestore.orderBy("createdAt", "desc"),
       modesFirestore.limit(60)
     );
