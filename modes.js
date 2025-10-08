@@ -5246,9 +5246,14 @@ function renderHistoryChart(data, { type } = {}) {
   }
   const axisHint = typeof dataset.axis === "string" ? dataset.axis : "";
   const normalizedAxisHint = axisHint.toLowerCase();
+  const useIterationAxis = normalizedAxisHint === "iteration";
   const dayMs = 86400000;
   let axisMode = "";
-  if (axisStart && axisEnd && axisEnd > axisStart) {
+  if (useIterationAxis) {
+    axisStart = null;
+    axisEnd = null;
+    axisMode = "iteration";
+  } else if (axisStart && axisEnd && axisEnd > axisStart) {
     const shouldAlignToMonth = !validRangeStart && !validRangeEnd && normalizedAxisHint === "month";
     const shouldAlignToYear = !validRangeStart && !validRangeEnd && normalizedAxisHint === "year";
     const shouldAlignToWeek = !validRangeStart && !validRangeEnd && normalizedAxisHint === "week";
@@ -5296,7 +5301,34 @@ function renderHistoryChart(data, { type } = {}) {
   const axisMarkers = [];
   const axisOffsetPercent = (padding / chartWidth) * 100;
   const axisRangePercent = (innerWidth / chartWidth) * 100;
-  if (axisStart && axisEnd && axisDuration > 0) {
+  if (useIterationAxis) {
+    const totalPoints = sorted.length;
+    if (totalPoints > 0) {
+      const maxMarkers = 5;
+      let candidateIndexes;
+      if (totalPoints === 1) {
+        candidateIndexes = [0];
+      } else if (totalPoints <= maxMarkers) {
+        candidateIndexes = Array.from({ length: totalPoints }, (_, idx) => idx);
+      } else {
+        const step = (totalPoints - 1) / (maxMarkers - 1);
+        candidateIndexes = Array.from({ length: maxMarkers }, (_, idx) => Math.round(idx * step));
+      }
+      const uniqueIndexes = Array.from(new Set(candidateIndexes)).sort((a, b) => a - b);
+      const denominator = Math.max(totalPoints - 1, 1);
+      const numberFormatter = new Intl.NumberFormat("fr-FR");
+      uniqueIndexes.forEach((index) => {
+        const ratio = totalPoints === 1 ? 0.5 : index / denominator;
+        const label = `Itération ${numberFormatter.format(index + 1)}`;
+        axisMarkers.push({
+          type: "iteration",
+          ratio,
+          label,
+          date: null,
+        });
+      });
+    }
+  } else if (axisStart && axisEnd && axisDuration > 0) {
     const markersMap = new Map();
     const axisStartTime = axisStart.getTime();
     const axisEndTime = axisEnd.getTime();
@@ -5783,7 +5815,7 @@ async function openHistory(ctx, consigne, options = {}) {
       case "last50": {
         const count = Number(rangeKey.replace("last", ""));
         const subset = sortedAsc.slice(-count);
-        return buildResult(subset);
+        return buildResult(subset, {}, { axis: "iteration" });
       }
       case "7d": {
         const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
