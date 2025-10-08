@@ -4212,6 +4212,74 @@ const STATUS_LABELS = {
   na: "Sans donnée",
 };
 
+const HISTORY_STATUS_BASE_COLORS = {
+  "ok-strong": "#16a34a",
+  "ok-soft": "#4ade80",
+  mid: "#eab308",
+  "ko-soft": "#f87171",
+  "ko-strong": "#dc2626",
+  note: "#3b82f6",
+  na: "#94a3b8",
+  default: "#2563eb",
+};
+
+function resolveHistoryStatusColors(status) {
+  const base = HISTORY_STATUS_BASE_COLORS[status] || HISTORY_STATUS_BASE_COLORS.default;
+  return {
+    base,
+    line: withAlpha(base, 0.95),
+    circle: base,
+    gradientTop: withAlpha(base, 0.35),
+    gradientBottom: withAlpha(base, 0.05),
+  };
+}
+
+function historyStatusFromAverage(type, values) {
+  if (!Array.isArray(values) || !values.length) {
+    return null;
+  }
+  const numericValues = values.map((value) => Number(value)).filter((value) => Number.isFinite(value));
+  if (!numericValues.length) {
+    return null;
+  }
+  const average = numericValues.reduce((acc, value) => acc + value, 0) / numericValues.length;
+  if (!Number.isFinite(average)) {
+    return null;
+  }
+  if (type === "likert6") {
+    if (average >= 3.5) return "ok-strong";
+    if (average >= 2.5) return "ok-soft";
+    if (average >= 1.5) return "mid";
+    if (average >= 0.5) return "ko-soft";
+    return "ko-strong";
+  }
+  if (type === "likert5") {
+    if (average >= 4.5) return "ok-strong";
+    if (average >= 3.5) return "ok-soft";
+    if (average >= 2.5) return "mid";
+    if (average >= 1.5) return "ko-soft";
+    return "ko-strong";
+  }
+  if (type === "yesno") {
+    if (average >= 0.85) return "ok-strong";
+    if (average >= 0.6) return "ok-soft";
+    if (average >= 0.4) return "mid";
+    if (average >= 0.2) return "ko-soft";
+    return "ko-strong";
+  }
+  if (type === "checklist") {
+    if (average >= 0.99) return "ok-strong";
+    if (average > 0 && average < 0.99) return "mid";
+    return "ko-strong";
+  }
+  if (type === "num") {
+    if (average >= 7) return "ok-strong";
+    if (average >= 4) return "mid";
+    return "ko-strong";
+  }
+  return null;
+}
+
 const consigneRowUpdateTimers = new WeakMap();
 const CONSIGNE_ROW_UPDATE_DURATION = 900;
 
@@ -5145,6 +5213,8 @@ function renderHistoryChart(points, { type } = {}) {
 
   const sorted = points.slice().sort((a, b) => a.date - b.date);
   const values = sorted.map((entry) => entry.value);
+  const averageStatus = historyStatusFromAverage(type, values);
+  const colorPalette = resolveHistoryStatusColors(averageStatus);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
@@ -5185,12 +5255,12 @@ function renderHistoryChart(points, { type } = {}) {
   const circles = coords
     .map(
       (point) =>
-        `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" fill="#2563eb" stroke="#fff" stroke-width="1.5"></circle>`
+        `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" fill="${escapeHtml(colorPalette.circle)}" stroke="#fff" stroke-width="1.5"></circle>`
     )
     .join("");
 
   return `
-    <div class="history-panel__chart">
+    <div class="history-panel__chart"${averageStatus ? ` data-average-status="${escapeHtml(averageStatus)}"` : ""}>
       <div class="history-panel__chart-header">
         <h4 class="history-panel__chart-title">Tendance des réponses</h4>
         <span class="history-panel__chart-count">${sorted.length} point${plural}</span>
@@ -5203,12 +5273,12 @@ function renderHistoryChart(points, { type } = {}) {
         <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Évolution des réponses enregistrées">
           <defs>
             <linearGradient id="${escapeHtml(gradientId)}" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="rgba(59,130,246,0.35)"></stop>
-              <stop offset="100%" stop-color="rgba(59,130,246,0.05)"></stop>
+              <stop offset="0%" stop-color="${escapeHtml(colorPalette.gradientTop)}"></stop>
+              <stop offset="100%" stop-color="${escapeHtml(colorPalette.gradientBottom)}"></stop>
             </linearGradient>
           </defs>
           <path d="${areaPath}" fill="url(#${escapeHtml(gradientId)})"></path>
-          <path d="${linePath}" fill="none" stroke="rgba(37,99,235,0.95)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
           ${circles}
         </svg>
       </figure>
@@ -5281,14 +5351,6 @@ async function openHistory(ctx, consigne) {
     hour: "2-digit",
     minute: "2-digit",
   });
-  const statusLabels = {
-    ok: "Positive",
-    mid: "Intermédiaire",
-    ko: "À surveiller",
-    note: "Réponse notée",
-    na: "Sans donnée",
-  };
-
   const priorityToneValue = priorityTone(consigne.priority);
 
   function relativeLabel(date) {
@@ -5385,7 +5447,7 @@ async function openHistory(ctx, consigne) {
       const relative = createdAt ? relativeLabel(createdAt) : "";
       const formattedText = formatConsigneValue(consigne.type, r.value);
       const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html" });
-      const status = dotColor(consigne.type, r.value);
+      const status = dotColor(consigne.type, r.value) || "na";
       const numericValue = numericPoint(consigne.type, r.value);
       const note = r.note && String(r.note).trim();
       const summaryInfo = detectSummaryNote(r);
@@ -5409,7 +5471,7 @@ async function openHistory(ctx, consigne) {
       const noteMarkup = note
         ? `<p class="${noteClasses.join(" ")}"${noteDataAttrs}>${noteBadgeMarkup}${noteBadgeMarkup ? " " : ""}<span class="history-panel__note-text">${escapeHtml(note)}</span></p>`
         : "";
-      const statusLabel = statusLabels[status] || "Valeur";
+      const statusLabel = STATUS_LABELS[status] || "Valeur";
       const hasFormatted = formattedText && formattedText.trim() && formattedText !== "—";
       const formattedMarkup = hasFormatted ? formattedHtml : escapeHtml(consigne.type === "info" ? "" : "—");
       if (createdAt && numericValue !== null && !Number.isNaN(numericValue)) {
@@ -5439,9 +5501,9 @@ async function openHistory(ctx, consigne) {
         ? `<div class="history-panel__meta-row">${metaParts.join(" ")}</div>`
         : "";
       return `
-        <li class="history-panel__item${summaryClass}" data-priority-tone="${escapeHtml(priorityToneValue)}"${summaryAttr}>
+        <li class="history-panel__item${summaryClass}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}>
           <div class="history-panel__item-row">
-            <span class="history-panel__value" data-priority-tone="${escapeHtml(priorityToneValue)}">
+            <span class="history-panel__value" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}">
               <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
               <span>${formattedMarkup}</span>
               <span class="sr-only">${escapeHtml(statusLabel)}</span>
