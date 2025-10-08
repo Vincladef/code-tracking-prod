@@ -5065,6 +5065,128 @@ function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
   }
 }
 
+function formatHistoryChartValue(type, value) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "";
+  }
+  if (type === "checklist") {
+    const pct = Math.round(Number(value) * 100);
+    return `${pct}%`;
+  }
+  if (type === "yesno") {
+    return value >= 0.5 ? "Oui" : "Non";
+  }
+  if (type === "likert6") {
+    const index = Math.round(Number(value));
+    const key = LIKERT6_ORDER[index] || "";
+    return LIKERT6_LABELS[key] || key || String(index);
+  }
+  if (type === "likert5") {
+    return String(Math.round(Number(value) * 100) / 100);
+  }
+  if (type === "num") {
+    const rounded = Math.round(Number(value) * 100) / 100;
+    return String(rounded);
+  }
+  return String(value);
+}
+
+function renderHistoryChart(points, { type } = {}) {
+  if (!Array.isArray(points) || points.length === 0) {
+    const reason = type === "long" || type === "short" || type === "info"
+      ? "Ce type de consigne ne génère pas de graphique."
+      : "Pas encore de données pour tracer un graphique.";
+    return `
+      <div class="history-panel__chart history-panel__chart--empty">
+        <p class="history-panel__chart-empty-text">${escapeHtml(reason)}</p>
+      </div>
+    `;
+  }
+  if (points.length < 2) {
+    return `
+      <div class="history-panel__chart history-panel__chart--empty">
+        <p class="history-panel__chart-empty-text">Ajoute encore quelques réponses pour voir apparaître le graphique.</p>
+      </div>
+    `;
+  }
+
+  const sorted = points.slice().sort((a, b) => a.date - b.date);
+  const values = sorted.map((entry) => entry.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+
+  const chartWidth = 640;
+  const chartHeight = 200;
+  const padding = 28;
+  const innerWidth = chartWidth - padding * 2;
+  const innerHeight = chartHeight - padding * 2;
+  const coords = sorted.map((entry, index) => {
+    const ratio = sorted.length === 1 ? 0.5 : index / (sorted.length - 1);
+    const normalized = range === 0 ? 0.5 : (entry.value - min) / range;
+    const x = padding + ratio * innerWidth;
+    const y = padding + (1 - normalized) * innerHeight;
+    return { x, y };
+  });
+
+  const linePath = coords
+    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+    .join(" ");
+  const areaPath = [
+    `M${coords[0].x.toFixed(2)},${(padding + innerHeight).toFixed(2)}`,
+    ...coords.map((point) => `L${point.x.toFixed(2)},${point.y.toFixed(2)}`),
+    `L${coords[coords.length - 1].x.toFixed(2)},${(padding + innerHeight).toFixed(2)}`,
+    "Z",
+  ].join(" ");
+
+  const gradientId = `history-chart-${Math.random().toString(36).slice(2)}`;
+  const startDate = sorted[0]?.date || null;
+  const endDate = sorted[sorted.length - 1]?.date || null;
+  const dateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+  const startLabel = startDate ? dateFormatter.format(startDate) : "";
+  const endLabel = endDate ? dateFormatter.format(endDate) : "";
+  const minLabel = formatHistoryChartValue(type, min);
+  const maxLabel = formatHistoryChartValue(type, max);
+  const plural = sorted.length > 1 ? "s" : "";
+
+  const circles = coords
+    .map(
+      (point) =>
+        `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" fill="#2563eb" stroke="#fff" stroke-width="1.5"></circle>`
+    )
+    .join("");
+
+  return `
+    <div class="history-panel__chart">
+      <div class="history-panel__chart-header">
+        <h4 class="history-panel__chart-title">Tendance des réponses</h4>
+        <span class="history-panel__chart-count">${sorted.length} point${plural}</span>
+      </div>
+      <div class="history-panel__chart-values">
+        <span>${escapeHtml(minLabel)}</span>
+        <span>${escapeHtml(maxLabel)}</span>
+      </div>
+      <figure class="history-panel__chart-figure">
+        <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Évolution des réponses enregistrées">
+          <defs>
+            <linearGradient id="${escapeHtml(gradientId)}" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="rgba(59,130,246,0.35)"></stop>
+              <stop offset="100%" stop-color="rgba(59,130,246,0.05)"></stop>
+            </linearGradient>
+          </defs>
+          <path d="${areaPath}" fill="url(#${escapeHtml(gradientId)})"></path>
+          <path d="${linePath}" fill="none" stroke="rgba(37,99,235,0.95)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+          ${circles}
+        </svg>
+      </figure>
+      <div class="history-panel__chart-axis">
+        <span>${escapeHtml(startLabel)}</span>
+        <span>${escapeHtml(endLabel)}</span>
+      </div>
+    </div>
+  `;
+}
+
 async function openHistory(ctx, consigne) {
   modesLogger.group("ui.history.open", { consigneId: consigne.id, type: consigne.type });
   const qy = modesFirestore.query(
@@ -5177,6 +5299,8 @@ async function openHistory(ctx, consigne) {
     };
   }
 
+  const chartPoints = [];
+
   const list = rows
     .map((r) => {
       const createdAtRaw = r.createdAt?.toDate?.() ?? r.createdAt;
@@ -5187,6 +5311,7 @@ async function openHistory(ctx, consigne) {
       const formattedText = formatConsigneValue(consigne.type, r.value);
       const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html" });
       const status = dotColor(consigne.type, r.value);
+      const numericValue = numericPoint(consigne.type, r.value);
       const note = r.note && String(r.note).trim();
       const summaryInfo = detectSummaryNote(r);
       const noteClasses = ["history-panel__note"];
@@ -5209,12 +5334,37 @@ async function openHistory(ctx, consigne) {
       const noteMarkup = note
         ? `<p class="${noteClasses.join(" ")}"${noteDataAttrs}>${noteBadgeMarkup}${noteBadgeMarkup ? " " : ""}<span class="history-panel__note-text">${escapeHtml(note)}</span></p>`
         : "";
-      const relativeMarkup = relative ? `<span class="history-panel__meta">${escapeHtml(relative)}</span>` : "";
       const statusLabel = statusLabels[status] || "Valeur";
       const hasFormatted = formattedText && formattedText.trim() && formattedText !== "—";
       const formattedMarkup = hasFormatted ? formattedHtml : escapeHtml(consigne.type === "info" ? "" : "—");
+      if (createdAt && numericValue !== null && !Number.isNaN(numericValue)) {
+        chartPoints.push({ date: createdAt, value: Number(numericValue) });
+      }
+      const summaryAttr = summaryInfo.isSummary
+        ? ` data-summary="1"${summaryInfo.scope ? ` data-summary-scope="${escapeHtml(summaryInfo.scope)}"` : ""}`
+        : "";
+      const summaryClass = summaryInfo.isSummary ? " history-panel__item--summary" : "";
+      const summaryBadge = summaryInfo.isSummary
+        ? `<span class="history-panel__summary-badge">${escapeHtml(
+            summaryInfo.scope === "monthly"
+              ? "Bilan mensuel"
+              : summaryInfo.scope === "weekly"
+              ? "Bilan hebdomadaire"
+              : "Bilan"
+          )}</span>`
+        : "";
+      const metaParts = [];
+      if (relative) {
+        metaParts.push(`<span class="history-panel__meta">${escapeHtml(relative)}</span>`);
+      }
+      if (summaryBadge) {
+        metaParts.push(summaryBadge);
+      }
+      const metaRowMarkup = metaParts.length
+        ? `<div class="history-panel__meta-row">${metaParts.join(" ")}</div>`
+        : "";
       return `
-        <li class="history-panel__item" data-priority-tone="${escapeHtml(priorityToneValue)}">
+        <li class="history-panel__item${summaryClass}" data-priority-tone="${escapeHtml(priorityToneValue)}"${summaryAttr}>
           <div class="history-panel__item-row">
             <span class="history-panel__value" data-priority-tone="${escapeHtml(priorityToneValue)}">
               <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
@@ -5223,7 +5373,7 @@ async function openHistory(ctx, consigne) {
             </span>
             <time class="history-panel__date" datetime="${escapeHtml(iso)}">${escapeHtml(dateText)}</time>
           </div>
-          ${relativeMarkup ? `<div class="history-panel__meta-row">${relativeMarkup}</div>` : ""}
+          ${metaRowMarkup}
           ${noteMarkup}
         </li>
       `;
@@ -5231,6 +5381,7 @@ async function openHistory(ctx, consigne) {
     .join("");
 
   const totalLabel = rows.length === 0 ? "Aucune entrée" : rows.length === 1 ? "1 entrée" : `${rows.length} entrées`;
+  const chartMarkup = renderHistoryChart(chartPoints, { type: consigne.type });
 
   const html = `
     <div class="history-panel">
@@ -5245,6 +5396,7 @@ async function openHistory(ctx, consigne) {
         </div>
       </header>
       <div class="history-panel__body">
+        ${chartMarkup}
         <ul class="history-panel__list">${list || '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>'}</ul>
       </div>
     </div>
@@ -6607,6 +6759,8 @@ Modes.bindConsigneRowValue = bindConsigneRowValue;
 Modes.attachConsigneEditor = attachConsigneEditor;
 Modes.createHiddenConsigneRow = createHiddenConsigneRow;
 Modes.hasValueForConsigne = hasValueForConsigne;
+Modes.setupConsigneActionMenus = setupConsigneActionMenus;
+Modes.closeConsigneActionMenuFromNode = closeConsigneActionMenuFromNode;
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {

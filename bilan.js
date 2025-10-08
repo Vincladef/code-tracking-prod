@@ -216,6 +216,27 @@
     return row;
   }
 
+  function renderConsigneActionsMenu() {
+    return `
+      <div class="daily-consigne__actions js-consigne-actions" role="group" aria-label="Actions" style="position:relative;">
+        <button type="button"
+                class="btn btn-ghost text-sm consigne-actions__trigger js-actions-trigger"
+                aria-haspopup="true"
+                aria-expanded="false"
+                title="Actions">
+          <span aria-hidden="true">⋮</span>
+          <span class="sr-only">Actions</span>
+        </button>
+        <div class="consigne-actions__panel js-actions-panel card"
+             role="menu"
+             aria-hidden="true"
+             hidden>
+          <button type="button" class="btn btn-ghost text-sm text-left js-history-action" role="menuitem">Historique</button>
+        </div>
+      </div>
+    `;
+  }
+
   function monthKeysForPeriod(period) {
     const keys = new Set();
     if (period?.start) {
@@ -409,6 +430,7 @@
   function createConsigneRow(consigne, options = {}) {
     const previous = options.previous || null;
     const isChild = options.isChild === true;
+    const ctx = options.ctx || null;
     const tone = Modes.priorityTone ? Modes.priorityTone(consigne.priority) : "medium";
     const row = document.createElement("div");
     row.className = `consigne-row priority-surface priority-surface-${tone}`;
@@ -424,6 +446,7 @@
       row.classList.add("consigne-row--parent");
     }
     const metaHtml = "";
+    const actionsHtml = !isChild ? renderConsigneActionsMenu() : "";
     const descriptionHtml = consigne.summaryMeta?.description
       ? `<p class="consigne-row__description text-sm text-[var(--muted)]">${escapeHtml(consigne.summaryMeta.description)}</p>`
       : "";
@@ -442,6 +465,7 @@
             <span class="sr-only" data-status-live aria-live="polite"></span>
           </span>
           ${metaHtml}
+          ${actionsHtml}
         </div>
       </div>
       ${descriptionHtml}
@@ -478,6 +502,23 @@
         Modes.attachConsigneEditor(row, consigne, options.editorConfig || {});
       } catch (error) {
         bilanLogger?.warn?.("bilan.attachConsigneEditor", error);
+      }
+    }
+    if (!isChild) {
+      const actionsRoot = row.querySelector(".js-consigne-actions");
+      const historyButton = actionsRoot?.querySelector(".js-history-action");
+      if (historyButton && ctx && typeof Modes.openHistory === "function") {
+        historyButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (typeof Modes.closeConsigneActionMenuFromNode === "function") {
+            Modes.closeConsigneActionMenuFromNode(historyButton);
+          }
+          Modes.openHistory(ctx, consigne);
+        });
+      }
+      if (actionsRoot && typeof Modes.setupConsigneActionMenus === "function") {
+        Modes.setupConsigneActionMenus(row);
       }
     }
     return row;
@@ -543,6 +584,7 @@
         const row = createConsigneRow(entry.consigne, {
           previous,
           editorConfig,
+          ctx: options.ctx || null,
           onChange: (value, ctx) => {
             if (typeof options.onChange === "function") {
               options.onChange(value, { ...ctx, key });
@@ -654,6 +696,7 @@
       stack.appendChild(group);
       renderItemsInChunks(groupItems, category.flattened, answersMap, {
         onChange: handleValueChange,
+        ctx: options.ctx || null,
       });
     });
   }
@@ -778,6 +821,7 @@
     FAMILY_ORDER.forEach((family) => {
       buildFamilySection(grid, family, sectionsData?.[family] || [], answersMap, {
         onValueChange,
+        ctx,
       });
     });
   }
