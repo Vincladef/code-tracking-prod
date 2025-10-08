@@ -5986,6 +5986,70 @@ async function openHistory(ctx, consigne, options = {}) {
     return null;
   }
 
+  const safeConsigneLabel = (item) =>
+    (item?.text || item?.titre || "Sans titre").toString();
+
+  let parentConsigneForDropdown = null;
+  let childConsignesForDropdown = [];
+  if (consigne.parentId) {
+    const parentId = consigne.parentId;
+    try {
+      const parentRef = modesFirestore.doc(ctx.db, "u", uid, "consignes", parentId);
+      const parentSnap = await modesFirestore.getDoc(parentRef);
+      if (Schema.snapshotExists?.(parentSnap)) {
+        parentConsigneForDropdown = { id: parentSnap.id, ...(parentSnap.data() || {}) };
+      }
+    } catch (error) {
+      modesLogger.warn("ui.history.parent.load", { error, parentId });
+    }
+    if (parentConsigneForDropdown) {
+      try {
+        childConsignesForDropdown = await Schema.listChildConsignes(ctx.db, uid, parentConsigneForDropdown.id);
+      } catch (error) {
+        modesLogger.warn("ui.history.children.load", { error, parentId });
+      }
+    }
+  } else if (consigne.id) {
+    try {
+      childConsignesForDropdown = await Schema.listChildConsignes(ctx.db, uid, consigne.id);
+    } catch (error) {
+      modesLogger.warn("ui.history.children.load", { error, parentId: consigne.id });
+    }
+  }
+
+  const dropdownConsignes = [];
+  const seenConsigneIds = new Set();
+  const pushConsigneCandidate = (item) => {
+    const id = String(item?.id ?? "");
+    if (!id || seenConsigneIds.has(id)) return;
+    dropdownConsignes.push(item);
+    seenConsigneIds.add(id);
+  };
+
+  if (parentConsigneForDropdown) {
+    pushConsigneCandidate(parentConsigneForDropdown);
+  }
+  if (!consigne.parentId) {
+    pushConsigneCandidate(consigne);
+  }
+  childConsignesForDropdown.forEach((child) => {
+    pushConsigneCandidate(child);
+  });
+  if (consigne.parentId) {
+    const currentId = String(consigne.id ?? "");
+    if (!seenConsigneIds.has(currentId)) {
+      pushConsigneCandidate(consigne);
+    } else {
+      const index = dropdownConsignes.findIndex((item) => String(item?.id ?? "") === currentId);
+      if (index >= 0) {
+        dropdownConsignes[index] = consigne;
+      }
+    }
+  }
+
+  const dropdownConsigneMap = new Map(dropdownConsignes.map((item) => [String(item?.id ?? ""), item]));
+  const hasDropdownSelection = dropdownConsignes.length > 1;
+
   const missingFirestoreFns = ["collection", "where", "orderBy", "limit", "query", "getDocs"].filter(
     (fn) => typeof modesFirestore?.[fn] !== "function"
   );
@@ -6538,6 +6602,21 @@ async function openHistory(ctx, consigne, options = {}) {
   const navigationBounds = computeHistoryNavigationBounds(chartPoints);
   const initialChartPoints = applyHistoryRange(chartPoints, defaultHistoryRange);
   const chartMarkup = renderHistoryChart(initialChartPoints, { type: consigne.type, mode: historySource });
+  const consigneOptionsMarkup = hasDropdownSelection
+    ? dropdownConsignes
+        .map((item) => {
+          const id = String(item?.id ?? "");
+          if (!id) return "";
+          const selected = id === String(consigne.id ?? "");
+          return `<option value="${escapeHtml(id)}"${selected ? " selected" : ""}>${escapeHtml(
+            safeConsigneLabel(item)
+          )}</option>`;
+        })
+        .join("")
+    : "";
+  const historyHeadingMarkup = hasDropdownSelection
+    ? `Historique — <span class="history-panel__heading-select"><span class="sr-only">Choisir une consigne</span><select data-history-consigne aria-label="Choisir une consigne">${consigneOptionsMarkup}</select></span>`
+    : `Historique — ${escapeHtml(safeConsigneLabel(consigne))}`;
 
   const resolveNavigationBounds = (key) => {
     const fallbackLimit = HISTORY_NAVIGATION_FALLBACK_LIMITS[key];
@@ -6560,7 +6639,7 @@ async function openHistory(ctx, consigne, options = {}) {
     <div class="history-panel">
       <header class="history-panel__header">
         <div class="history-panel__title">
-          <h3 class="history-panel__heading">Historique — ${escapeHtml(consigne.text)}</h3>
+          <h3 class="history-panel__heading">${historyHeadingMarkup}</h3>
           <p class="history-panel__subtitle">Dernières réponses enregistrées</p>
         </div>
         <div class="history-panel__actions">
@@ -6592,6 +6671,22 @@ async function openHistory(ctx, consigne, options = {}) {
   const navLabel = panel.querySelector('[data-history-range-label]');
   const navPrev = panel.querySelector('[data-history-nav-prev]');
   const navNext = panel.querySelector('[data-history-nav-next]');
+  const consigneSelector = panel.querySelector('[data-history-consigne]');
+  if (consigneSelector) {
+    consigneSelector.addEventListener('change', (event) => {
+      const nextId = String(event.target?.value ?? '');
+      const currentId = String(consigne.id ?? '');
+      if (!nextId || nextId === currentId) {
+        return;
+      }
+      const nextConsigne = dropdownConsigneMap.get(nextId);
+      if (!nextConsigne) {
+        return;
+      }
+      panel.remove();
+      openHistory(ctx, nextConsigne, options);
+    });
+  }
   const NAVIGABLE_RANGES = new Set(["7d", "30d", "365d"]);
   const navigationState = {
     key: defaultHistoryRange,
