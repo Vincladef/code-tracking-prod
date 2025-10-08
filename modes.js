@@ -5608,7 +5608,7 @@ function renderHistoryChart(data, { type, mode } = {}) {
   const figureStyleAttr =
     ` style="--history-chart-width:${chartWidth}px; --history-chart-height:${chartHeight}px; --history-chart-padding-top:${paddingTop}px; --history-chart-padding-right:${paddingRight}px; --history-chart-padding-bottom:${paddingBottom}px; --history-chart-padding-left:${paddingLeft}px;"`;
 
-  const axisLines = axisMarkers
+  const verticalGridLines = axisMarkers
     .filter(
       (marker) =>
         marker.ratio > 0 &&
@@ -5617,20 +5617,32 @@ function renderHistoryChart(data, { type, mode } = {}) {
     )
     .map((marker) => {
       const x = paddingLeft + marker.ratio * innerWidth;
-      let stroke = "rgba(148,163,184,0.2)";
+      let stroke = "rgba(148,163,184,0.22)";
       let dash = "";
       if (marker.type === "month") {
         stroke = "rgba(148,163,184,0.35)";
       } else if (marker.type === "week") {
         dash = " stroke-dasharray=\"4 6\"";
       } else if (marker.type === "day") {
-        stroke = "rgba(148,163,184,0.18)";
+        stroke = "rgba(148,163,184,0.16)";
       }
       const yStart = paddingTop.toFixed(2);
       const yEnd = (paddingTop + innerHeight).toFixed(2);
-      return `<line x1="${x.toFixed(2)}" y1="${yStart}" x2="${x.toFixed(2)}" y2="${yEnd}" stroke="${stroke}" stroke-width="1"${dash}></line>`;
+      return `<line class="history-panel__chart-grid-line history-panel__chart-grid-line--vertical" x1="${x.toFixed(2)}" y1="${yStart}" x2="${x.toFixed(2)}" y2="${yEnd}" stroke="${stroke}" stroke-width="1"${dash}></line>`;
     })
     .join("");
+
+  const horizontalGridSteps = 4;
+  const horizontalGridLines = Array.from({ length: horizontalGridSteps + 1 }, (_, index) => {
+    const ratio = index / horizontalGridSteps;
+    const y = paddingTop + ratio * innerHeight;
+    const isAxis = index === horizontalGridSteps;
+    const stroke = isAxis ? "rgba(15,23,42,0.22)" : "rgba(148,163,184,0.18)";
+    const dash = isAxis ? "" : " stroke-dasharray=\"2 6\"";
+    return `<line class="history-panel__chart-grid-line history-panel__chart-grid-line--horizontal" x1="${paddingLeft.toFixed(2)}" y1="${y.toFixed(2)}" x2="${(paddingLeft + innerWidth).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${stroke}" stroke-width="1"${dash}></line>`;
+  }).join("");
+
+  const gridLines = [horizontalGridLines, verticalGridLines].filter(Boolean).join("");
 
   const axisLabels = axisMarkers
     .map((marker) => {
@@ -5742,8 +5754,8 @@ function renderHistoryChart(data, { type, mode } = {}) {
         }
         <div class="history-panel__chart-canvas">
           <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Évolution des réponses enregistrées">
-            ${axisLines}
-            <path d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+            <g class="history-panel__chart-grid">${gridLines}</g>
+            <path d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
             ${circles}
           </svg>
         </div>
