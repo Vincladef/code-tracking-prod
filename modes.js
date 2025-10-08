@@ -5593,9 +5593,51 @@ function renderHistoryChart(data, { type, mode } = {}) {
     linePath = `M${startX},${baselineY} L${endX},${baselineY}`;
   }
 
+  const baselineY = (paddingTop + innerHeight).toFixed(2);
+  let areaPath = "";
+  if (hasCoords) {
+    const firstX = coords[0].x.toFixed(2);
+    const lastX = coords[coords.length - 1].x.toFixed(2);
+    const segments = coords
+      .map((point) => `L${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+      .join(" ");
+    areaPath = `M${firstX},${baselineY} ${segments} L${lastX},${baselineY} Z`;
+  }
+
   const minLabel = hasValidPoints || type === "likert6" ? formatHistoryChartValue(type, min) : "—";
   const maxLabel = hasValidPoints || type === "likert6" ? formatHistoryChartValue(type, max) : "—";
   const plural = sorted.length > 1 ? "s" : "";
+  const responseCountLabel = `${sorted.length || 0} réponse${plural}`;
+  const averageValue = hasValidPoints
+    ? values.reduce((acc, value) => acc + Number(value || 0), 0) / values.length
+    : null;
+  const averageDisplay =
+    hasValidPoints && Number.isFinite(averageValue)
+      ? formatHistoryChartValue(type, averageValue)
+      : "—";
+
+  const gradientId = `historyChartGradient-${Math.random().toString(36).slice(2, 10)}`;
+
+  const stats = [
+    { label: "Réponses", value: responseCountLabel },
+    { label: "Moyenne", value: averageDisplay, accent: hasValidPoints },
+    { label: "Min", value: minLabel },
+    { label: "Max", value: maxLabel },
+  ];
+
+  const statsMarkup = stats
+    .map(({ label, value, accent }) => {
+      const classes = ["history-panel__chart-stat"];
+      if (accent) classes.push("history-panel__chart-stat--accent");
+      const valueText = typeof value === "string" ? value : value === null || value === undefined ? "—" : String(value);
+      return `
+        <div class="${classes.join(" ")}" role="listitem">
+          <span class="history-panel__chart-stat-label">${escapeHtml(label)}</span>
+          <span class="history-panel__chart-stat-value">${escapeHtml(valueText)}</span>
+        </div>
+      `;
+    })
+    .join("");
 
   const hasLikertScale = type === "likert6";
   const scaleSteps = hasLikertScale ? LIKERT6_ORDER.length : 0;
@@ -5811,25 +5853,45 @@ function renderHistoryChart(data, { type, mode } = {}) {
 
   return `
     <div class="history-panel__chart"${averageStatus ? ` data-average-status="${escapeHtml(averageStatus)}"` : ""}>
-      <figure class="${figureClasses.join(" ")}"${figureStyleAttr}>
-        ${
-          hasLikertScale
-            ? `<div class="history-panel__chart-scale" style="--history-chart-scale-steps:${scaleSteps};">${likertScaleMarkup}</div>`
-            : ""
-        }
-        <div class="history-panel__chart-canvas">
-          <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Évolution des réponses enregistrées">
-            ${horizontalLines}
-            ${axisLines}
-            <path d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
-            ${yAxisLabels}
-            ${circles}
-          </svg>
+      <header class="history-panel__chart-header">
+        <div class="history-panel__chart-heading">
+          <p class="history-panel__chart-eyebrow">Historique des réponses</p>
+          <h4 class="history-panel__chart-title">Tendance enregistrée</h4>
         </div>
-      </figure>
-      <div class="history-panel__chart-axis"${hasLikertScale ? " data-has-scale" : ""}>
-        <div class="history-panel__chart-axis-track" style="${axisTrackStyle}"></div>
-        ${axisLabels}
+        <div class="history-panel__chart-stats" role="list">${statsMarkup}</div>
+      </header>
+      <div class="history-panel__chart-body">
+        <figure class="${figureClasses.join(" ")}"${figureStyleAttr}>
+          ${
+            hasLikertScale
+              ? `<div class="history-panel__chart-scale" style="--history-chart-scale-steps:${scaleSteps};">${likertScaleMarkup}</div>`
+              : ""
+          }
+          <div class="history-panel__chart-canvas">
+            <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Évolution des réponses enregistrées">
+              <defs>
+                <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="${escapeHtml(colorPalette.gradientTop)}"></stop>
+                  <stop offset="100%" stop-color="${escapeHtml(colorPalette.gradientBottom)}"></stop>
+                </linearGradient>
+              </defs>
+              ${horizontalLines}
+              ${axisLines}
+              ${
+                areaPath
+                  ? `<path class="history-panel__chart-area" d="${areaPath}" fill="url(#${gradientId})"></path>`
+                  : ""
+              }
+              <path class="history-panel__chart-line" d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+              ${yAxisLabels}
+              ${circles}
+            </svg>
+          </div>
+        </figure>
+        <div class="history-panel__chart-axis"${hasLikertScale ? " data-has-scale" : ""}>
+          <div class="history-panel__chart-axis-track" style="${axisTrackStyle}"></div>
+          ${axisLabels}
+        </div>
       </div>
     </div>
   `;
