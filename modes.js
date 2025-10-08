@@ -5780,6 +5780,7 @@ function enhanceHistoryChart(container) {
   const hideTooltip = () => {
     clearActive();
     tooltip.classList.remove("is-visible");
+    delete tooltip.dataset.position;
   };
 
   const showTooltip = (point) => {
@@ -5796,9 +5797,58 @@ function enhanceHistoryChart(container) {
 
     const node = point.querySelector(".history-panel__chart-point-node") || point;
     const nodeRect = node.getBoundingClientRect();
-    const chartRect = chartRoot.getBoundingClientRect();
-    const left = nodeRect.left + nodeRect.width / 2 - chartRect.left;
-    const top = nodeRect.top - chartRect.top;
+    const viewportWidth = Math.max(window.innerWidth || 0, document.documentElement ? document.documentElement.clientWidth : 0);
+    const viewportHeight = Math.max(
+      window.innerHeight || 0,
+      document.documentElement ? document.documentElement.clientHeight : 0
+    );
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const tooltipWidth = tooltipRect.width || tooltip.offsetWidth || 0;
+    const tooltipHeight = tooltipRect.height || tooltip.offsetHeight || 0;
+    const margin = 12;
+    const verticalOffset = 18;
+
+    let left = nodeRect.left + nodeRect.width / 2;
+    if (viewportWidth) {
+      const halfWidth = tooltipWidth / 2;
+      const minLeft = margin + halfWidth;
+      const maxLeft = viewportWidth - margin - halfWidth;
+      if (maxLeft >= minLeft) {
+        left = Math.min(Math.max(left, minLeft), maxLeft);
+      }
+    }
+
+    let position = "above";
+    if (viewportHeight && tooltipHeight) {
+      const spaceAbove = nodeRect.top;
+      const spaceBelow = viewportHeight - nodeRect.bottom;
+      const requiredSpace = tooltipHeight + verticalOffset + margin;
+      if (spaceAbove < requiredSpace && spaceBelow > spaceAbove) {
+        position = "below";
+      }
+    }
+
+    let top = position === "below" ? nodeRect.bottom : nodeRect.top;
+    if (viewportHeight && tooltipHeight) {
+      if (position === "below") {
+        const minTop = margin;
+        const maxTop = viewportHeight - margin - (tooltipHeight + verticalOffset);
+        const effectiveMax = Math.max(minTop, maxTop);
+        top = Math.min(Math.max(top, minTop), effectiveMax);
+      } else {
+        const minTop = tooltipHeight + verticalOffset + margin;
+        const maxTop = viewportHeight - margin;
+        const effectiveMax = Math.max(minTop, maxTop);
+        top = Math.min(Math.max(top, minTop), effectiveMax);
+      }
+    }
+
+    if (position === "below") {
+      tooltip.dataset.position = "below";
+    } else {
+      delete tooltip.dataset.position;
+    }
+
     tooltip.style.left = `${left}px`;
     tooltip.style.top = `${top}px`;
     tooltip.classList.add("is-visible");
