@@ -563,6 +563,86 @@ const LIKERT6_LABELS = {
 
 const NOTE_IGNORED_VALUES = new Set(["no_answer"]);
 
+function renderConsigneValueField(consigne, value, fieldId) {
+  const type = consigne?.type || "short";
+  if (type === "info") {
+    return INFO_STATIC_BLOCK;
+  }
+  if (type === "num") {
+    const current = value === "" || value == null ? "" : Number(value);
+    return `<input id="${fieldId}" name="value" type="number" step="0.1" class="practice-editor__input" placeholder="Réponse" value="${
+      Number.isFinite(current) ? escapeHtml(String(current)) : ""
+    }">`;
+  }
+  if (type === "likert5") {
+    const current = value === "" || value == null ? "" : Number(value);
+    const options = [0, 1, 2, 3, 4]
+      .map((n) => `<option value="${n}" ${current === n ? "selected" : ""}>${n}</option>`)
+      .join("");
+    return `<select id="${fieldId}" name="value" class="practice-editor__select"><option value=""></option>${options}</select>`;
+  }
+  if (type === "likert6") {
+    const current = value === "" || value == null ? "" : String(value);
+    return `<select id="${fieldId}" name="value" class="practice-editor__select">
+      <option value="" ${current === "" ? "selected" : ""}>—</option>
+      <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
+      <option value="rather_yes" ${current === "rather_yes" ? "selected" : ""}>Plutôt oui</option>
+      <option value="medium" ${current === "medium" ? "selected" : ""}>Neutre</option>
+      <option value="rather_no" ${current === "rather_no" ? "selected" : ""}>Plutôt non</option>
+      <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
+      <option value="no_answer" ${current === "no_answer" ? "selected" : ""}>Pas de réponse</option>
+    </select>`;
+  }
+  if (type === "yesno") {
+    const current = value === "" || value == null ? "" : String(value);
+    return `<select id="${fieldId}" name="value" class="practice-editor__select">
+      <option value="" ${current === "" ? "selected" : ""}>—</option>
+      <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
+      <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
+    </select>`;
+  }
+  if (type === "long") {
+    return renderRichTextInput("value", {
+      initialValue: value,
+      placeholder: "Réponse",
+      inputId: fieldId,
+    });
+  }
+  return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Réponse" value="${escapeHtml(
+    String(value ?? "")
+  )}">`;
+}
+
+function readConsigneValueFromForm(consigne, form) {
+  const type = consigne?.type || "short";
+  if (type === "info") {
+    return "";
+  }
+  const field = form?.elements?.value;
+  if (!field) return "";
+  if (type === "long") {
+    const normalized = normalizeRichTextValue(field.value || "");
+    return richTextHasContent(normalized) ? normalized : "";
+  }
+  if (type === "short") {
+    return (field.value || "").trim();
+  }
+  if (type === "num") {
+    if (field.value === "" || field.value == null) return "";
+    const num = Number(field.value);
+    return Number.isFinite(num) ? num : "";
+  }
+  if (type === "likert5") {
+    if (field.value === "" || field.value == null) return "";
+    const num = Number(field.value);
+    return Number.isFinite(num) ? num : "";
+  }
+  if (type === "yesno" || type === "likert6") {
+    return field.value || "";
+  }
+  return (field.value || "").trim();
+}
+
 function likert6NumericPoint(value) {
   if (!value) return null;
   const index = LIKERT6_ORDER.indexOf(String(value));
@@ -1546,79 +1626,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     });
 
     function buildValueField(consigne, value, fieldId) {
-      const type = consigne?.type || "short";
-      if (type === "info") {
-        return INFO_STATIC_BLOCK;
-      }
-      if (type === "num") {
-        const current = value === "" || value == null ? "" : Number(value);
-        return `<input id="${fieldId}" name="value" type="number" step="0.1" class="practice-editor__input" placeholder="Réponse" value="${Number.isFinite(current) ? escapeHtml(String(current)) : ""}">`;
-      }
-      if (type === "likert5") {
-        const current = value === "" || value == null ? "" : Number(value);
-        const options = [0, 1, 2, 3, 4]
-          .map((n) => `<option value="${n}" ${current === n ? "selected" : ""}>${n}</option>`)
-          .join("");
-        return `<select id="${fieldId}" name="value" class="practice-editor__select"><option value=""></option>${options}</select>`;
-      }
-      if (type === "likert6") {
-        const current = value === "" || value == null ? "" : String(value);
-        return `<select id="${fieldId}" name="value" class="practice-editor__select">
-          <option value="" ${current === "" ? "selected" : ""}>—</option>
-          <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
-          <option value="rather_yes" ${current === "rather_yes" ? "selected" : ""}>Plutôt oui</option>
-          <option value="medium" ${current === "medium" ? "selected" : ""}>Neutre</option>
-          <option value="rather_no" ${current === "rather_no" ? "selected" : ""}>Plutôt non</option>
-          <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
-          <option value="no_answer" ${current === "no_answer" ? "selected" : ""}>Pas de réponse</option>
-        </select>`;
-      }
-      if (type === "yesno") {
-        const current = value === "" || value == null ? "" : String(value);
-        return `<select id="${fieldId}" name="value" class="practice-editor__select">
-          <option value="" ${current === "" ? "selected" : ""}>—</option>
-          <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
-          <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
-        </select>`;
-      }
-      if (type === "long") {
-        return renderRichTextInput("value", {
-          initialValue: value,
-          placeholder: "Réponse",
-          inputId: fieldId,
-        });
-      }
-      return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Réponse" value="${escapeHtml(String(value ?? ""))}">`;
+      return renderConsigneValueField(consigne, value, fieldId);
     }
 
     function readValueFromForm(consigne, form) {
-      const type = consigne?.type || "short";
-      if (type === "info") {
-        return "";
-      }
-      const field = form.elements.value;
-      if (!field) return "";
-      if (type === "long") {
-        const normalized = normalizeRichTextValue(field.value || "");
-        return richTextHasContent(normalized) ? normalized : "";
-      }
-      if (type === "short") {
-        return (field.value || "").trim();
-      }
-      if (type === "num") {
-        if (field.value === "" || field.value == null) return "";
-        const num = Number(field.value);
-        return Number.isFinite(num) ? num : "";
-      }
-      if (type === "likert5") {
-        if (field.value === "" || field.value == null) return "";
-        const num = Number(field.value);
-        return Number.isFinite(num) ? num : "";
-      }
-      if (type === "yesno" || type === "likert6") {
-        return field.value || "";
-      }
-      return (field.value || "").trim();
+      return readConsigneValueFromForm(consigne, form);
     }
 
     function updateStatAfterEdit(stat, pointIndex, newRawValue, newNote) {
@@ -5290,6 +5302,10 @@ function renderHistoryChart(data, { type, mode } = {}) {
     min = 0;
     max = 1;
   }
+  if (type === "yesno") {
+    min = Math.min(0, min);
+    max = Math.max(1, max);
+  }
   if (type === "likert6") {
     min = 0;
     max = LIKERT6_ORDER.length - 1;
@@ -5297,11 +5313,18 @@ function renderHistoryChart(data, { type, mode } = {}) {
   const hasVariance = Math.abs(max - min) > Number.EPSILON;
   const range = hasVariance ? max - min : 1;
   let yPadding = hasVariance ? range * 0.12 : 1;
+  if (type === "yesno") {
+    yPadding = 0;
+  }
   if (!Number.isFinite(yPadding) || yPadding <= 0) {
     yPadding = 1;
   }
   let yMin = hasVariance ? min - yPadding : min - 1;
   let yMax = hasVariance ? max + yPadding : max + 1;
+  if (type === "yesno") {
+    yMin = 0;
+    yMax = 1;
+  }
   if (type === "likert6") {
     yMin = Math.min(0, min) - 0.4;
     yMax = Math.max(max, LIKERT6_ORDER.length - 1) + 0.4;
@@ -6173,8 +6196,10 @@ async function openHistory(ctx, consigne, options = {}) {
     })
     .join("");
 
+  const EDITABLE_HISTORY_TYPES = new Set(["short", "long", "num", "likert5", "likert6", "yesno"]);
+
   const list = rows
-    .map((r) => {
+    .map((r, index) => {
       const createdAtSource = r.createdAt?.toDate?.() ?? r.createdAt ?? r.updatedAt ?? null;
       let createdAt = createdAtSource ? new Date(createdAtSource) : null;
       if (createdAt && Number.isNaN(createdAt.getTime())) {
@@ -6276,8 +6301,12 @@ async function openHistory(ctx, consigne, options = {}) {
         ? `<div class="history-panel__meta-row">${metaParts.join(" ")}</div>`
         : "";
       const dayKeyAttr = dayKey ? ` data-day-key="${escapeHtml(dayKey)}"` : "";
+      const canEditEntry = EDITABLE_HISTORY_TYPES.has(consigne.type) && !summaryInfo.isSummary && dayKey;
+      const editButtonMarkup = canEditEntry
+        ? `<button type="button" class="history-panel__item-edit" data-history-edit aria-label="Modifier la réponse">Modifier</button>`
+        : "";
       return `
-        <li class="history-panel__item${summaryClass}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}>
+        <li class="history-panel__item${summaryClass}" data-history-entry data-history-index="${index}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}>
           <div class="history-panel__item-row">
             <span class="${valueClasses.join(" ")}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}">
               <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
@@ -6285,7 +6314,10 @@ async function openHistory(ctx, consigne, options = {}) {
               <span>${formattedMarkup}</span>
               <span class="sr-only">${escapeHtml(statusLabel)}</span>
             </span>
-            <time class="history-panel__date" datetime="${escapeHtml(iso)}">${escapeHtml(dateText)}</time>
+            <div class="history-panel__item-meta-group">
+              <time class="history-panel__date" datetime="${escapeHtml(iso)}">${escapeHtml(dateText)}</time>
+              ${editButtonMarkup}
+            </div>
           </div>
           ${metaRowMarkup}
           ${noteMarkup}
@@ -6368,6 +6400,7 @@ async function openHistory(ctx, consigne, options = {}) {
   const navPrev = panel.querySelector('[data-history-nav-prev]');
   const navNext = panel.querySelector('[data-history-nav-next]');
   const consigneSelector = panel.querySelector('[data-history-consigne]');
+  const listContainer = panel.querySelector('.history-panel__list');
   if (consigneSelector) {
     consigneSelector.addEventListener('change', (event) => {
       const nextId = String(event.target?.value ?? '');
@@ -6383,6 +6416,143 @@ async function openHistory(ctx, consigne, options = {}) {
       openHistory(ctx, nextConsigne, options);
     });
   }
+
+  const reopenHistory = () => {
+    try {
+      panel.remove();
+    } catch (error) {
+      modesLogger.warn('ui.history.panel.remove', error);
+    }
+    openHistory(ctx, consigne, options);
+  };
+
+  const openEntryEditor = (entryIndex, itemNode) => {
+    if (!EDITABLE_HISTORY_TYPES.has(consigne.type)) {
+      showToast("Modification non disponible pour ce type de consigne.");
+      return;
+    }
+    const row = rows[entryIndex];
+    if (!row) return;
+    const dayKeyAttr = itemNode?.getAttribute('data-day-key');
+    const dayKey = dayKeyAttr && dayKeyAttr.trim() ? dayKeyAttr.trim() : resolveDayKey(row, null);
+    if (!dayKey) {
+      showToast("Impossible d’identifier la date de cette réponse.");
+      return;
+    }
+    const createdAtSource = row.createdAt?.toDate?.() ?? row.createdAt ?? row.updatedAt ?? null;
+    let createdAt = createdAtSource ? new Date(createdAtSource) : null;
+    if (createdAt && Number.isNaN(createdAt.getTime())) {
+      createdAt = null;
+    }
+    const dayDate = dayKey ? parseDayKeyToDate(dayKey) : null;
+    const displayDate = dayDate || createdAt;
+    const dateLabel = displayDate && !Number.isNaN(displayDate.getTime())
+      ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
+      : dayKey || 'Date inconnue';
+    const relative = displayDate ? relativeLabel(displayDate) : '';
+    const noteValue = row.note ? String(row.note) : '';
+    const fieldId = `history-edit-value-${consigne.id}-${entryIndex}-${Date.now()}`;
+    const valueField = renderConsigneValueField(consigne, row.value, fieldId);
+    const autosaveKey = [`history-entry`, ctx.user?.uid || 'anon', consigne.id || 'consigne', dayKey]
+      .map((part) => String(part || ''))
+      .join(':');
+    const editorHtml = `
+      <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
+        <header class="practice-editor__header">
+          <h3 class="practice-editor__title">Modifier la réponse</h3>
+          <p class="practice-editor__subtitle">${escapeHtml(safeConsigneLabel(consigne))}</p>
+        </header>
+        <div class="practice-editor__section">
+          <label class="practice-editor__label">Date</label>
+          <p class="practice-editor__value">${escapeHtml(dateLabel)}${relative ? ` <span class="practice-editor__meta">(${escapeHtml(relative)})</span>` : ''}</p>
+        </div>
+        <div class="practice-editor__section">
+          <label class="practice-editor__label" for="${fieldId}">Valeur</label>
+          ${valueField}
+        </div>
+        <div class="practice-editor__section">
+          <label class="practice-editor__label" for="${fieldId}-note">Commentaire</label>
+          <textarea id="${fieldId}-note" name="note" class="consigne-editor__textarea" placeholder="Ajouter un commentaire">${escapeHtml(noteValue)}</textarea>
+        </div>
+        <div class="practice-editor__actions">
+          <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
+          <button type="button" class="btn btn-danger" data-clear>Effacer</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </form>
+    `;
+    const editor = modal(editorHtml);
+    const form = editor.querySelector('form');
+    const cancelBtn = form?.querySelector('[data-cancel]');
+    const clearBtn = form?.querySelector('[data-clear]');
+    const submitBtn = form?.querySelector('button[type="submit"]');
+    cancelBtn?.addEventListener('click', () => editor.remove());
+    if (clearBtn) {
+      const hasInitialData = (row.value !== '' && row.value != null) || (noteValue && noteValue.trim());
+      if (!hasInitialData) {
+        clearBtn.disabled = true;
+      }
+      clearBtn.addEventListener('click', async (event) => {
+        event.preventDefault();
+        if (!confirm('Effacer la note pour cette date ?')) {
+          return;
+        }
+        clearBtn.disabled = true;
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey);
+          editor.remove();
+          reopenHistory();
+        } catch (error) {
+          console.error('history-entry:clear', error);
+          clearBtn.disabled = false;
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+    form?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!submitBtn || submitBtn.disabled) return;
+      submitBtn.disabled = true;
+      if (clearBtn) clearBtn.disabled = true;
+      try {
+        const rawValue = readConsigneValueFromForm(consigne, form);
+        const note = (form.elements.note?.value || '').trim();
+        const isRawEmpty = rawValue === '' || rawValue == null;
+        if (isRawEmpty && !note) {
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey);
+        } else {
+          await Schema.saveHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, {
+            value: rawValue,
+            note,
+          });
+        }
+        editor.remove();
+        reopenHistory();
+      } catch (error) {
+        console.error('history-entry:save', error);
+        submitBtn.disabled = false;
+        if (clearBtn) clearBtn.disabled = false;
+      }
+    });
+  };
+
+  if (listContainer) {
+    listContainer.addEventListener('click', (event) => {
+      const editTrigger = event.target.closest('[data-history-edit]');
+      if (!editTrigger) return;
+      const itemNode = editTrigger.closest('[data-history-entry]');
+      if (!itemNode) return;
+      const rawIndex = itemNode.getAttribute('data-history-index');
+      const entryIndex = Number(rawIndex);
+      if (!Number.isInteger(entryIndex) || entryIndex < 0 || entryIndex >= rows.length) {
+        return;
+      }
+      event.preventDefault();
+      openEntryEditor(entryIndex, itemNode);
+    });
+  }
+
   const NAVIGABLE_RANGES = new Set(["7d", "30d", "365d"]);
   const navigationState = {
     key: defaultHistoryRange,
