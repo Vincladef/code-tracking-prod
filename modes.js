@@ -5340,10 +5340,10 @@ function renderHistoryChart(data, { type, mode } = {}) {
   const colorPalette = resolveHistoryStatusColors(averageStatus);
 
   const chartWidth = 960;
-  const chartHeight = 360;
+  const chartHeight = 320;
   const paddingTop = 36;
   const paddingRight = 68;
-  const paddingBottom = 88;
+  const paddingBottom = 70;
   const paddingLeft = 76;
   const innerWidth = chartWidth - paddingLeft - paddingRight;
   const innerHeight = chartHeight - paddingTop - paddingBottom;
