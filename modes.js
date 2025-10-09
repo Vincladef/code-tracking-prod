@@ -5444,33 +5444,8 @@ function renderHistoryChart(data, { type, mode } = {}) {
     })
     .join("");
 
-  const minLabel = formatHistoryChartValue(type, min);
-  const maxLabel = formatHistoryChartValue(type, max);
   const plural = sorted.length > 1 ? "s" : "";
   const responseCountLabel = `${sorted.length || 0} réponse${plural}`;
-  const averageValue = values.reduce((acc, value) => acc + Number(value || 0), 0) / values.length;
-  const averageDisplay = Number.isFinite(averageValue) ? formatHistoryChartValue(type, averageValue) : "—";
-
-  const statsItems = [
-    { label: "Réponses", value: responseCountLabel },
-    { label: "Moyenne", value: averageDisplay },
-    { label: "Min", value: minLabel },
-    { label: "Max", value: maxLabel },
-  ];
-  const statsMarkup = `
-    <dl class="history-chart__stats">
-      ${statsItems
-        .map(
-          (item) => `
-            <div class="history-chart__stat">
-              <dt>${escapeHtml(item.label)}</dt>
-              <dd>${escapeHtml(item.value)}</dd>
-            </div>
-          `
-        )
-        .join("")}
-    </dl>
-  `;
 
   const gradientId = `historyChartSimple-${Math.random().toString(36).slice(2, 10)}`;
   const chartLabel = `Évolution des réponses enregistrées (${responseCountLabel})`;
@@ -5512,7 +5487,6 @@ function renderHistoryChart(data, { type, mode } = {}) {
           ${pointsMarkup}
         </svg>
       </figure>
-      ${statsMarkup}
     </div>
   `;
 }
