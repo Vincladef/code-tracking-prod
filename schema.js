@@ -643,6 +643,138 @@ function registerRecentResponses(mode, entries) {
   }
 }
 
+function parseHistoryDate(value) {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+  }
+  if (typeof value?.toDate === "function") {
+    try {
+      const parsed = value.toDate();
+      return parsed instanceof Date && !Number.isNaN(parsed.getTime()) ? parsed : null;
+    } catch (error) {
+      console.warn("responses.history:parse", error);
+      return null;
+    }
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+function toFiniteNumber(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function resolveHistoryKeyForResponse(entry) {
+  if (!entry || typeof entry !== "object") {
+    return "";
+  }
+  const mode = typeof entry.mode === "string" ? entry.mode : "";
+  const sessionId = entry.sessionId || entry.session_id;
+  if (mode === "practice") {
+    if (sessionId) {
+      return String(sessionId);
+    }
+    const index = toFiniteNumber(entry.sessionIndex ?? entry.session_index);
+    if (index !== null) {
+      return `session-${String(index + 1).padStart(4, "0")}`;
+    }
+    const number = toFiniteNumber(entry.sessionNumber ?? entry.session_number);
+    if (number !== null) {
+      return `session-${String(number).padStart(4, "0")}`;
+    }
+  }
+  const explicitDayKey =
+    entry.dayKey ||
+    entry.day_key ||
+    (typeof entry.getDayKey === "function" ? entry.getDayKey() : "");
+  if (explicitDayKey) {
+    return String(explicitDayKey);
+  }
+  const createdAt = parseHistoryDate(entry.createdAt || entry.updatedAt || null);
+  if (mode === "daily" && createdAt) {
+    return dayKeyFromDate(createdAt);
+  }
+  if (createdAt) {
+    return createdAt.toISOString();
+  }
+  if (sessionId) {
+    return String(sessionId);
+  }
+  if (entry.id) {
+    return `response-${String(entry.id)}`;
+  }
+  return now();
+}
+
+async function persistResponsesToHistory(db, uid, responses) {
+  if (!db || !uid || !Array.isArray(responses) || !responses.length) {
+    return;
+  }
+  const tasks = [];
+  responses.forEach((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return;
+    }
+    const consigneId = entry.consigneId;
+    if (!consigneId) {
+      return;
+    }
+    const historyKey = resolveHistoryKeyForResponse(entry);
+    if (!historyKey) {
+      return;
+    }
+    const data = {};
+    if (Object.prototype.hasOwnProperty.call(entry, "value")) {
+      data.value = entry.value;
+    }
+    if (Object.prototype.hasOwnProperty.call(entry, "note")) {
+      data.note = entry.note;
+    }
+    if (!Object.keys(data).length) {
+      return;
+    }
+    const options = {
+      responseId: entry.id || null,
+      responseMode: entry.mode || null,
+      responseType: entry.type || null,
+      responseCreatedAt: entry.createdAt || null,
+      mode: entry.mode || null,
+      type: entry.type || null,
+    };
+    const dayKey = entry.dayKey || entry.day_key || null;
+    if (dayKey) {
+      options.responseDayKey = dayKey;
+    } else if ((entry.mode === "daily" || entry.mode === "practice") && entry.createdAt) {
+      const parsed = parseHistoryDate(entry.createdAt);
+      if (parsed) {
+        options.responseDayKey = dayKeyFromDate(parsed);
+      }
+    }
+    tasks.push(
+      (async () => {
+        try {
+          await saveHistoryEntry(db, uid, consigneId, historyKey, data, options);
+        } catch (error) {
+          console.warn("responses.history:save", { consigneId, historyKey, error });
+        }
+      })()
+    );
+  });
+  if (tasks.length) {
+    await Promise.all(tasks);
+  }
+}
+
 // answers: [{ consigne, value, sessionId?, sessionIndex?, sessionNumber? }]
 async function saveResponses(db, uid, mode, answers) {
   if (!Array.isArray(answers) || !answers.length) {
@@ -743,6 +875,11 @@ async function saveResponses(db, uid, mode, answers) {
     Schema.D.info("responses.save", { mode, count: results.length });
   }
   registerRecentResponses(mode, results);
+  try {
+    await persistResponsesToHistory(db, uid, results);
+  } catch (error) {
+    console.warn("responses.history:error", error);
+  }
   return results;
 }
 
@@ -851,20 +988,47 @@ async function updateConsigneOrder(db, uid, consigneId, order) {
   await setDoc(doc(db, "u", uid, "consignes", consigneId), { order }, { merge: true });
 }
 
+async function cascadeSoftDeleteConsignes(db, uid, parentId, visited = new Set()) {
+  if (!db || !uid || !parentId) {
+    return;
+  }
+  const alreadyVisited = visited.has(parentId);
+  if (!alreadyVisited) {
+    visited.add(parentId);
+  }
+  let childrenSnap;
+  try {
+    childrenSnap = await getDocs(
+      query(col(db, uid, "consignes"), where("parentId", "==", parentId))
+    );
+  } catch (error) {
+    console.warn("softDeleteConsigne:children", error);
+    return;
+  }
+  const tasks = childrenSnap.docs.map(async (docSnap) => {
+    if (!docSnap) return;
+    const childId = docSnap.id;
+    if (!childId || visited.has(childId)) {
+      return;
+    }
+    visited.add(childId);
+    try {
+      await updateDoc(docSnap.ref, { active: false, updatedAt: serverTimestamp() });
+    } catch (error) {
+      console.warn("softDeleteConsigne:updateChild", { parentId, childId, error });
+    }
+    await cascadeSoftDeleteConsignes(db, uid, childId, visited);
+  });
+  await Promise.all(tasks);
+}
+
 async function softDeleteConsigne(db, uid, id) {
   const ref = docIn(db, uid, "consignes", id);
   await updateDoc(ref, {
     active: false,
     updatedAt: serverTimestamp()
   });
-  const childrenSnap = await getDocs(
-    query(col(db, uid, "consignes"), where("parentId", "==", id))
-  );
-  await Promise.all(
-    childrenSnap.docs.map((docSnap) =>
-      updateDoc(docSnap.ref, { active: false, updatedAt: serverTimestamp() })
-    )
-  );
+  await cascadeSoftDeleteConsignes(db, uid, id, new Set([id]));
 }
 
 async function saveResponse(db, uid, consigne, value) {
