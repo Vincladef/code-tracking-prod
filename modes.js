@@ -5355,16 +5355,19 @@ function renderHistoryChart(data, { type, mode } = {}) {
     }
   }
 
+  const canMatchMedia = typeof window !== "undefined" && typeof window.matchMedia === "function";
+  const isCompactViewport = canMatchMedia ? window.matchMedia("(max-width: 900px)").matches : false;
+  const isPhoneViewport = canMatchMedia ? window.matchMedia("(max-width: 640px)").matches : false;
   const chartWidth = 640;
-  const chartHeight = 200;
-  const basePadding = 28;
-  const paddingTop = basePadding;
+  const chartHeight = isPhoneViewport ? 360 : isCompactViewport ? 300 : 240;
+  const basePadding = isPhoneViewport ? 32 : isCompactViewport ? 30 : 28;
+  const paddingTop = basePadding + (isPhoneViewport ? 6 : isCompactViewport ? 4 : 0);
   const paddingRight = basePadding;
   const paddingLeft = basePadding;
-  const minBottomPadding = 8;
-  let paddingBottom = basePadding;
+  const minBottomPadding = 10;
+  let paddingBottom = basePadding + (isPhoneViewport ? 10 : isCompactViewport ? 6 : 0);
   if (type === "likert6" && min === 0) {
-    paddingBottom = minBottomPadding;
+    paddingBottom = minBottomPadding + (isPhoneViewport ? 6 : isCompactViewport ? 4 : 0);
   }
   const innerWidth = chartWidth - paddingLeft - paddingRight;
   const innerHeight = chartHeight - paddingTop - paddingBottom;
@@ -5616,28 +5619,18 @@ function renderHistoryChart(data, { type, mode } = {}) {
       ? formatHistoryChartValue(type, averageValue)
       : "—";
 
+  const summaryDetails = [
+    responseCountLabel,
+    hasValidPoints && Number.isFinite(averageValue) ? `Moyenne ${averageDisplay}` : null,
+    hasValidPoints && hasVariance ? `Min ${minLabel}` : null,
+    hasValidPoints && hasVariance ? `Max ${maxLabel}` : null,
+  ].filter(Boolean);
+
+  const summaryMarkup = summaryDetails.length
+    ? `<p class="history-panel__chart-summary">${summaryDetails.map((item) => escapeHtml(item)).join(" · ")}</p>`
+    : "";
+
   const gradientId = `historyChartGradient-${Math.random().toString(36).slice(2, 10)}`;
-
-  const stats = [
-    { label: "Réponses", value: responseCountLabel },
-    { label: "Moyenne", value: averageDisplay, accent: hasValidPoints },
-    { label: "Min", value: minLabel },
-    { label: "Max", value: maxLabel },
-  ];
-
-  const statsMarkup = stats
-    .map(({ label, value, accent }) => {
-      const classes = ["history-panel__chart-stat"];
-      if (accent) classes.push("history-panel__chart-stat--accent");
-      const valueText = typeof value === "string" ? value : value === null || value === undefined ? "—" : String(value);
-      return `
-        <div class="${classes.join(" ")}" role="listitem">
-          <span class="history-panel__chart-stat-label">${escapeHtml(label)}</span>
-          <span class="history-panel__chart-stat-value">${escapeHtml(valueText)}</span>
-        </div>
-      `;
-    })
-    .join("");
 
   const hasLikertScale = type === "likert6";
   const scaleSteps = hasLikertScale ? LIKERT6_ORDER.length : 0;
@@ -5854,11 +5847,9 @@ function renderHistoryChart(data, { type, mode } = {}) {
   return `
     <div class="history-panel__chart"${averageStatus ? ` data-average-status="${escapeHtml(averageStatus)}"` : ""}>
       <header class="history-panel__chart-header">
-        <div class="history-panel__chart-heading">
-          <p class="history-panel__chart-eyebrow">Historique des réponses</p>
-          <h4 class="history-panel__chart-title">Tendance enregistrée</h4>
-        </div>
-        <div class="history-panel__chart-stats" role="list">${statsMarkup}</div>
+        <p class="history-panel__chart-eyebrow">Historique des réponses</p>
+        <h4 class="history-panel__chart-title">Tendance enregistrée</h4>
+        ${summaryMarkup}
       </header>
       <div class="history-panel__chart-body">
         <figure class="${figureClasses.join(" ")}"${figureStyleAttr}>
