@@ -233,6 +233,14 @@ Schema.DAY_VALUES = Schema.DAY_VALUES || new Set(["LUN", "MAR", "MER", "JEU", "V
 const SCHEMA_DAY_ALIAS = Schema.DAY_ALIAS;
 const SCHEMA_DAY_VALUES = Schema.DAY_VALUES;
 
+function normalizePositiveInteger(value) {
+  if (value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  const rounded = Math.round(num);
+  return rounded > 0 ? rounded : null;
+}
+
 function normalizePriority(value) {
   if (typeof value === "number" && value >= 1 && value <= 3) return value;
   if (typeof value === "string") {
@@ -311,6 +319,9 @@ function hydrateConsigne(doc) {
     srEnabled: data.srEnabled !== false,
     parentId: normalizeParentId(data.parentId),
     checklistItems: normalizeChecklistItems(data.checklistItems),
+    ephemeral: data.ephemeral === true,
+    ephemeralDurationDays: normalizePositiveInteger(data.ephemeralDurationDays),
+    ephemeralDurationIterations: normalizePositiveInteger(data.ephemeralDurationIterations),
   };
 }
 
@@ -1028,6 +1039,9 @@ async function addConsigne(db, uid, payload) {
     days: normalizeDays(payload.days),
     parentId: normalizeParentId(payload.parentId),
     checklistItems: normalizeChecklistItems(payload.checklistItems),
+    ephemeral: payload.ephemeral === true,
+    ephemeralDurationDays: normalizePositiveInteger(payload.ephemeralDurationDays),
+    ephemeralDurationIterations: normalizePositiveInteger(payload.ephemeralDurationIterations),
     createdAt: serverTimestamp()
   });
   return ref;
@@ -1042,6 +1056,9 @@ async function updateConsigne(db, uid, id, payload) {
     days: normalizeDays(payload.days),
     parentId: normalizeParentId(payload.parentId),
     checklistItems: normalizeChecklistItems(payload.checklistItems),
+    ephemeral: payload.ephemeral === true,
+    ephemeralDurationDays: normalizePositiveInteger(payload.ephemeralDurationDays),
+    ephemeralDurationIterations: normalizePositiveInteger(payload.ephemeralDurationIterations),
     updatedAt: serverTimestamp()
   });
 }

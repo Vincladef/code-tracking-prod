@@ -3970,6 +3970,22 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       modesLogger.warn("ui.consigneForm.children.load", err);
     }
   }
+  const durationFieldName = mode === "daily" ? "ephemeralDurationDays" : "ephemeralDurationIterations";
+  const initialDurationRaw = consigne ? consigne[durationFieldName] : null;
+  const initialDurationNumber = Number(initialDurationRaw);
+  const durationInitialValue =
+    Number.isFinite(initialDurationNumber) && initialDurationNumber > 0
+      ? initialDurationNumber
+      : "";
+  const durationValueAttr = durationInitialValue === "" ? "" : escapeHtml(String(durationInitialValue));
+  const isEphemeral = consigne?.ephemeral === true;
+  const advancedOpenAttr = isEphemeral ? " open" : "";
+  const ephemeralHiddenAttr = isEphemeral ? "" : " hidden";
+  const durationLabel = mode === "daily" ? "Durée (jours)" : "Durée (itérations)";
+  const durationHint =
+    mode === "daily"
+      ? "La consigne disparaîtra après le nombre de jours indiqué."
+      : "La consigne disparaîtra après le nombre d'itérations indiqué.";
   const html = `
     <h3 class="text-lg font-semibold mb-2">${consigne ? "Modifier" : "Nouvelle"} consigne</h3>
     <form class="grid gap-4" id="consigne-form" data-autosave-key="${escapeHtml(
@@ -4025,6 +4041,26 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         <span>⏳ Activer la répétition espacée</span>
       </label>
 
+      <details class="consigne-advanced" data-advanced${advancedOpenAttr}>
+        <summary class="consigne-advanced__summary">
+          <span class="consigne-advanced__caret" aria-hidden="true">▸</span>
+          <span>Paramètres avancés</span>
+        </summary>
+        <div class="consigne-advanced__content">
+          <label class="inline-flex items-center gap-2">
+            <input type="checkbox" name="ephemeral" ${isEphemeral ? "checked" : ""}>
+            <span>Consigne éphémère</span>
+          </label>
+          <div class="grid gap-1 consigne-advanced__ephemeral" data-ephemeral-settings${ephemeralHiddenAttr}>
+            <label class="grid gap-1">
+              <span class="text-sm text-[var(--muted)]">${escapeHtml(durationLabel)}</span>
+              <input type="number" min="1" step="1" inputmode="numeric" class="w-full" name="${durationFieldName}" value="${durationValueAttr}">
+            </label>
+            <p class="consigne-advanced__hint">${escapeHtml(durationHint)}</p>
+          </div>
+        </div>
+      </details>
+
       ${canManageChildren ? `
       <fieldset class="grid gap-2" data-subconsignes>
         <legend class="text-sm text-[var(--muted)]">Sous-consignes</legend>
@@ -4064,6 +4100,44 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     </form>
   `;
   const m = modal(html);
+  const advancedDetailsEl = m.querySelector("[data-advanced]");
+  const ephemeralCheckboxEl = m.querySelector('input[name="ephemeral"]');
+  const ephemeralSettingsEl = m.querySelector("[data-ephemeral-settings]");
+  const ephemeralDurationInput = durationFieldName
+    ? m.querySelector(`[name="${durationFieldName}"]`)
+    : null;
+  const syncEphemeralControls = () => {
+    if (!ephemeralSettingsEl) return;
+    const enabled = Boolean(ephemeralCheckboxEl?.checked);
+    if (enabled) {
+      ephemeralSettingsEl.hidden = false;
+      ephemeralSettingsEl.classList.remove("hidden");
+    } else {
+      ephemeralSettingsEl.hidden = true;
+      ephemeralSettingsEl.classList.add("hidden");
+    }
+    if (ephemeralDurationInput) {
+      ephemeralDurationInput.disabled = !enabled;
+    }
+  };
+  if (ephemeralCheckboxEl) {
+    syncEphemeralControls();
+    ephemeralCheckboxEl.addEventListener("change", () => {
+      syncEphemeralControls();
+      if (ephemeralCheckboxEl.checked) {
+        if (advancedDetailsEl && typeof advancedDetailsEl.open === "boolean") {
+          advancedDetailsEl.open = true;
+        }
+        if (ephemeralDurationInput) {
+          try {
+            ephemeralDurationInput.focus({ preventScroll: true });
+          } catch (error) {
+            ephemeralDurationInput.focus();
+          }
+        }
+      }
+    });
+  }
   const typeSelectEl = m.querySelector('select[name="type"]');
   const checklistAnchor = m.querySelector('[data-checklist-editor-anchor]');
   const checklistEditor = document.createElement('fieldset');
@@ -4418,6 +4492,27 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
 
       storeConsigneCategory(ctx?.user?.uid || null, mode, cat);
 
+      const ephemeralEnabled = fd.get("ephemeral") !== null;
+      let ephemeralDurationDays = null;
+      let ephemeralDurationIterations = null;
+      if (ephemeralEnabled) {
+        const rawDurationValue = Number(fd.get(durationFieldName) || 0);
+        const normalizedDuration = Math.round(rawDurationValue);
+        if (!Number.isFinite(normalizedDuration) || normalizedDuration <= 0) {
+          alert(
+            `Indique une durée valide en ${
+              mode === "daily" ? "jours" : "itérations"
+            } (minimum 1).`
+          );
+          return;
+        }
+        if (mode === "daily") {
+          ephemeralDurationDays = normalizedDuration;
+        } else {
+          ephemeralDurationIterations = normalizedDuration;
+        }
+      }
+
       const payload = {
         ownerUid: ctx.user.uid,
         mode,
@@ -4426,6 +4521,9 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         category: cat,
         priority: Number(fd.get("priority") || 2),
         srEnabled: fd.get("srEnabled") !== null,
+        ephemeral: ephemeralEnabled,
+        ephemeralDurationDays,
+        ephemeralDurationIterations,
         active: true,
         parentId: consigne?.parentId || null,
       };
@@ -4503,6 +4601,9 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
             category: payload.category,
             priority: payload.priority,
             srEnabled: payload.srEnabled,
+            ephemeral: payload.ephemeral,
+            ephemeralDurationDays: payload.ephemeralDurationDays,
+            ephemeralDurationIterations: payload.ephemeralDurationIterations,
             active: true,
             parentId: consigneId,
           };
