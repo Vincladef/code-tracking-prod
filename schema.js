@@ -678,6 +678,10 @@ function resolveHistoryKeyForResponse(entry) {
   if (!entry || typeof entry !== "object") {
     return "";
   }
+  const explicitHistoryKey = entry.historyKey || entry.history_key;
+  if (explicitHistoryKey) {
+    return String(explicitHistoryKey);
+  }
   const mode = typeof entry.mode === "string" ? entry.mode : "";
   const sessionId = entry.sessionId || entry.session_id;
   if (mode === "practice") {
@@ -740,6 +744,43 @@ async function persistResponsesToHistory(db, uid, responses) {
     if (Object.prototype.hasOwnProperty.call(entry, "note")) {
       data.note = entry.note;
     }
+    const metadataKeys = [
+      "summaryScope",
+      "summaryMode",
+      "summaryLabel",
+      "summaryPeriod",
+      "summaryKey",
+      "period",
+      "periodLabel",
+      "periodScope",
+      "periodKey",
+      "periodStart",
+      "periodEnd",
+      "source",
+      "origin",
+      "context",
+      "moduleId",
+      "category",
+      "mode",
+      "type",
+      "dayKey",
+      "weekEndsOn",
+      "weekKey",
+      "monthKey",
+    ];
+    metadataKeys.forEach((key) => {
+      if (!Object.prototype.hasOwnProperty.call(entry, key)) {
+        return;
+      }
+      const value = entry[key];
+      if (value === undefined || value === null) {
+        return;
+      }
+      if (typeof value === "string" && value.trim() === "") {
+        return;
+      }
+      data[key] = value;
+    });
     if (!Object.keys(data).length) {
       return;
     }
@@ -2012,12 +2053,23 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
         summaryMode: responsePayload.summaryMode || null,
         summaryLabel: responsePayload.summaryLabel || null,
         summaryPeriod: responsePayload.summaryPeriod || null,
+        summaryKey: responsePayload.summaryKey || null,
         source: responsePayload.source || null,
         origin: responsePayload.origin || null,
         context: responsePayload.context || null,
         moduleId: responsePayload.moduleId || null,
         category: responsePayload.category || null,
+        period: responsePayload.period || null,
+        periodLabel: responsePayload.periodLabel || null,
+        periodScope: responsePayload.periodScope || null,
+        periodKey: responsePayload.periodKey || null,
+        periodStart: responsePayload.periodStart || null,
+        periodEnd: responsePayload.periodEnd || null,
+        weekEndsOn: responsePayload.weekEndsOn ?? null,
+        weekKey: responsePayload.weekKey || null,
+        monthKey: responsePayload.monthKey || null,
         dayKey: responsePayload.dayKey || null,
+        historyKey: responseId,
         createdAt: createdAtValue,
       };
     })();
@@ -2030,6 +2082,11 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
     const entries = (await Promise.all(responseWrites)).filter(Boolean);
     if (entries.length) {
       registerRecentResponses("summary", entries);
+      try {
+        await persistResponsesToHistory(db, uid, entries);
+      } catch (error) {
+        schemaLog("summaryResponse:history:error", { scope, periodKey, error });
+      }
     }
   }
 }
