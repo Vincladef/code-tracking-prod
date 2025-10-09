@@ -1158,9 +1158,17 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           modesLogger.warn("practice-dashboard:history:error", historyError);
         }
 
+        const seenHistoryEntryIds = new Set();
         (historyEntries || [])
           .filter((entry) => entry?.date)
           .forEach((entry) => {
+            const entryId = entry?.id || entry?.date;
+            if (entryId && seenHistoryEntryIds.has(entryId)) {
+              return;
+            }
+            if (entryId) {
+              seenHistoryEntryIds.add(entryId);
+            }
             const normalized = parseHistoryEntry(entry);
             const key = isDaily
               ? computeTemporalKey({ dayKey: entry.date }, normalized.createdAt)
@@ -4584,13 +4592,56 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           return;
         }
       }
+      const historySnapshot = {
+        mode,
+        text: payload.text,
+        type: payload.type,
+        category: payload.category,
+        priority: payload.priority,
+        srEnabled: payload.srEnabled,
+        days: Array.isArray(payload.days) ? [...payload.days] : payload.days,
+        checklistItems: Array.isArray(payload.checklistItems) ? [...payload.checklistItems] : [],
+        ephemeral: payload.ephemeral,
+        ephemeralDurationDays: payload.ephemeralDurationDays,
+        ephemeralDurationIterations: payload.ephemeralDurationIterations,
+        parentId: payload.parentId || null,
+        objectiveId: selectedObjective || null,
+      };
+      if (subRows.length) {
+        historySnapshot.childrenCount = subRows.length;
+      }
+      const historyMetadata = {
+        objectiveId: selectedObjective || null,
+        hasChildren: subRows.length > 0,
+      };
       let consigneId = consigne?.id || null;
       if (consigne) {
-        await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, payload);
+        await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, payload, {
+          history: {
+            kind: "update",
+            source: "ui",
+            payload: historySnapshot,
+            metadata: historyMetadata,
+            type: payload.type,
+          },
+        });
         consigneId = consigne.id;
       } else {
         const ref = await Schema.addConsigne(ctx.db, ctx.user.uid, payload);
         consigneId = ref?.id || consigneId;
+        if (consigneId) {
+          try {
+            await Schema.logConsigneHistoryEntry(ctx.db, ctx.user.uid, consigneId, {
+              kind: "create",
+              source: "ui",
+              payload: historySnapshot,
+              metadata: historyMetadata,
+              type: payload.type,
+            });
+          } catch (error) {
+            console.warn("consigne.history:create", error);
+          }
+        }
       }
       if (consigneId) {
         await Schema.linkConsigneToObjective(ctx.db, ctx.user.uid, consigneId, selectedObjective || null);
