@@ -6481,12 +6481,73 @@ async function openHistory(ctx, consigne, options = {}) {
         </div>
       </form>
     `;
-    const editor = modal(editorHtml);
-    const form = editor.querySelector('form');
+    const previousOverlay = panel.querySelector('.history-panel__edit-overlay');
+    if (previousOverlay) {
+      previousOverlay.dispatchEvent(new Event('history-edit-request-close'));
+    }
+    const overlay = document.createElement('div');
+    overlay.className = 'history-panel__edit-overlay';
+    overlay.innerHTML = `
+      <div class="history-panel__edit-dialog" role="dialog" aria-modal="true" tabindex="-1">
+        ${editorHtml}
+      </div>
+    `;
+    panel.appendChild(overlay);
+    const dialog = overlay.querySelector('.history-panel__edit-dialog');
+    const form = overlay.querySelector('form');
     const cancelBtn = form?.querySelector('[data-cancel]');
     const clearBtn = form?.querySelector('[data-clear]');
     const submitBtn = form?.querySelector('button[type="submit"]');
-    cancelBtn?.addEventListener('click', () => editor.remove());
+    let handleKeyDown;
+    let overlayObserver;
+    let cleanupListeners = null;
+    const closeEditor = () => {
+      if (cleanupListeners) {
+        cleanupListeners();
+      }
+      if (overlay.isConnected) {
+        overlay.remove();
+      }
+    };
+    cleanupListeners = () => {
+      if (handleKeyDown) {
+        document.removeEventListener('keydown', handleKeyDown, true);
+        handleKeyDown = null;
+      }
+      overlay.removeEventListener('history-edit-request-close', closeEditor);
+      if (overlayObserver) {
+        overlayObserver.disconnect();
+        overlayObserver = null;
+      }
+      cleanupListeners = null;
+    };
+    handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeEditor();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    overlay.addEventListener('history-edit-request-close', closeEditor);
+    overlayObserver = new MutationObserver(() => {
+      if (!overlay.isConnected && cleanupListeners) {
+        cleanupListeners();
+      }
+    });
+    try {
+      overlayObserver.observe(panel, { childList: true });
+    } catch (error) {
+      modesLogger?.warn?.('ui.history.edit.observe', error);
+    }
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) {
+        closeEditor();
+      }
+    });
+    requestAnimationFrame(() => {
+      dialog?.focus({ preventScroll: true });
+    });
+    cancelBtn?.addEventListener('click', closeEditor);
     if (clearBtn) {
       const hasInitialData = (row.value !== '' && row.value != null) || (noteValue && noteValue.trim());
       if (!hasInitialData) {
@@ -6501,7 +6562,7 @@ async function openHistory(ctx, consigne, options = {}) {
         if (submitBtn) submitBtn.disabled = true;
         try {
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey);
-          editor.remove();
+          closeEditor();
           reopenHistory();
         } catch (error) {
           console.error('history-entry:clear', error);
@@ -6527,7 +6588,7 @@ async function openHistory(ctx, consigne, options = {}) {
             note,
           });
         }
-        editor.remove();
+        closeEditor();
         reopenHistory();
       } catch (error) {
         console.error('history-entry:save', error);
