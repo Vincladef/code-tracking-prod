@@ -1821,9 +1821,13 @@
     .history-chart__point:focus-visible .history-chart__point-hit,
     .history-chart__point:hover .history-chart__point-hit{ fill:var(--history-point-color); fill-opacity:.16; }
     .history-chart__point:focus-visible{ outline:2px solid rgba(59,130,246,0.45); outline-offset:6px; }
-    .history-chart__tooltip{ position:absolute; top:0; left:0; transform:translate(-50%, calc(-100% - 18px)); background:rgba(15,23,42,0.92); color:#fff; border-radius:1rem; padding:.7rem .95rem; font-size:.78rem; line-height:1.45; box-shadow:0 22px 40px rgba(15,23,42,0.32); pointer-events:none; opacity:0; transition:opacity .2s ease, transform .2s ease; z-index:9999; min-width:9rem; backdrop-filter:blur(10px); }
-    .history-chart__tooltip.is-visible{ opacity:1; transform:translate(-50%, calc(-100% - 10px)); }
+    .history-chart__tooltip{ position:fixed; top:0; left:0; --history-tooltip-gap:18px; --history-tooltip-visible-gap:10px; transform:translate(-50%, calc(-100% - var(--history-tooltip-gap))); background:rgba(15,23,42,0.92); color:#fff; border-radius:1rem; padding:.7rem .95rem; font-size:.78rem; line-height:1.45; box-shadow:0 22px 40px rgba(15,23,42,0.32); pointer-events:none; opacity:0; transition:opacity .2s ease, transform .2s ease; z-index:9999; min-width:9rem; backdrop-filter:blur(10px); }
+    .history-chart__tooltip.is-visible{ opacity:1; transform:translate(-50%, calc(-100% - var(--history-tooltip-visible-gap))); }
+    .history-chart__tooltip--below{ transform:translate(-50%, var(--history-tooltip-gap)); }
+    .history-chart__tooltip--below.is-visible{ transform:translate(-50%, var(--history-tooltip-visible-gap)); }
     .history-chart__tooltip[hidden]{ display:none; }
+    .history-chart__point--bilan{ --history-point-color:#7c3aed; }
+    .history-chart__point--bilan .history-chart__point-node{ stroke:#f3e8ff; }
     .history-chart__tooltip-value{ font-weight:700; font-size:.92rem; }
     .history-chart__tooltip-meta{ margin-top:.25rem; font-size:.75rem; opacity:.85; }
     .history-chart__stats{ margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:clamp(1rem, 3vw, 1.4rem); }

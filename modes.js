@@ -5657,10 +5657,11 @@ function renderHistoryChart(data, { type, mode } = {}) {
           ) {
             summaryScope = "yearly";
           }
+          const hasBilanFlag = Boolean(entry.isBilan) || normalizedScope.includes("bilan");
           const hasSummaryFlag =
             Boolean(entry.isSummary) ||
             Boolean(summaryScope) ||
-            normalizedScope.includes("bilan") ||
+            hasBilanFlag ||
             normalizedScope.includes("summary") ||
             normalizedScope.includes("yearly") ||
             normalizedScope.includes("annuel");
@@ -5669,6 +5670,7 @@ function renderHistoryChart(data, { type, mode } = {}) {
             value: Number(entry.value),
             isSummary: hasSummaryFlag,
             summaryScope,
+            isBilan: hasBilanFlag,
             recordedAt: recordedAt ? new Date(recordedAt.getTime()) : null,
             dayKey: dayKeyValue,
           };
@@ -5764,6 +5766,10 @@ function renderHistoryChart(data, { type, mode } = {}) {
         ? "Bilan mensuel"
         : entry.summaryScope === "weekly"
         ? "Bilan hebdomadaire"
+        : entry.summaryScope === "yearly"
+        ? "Bilan annuel"
+        : entry.isBilan
+        ? "Bilan"
         : entry.isSummary
         ? "Synthèse"
         : "";
@@ -5780,6 +5786,7 @@ function renderHistoryChart(data, { type, mode } = {}) {
       tooltipDate,
       timeLabel,
       iteration: index + 1,
+      isBilan: Boolean(entry.isBilan),
     };
   });
 
@@ -5851,9 +5858,14 @@ function renderHistoryChart(data, { type, mode } = {}) {
       const ariaParts = [valueLabel, tooltipMeta].filter(Boolean);
       const ariaLabel = ariaParts.join(" — ");
       const metaAttr = tooltipMeta ? ` data-meta="${escapeHtml(tooltipMeta)}"` : "";
-      const pointStyle = ` style="--history-point-color:${escapeHtml(colorPalette.circle)}"`;
+      const pointColor = point.isBilan ? "#7c3aed" : colorPalette.circle;
+      const pointClasses = ["history-chart__point"];
+      if (point.isBilan) {
+        pointClasses.push("history-chart__point--bilan");
+      }
+      const pointStyle = ` style="--history-point-color:${escapeHtml(pointColor)}"`;
       return `
-        <g class="history-chart__point" data-history-point data-value="${escapeHtml(valueLabel)}"${metaAttr}${pointStyle} transform="translate(${point.x.toFixed(
+        <g class="${pointClasses.join(" ")}" data-history-point data-value="${escapeHtml(valueLabel)}"${metaAttr}${pointStyle} transform="translate(${point.x.toFixed(
         2
       )}, ${point.y.toFixed(2)})" tabindex="0" aria-label="${escapeHtml(ariaLabel)}">
           <circle class="history-chart__point-hit" r="14"></circle>
@@ -5923,8 +5935,8 @@ function enhanceHistoryChart(container) {
   if (!points.length) return;
 
   const tooltipClass = 'history-chart__tooltip';
-  let tooltip = chartRoot.querySelector(`.${tooltipClass}`);
-  if (!tooltip) {
+  let tooltip = chartRoot._historyTooltip;
+  if (!(tooltip instanceof HTMLElement) || !tooltip.classList.contains(tooltipClass)) {
     tooltip = document.createElement('div');
     tooltip.className = tooltipClass;
     tooltip.innerHTML = `
@@ -5932,7 +5944,8 @@ function enhanceHistoryChart(container) {
       <div class="history-chart__tooltip-meta"></div>
     `;
     tooltip.hidden = true;
-    chartRoot.appendChild(tooltip);
+    document.body.appendChild(tooltip);
+    chartRoot._historyTooltip = tooltip;
   }
 
   const valueEl = tooltip.querySelector('.history-chart__tooltip-value');
@@ -5945,7 +5958,10 @@ function enhanceHistoryChart(container) {
   const hideTooltip = () => {
     clearActive();
     tooltip.classList.remove('is-visible');
+    tooltip.classList.remove('history-chart__tooltip--below');
     tooltip.hidden = true;
+    tooltip.style.left = '';
+    tooltip.style.top = '';
   };
 
   const showTooltip = (point) => {
@@ -5961,14 +5977,25 @@ function enhanceHistoryChart(container) {
 
     const node = point.querySelector('.history-chart__point-node') || point;
     const nodeRect = node.getBoundingClientRect();
-    const rootRect = chartRoot.getBoundingClientRect();
-    const left = nodeRect.left - rootRect.left + nodeRect.width / 2;
-    const top = nodeRect.top - rootRect.top;
+    const gap = 18;
+    const visibleGap = 10;
+    tooltip.style.setProperty('--history-tooltip-gap', `${gap}px`);
+    tooltip.style.setProperty('--history-tooltip-visible-gap', `${visibleGap}px`);
+    tooltip.hidden = false;
+    tooltip.classList.remove('history-chart__tooltip--below');
+    tooltip.classList.add('is-visible');
+
+    const tooltipHeight = tooltip.offsetHeight || 0;
+    const shouldFlip = nodeRect.top - gap - tooltipHeight < 12;
+    if (shouldFlip) {
+      tooltip.classList.add('history-chart__tooltip--below');
+    }
+
+    const top = shouldFlip ? nodeRect.bottom : nodeRect.top;
+    const left = nodeRect.left + nodeRect.width / 2;
 
     tooltip.style.left = `${left}px`;
     tooltip.style.top = `${top}px`;
-    tooltip.hidden = false;
-    tooltip.classList.add('is-visible');
   };
 
   points.forEach((point) => {
@@ -6470,6 +6497,7 @@ async function openHistory(ctx, consigne, options = {}) {
       { value: "7d", label: "Hebdomadaire" },
       { value: "30d", label: "Mensuel" },
       { value: "365d", label: "Annuel" },
+      { value: "bilan", label: "Bilans" },
       { value: "all", label: "Toutes les entrées" },
     ],
   };
@@ -6560,6 +6588,10 @@ async function openHistory(ctx, consigne, options = {}) {
         const endOfYear = new Date(startOfYear.getFullYear() + 1, 0, 1);
         const filtered = sortedAsc.filter((pt) => pt.date >= startOfYear && pt.date < endOfYear);
         return buildResult(filtered, { start: startOfYear, end: endOfYear }, { axis: "year" });
+      }
+      case "bilan": {
+        const filtered = sortedAsc.filter((pt) => pt.isBilan);
+        return buildResult(filtered, {}, { axis: "bilan" });
       }
       case "all":
       default:
@@ -6699,6 +6731,7 @@ async function openHistory(ctx, consigne, options = {}) {
           value: Number(numericValue),
           isSummary: Boolean(summaryInfo.isSummary),
           summaryScope: summaryInfo.scope || "",
+          isBilan: Boolean(summaryInfo.isBilan),
           recordedAt: createdAt instanceof Date && !Number.isNaN(createdAt?.getTime?.()) ? createdAt : null,
           dayKey: typeof dayKey === "string" ? dayKey : "",
         });
