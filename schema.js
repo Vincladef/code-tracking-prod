@@ -1509,6 +1509,66 @@ function summaryCollectionName(scope) {
   return null;
 }
 
+function normalizeSummaryScopeValue(scope) {
+  if (!scope) return "";
+  const raw = String(scope).trim().toLowerCase();
+  if (raw === "week" || raw === "weekly") return "weekly";
+  if (raw === "month" || raw === "monthly") return "monthly";
+  return raw;
+}
+
+function summaryKeyToConsigneId(key) {
+  if (typeof key !== "string") {
+    return "";
+  }
+  const trimmed = key.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const parts = trimmed.split("__");
+  if (parts.length <= 1) {
+    return trimmed;
+  }
+  return parts[parts.length - 1];
+}
+
+function sanitizeSummaryDocId(value) {
+  if (!value) {
+    return "";
+  }
+  return String(value)
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function buildSummaryResponseId(scope, periodKey, key, consigneId) {
+  const normalizedScope = normalizeSummaryScopeValue(scope) || "summary";
+  const parts = [normalizedScope];
+  if (typeof periodKey === "string" && periodKey.trim()) {
+    parts.push(periodKey.trim());
+  }
+  if (consigneId) {
+    parts.push(consigneId);
+  }
+  if (key) {
+    parts.push(key);
+  }
+  const raw = parts.filter(Boolean).join("_");
+  const sanitized = sanitizeSummaryDocId(raw);
+  return sanitized || `summary-${normalizedScope}-${newUid()}`;
+}
+
+function resolveSummaryBaseDate(metadata) {
+  if (metadata?.end instanceof Date && !Number.isNaN(metadata.end.getTime())) {
+    return metadata.end;
+  }
+  if (metadata?.start instanceof Date && !Number.isNaN(metadata.start.getTime())) {
+    return metadata.start;
+  }
+  return null;
+}
+
 async function loadSummaryAnswers(db, uid, scope, periodKey) {
   if (!db || !uid || !scope || !periodKey) return new Map();
   const collectionName = summaryCollectionName(scope);
@@ -1553,8 +1613,30 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
   if (!Array.isArray(answers) || !answers.length) {
     return;
   }
-  const writes = answers.map((answer) => {
-    if (!answer || !answer.key) return Promise.resolve();
+  const normalizedSummaryScope = metadata?.summaryScope || normalizeSummaryScopeValue(scope);
+  const moduleId = metadata?.moduleId || "bilan";
+  const defaultSummaryLabel = metadata?.summaryLabel
+    || metadata?.label
+    || (normalizedSummaryScope === "monthly"
+      ? "Bilan mensuel"
+      : normalizedSummaryScope === "weekly"
+      ? "Bilan hebdomadaire"
+      : "Bilan");
+  const baseDate = resolveSummaryBaseDate(metadata);
+  const createdAtIso = baseDate instanceof Date && !Number.isNaN(baseDate.getTime())
+    ? baseDate.toISOString()
+    : now();
+  const summaryDayKey = (typeof metadata?.summaryDayKey === "string" && metadata.summaryDayKey.trim())
+    ? metadata.summaryDayKey.trim()
+    : baseDate instanceof Date && typeof dayKeyFromDate === "function"
+    ? dayKeyFromDate(baseDate)
+    : "";
+  const periodStartIso = metadata?.start instanceof Date ? metadata.start.toISOString() : null;
+  const periodEndIso = metadata?.end instanceof Date ? metadata.end.toISOString() : null;
+  const writes = [];
+  const responseWrites = [];
+  answers.forEach((answer) => {
+    if (!answer || !answer.key) return;
     const answerRef = doc(db, "u", uid, collectionName, periodKey, "answers", answer.key);
     const payload = {
       consigneId: answer.consigneId || null,
@@ -1569,9 +1651,202 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
     if (answer.category !== undefined) {
       payload.category = answer.category;
     }
-    return setDoc(answerRef, payload, { merge: true });
+    if (answer.summaryScope !== undefined) {
+      payload.summaryScope = answer.summaryScope;
+    } else if (normalizedSummaryScope) {
+      payload.summaryScope = normalizedSummaryScope;
+    }
+    if (answer.summaryMode !== undefined) {
+      payload.summaryMode = answer.summaryMode;
+    } else if (moduleId) {
+      payload.summaryMode = moduleId;
+    }
+    if (answer.summaryLabel !== undefined) {
+      payload.summaryLabel = answer.summaryLabel;
+    } else if (defaultSummaryLabel) {
+      payload.summaryLabel = defaultSummaryLabel;
+    }
+    if (answer.summaryPeriod !== undefined) {
+      payload.summaryPeriod = answer.summaryPeriod;
+    } else if (periodKey) {
+      payload.summaryPeriod = periodKey;
+    }
+    if (answer.summaryKey !== undefined) {
+      payload.summaryKey = answer.summaryKey;
+    } else if (answer.key) {
+      payload.summaryKey = answer.key;
+    }
+    if (answer.source !== undefined) {
+      payload.source = answer.source;
+    } else if (moduleId) {
+      payload.source = moduleId;
+    }
+    if (answer.origin !== undefined) {
+      payload.origin = answer.origin;
+    }
+    if (answer.context !== undefined) {
+      payload.context = answer.context;
+    }
+    if (moduleId) {
+      payload.moduleId = moduleId;
+    }
+    if (metadata?.label) {
+      payload.periodLabel = metadata.label;
+    }
+    writes.push(setDoc(answerRef, payload, { merge: true }));
+
+    const consigneId = answer.consigneId || summaryKeyToConsigneId(answer.key);
+    if (!consigneId) {
+      return;
+    }
+    const responseWrite = (async () => {
+      const responseId = buildSummaryResponseId(scope, periodKey, answer.key, consigneId);
+      const responseRef = doc(db, "u", uid, "responses", responseId);
+      let existingSnap = null;
+      try {
+        existingSnap = await getDoc(responseRef);
+      } catch (error) {
+        schemaLog("summaryResponse:load:error", { scope, periodKey, consigneId, error });
+      }
+      const hasExisting = snapshotExists(existingSnap);
+      const existingData = hasExisting ? existingSnap.data() || {} : null;
+      const responsePayload = {
+        ownerUid: uid,
+        consigneId,
+        mode: "summary",
+        value: answer.value,
+        updatedAt: now(),
+      };
+      if (answer.type !== undefined) {
+        responsePayload.type = answer.type;
+      }
+      if (answer.category !== undefined) {
+        responsePayload.category = answer.category;
+      }
+      const summaryScopeValue = answer.summaryScope
+        || payload.summaryScope
+        || normalizedSummaryScope;
+      if (summaryScopeValue) {
+        responsePayload.summaryScope = summaryScopeValue;
+        responsePayload.periodScope = summaryScopeValue;
+      }
+      const summaryModeValue = answer.summaryMode
+        || payload.summaryMode
+        || moduleId;
+      if (summaryModeValue) {
+        responsePayload.summaryMode = summaryModeValue;
+      }
+      const summaryLabelValue = answer.summaryLabel
+        || payload.summaryLabel
+        || defaultSummaryLabel;
+      if (summaryLabelValue) {
+        responsePayload.summaryLabel = summaryLabelValue;
+      }
+      const summaryPeriodValue = answer.summaryPeriod
+        || payload.summaryPeriod
+        || periodKey;
+      if (summaryPeriodValue) {
+        responsePayload.summaryPeriod = summaryPeriodValue;
+        responsePayload.periodKey = summaryPeriodValue;
+      }
+      const summaryKeyValue = answer.summaryKey
+        || payload.summaryKey
+        || answer.key;
+      if (summaryKeyValue) {
+        responsePayload.summaryKey = summaryKeyValue;
+      }
+      const sourceValue = answer.source
+        || payload.source
+        || moduleId;
+      if (sourceValue) {
+        responsePayload.source = sourceValue;
+      }
+      const originValue = answer.origin
+        || payload.origin
+        || (summaryScopeValue ? `${moduleId}:${summaryScopeValue}` : moduleId);
+      if (originValue) {
+        responsePayload.origin = originValue;
+      }
+      const contextValue = answer.context
+        || payload.context
+        || [moduleId, summaryScopeValue || null, periodKey || null].filter(Boolean).join(":");
+      if (contextValue) {
+        responsePayload.context = contextValue;
+      }
+      if (moduleId) {
+        responsePayload.moduleId = moduleId;
+      }
+      if (metadata?.label) {
+        responsePayload.period = metadata.label;
+        responsePayload.periodLabel = metadata.label;
+      }
+      if (summaryDayKey) {
+        responsePayload.dayKey = summaryDayKey;
+      }
+      if (periodStartIso) {
+        responsePayload.periodStart = periodStartIso;
+      }
+      if (periodEndIso) {
+        responsePayload.periodEnd = periodEndIso;
+      }
+      if (metadata?.extras?.weekEndsOn !== undefined) {
+        responsePayload.weekEndsOn = metadata.extras.weekEndsOn;
+      }
+      if (metadata?.extras?.weekKey) {
+        responsePayload.weekKey = metadata.extras.weekKey;
+      }
+      if (metadata?.extras?.monthKey) {
+        responsePayload.monthKey = metadata.extras.monthKey;
+      }
+      if (metadata?.extras?.summaryScope && !responsePayload.summaryScope) {
+        responsePayload.summaryScope = metadata.extras.summaryScope;
+      }
+      if (answer.note !== undefined) {
+        responsePayload.note = answer.note;
+      }
+      if (!hasExisting) {
+        responsePayload.createdAt = createdAtIso;
+      }
+      try {
+        await setDoc(responseRef, responsePayload, { merge: true });
+      } catch (error) {
+        schemaLog("summaryResponse:save:error", { scope, periodKey, consigneId, error });
+        return null;
+      }
+      const createdAtValue = hasExisting
+        ? existingData?.createdAt ?? createdAtIso
+        : responsePayload.createdAt ?? createdAtIso;
+      return {
+        id: responseId,
+        consigneId,
+        value: answer.value,
+        type: answer.type || null,
+        mode: "summary",
+        note: responsePayload.note ?? null,
+        summaryScope: responsePayload.summaryScope || null,
+        summaryMode: responsePayload.summaryMode || null,
+        summaryLabel: responsePayload.summaryLabel || null,
+        summaryPeriod: responsePayload.summaryPeriod || null,
+        source: responsePayload.source || null,
+        origin: responsePayload.origin || null,
+        context: responsePayload.context || null,
+        moduleId: responsePayload.moduleId || null,
+        category: responsePayload.category || null,
+        dayKey: responsePayload.dayKey || null,
+        createdAt: createdAtValue,
+      };
+    })();
+    responseWrites.push(responseWrite);
   });
-  await Promise.all(writes);
+  if (writes.length) {
+    await Promise.all(writes);
+  }
+  if (responseWrites.length) {
+    const entries = (await Promise.all(responseWrites)).filter(Boolean);
+    if (entries.length) {
+      registerRecentResponses("summary", entries);
+    }
+  }
 }
 
 async function deleteSummaryAnswer(db, uid, scope, periodKey, answerKey, metadata = {}) {
@@ -1598,6 +1873,19 @@ async function deleteSummaryAnswer(db, uid, scope, periodKey, answerKey, metadat
   await setDoc(baseRef, periodPayload, { merge: true });
   const answerRef = doc(db, "u", uid, collectionName, periodKey, "answers", answerKey);
   await deleteDoc(answerRef);
+  const consigneId = summaryKeyToConsigneId(answerKey);
+  if (consigneId) {
+    const responseId = buildSummaryResponseId(scope, periodKey, answerKey, consigneId);
+    try {
+      await deleteDoc(doc(db, "u", uid, "responses", responseId));
+    } catch (error) {
+      schemaLog("summaryResponse:delete:error", { scope, periodKey, consigneId, error });
+    }
+    const store = ensureRecentResponseStore?.();
+    if (store instanceof Map) {
+      store.delete(consigneId);
+    }
+  }
 }
 
 Object.assign(Schema, {
