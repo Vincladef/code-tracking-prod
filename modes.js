@@ -5192,6 +5192,7 @@ function formatHistoryChartValue(type, value) {
   return String(value);
 }
 
+
 function renderHistoryChart(data, { type, mode } = {}) {
   const dataset = Array.isArray(data)
     ? { points: data }
@@ -5199,17 +5200,10 @@ function renderHistoryChart(data, { type, mode } = {}) {
     ? data
     : { points: [] };
   const rawPoints = Array.isArray(dataset.points) ? dataset.points : [];
-  const validRangeStart = dataset?.range?.start instanceof Date && !Number.isNaN(dataset.range.start.getTime())
-    ? dataset.range.start
-    : null;
-  const validRangeEnd = dataset?.range?.end instanceof Date && !Number.isNaN(dataset.range.end.getTime())
-    ? dataset.range.end
-    : null;
   const supportsChart = !(type === "long" || type === "short" || type === "info");
-  const historyMode = typeof mode === "string" ? mode.toLowerCase() : "";
   if (!supportsChart) {
     return `
-      <div class="history-panel__chart history-panel__chart--empty">
+      <div class="history-panel__chart history-panel__chart--simple history-panel__chart--empty">
         <p class="history-panel__chart-empty-text">Ce type de consigne ne génère pas de graphique.</p>
       </div>
     `;
@@ -5263,8 +5257,6 @@ function renderHistoryChart(data, { type, mode } = {}) {
             /\bhebdomadaire\b/.test(normalizedScope)
           ) {
             summaryScope = "weekly";
-          } else if (normalizedScope.includes("bilan") || normalizedScope.includes("summary")) {
-            summaryScope = "";
           }
           const hasSummaryFlag =
             Boolean(entry.isSummary) ||
@@ -5283,13 +5275,18 @@ function renderHistoryChart(data, { type, mode } = {}) {
     : [];
 
   const sorted = sanitizedPoints.slice().sort((a, b) => a.date - b.date);
-  const hasValidPoints = sorted.length > 0;
+  if (!sorted.length) {
+    return `
+      <div class="history-panel__chart history-panel__chart--simple history-panel__chart--empty">
+        <p class="history-panel__chart-empty-text">Aucune donnée enregistrée pour le moment.</p>
+      </div>
+    `;
+  }
+
   const values = sorted.map((entry) => entry.value);
-  const averageStatus = historyStatusFromAverage(type, values) || "na";
-  const colorPalette = resolveHistoryStatusColors(averageStatus);
-  let min = hasValidPoints ? Math.min(...values) : 0;
-  let max = hasValidPoints ? Math.max(...values) : 1;
-  if (!hasValidPoints) {
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
     min = 0;
     max = 1;
   }
@@ -5297,712 +5294,299 @@ function renderHistoryChart(data, { type, mode } = {}) {
     min = 0;
     max = LIKERT6_ORDER.length - 1;
   }
-  const hasVariance = hasValidPoints ? Math.abs(max - min) > Number.EPSILON : max !== min;
+  const hasVariance = Math.abs(max - min) > Number.EPSILON;
   const range = hasVariance ? max - min : 1;
+  let yPadding = hasVariance ? range * 0.12 : 1;
+  if (!Number.isFinite(yPadding) || yPadding <= 0) {
+    yPadding = 1;
+  }
+  let yMin = hasVariance ? min - yPadding : min - 1;
+  let yMax = hasVariance ? max + yPadding : max + 1;
+  if (type === "likert6") {
+    yMin = Math.min(0, min) - 0.4;
+    yMax = Math.max(max, LIKERT6_ORDER.length - 1) + 0.4;
+  }
+  if (!Number.isFinite(yMin)) yMin = min - 1;
+  if (!Number.isFinite(yMax)) yMax = max + 1;
+  if (yMax <= yMin) {
+    yMax = yMin + 1;
+  }
+  const yRange = yMax - yMin || 1;
 
-  let axisStart = validRangeStart || (sorted[0]?.date ?? null);
-  let axisEnd = validRangeEnd || (sorted[sorted.length - 1]?.date ?? null);
-  if (axisStart instanceof Date && Number.isNaN(axisStart.getTime())) axisStart = null;
-  if (axisEnd instanceof Date && Number.isNaN(axisEnd.getTime())) axisEnd = null;
-  if (axisStart && axisEnd && axisEnd <= axisStart) {
-    axisEnd = new Date(axisStart.getTime() + 86400000);
-  }
-  const axisHint = typeof dataset.axis === "string" ? dataset.axis : "";
-  const normalizedAxisHint = axisHint.toLowerCase();
-  const useIterationAxis = normalizedAxisHint === "iteration";
-  const dayMs = 86400000;
-  let axisMode = "";
-  if (useIterationAxis) {
-    axisStart = null;
-    axisEnd = null;
-    axisMode = "iteration";
-  } else if (axisStart && axisEnd && axisEnd > axisStart) {
-    const shouldAlignToMonth = !validRangeStart && !validRangeEnd && normalizedAxisHint === "month";
-    const shouldAlignToYear = !validRangeStart && !validRangeEnd && normalizedAxisHint === "year";
-    const shouldAlignToWeek = !validRangeStart && !validRangeEnd && normalizedAxisHint === "week";
-    if (shouldAlignToMonth) {
-      const alignedStart = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
-      let alignedEnd = new Date(axisEnd.getFullYear(), axisEnd.getMonth(), 1);
-      if (alignedEnd <= axisEnd) {
-        alignedEnd = new Date(alignedEnd.getFullYear(), alignedEnd.getMonth() + 1, 1);
-      }
-      axisStart = alignedStart;
-      axisEnd = alignedEnd;
-    } else if (shouldAlignToYear) {
-      const startYear = axisStart.getFullYear();
-      const alignedStart = new Date(startYear, 0, 1);
-      const endYear = axisEnd.getFullYear() + (axisEnd.getMonth() > 0 || axisEnd.getDate() > 1 ? 1 : 0);
-      const alignedEnd = new Date(endYear, 0, 1);
-      axisStart = alignedStart;
-      axisEnd = alignedEnd;
-    } else if (shouldAlignToWeek) {
-      const alignedStart = new Date(axisStart);
-      alignedStart.setHours(0, 0, 0, 0);
-      const day = alignedStart.getDay();
-      const diffToMonday = (day + 6) % 7;
-      alignedStart.setDate(alignedStart.getDate() - diffToMonday);
-      const alignedEnd = new Date(alignedStart.getTime() + 7 * dayMs);
-      axisStart = alignedStart;
-      axisEnd = alignedEnd;
-    } else if (!validRangeStart && !validRangeEnd) {
-      const alignedStart = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
-      let alignedEnd = new Date(axisEnd.getFullYear(), axisEnd.getMonth(), 1);
-      if (alignedEnd <= axisEnd) {
-        alignedEnd = new Date(alignedEnd.getFullYear(), alignedEnd.getMonth() + 1, 1);
-      }
-      axisStart = alignedStart;
-      axisEnd = alignedEnd;
-    }
-  }
+  const averageStatus = historyStatusFromAverage(type, values) || "na";
+  const colorPalette = resolveHistoryStatusColors(averageStatus);
 
-  const canMatchMedia = typeof window !== "undefined" && typeof window.matchMedia === "function";
-  const isCompactViewport = canMatchMedia ? window.matchMedia("(max-width: 900px)").matches : false;
-  const isPhoneViewport = canMatchMedia ? window.matchMedia("(max-width: 640px)").matches : false;
-  const chartWidth = 640;
-  const chartHeight = isPhoneViewport ? 360 : isCompactViewport ? 300 : 240;
-  const basePadding = isPhoneViewport ? 32 : isCompactViewport ? 30 : 28;
-  const paddingTop = basePadding + (isPhoneViewport ? 6 : isCompactViewport ? 4 : 0);
-  const paddingRight = basePadding;
-  const paddingLeft = basePadding;
-  const minBottomPadding = 10;
-  let paddingBottom = basePadding + (isPhoneViewport ? 10 : isCompactViewport ? 6 : 0);
-  if (type === "likert6" && min === 0) {
-    paddingBottom = minBottomPadding + (isPhoneViewport ? 6 : isCompactViewport ? 4 : 0);
-  }
+  const chartWidth = 960;
+  const chartHeight = 360;
+  const paddingTop = 36;
+  const paddingRight = 68;
+  const paddingBottom = 88;
+  const paddingLeft = 76;
   const innerWidth = chartWidth - paddingLeft - paddingRight;
   const innerHeight = chartHeight - paddingTop - paddingBottom;
-  const axisDuration = axisStart && axisEnd ? axisEnd.getTime() - axisStart.getTime() : 0;
-  const axisMarkers = [];
-  const axisOffsetPercent = (paddingLeft / chartWidth) * 100;
-  const axisRangePercent = (innerWidth / chartWidth) * 100;
-  const axisRightOffsetPercent = (paddingRight / chartWidth) * 100;
-  if (useIterationAxis) {
-    const totalPoints = sorted.length;
-    if (totalPoints > 0) {
-      const maxMarkers = 5;
-      let candidateIndexes;
-      if (totalPoints === 1) {
-        candidateIndexes = [0];
-      } else if (totalPoints <= maxMarkers) {
-        candidateIndexes = Array.from({ length: totalPoints }, (_, idx) => idx);
-      } else {
-        const step = (totalPoints - 1) / (maxMarkers - 1);
-        candidateIndexes = Array.from({ length: maxMarkers }, (_, idx) => Math.round(idx * step));
-      }
-      const uniqueIndexes = Array.from(new Set(candidateIndexes)).sort((a, b) => a - b);
-      const denominator = Math.max(totalPoints - 1, 1);
-      const numberFormatter = new Intl.NumberFormat("fr-FR");
-      uniqueIndexes.forEach((index) => {
-        const ratio = totalPoints === 1 ? 0.5 : index / denominator;
-        const label = numberFormatter.format(index + 1);
-        axisMarkers.push({
-          type: "iteration",
-          ratio,
-          label,
-          date: null,
-        });
-      });
-    }
-  } else if (axisStart && axisEnd && axisDuration > 0) {
-    const markersMap = new Map();
-    const axisStartTime = axisStart.getTime();
-    const axisEndTime = axisEnd.getTime();
-    const axisSpanDays = axisDuration / dayMs;
-    const axisLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
-      day: "2-digit",
-      month: "short",
-      ...(axisSpanDays > 365 ? { year: "2-digit" } : {}),
-    });
-    const monthLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
-      month: "short",
-    });
-    const weekLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
-      day: "2-digit",
-      month: "short",
-    });
-    const dayLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
-      weekday: "short",
-      day: "2-digit",
-    });
-    const boundaryLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
-      day: "2-digit",
-      month: "short",
-    });
-    const addMarker = (date, type, priority, labelFormatter = axisLabelFormatter) => {
-      if (!(date instanceof Date)) return;
-      const time = date.getTime();
-      if (Number.isNaN(time)) return;
-      if (time < axisStartTime || time > axisEndTime) return;
-      const ratio = (time - axisStartTime) / axisDuration;
-      if (ratio < 0 || ratio > 1) return;
-      const existing = markersMap.get(time);
-      if (existing && existing.priority > priority) {
-        return;
-      }
-      markersMap.set(time, {
-        date,
-        ratio,
-        type,
-        priority,
-        label: labelFormatter.format(date),
-      });
-    };
 
-    const addDailyMarkers = () => {
-      if (!axisStart || !axisEnd) return;
-      const start = new Date(axisStart);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(axisEnd);
-      for (let cursor = new Date(start.getTime() + dayMs); cursor < end; cursor = new Date(cursor.getTime() + dayMs)) {
-        addMarker(cursor, "day", 1, dayLabelFormatter);
-      }
-    };
-
-    const addWeeklyMarkers = () => {
-      if (!axisStart || !axisEnd) return;
-      const start = new Date(axisStart);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(axisEnd);
-      const firstMarker = new Date(start);
-      const day = firstMarker.getDay();
-      const offsetToMonday = (7 + 1 - day) % 7;
-      firstMarker.setDate(firstMarker.getDate() + offsetToMonday);
-      for (let cursor = new Date(firstMarker); cursor < end; cursor = new Date(cursor.getTime() + 7 * dayMs)) {
-        if (cursor <= start) continue;
-        addMarker(cursor, "week", 2, weekLabelFormatter);
-      }
-    };
-
-    const addMonthlyMarkers = () => {
-      if (!axisStart || !axisEnd) return;
-      const start = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
-      const end = new Date(axisEnd.getFullYear(), axisEnd.getMonth(), 1);
-      for (let cursor = new Date(start.getFullYear(), start.getMonth() + 1, 1); cursor < end; cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)) {
-        addMarker(cursor, "month", 2, monthLabelFormatter);
-      }
-    };
-
-    const normalizedHint = normalizedAxisHint;
-    if (normalizedHint === "year" || normalizedHint === "month" || normalizedHint === "week") {
-      axisMode = normalizedHint;
-    } else {
-      const spanRounded = Math.round(axisSpanDays);
-      if (spanRounded >= 360 && spanRounded <= 370) {
-        axisMode = "year";
-      } else if (spanRounded >= 27 && spanRounded <= 32) {
-        axisMode = "month";
-      } else if (spanRounded >= 6 && spanRounded <= 8) {
-        axisMode = "week";
-      }
-    }
-
-    if (axisMode === "year") {
-      const lastDayOfYear = new Date(axisEnd.getTime() - dayMs);
-      addMarker(axisStart, "boundary", 4, boundaryLabelFormatter);
-      addMarker(lastDayOfYear, "boundary", 4, boundaryLabelFormatter);
-    } else if (axisMode === "month") {
-      const monthEnd = new Date(axisEnd.getTime() - dayMs);
-      addMarker(axisStart, "boundary", 4, boundaryLabelFormatter);
-      addMarker(monthEnd, "boundary", 4, boundaryLabelFormatter);
-    } else if (axisMode === "week") {
-      const weekEnd = new Date(axisEnd.getTime() - dayMs);
-      addMarker(axisStart, "boundary", 4, boundaryLabelFormatter);
-      addMarker(weekEnd, "boundary", 4, boundaryLabelFormatter);
-    } else {
-      addMarker(axisStart, "boundary", 3, boundaryLabelFormatter);
-      addMarker(axisEnd, "boundary", 3, boundaryLabelFormatter);
-    }
-
-    axisMarkers.push(
-      ...Array.from(markersMap.values()).sort((a, b) => a.date.getTime() - b.date.getTime())
-    );
-  }
-
-  const includeTimeInPointLabels = historyMode !== "daily";
-  const pointLabelFormatter = new Intl.DateTimeFormat("fr-FR", includeTimeInPointLabels
-    ? {
-        day: "2-digit",
-        month: "long",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }
-    : {
-        weekday: "long",
-        day: "2-digit",
-        month: "long",
-      });
-  const recordedMetaFormatter = new Intl.DateTimeFormat("fr-FR", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const formatPointLabel = (date) => {
-    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-      return "";
-    }
-    const raw = pointLabelFormatter.format(date);
-    if (includeTimeInPointLabels) {
-      return raw;
-    }
-    return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : raw;
-  };
+  const axisFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+  const tooltipFormatter = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" });
+  const timeFormatter = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" });
   const iterationFormatter = new Intl.NumberFormat("fr-FR");
 
   const coords = sorted.map((entry, index) => {
-    let ratio;
-    if (axisStart && axisEnd && axisEnd > axisStart) {
-      let normalizedTime = entry.date.getTime();
-      if (axisMode === "week") {
-        const aligned = new Date(entry.date);
-        aligned.setHours(0, 0, 0, 0);
-        normalizedTime = aligned.getTime();
-      }
-      const clampedTime = Math.min(Math.max(normalizedTime, axisStart.getTime()), axisEnd.getTime());
-      ratio = (clampedTime - axisStart.getTime()) / (axisEnd.getTime() - axisStart.getTime());
-    } else {
-      ratio = sorted.length === 1 ? 0.5 : index / Math.max(sorted.length - 1, 1);
-    }
-    const normalized = hasVariance ? (entry.value - min) / range : 0.5;
+    const ratio = sorted.length === 1 ? 0.5 : index / Math.max(sorted.length - 1, 1);
     const x = paddingLeft + ratio * innerWidth;
-    const y = paddingTop + (1 - normalized) * innerHeight;
+    const normalized = Number.isFinite(entry.value) ? (entry.value - yMin) / yRange : 0.5;
+    const clamped = Number.isFinite(normalized) ? Math.min(Math.max(normalized, 0), 1) : 0.5;
+    const y = paddingTop + (1 - clamped) * innerHeight;
+    const axisRaw = entry.dayKey || axisFormatter.format(entry.date);
+    const axisLabel = axisRaw ? axisRaw.charAt(0).toUpperCase() + axisRaw.slice(1) : axisRaw;
+    const tooltipDate = tooltipFormatter.format(entry.date);
+    const timeLabel = entry.recordedAt ? timeFormatter.format(entry.recordedAt) : "";
+    const summaryLabel =
+      entry.summaryScope === "monthly"
+        ? "Bilan mensuel"
+        : entry.summaryScope === "weekly"
+        ? "Bilan hebdomadaire"
+        : entry.isSummary
+        ? "Synthèse"
+        : "";
+    const tooltipMeta = [tooltipDate, timeLabel, summaryLabel]
+      .map((part) => part && part.trim())
+      .filter(Boolean)
+      .join(" · ");
     return {
       x,
       y,
-      date: entry.date,
       value: entry.value,
+      axisLabel,
+      tooltipMeta,
+      tooltipDate,
+      timeLabel,
       iteration: index + 1,
-      isSummary: Boolean(entry.isSummary),
-      summaryScope: typeof entry.summaryScope === "string" ? entry.summaryScope : "",
-      recordedAt: entry.recordedAt instanceof Date && !Number.isNaN(entry.recordedAt.getTime())
-        ? entry.recordedAt
-        : null,
-      dayKey: typeof entry.dayKey === "string" ? entry.dayKey : "",
     };
   });
 
-  const hasCoords = coords.length > 0;
-  let linePath = "";
-  if (hasCoords) {
-    linePath = coords
-      .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
-      .join(" ");
-  } else {
-    const startX = paddingLeft.toFixed(2);
-    const endX = (paddingLeft + innerWidth).toFixed(2);
-    const baselineY = (paddingTop + innerHeight).toFixed(2);
-    linePath = `M${startX},${baselineY} L${endX},${baselineY}`;
-  }
-
-  const baselineY = (paddingTop + innerHeight).toFixed(2);
+  const linePath = coords
+    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+    .join(" ");
+  const baselineY = paddingTop + innerHeight;
   let areaPath = "";
-  if (hasCoords) {
+  if (coords.length === 1) {
+    const point = coords[0];
+    const x = point.x.toFixed(2);
+    const y = point.y.toFixed(2);
+    const base = baselineY.toFixed(2);
+    areaPath = `M${x},${base} L${x},${y} L${(point.x + 0.1).toFixed(2)},${y} L${(point.x + 0.1).toFixed(2)},${base} Z`;
+  } else if (coords.length > 1) {
     const firstX = coords[0].x.toFixed(2);
     const lastX = coords[coords.length - 1].x.toFixed(2);
     const segments = coords
       .map((point) => `L${point.x.toFixed(2)},${point.y.toFixed(2)}`)
       .join(" ");
-    areaPath = `M${firstX},${baselineY} ${segments} L${lastX},${baselineY} Z`;
+    areaPath = `M${firstX},${baselineY.toFixed(2)} ${segments} L${lastX},${baselineY.toFixed(2)} Z`;
   }
 
-  const minLabel = hasValidPoints || type === "likert6" ? formatHistoryChartValue(type, min) : "—";
-  const maxLabel = hasValidPoints || type === "likert6" ? formatHistoryChartValue(type, max) : "—";
-  const plural = sorted.length > 1 ? "s" : "";
-  const responseCountLabel = `${sorted.length || 0} réponse${plural}`;
-  const averageValue = hasValidPoints
-    ? values.reduce((acc, value) => acc + Number(value || 0), 0) / values.length
-    : null;
-  const averageDisplay =
-    hasValidPoints && Number.isFinite(averageValue)
-      ? formatHistoryChartValue(type, averageValue)
-      : "—";
+  const yTicksCount = 4;
+  const yTicks = Array.from({ length: yTicksCount + 1 }, (_, idx) => {
+    const ratio = idx / yTicksCount;
+    const value = yMax - ratio * (yMax - yMin);
+    const label = formatHistoryChartValue(type, value);
+    const y = paddingTop + ratio * innerHeight;
+    return { y, label };
+  });
 
-  const summaryDetails = [
-    responseCountLabel,
-    hasValidPoints && Number.isFinite(averageValue) ? `Moyenne ${averageDisplay}` : null,
-    hasValidPoints && hasVariance ? `Min ${minLabel}` : null,
-    hasValidPoints && hasVariance ? `Max ${maxLabel}` : null,
-  ].filter(Boolean);
-
-  const summaryMarkup = summaryDetails.length
-    ? `<p class="history-panel__chart-summary">${summaryDetails.map((item) => escapeHtml(item)).join(" · ")}</p>`
-    : "";
-
-  const gradientId = `historyChartGradient-${Math.random().toString(36).slice(2, 10)}`;
-
-  const hasLikertScale = type === "likert6";
-  const scaleSteps = hasLikertScale ? LIKERT6_ORDER.length : 0;
-  const likertScaleMarkup = hasLikertScale
-    ? LIKERT6_ORDER.map((key, index) => {
-        const label = LIKERT6_LABELS[key] || key;
-        const denominator = Math.max(scaleSteps - 1, 1);
-        const positionValue = denominator === 0 ? 0 : index / denominator;
-        const position = Number.isFinite(positionValue) ? positionValue : 0;
-        const anchorAttr =
-          index === 0
-            ? ' data-scale-anchor="bottom"'
-            : index === scaleSteps - 1
-            ? ' data-scale-anchor="top"'
-            : "";
-        return `<span class="history-panel__chart-scale-label"${anchorAttr} style="--history-chart-scale-position:${position.toFixed(4)};">${escapeHtml(
-          label
-        )}</span>`;
-      }).join("")
-    : "";
-  const buildYAxisMarkers = () => {
-    if (hasLikertScale) {
-      const steps = Math.max(scaleSteps - 1, 1);
-      return LIKERT6_ORDER.map((key, index) => {
-        const ratio = steps === 0 ? 0 : index / steps;
-        return {
-          ratio,
-          label: LIKERT6_LABELS[key] || key,
-          isBoundary: index === 0 || index === LIKERT6_ORDER.length - 1,
-          isZero: false,
-        };
-      });
-    }
-    const segments = 4;
-    return Array.from({ length: segments + 1 }, (_, idx) => {
-      const ratio = segments === 0 ? 0 : idx / segments;
-      const value = hasVariance ? min + ratio * range : min;
-      const labelValue = hasVariance ? value : min;
-      const label = hasVariance || idx === 0 || idx === segments ? formatHistoryChartValue(type, labelValue) : "";
-      return {
-        ratio,
-        label,
-        isBoundary: idx === 0 || idx === segments,
-        isZero: Math.abs(labelValue) < 1e-6,
-      };
-    });
-  };
-  const yAxisMarkers = buildYAxisMarkers();
-  const figureClasses = ["history-panel__chart-figure"];
-  if (hasLikertScale) {
-    figureClasses.push("history-panel__chart-figure--with-scale");
-  }
-  const figureStyleAttr =
-    ` style="--history-chart-width:${chartWidth}px; --history-chart-height:${chartHeight}px; --history-chart-padding-top:${paddingTop}px; --history-chart-padding-right:${paddingRight}px; --history-chart-padding-bottom:${paddingBottom}px; --history-chart-padding-left:${paddingLeft}px;"`;
-
-  const axisLines = axisMarkers
-    .filter(
-      (marker) =>
-        marker.ratio > 0 &&
-        marker.ratio < 1 &&
-        (marker.type === "month" || marker.type === "week" || marker.type === "day")
-    )
-    .map((marker) => {
-      const x = paddingLeft + marker.ratio * innerWidth;
-      let stroke = "rgba(148,163,184,0.2)";
-      let dash = "";
-      if (marker.type === "month") {
-        stroke = "rgba(148,163,184,0.35)";
-      } else if (marker.type === "week") {
-        dash = " stroke-dasharray=\"4 6\"";
-      } else if (marker.type === "day") {
-        stroke = "rgba(148,163,184,0.18)";
-      }
-      const yStart = paddingTop.toFixed(2);
-      const yEnd = (paddingTop + innerHeight).toFixed(2);
-      return `<line x1="${x.toFixed(2)}" y1="${yStart}" x2="${x.toFixed(2)}" y2="${yEnd}" stroke="${stroke}" stroke-width="1"${dash}></line>`;
+  const xAxisLabels = coords
+    .map((point) => {
+      const label = point.axisLabel;
+      if (!label) return "";
+      return `<text class="history-chart__axis-label history-chart__axis-label--x" x="${point.x.toFixed(2)}" y="${(chartHeight - paddingBottom + 32).toFixed(2)}">${escapeHtml(
+        label
+      )}</text>`;
     })
     .join("");
 
-  const axisLabels = axisMarkers
-    .map((marker) => {
-      const ratio = Math.min(Math.max(marker.ratio, 0), 1);
-      const position = (axisOffsetPercent + ratio * axisRangePercent).toFixed(2);
-      const isNearStart =
-        axisStart && marker.date instanceof Date
-          ? Math.abs(marker.date.getTime() - axisStart.getTime()) < dayMs * 0.5
-          : ratio < 0.001;
-      const isNearEnd =
-        axisEnd && marker.date instanceof Date
-          ? marker.date.getTime() > axisEnd.getTime() - dayMs * 1.25
-          : ratio > 0.999;
-      const extraClass = isNearStart
-        ? " history-panel__chart-axis-marker--start"
-        : isNearEnd
-        ? " history-panel__chart-axis-marker--end"
-        : "";
+  const yAxisLabels = yTicks
+    .map(
+      (tick) => `
+        <text class="history-chart__axis-label history-chart__axis-label--y" x="${(paddingLeft - 16).toFixed(2)}" y="${(tick.y + 4).toFixed(2)}">${escapeHtml(
+          tick.label
+        )}</text>
+      `
+    )
+    .join("");
+
+  const horizontalLines = yTicks
+    .map(
+      (tick) => `
+        <line class="history-chart__grid-line" x1="${paddingLeft.toFixed(2)}" x2="${(chartWidth - paddingRight).toFixed(
+        2
+      )}" y1="${tick.y.toFixed(2)}" y2="${tick.y.toFixed(2)}"></line>
+      `
+    )
+    .join("");
+
+  const pointsMarkup = coords
+    .map((point) => {
+      const valueLabel = formatHistoryChartValue(type, point.value);
+      const iterationLabel = iterationFormatter.format(point.iteration);
+      const metaParts = [point.tooltipMeta, `Réponse ${iterationLabel}`].filter(Boolean);
+      const tooltipMeta = metaParts.join(" · ");
+      const ariaParts = [valueLabel, tooltipMeta].filter(Boolean);
+      const ariaLabel = ariaParts.join(" — ");
+      const metaAttr = tooltipMeta ? ` data-meta="${escapeHtml(tooltipMeta)}"` : "";
+      const pointStyle = ` style="--history-point-color:${escapeHtml(colorPalette.circle)}"`;
       return `
-        <div class="history-panel__chart-axis-marker history-panel__chart-axis-marker--${marker.type}${extraClass}" style="left:${position}%">
-          <span class="history-panel__chart-axis-tick"></span>
-          <span class="history-panel__chart-axis-label">${escapeHtml(marker.label)}</span>
-        </div>
+        <g class="history-chart__point" data-history-point data-value="${escapeHtml(valueLabel)}"${metaAttr}${pointStyle} transform="translate(${point.x.toFixed(
+        2
+      )}, ${point.y.toFixed(2)})" tabindex="0" aria-label="${escapeHtml(ariaLabel)}">
+          <circle class="history-chart__point-hit" r="14"></circle>
+          <circle class="history-chart__point-node" r="6"></circle>
+        </g>
       `;
     })
     .join("");
 
-  const horizontalLines = yAxisMarkers
-    .map((marker) => {
-      const y = paddingTop + (1 - marker.ratio) * innerHeight;
-      const classes = ["history-panel__chart-grid-line"];
-      if (marker.isBoundary) {
-        classes.push("history-panel__chart-grid-line--boundary");
-      }
-      if (marker.isZero) {
-        classes.push("history-panel__chart-grid-line--zero");
-      }
-      const xStart = paddingLeft.toFixed(2);
-      const xEnd = (paddingLeft + innerWidth).toFixed(2);
-      return `<line class="${classes.join(" ")}" x1="${xStart}" y1="${y.toFixed(2)}" x2="${xEnd}" y2="${y.toFixed(2)}"></line>`;
-    })
-    .join("");
+  const minLabel = formatHistoryChartValue(type, min);
+  const maxLabel = formatHistoryChartValue(type, max);
+  const plural = sorted.length > 1 ? "s" : "";
+  const responseCountLabel = `${sorted.length || 0} réponse${plural}`;
+  const averageValue = values.reduce((acc, value) => acc + Number(value || 0), 0) / values.length;
+  const averageDisplay = Number.isFinite(averageValue) ? formatHistoryChartValue(type, averageValue) : "—";
 
-  const yAxisLabels = !hasLikertScale
-    ? yAxisMarkers
-        .map((marker) => {
-          if (!marker.label) return "";
-          const y = paddingTop + (1 - marker.ratio) * innerHeight;
-          const classes = ["history-panel__chart-ylabel"];
-          if (marker.isBoundary) {
-            classes.push("history-panel__chart-ylabel--boundary");
-          }
-          if (marker.isZero) {
-            classes.push("history-panel__chart-ylabel--zero");
-          }
-          const x = Math.max(4, paddingLeft - 10);
-          return `<text class="${classes.join(" ")}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="end" dominant-baseline="middle">${escapeHtml(marker.label)}</text>`;
-        })
-        .join("")
-    : "";
+  const statsItems = [
+    { label: "Réponses", value: responseCountLabel },
+    { label: "Moyenne", value: averageDisplay },
+    { label: "Min", value: minLabel },
+    { label: "Max", value: maxLabel },
+  ];
+  const statsMarkup = `
+    <dl class="history-chart__stats">
+      ${statsItems
+        .map(
+          (item) => `
+            <div class="history-chart__stat">
+              <dt>${escapeHtml(item.label)}</dt>
+              <dd>${escapeHtml(item.value)}</dd>
+            </div>
+          `
+        )
+        .join("")}
+    </dl>
+  `;
 
-  const circles = hasCoords
-    ? coords
-        .map((point) => {
-          const hasValidDate = point.date instanceof Date && !Number.isNaN(point.date.getTime());
-          const dateLabel = hasValidDate ? formatPointLabel(point.date) : "";
-          const iterationLabel = iterationFormatter.format(point.iteration || 0);
-          const iterationText = point.iteration ? `Itération ${iterationLabel}` : "";
-          const recordedAt = point.recordedAt instanceof Date && !Number.isNaN(point.recordedAt.getTime())
-            ? point.recordedAt
-            : null;
-          const tooltipLabel = dateLabel || iterationText;
-          const metaParts = [];
-          if (iterationText && tooltipLabel !== iterationText) {
-            metaParts.push(iterationText);
-          }
-          const tooltipMeta = metaParts.join(" · ");
-          const valueLabel = formatHistoryChartValue(type, point.value);
-          const isSummaryPoint = Boolean(point.isSummary);
-          const summaryScope = typeof point.summaryScope === "string" ? point.summaryScope : "";
-          const summaryLabel =
-            summaryScope === "monthly"
-              ? "Bilan mensuel"
-              : summaryScope === "weekly"
-              ? "Bilan hebdomadaire"
-              : isSummaryPoint
-              ? "Bilan"
-              : "";
-          const labelAttr = tooltipLabel ? ` data-point-label="${escapeHtml(tooltipLabel)}"` : "";
-          const valueAttr = valueLabel ? ` data-point-value="${escapeHtml(valueLabel)}"` : "";
-          const metaAttr = tooltipMeta ? ` data-point-meta="${escapeHtml(tooltipMeta)}"` : "";
-          const ariaParts = [summaryLabel, tooltipLabel, valueLabel, tooltipMeta].filter(Boolean);
-          const ariaAttr = ariaParts.length ? ` aria-label="${escapeHtml(ariaParts.join(" — "))}"` : "";
-          const summaryAttrs = isSummaryPoint
-            ? ` data-summary="1"${summaryScope ? ` data-summary-scope="${escapeHtml(summaryScope)}"` : ""}`
-            : "";
-          let pointColor = colorPalette.circle;
-          if (isSummaryPoint) {
-            if (summaryScope === "monthly") {
-              pointColor = "#7c3aed";
-            } else if (summaryScope === "weekly") {
-              pointColor = "#8b5cf6";
-            } else {
-              pointColor = "#6366f1";
-            }
-          }
-          const pointClasses = ["history-panel__chart-point"];
-          if (isSummaryPoint) {
-            pointClasses.push("history-panel__chart-point--summary");
-          }
-          return `
-            <g class="${pointClasses.join(" ")}" tabindex="0"${labelAttr}${valueAttr}${metaAttr}${ariaAttr}${summaryAttrs} style="--history-point-color:${escapeHtml(
-              pointColor
-            )};">
-              <circle class="history-panel__chart-point-hit" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(
-            2
-          )}" r="11" fill="${escapeHtml(pointColor)}" fill-opacity="0.001" stroke="transparent"></circle>
-              ${
-                isSummaryPoint
-                  ? `<circle class="history-panel__chart-point-summary-ring" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(
-                      2
-                    )}" r="8" stroke="${escapeHtml(pointColor)}" stroke-width="2.5" fill="none"></circle>`
-                  : ""
-              }
-              <circle class="history-panel__chart-point-node" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(
-            2
-          )}" r="5.5" fill="${escapeHtml(pointColor)}" stroke="#fff" stroke-width="2"></circle>
-            </g>
-          `;
-        })
-        .join("")
-    : "";
-
-  const axisTrackStyle = `left:${axisOffsetPercent.toFixed(2)}%; right:${axisRightOffsetPercent.toFixed(2)}%`;
+  const gradientId = `historyChartSimple-${Math.random().toString(36).slice(2, 10)}`;
+  const chartLabel = `Évolution des réponses enregistrées (${responseCountLabel})`;
 
   return `
-    <div class="history-panel__chart"${averageStatus ? ` data-average-status="${escapeHtml(averageStatus)}"` : ""}>
-      <header class="history-panel__chart-header">
-        <p class="history-panel__chart-eyebrow">Historique des réponses</p>
-        <h4 class="history-panel__chart-title">Tendance enregistrée</h4>
-        ${summaryMarkup}
-      </header>
-      <div class="history-panel__chart-body">
-        <figure class="${figureClasses.join(" ")}"${figureStyleAttr}>
+    <div class="history-panel__chart history-panel__chart--simple" data-average-status="${escapeHtml(averageStatus)}">
+      <figure class="history-chart">
+        <svg class="history-chart__svg" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="${escapeHtml(
+          chartLabel
+        )}" focusable="false">
+          <defs>
+            <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="${escapeHtml(colorPalette.gradientTop)}"></stop>
+              <stop offset="100%" stop-color="${escapeHtml(colorPalette.gradientBottom)}"></stop>
+            </linearGradient>
+          </defs>
+          <rect class="history-chart__surface" x="${paddingLeft.toFixed(2)}" y="${paddingTop.toFixed(2)}" width="${innerWidth.toFixed(
+            2
+          )}" height="${innerHeight.toFixed(2)}" rx="18"></rect>
+          ${horizontalLines}
+          <line class="history-chart__axis-line" x1="${paddingLeft.toFixed(2)}" y1="${baselineY.toFixed(2)}" x2="${(chartWidth -
+            paddingRight
+          ).toFixed(2)}" y2="${baselineY.toFixed(2)}"></line>
+          <line class="history-chart__axis-line" x1="${paddingLeft.toFixed(2)}" y1="${paddingTop.toFixed(2)}" x2="${paddingLeft.toFixed(
+            2
+          )}" y2="${baselineY.toFixed(2)}"></line>
+          ${yAxisLabels}
+          ${xAxisLabels}
           ${
-            hasLikertScale
-              ? `<div class="history-panel__chart-scale" style="--history-chart-scale-steps:${scaleSteps};">${likertScaleMarkup}</div>`
+            areaPath
+              ? `<path class="history-chart__area" d="${areaPath}" fill="url(#${gradientId})"></path>`
               : ""
           }
-          <div class="history-panel__chart-canvas">
-            <svg viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Évolution des réponses enregistrées">
-              <defs>
-                <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="${escapeHtml(colorPalette.gradientTop)}"></stop>
-                  <stop offset="100%" stop-color="${escapeHtml(colorPalette.gradientBottom)}"></stop>
-                </linearGradient>
-              </defs>
-              ${horizontalLines}
-              ${axisLines}
-              ${
-                areaPath
-                  ? `<path class="history-panel__chart-area" d="${areaPath}" fill="url(#${gradientId})"></path>`
-                  : ""
-              }
-              <path class="history-panel__chart-line" d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
-              ${yAxisLabels}
-              ${circles}
-            </svg>
-          </div>
-        </figure>
-        <div class="history-panel__chart-axis"${hasLikertScale ? " data-has-scale" : ""}>
-          <div class="history-panel__chart-axis-track" style="${axisTrackStyle}"></div>
-          ${axisLabels}
-        </div>
-      </div>
+          ${
+            linePath
+              ? `<path class="history-chart__line" d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}"></path>`
+              : ""
+          }
+          ${pointsMarkup}
+        </svg>
+      </figure>
+      ${statsMarkup}
     </div>
   `;
 }
 
+
+
 function enhanceHistoryChart(container) {
   if (!container) return;
-  const chartRoot = container.querySelector(".history-panel__chart");
+  const chartRoot = container.querySelector('.history-panel__chart');
   if (!chartRoot) return;
+  const points = Array.from(chartRoot.querySelectorAll('[data-history-point]'));
+  if (!points.length) return;
 
-  const tooltipClass = "history-panel__chart-tooltip";
+  const tooltipClass = 'history-chart__tooltip';
   let tooltip = chartRoot.querySelector(`.${tooltipClass}`);
   if (!tooltip) {
-    tooltip = document.createElement("div");
+    tooltip = document.createElement('div');
     tooltip.className = tooltipClass;
     tooltip.innerHTML = `
-      <div class="history-panel__chart-tooltip-label"></div>
-      <div class="history-panel__chart-tooltip-value"></div>
-      <div class="history-panel__chart-tooltip-meta"></div>
+      <div class="history-chart__tooltip-value"></div>
+      <div class="history-chart__tooltip-meta"></div>
     `;
+    tooltip.hidden = true;
     chartRoot.appendChild(tooltip);
   }
 
-  const labelEl = tooltip.querySelector(".history-panel__chart-tooltip-label");
-  const valueEl = tooltip.querySelector(".history-panel__chart-tooltip-value");
-  const metaEl = tooltip.querySelector(".history-panel__chart-tooltip-meta");
+  const valueEl = tooltip.querySelector('.history-chart__tooltip-value');
+  const metaEl = tooltip.querySelector('.history-chart__tooltip-meta');
 
   const clearActive = () => {
-    chartRoot
-      .querySelectorAll(".history-panel__chart-point.is-active")
-      .forEach((pt) => pt.classList.remove("is-active"));
+    points.forEach((pt) => pt.classList.remove('is-active'));
   };
 
   const hideTooltip = () => {
     clearActive();
-    tooltip.classList.remove("is-visible");
-    delete tooltip.dataset.position;
+    tooltip.classList.remove('is-visible');
+    tooltip.hidden = true;
   };
 
   const showTooltip = (point) => {
     if (!point) return;
     clearActive();
-    point.classList.add("is-active");
-    if (labelEl) labelEl.textContent = point.dataset.pointLabel || "";
-    if (valueEl) valueEl.textContent = point.dataset.pointValue || "";
+    point.classList.add('is-active');
+    if (valueEl) valueEl.textContent = point.getAttribute('data-value') || '';
     if (metaEl) {
-      const metaText = point.dataset.pointMeta || "";
+      const metaText = point.getAttribute('data-meta') || '';
       metaEl.textContent = metaText;
       metaEl.hidden = !metaText;
     }
 
-    const node = point.querySelector(".history-panel__chart-point-node") || point;
+    const node = point.querySelector('.history-chart__point-node') || point;
     const nodeRect = node.getBoundingClientRect();
     const rootRect = chartRoot.getBoundingClientRect();
-    const rootWidth = Math.max(rootRect.width || 0, chartRoot.clientWidth || 0);
-    const rootHeight = Math.max(rootRect.height || 0, chartRoot.clientHeight || 0);
-    const tooltipRect = tooltip.getBoundingClientRect();
-    const tooltipWidth = tooltipRect.width || tooltip.offsetWidth || 0;
-    const tooltipHeight = tooltipRect.height || tooltip.offsetHeight || 0;
-    const margin = 12;
-    const verticalOffset = 18;
+    const left = nodeRect.left - rootRect.left + chartRoot.scrollLeft + nodeRect.width / 2;
+    const top = nodeRect.top - rootRect.top + chartRoot.scrollTop;
 
-    let left = nodeRect.left - rootRect.left + chartRoot.scrollLeft + nodeRect.width / 2;
-    if (rootWidth) {
-      const halfWidth = tooltipWidth / 2;
-      const minLeft = margin + halfWidth;
-      const maxLeft = rootWidth - margin - halfWidth;
-      if (maxLeft >= minLeft) {
-        left = Math.min(Math.max(left, minLeft), maxLeft);
-      }
-    }
-
-    let position = "above";
-    if (rootHeight && tooltipHeight) {
-      const spaceAbove = nodeRect.top - rootRect.top;
-      const spaceBelow = rootRect.bottom - nodeRect.bottom;
-      const requiredSpace = tooltipHeight + verticalOffset + margin;
-      if (spaceAbove < requiredSpace && spaceBelow > spaceAbove) {
-        position = "below";
-      }
-    }
-
-    let top =
-      position === "below"
-        ? nodeRect.bottom - rootRect.top + chartRoot.scrollTop
-        : nodeRect.top - rootRect.top + chartRoot.scrollTop;
-    if (rootHeight && tooltipHeight) {
-      if (position === "below") {
-        const minTop = margin;
-        const maxTop = rootHeight - margin - (tooltipHeight + verticalOffset);
-        const effectiveMax = Math.max(minTop, maxTop);
-        top = Math.min(Math.max(top, minTop), effectiveMax);
-      } else {
-        const minTop = tooltipHeight + verticalOffset + margin;
-        const maxTop = rootHeight - margin;
-        const effectiveMax = Math.max(minTop, maxTop);
-        top = Math.min(Math.max(top, minTop), effectiveMax);
-      }
-    }
-
-    if (position === "below") {
-      tooltip.dataset.position = "below";
-    } else {
-      delete tooltip.dataset.position;
-    }
     tooltip.style.left = `${left}px`;
     tooltip.style.top = `${top}px`;
-    tooltip.classList.add("is-visible");
+    tooltip.hidden = false;
+    tooltip.classList.add('is-visible');
   };
 
-  chartRoot.querySelectorAll(".history-panel__chart-point").forEach((point) => {
-    point.addEventListener("pointerenter", () => showTooltip(point));
-    point.addEventListener("pointermove", () => showTooltip(point));
-    point.addEventListener("pointerleave", hideTooltip);
-    point.addEventListener("focus", () => showTooltip(point));
-    point.addEventListener("blur", hideTooltip);
+  points.forEach((point) => {
+    point.addEventListener('pointerenter', () => showTooltip(point));
+    point.addEventListener('pointermove', () => showTooltip(point));
+    point.addEventListener('pointerleave', hideTooltip);
+    point.addEventListener('focus', () => showTooltip(point));
+    point.addEventListener('blur', hideTooltip);
   });
 
-  chartRoot.addEventListener("pointerleave", hideTooltip);
+  chartRoot.addEventListener('pointerleave', hideTooltip);
+  chartRoot.addEventListener('pointercancel', hideTooltip);
 }
+
 
 function getRecentResponsesStore() {
   if (typeof window === "undefined") {
