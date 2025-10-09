@@ -963,7 +963,136 @@ async function loadConsigneHistory(db, uid, consigneId) {
   return snap.docs.map((d) => ({ date: d.id, ...d.data() }));
 }
 
-async function saveHistoryEntry(db, uid, consigneId, dateIso, data = {}) {
+async function resolveHistoryResponseRef(db, uid, consigneId, dayKey, options = {}) {
+  if (!db || !uid || !consigneId) {
+    return null;
+  }
+  const explicitId = typeof options.responseId === "string" && options.responseId.trim()
+    ? options.responseId.trim()
+    : "";
+  if (explicitId) {
+    try {
+      return doc(db, "u", uid, "responses", explicitId);
+    } catch (error) {
+      console.warn("history.resolveResponseRef:doc", error);
+    }
+  }
+  const lookupDayKey = typeof options.responseDayKey === "string" && options.responseDayKey.trim()
+    ? options.responseDayKey.trim()
+    : typeof dayKey === "string"
+    ? dayKey
+    : "";
+  if (!lookupDayKey) {
+    return null;
+  }
+  try {
+    const qy = query(
+      collection(db, "u", uid, "responses"),
+      where("consigneId", "==", consigneId),
+      where("dayKey", "==", lookupDayKey),
+      limit(1)
+    );
+    const snap = await getDocs(qy);
+    const docSnap = Array.isArray(snap?.docs) && snap.docs.length ? snap.docs[0] : null;
+    return docSnap ? docSnap.ref : null;
+  } catch (error) {
+    console.warn("history.resolveResponseRef:query", error);
+    return null;
+  }
+}
+
+async function syncHistoryResponse(db, uid, consigneId, dayKey, data = {}, options = {}) {
+  if (!db || !uid || !consigneId || !dayKey) {
+    return;
+  }
+  const hasSyncMetadata = Boolean(
+    (typeof options.responseId === "string" && options.responseId.trim())
+      || (typeof options.responseDayKey === "string" && options.responseDayKey.trim())
+  );
+  if (!hasSyncMetadata) {
+    return;
+  }
+  const hasValue = Object.prototype.hasOwnProperty.call(data, "value");
+  const hasNote = Object.prototype.hasOwnProperty.call(data, "note");
+  if (!hasValue && !hasNote) {
+    return;
+  }
+  const ref = await resolveHistoryResponseRef(db, uid, consigneId, dayKey, options);
+  const payload = { updatedAt: now() };
+  if (hasValue) {
+    payload.value = data.value;
+  }
+  if (hasNote) {
+    const noteValue = data.note;
+    if (noteValue && String(noteValue).trim()) {
+      payload.note = noteValue;
+    } else {
+      payload.note = deleteField();
+    }
+  }
+  if (ref) {
+    try {
+      await setDoc(ref, payload, { merge: true });
+      return;
+    } catch (error) {
+      console.warn("history.syncResponse:update", error);
+    }
+  }
+  const shouldCreate = (hasValue && data.value !== "" && data.value != null)
+    || (hasNote && data.note && String(data.note).trim());
+  if (!shouldCreate) {
+    return;
+  }
+  const responsePayload = {
+    ownerUid: uid,
+    consigneId,
+    value: hasValue ? data.value : "",
+    createdAt: options.responseCreatedAt || now(),
+  };
+  const responseMode = options.responseMode || options.mode || "";
+  if (responseMode) {
+    responsePayload.mode = responseMode;
+  }
+  const responseType = options.responseType || options.type || "";
+  if (responseType) {
+    responsePayload.type = responseType;
+  }
+  const effectiveDayKey = options.responseDayKey || dayKey;
+  if (effectiveDayKey) {
+    responsePayload.dayKey = effectiveDayKey;
+  }
+  if (hasNote && data.note && String(data.note).trim()) {
+    responsePayload.note = data.note;
+  }
+  try {
+    await addDoc(collection(db, "u", uid, "responses"), responsePayload);
+  } catch (error) {
+    console.warn("history.syncResponse:create", error);
+  }
+}
+
+async function deleteHistoryResponse(db, uid, consigneId, dayKey, options = {}) {
+  if (!db || !uid || !consigneId) {
+    return;
+  }
+  const hasSyncMetadata = Boolean(
+    (typeof options.responseId === "string" && options.responseId.trim())
+      || (typeof options.responseDayKey === "string" && options.responseDayKey.trim())
+  );
+  if (!hasSyncMetadata) {
+    return;
+  }
+  try {
+    const ref = await resolveHistoryResponseRef(db, uid, consigneId, dayKey, options);
+    if (ref) {
+      await deleteDoc(ref);
+    }
+  } catch (error) {
+    console.warn("history.syncResponse:delete", error);
+  }
+}
+
+async function saveHistoryEntry(db, uid, consigneId, dateIso, data = {}, options = {}) {
   if (!db || !uid || !consigneId || !dateIso) {
     throw new Error("Paramètres manquants pour saveHistoryEntry");
   }
@@ -971,13 +1100,15 @@ async function saveHistoryEntry(db, uid, consigneId, dateIso, data = {}) {
   await setDoc(doc(db, "u", uid, "history", consigneId, "entries", dateIso), payload, {
     merge: true,
   });
+  await syncHistoryResponse(db, uid, consigneId, dateIso, data, options);
 }
 
-async function deleteHistoryEntry(db, uid, consigneId, dateIso) {
+async function deleteHistoryEntry(db, uid, consigneId, dateIso, options = {}) {
   if (!db || !uid || !consigneId || !dateIso) {
     throw new Error("Paramètres manquants pour deleteHistoryEntry");
   }
   await deleteDoc(doc(db, "u", uid, "history", consigneId, "entries", dateIso));
+  await deleteHistoryResponse(db, uid, consigneId, dateIso, options);
 }
 
 // --- utilitaires temps ---

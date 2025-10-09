@@ -6301,12 +6301,13 @@ async function openHistory(ctx, consigne, options = {}) {
         ? `<div class="history-panel__meta-row">${metaParts.join(" ")}</div>`
         : "";
       const dayKeyAttr = dayKey ? ` data-day-key="${escapeHtml(dayKey)}"` : "";
+      const responseIdAttr = row.id ? ` data-response-id="${escapeHtml(String(row.id))}"` : "";
       const canEditEntry = EDITABLE_HISTORY_TYPES.has(consigne.type) && !summaryInfo.isSummary && dayKey;
       const editButtonMarkup = canEditEntry
         ? `<button type="button" class="history-panel__item-edit" data-history-edit aria-label="Modifier la réponse">Modifier</button>`
         : "";
       return `
-        <li class="history-panel__item${summaryClass}" data-history-entry data-history-index="${index}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}>
+        <li class="history-panel__item${summaryClass}" data-history-entry data-history-index="${index}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}${responseIdAttr}>
           <div class="history-panel__item-row">
             <span class="${valueClasses.join(" ")}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}">
               <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
@@ -6434,6 +6435,7 @@ async function openHistory(ctx, consigne, options = {}) {
     const row = rows[entryIndex];
     if (!row) return;
     const dayKeyAttr = itemNode?.getAttribute('data-day-key');
+    const responseIdAttr = itemNode?.getAttribute('data-response-id');
     const dayKey = dayKeyAttr && dayKeyAttr.trim() ? dayKeyAttr.trim() : resolveDayKey(row, null);
     if (!dayKey) {
       showToast("Impossible d’identifier la date de cette réponse.");
@@ -6456,6 +6458,18 @@ async function openHistory(ctx, consigne, options = {}) {
     const autosaveKey = [`history-entry`, ctx.user?.uid || 'anon', consigne.id || 'consigne', dayKey]
       .map((part) => String(part || ''))
       .join(':');
+    const responseSyncOptions = {
+      responseId: responseIdAttr && responseIdAttr.trim() ? responseIdAttr.trim() : row.id || '',
+      responseMode: normalizeMode(row) || row.mode || row.source || '',
+      responseType: typeof row.type === 'string' && row.type.trim() ? row.type.trim() : consigne.type,
+      responseDayKey: dayKey,
+      responseCreatedAt:
+        createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
+          ? createdAt.toISOString()
+          : typeof createdAtSource === 'string'
+          ? createdAtSource
+          : '',
+    };
     const editorHtml = `
       <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
         <header class="practice-editor__header">
@@ -6561,7 +6575,7 @@ async function openHistory(ctx, consigne, options = {}) {
         clearBtn.disabled = true;
         if (submitBtn) submitBtn.disabled = true;
         try {
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey);
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, responseSyncOptions);
           closeEditor();
           reopenHistory();
         } catch (error) {
@@ -6581,12 +6595,19 @@ async function openHistory(ctx, consigne, options = {}) {
         const note = (form.elements.note?.value || '').trim();
         const isRawEmpty = rawValue === '' || rawValue == null;
         if (isRawEmpty && !note) {
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey);
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, responseSyncOptions);
         } else {
-          await Schema.saveHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, {
-            value: rawValue,
-            note,
-          });
+          await Schema.saveHistoryEntry(
+            ctx.db,
+            ctx.user.uid,
+            consigne.id,
+            dayKey,
+            {
+              value: rawValue,
+              note,
+            },
+            responseSyncOptions
+          );
         }
         closeEditor();
         reopenHistory();
