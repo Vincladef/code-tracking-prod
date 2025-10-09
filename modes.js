@@ -3357,36 +3357,226 @@ function groupConsignes(consignes) {
   return groups;
 }
 
+function normalizeSummaryMetadataInput(metadata) {
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+  const sources = [metadata];
+  if (metadata.summary && typeof metadata.summary === "object") {
+    sources.push(metadata.summary);
+  }
+  const readField = (...keys) => {
+    for (const source of sources) {
+      if (!source || typeof source !== "object") continue;
+      for (const key of keys) {
+        if (!key || !Object.prototype.hasOwnProperty.call(source, key)) continue;
+        const raw = source[key];
+        if (raw === null || raw === undefined) continue;
+        const stringValue = typeof raw === "string" ? raw.trim() : String(raw).trim();
+        if (stringValue) return stringValue;
+      }
+    }
+    return "";
+  };
+  const normalized = {};
+  const scope = readField("summaryScope", "summary_scope", "scope");
+  if (scope) normalized.summaryScope = scope;
+  const label = readField("summaryLabel", "summary_label", "label");
+  if (label) normalized.summaryLabel = label;
+  const period = readField("summaryPeriod", "summary_period", "period");
+  if (period) normalized.summaryPeriod = period;
+  const mode = readField("summaryMode", "summary_mode", "mode");
+  if (mode) normalized.summaryMode = mode;
+  const source = readField("summarySource", "summary_source", "source");
+  if (source) normalized.source = source;
+  const origin = readField("summaryOrigin", "summary_origin", "origin");
+  if (origin) normalized.origin = origin;
+  const context = readField("summaryContext", "summary_context", "context");
+  if (context) normalized.context = context;
+  const moduleId = readField("summaryModuleId", "summary_module_id", "moduleId", "module_id");
+  if (moduleId) normalized.moduleId = moduleId;
+  if (!Object.keys(normalized).length) {
+    return null;
+  }
+  return normalized;
+}
+
+function serializeSummaryMetadataForComparison(metadata) {
+  const normalized = normalizeSummaryMetadataInput(metadata);
+  if (!normalized) {
+    return "";
+  }
+  const orderedKeys = Object.keys(normalized).sort();
+  const payload = {};
+  orderedKeys.forEach((key) => {
+    payload[key] = normalized[key];
+  });
+  return JSON.stringify(payload);
+}
+
+function setConsigneSummaryMetadata(row, metadata = null) {
+  if (!row || !row.dataset) return;
+  const dataset = row.dataset;
+  const normalized = normalizeSummaryMetadataInput(metadata);
+  if (normalized?.summaryScope) {
+    dataset.summaryScope = String(normalized.summaryScope);
+    dataset.summarySelected = "1";
+  } else {
+    delete dataset.summaryScope;
+    delete dataset.summarySelected;
+  }
+
+  if (normalized?.summaryLabel) dataset.summaryLabel = String(normalized.summaryLabel);
+  else delete dataset.summaryLabel;
+
+  if (normalized?.summaryPeriod) dataset.summaryPeriod = String(normalized.summaryPeriod);
+  else delete dataset.summaryPeriod;
+
+  if (normalized?.summaryMode) dataset.summaryMode = String(normalized.summaryMode);
+  else delete dataset.summaryMode;
+
+  if (normalized?.source) dataset.summarySource = String(normalized.source);
+  else delete dataset.summarySource;
+
+  if (normalized?.origin) dataset.summaryOrigin = String(normalized.origin);
+  else delete dataset.summaryOrigin;
+
+  if (normalized?.context) dataset.summaryContext = String(normalized.context);
+  else delete dataset.summaryContext;
+
+  if (normalized?.moduleId) dataset.summaryModuleId = String(normalized.moduleId);
+  else delete dataset.summaryModuleId;
+}
+
+function clearConsigneSummaryMetadata(row) {
+  setConsigneSummaryMetadata(row, null);
+}
+
+function readConsigneSummaryMetadata(row) {
+  if (!row || !row.dataset) {
+    return null;
+  }
+  const dataset = row.dataset;
+  if (!dataset.summaryScope && !dataset.summaryLabel && !dataset.summaryPeriod && !dataset.summaryMode) {
+    return null;
+  }
+  const raw = {
+    summaryScope: dataset.summaryScope,
+    summaryLabel: dataset.summaryLabel,
+    summaryPeriod: dataset.summaryPeriod,
+    summaryMode: dataset.summaryMode,
+    summarySource: dataset.summarySource,
+    summaryOrigin: dataset.summaryOrigin,
+    summaryContext: dataset.summaryContext,
+    summaryModuleId: dataset.summaryModuleId,
+  };
+  return normalizeSummaryMetadataInput(raw);
+}
+
+function buildSummaryMetadataForScope(scope, { date = new Date() } = {}) {
+  const raw = typeof scope === "string" ? scope.trim().toLowerCase() : "";
+  if (!raw) return null;
+  const baseDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
+  const result = {
+    summaryMode: "bilan",
+    source: "bilan",
+    moduleId: "bilan",
+  };
+  if (raw === "week" || raw === "weekly") {
+    result.summaryScope = "weekly";
+    result.summaryLabel = "Bilan hebdomadaire";
+    const weekKey =
+      typeof Schema?.weekKeyFromDate === "function"
+        ? Schema.weekKeyFromDate(baseDate, DAILY_WEEK_ENDS_ON)
+        : typeof Schema?.dayKeyFromDate === "function"
+        ? Schema.dayKeyFromDate(baseDate)
+        : "";
+    result.summaryPeriod = weekKey;
+  } else if (raw === "month" || raw === "monthly") {
+    result.summaryScope = "monthly";
+    result.summaryLabel = "Bilan mensuel";
+    const monthKey =
+      typeof Schema?.monthKeyFromDate === "function"
+        ? Schema.monthKeyFromDate(baseDate)
+        : `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, "0")}`;
+    result.summaryPeriod = monthKey;
+  } else if (
+    raw === "year" ||
+    raw === "yearly" ||
+    raw === "annual" ||
+    raw === "annuel" ||
+    raw === "annuelle" ||
+    raw === "annee" ||
+    raw === "année"
+  ) {
+    result.summaryScope = "yearly";
+    result.summaryLabel = "Bilan annuel";
+    const yearKey =
+      typeof Schema?.yearKeyFromDate === "function"
+        ? Schema.yearKeyFromDate(baseDate)
+        : String(baseDate.getFullYear());
+    result.summaryPeriod = yearKey;
+  } else {
+    return null;
+  }
+  result.scope = result.summaryScope;
+  result.label = result.summaryLabel;
+  result.period = result.summaryPeriod;
+  const originScope = result.summaryScope || "";
+  result.origin = originScope ? `bilan:${originScope}` : "bilan";
+  const contextParts = ["bilan", originScope || null, result.summaryPeriod || null].filter(Boolean);
+  result.context = contextParts.join(":") || "bilan";
+  return result;
+}
+
 function collectAnswers(form, consignes, options = {}) {
   const dayKey = options.dayKey || null;
   const answers = [];
+  const findRowForConsigne = (consigne) => {
+    if (!form || !consigne?.id) return null;
+    const id = String(consigne.id);
+    const escapedId =
+      typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape(id)
+        : id.replace(/"/g, '\\"');
+    return form.querySelector(`.consigne-row[data-id="${escapedId}"]`);
+  };
   for (const consigne of consignes) {
     if (consigne.type === "info") {
       continue;
     }
+    const pushAnswer = (value) => {
+      const answer = { consigne, value, dayKey };
+      const row = findRowForConsigne(consigne);
+      const summaryMetadata = readConsigneSummaryMetadata(row);
+      if (summaryMetadata) {
+        Object.assign(answer, summaryMetadata);
+      }
+      answers.push(answer);
+    };
     if (consigne.type === "short") {
       const val = form.querySelector(`[name="short:${consigne.id}"]`)?.value?.trim();
-      if (val) answers.push({ consigne, value: val, dayKey });
+      if (val) pushAnswer(val);
     } else if (consigne.type === "long") {
       const input = form.querySelector(`[name="long:${consigne.id}"]`);
       if (input) {
         const normalized = normalizeRichTextValue(input.value || "");
         if (richTextHasContent(normalized)) {
-          answers.push({ consigne, value: normalized, dayKey });
+          pushAnswer(normalized);
         }
       }
     } else if (consigne.type === "num") {
       const val = form.querySelector(`[name="num:${consigne.id}"]`)?.value;
-      if (val) answers.push({ consigne, value: Number(val), dayKey });
+      if (val) pushAnswer(Number(val));
     } else if (consigne.type === "likert5") {
       const val = form.querySelector(`[name="likert5:${consigne.id}"]`)?.value;
-      if (val !== "" && val != null) answers.push({ consigne, value: Number(val), dayKey });
+      if (val !== "" && val != null) pushAnswer(Number(val));
     } else if (consigne.type === "yesno") {
       const val = form.querySelector(`[name="yesno:${consigne.id}"]`)?.value;
-      if (val) answers.push({ consigne, value: val, dayKey });
+      if (val) pushAnswer(val);
     } else if (consigne.type === "likert6") {
       const val = form.querySelector(`[name="likert6:${consigne.id}"]`)?.value;
-      if (val) answers.push({ consigne, value: val, dayKey });
+      if (val) pushAnswer(val);
     } else if (consigne.type === "checklist") {
       const hidden = form.querySelector(`[name="checklist:${consigne.id}"]`);
       if (hidden) {
@@ -3397,7 +3587,7 @@ function collectAnswers(form, consignes, options = {}) {
             const hasSelection = values.some(Boolean);
             const isDirty = hidden.dataset.dirty === "1";
             if (hasSelection || isDirty) {
-              answers.push({ consigne, value: values, dayKey });
+              pushAnswer(values);
             }
           }
         } catch (error) {
@@ -3411,7 +3601,7 @@ function collectAnswers(form, consignes, options = {}) {
           const values = Array.from(container.querySelectorAll("[data-checklist-input]"))
             .map((box) => Boolean(box.checked));
           if (values.length && values.some(Boolean)) {
-            answers.push({ consigne, value: values, dayKey });
+            pushAnswer(values);
           }
         }
       }
@@ -4744,15 +4934,43 @@ function attachConsigneEditor(row, consigne, options = {}) {
           </div>
         </section>`
       : "";
-    const actionsMarkup = requiresValidation
-      ? `<footer class="practice-editor__actions">
+    const summaryMenuItems = [
+      { scope: "weekly", label: "Bilan hebdomadaire" },
+      { scope: "monthly", label: "Bilan mensuel" },
+      { scope: "yearly", label: "Bilan annuel" },
+    ];
+    const summaryMenuMarkup = summaryMenuItems
+      .map(
+        (item) =>
+          `<button type="button" class="practice-editor__summary-menu-item" role="menuitem" data-summary-option="${item.scope}">${item.label}</button>`
+      )
+      .join("") +
+      `<div class="practice-editor__summary-menu-divider" role="separator"></div>
+        <button type="button" class="practice-editor__summary-menu-item practice-editor__summary-menu-item--clear" role="menuitem" data-summary-option="clear">Réponse standard</button>`;
+    const summaryControlMarkup = requiresValidation
+      ? `<div class="practice-editor__summary" data-consigne-editor-summary-root>
+          <button type="button" class="btn btn-ghost practice-editor__summary-toggle" data-consigne-editor-summary-toggle aria-haspopup="true" aria-expanded="false">
+            <span aria-hidden="true">📝</span>
+            <span data-consigne-editor-summary-label>Réponse de bilan</span>
+          </button>
+          <div class="practice-editor__summary-menu card" data-consigne-editor-summary-menu role="menu" hidden>
+            ${summaryMenuMarkup}
+          </div>
+        </div>`
+      : "";
+    const primaryActionsMarkup = requiresValidation
+      ? `<div class="practice-editor__actions-buttons">
           <button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>
           <button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>
           <button type="button" class="btn btn-primary" data-consigne-editor-validate>Valider</button>
-        </footer>`
-      : `<footer class="practice-editor__actions">
+        </div>`
+      : `<div class="practice-editor__actions-buttons">
           <button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>
-        </footer>`;
+        </div>`;
+    const actionsMarkup = `<footer class="practice-editor__actions">
+        ${summaryControlMarkup}
+        ${primaryActionsMarkup}
+      </footer>`;
     const markup = `
       <div class="practice-editor">
         <header class="practice-editor__header">
@@ -5043,6 +5261,163 @@ function attachConsigneEditor(row, consigne, options = {}) {
         }
       }
     });
+    const summaryRoot = overlay.querySelector("[data-consigne-editor-summary-root]");
+    const summaryToggle = summaryRoot?.querySelector("[data-consigne-editor-summary-toggle]");
+    const summaryMenu = summaryRoot?.querySelector("[data-consigne-editor-summary-menu]");
+    const summaryLabelEl = summaryRoot?.querySelector("[data-consigne-editor-summary-label]");
+    const defaultSummaryLabel = "Réponse de bilan";
+    const updateSummaryControlState = () => {
+      if (!summaryRoot || !summaryLabelEl) return;
+      const metadata = readConsigneSummaryMetadata(row);
+      if (metadata && metadata.summaryScope) {
+        summaryRoot.dataset.summarySelected = "1";
+        const label = metadata.summaryLabel || metadata.label || metadata.summaryScope;
+        summaryLabelEl.textContent = label || defaultSummaryLabel;
+      } else {
+        delete summaryRoot.dataset.summarySelected;
+        summaryLabelEl.textContent = defaultSummaryLabel;
+      }
+    };
+    updateSummaryControlState();
+    const commitResponse = ({ summary = null, close = true, requireValueForSummary = false } = {}) => {
+      const newValue = readConsigneCurrentValue(consigne, overlay);
+      if (summary && requireValueForSummary && !hasValueForConsigne(consigne, newValue)) {
+        if (typeof showToast === "function") {
+          showToast("Ajoute une réponse avant de créer un bilan.");
+        }
+        if (focusTarget && typeof focusTarget.focus === "function") {
+          try {
+            focusTarget.focus({ preventScroll: true });
+          } catch (err) {
+            focusTarget.focus();
+          }
+        }
+        return false;
+      }
+      const childValueEntries = [];
+      childConsignes.forEach((childState) => {
+        const childValue = readConsigneCurrentValue(childState.consigne, overlay);
+        if (childState.row) {
+          setConsigneRowValue(childState.row, childState.consigne, childValue);
+        }
+        childValueEntries.push([childState.consigne?.id, childValue]);
+      });
+      updateParentChildAnsweredFlag();
+      setConsigneRowValue(row, consigne, newValue);
+      syncParentAnswered();
+      if (summary) {
+        setConsigneSummaryMetadata(row, summary);
+      } else {
+        clearConsigneSummaryMetadata(row);
+      }
+      updateSummaryControlState();
+      const childValueMap = new Map(childValueEntries.filter(([id]) => id != null));
+      if (typeof options.onSubmit === "function") {
+        options.onSubmit(newValue, { childValues: childValueMap, summary });
+      }
+      if (close) {
+        closeOverlay();
+      }
+      return true;
+    };
+    let summaryMenuOpen = false;
+    const onSummaryDocumentClick = (event) => {
+      if (!summaryRoot) return;
+      if (summaryRoot.contains(event.target)) return;
+      closeSummaryMenu();
+    };
+    const onSummaryDocumentKeydown = (event) => {
+      if (event.key === "Escape" || event.key === "Esc") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSummaryMenu({ focusToggle: true });
+      }
+    };
+    const closeSummaryMenu = ({ focusToggle = false } = {}) => {
+      if (!summaryMenuOpen) return;
+      summaryMenuOpen = false;
+      if (summaryMenu) {
+        summaryMenu.hidden = true;
+      }
+      if (summaryRoot) {
+        delete summaryRoot.dataset.summaryMenuOpen;
+      }
+      if (summaryToggle) {
+        summaryToggle.setAttribute("aria-expanded", "false");
+      }
+      document.removeEventListener("click", onSummaryDocumentClick, true);
+      document.removeEventListener("keydown", onSummaryDocumentKeydown, true);
+      if (focusToggle && summaryToggle && typeof summaryToggle.focus === "function") {
+        try {
+          summaryToggle.focus({ preventScroll: true });
+        } catch (err) {
+          summaryToggle.focus();
+        }
+      }
+    };
+    const openSummaryMenu = () => {
+      if (!summaryRoot || !summaryMenu || !summaryToggle || summaryMenuOpen) return;
+      summaryMenu.hidden = false;
+      summaryRoot.dataset.summaryMenuOpen = "1";
+      summaryToggle.setAttribute("aria-expanded", "true");
+      summaryMenuOpen = true;
+      document.addEventListener("click", onSummaryDocumentClick, true);
+      document.addEventListener("keydown", onSummaryDocumentKeydown, true);
+    };
+    const toggleSummaryMenu = () => {
+      if (summaryMenuOpen) {
+        closeSummaryMenu();
+      } else {
+        openSummaryMenu();
+      }
+    };
+    if (summaryToggle && summaryMenu) {
+      summaryToggle.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleSummaryMenu();
+      });
+      summaryToggle.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" || event.key === "Esc") {
+          event.preventDefault();
+          closeSummaryMenu({ focusToggle: true });
+        }
+      });
+      summaryMenu.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" || event.key === "Esc") {
+          event.preventDefault();
+          event.stopPropagation();
+          closeSummaryMenu({ focusToggle: true });
+        }
+      });
+      summaryMenu.addEventListener("click", (event) => {
+        const target = event.target?.closest("[data-summary-option]");
+        if (!target) return;
+        event.preventDefault();
+        const choice = target.getAttribute("data-summary-option");
+        if (!choice) return;
+        if (choice === "clear") {
+          closeSummaryMenu();
+          commitResponse({ summary: null, close: true, requireValueForSummary: false });
+          return;
+        }
+        const metadata = buildSummaryMetadataForScope(choice, { date: new Date() });
+        if (!metadata) {
+          closeSummaryMenu();
+          return;
+        }
+        const success = commitResponse({ summary: metadata, close: true, requireValueForSummary: true });
+        if (!success) {
+          return;
+        }
+        closeSummaryMenu();
+        if (typeof showToast === "function") {
+          const toastLabel = metadata.summaryLabel || metadata.label || "Bilan";
+          showToast(`${toastLabel} enregistré.`);
+        }
+      });
+      childMenuCleanups.push(() => closeSummaryMenu());
+    }
     const background = variant === "drawer" ? overlay.firstElementChild : overlay;
     if (background) {
       background.addEventListener("click", (event) => {
@@ -5073,9 +5448,11 @@ function attachConsigneEditor(row, consigne, options = {}) {
       skipBtn.addEventListener("click", (event) => {
         event.preventDefault();
         row.dataset.skipAnswered = "1";
+        clearConsigneSummaryMetadata(row);
         updateParentChildAnsweredFlag();
         updateConsigneStatusUI(row, consigne, { skipped: true });
         syncParentAnswered();
+        updateSummaryControlState();
         if (typeof options.onSkip === "function") {
           options.onSkip({ event, close: closeOverlay, consigne, row });
         }
@@ -5086,23 +5463,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
     if (validateBtn) {
       validateBtn.addEventListener("click", (event) => {
         event.preventDefault();
-        const newValue = readConsigneCurrentValue(consigne, overlay);
-        const childValueEntries = [];
-        childConsignes.forEach((childState) => {
-          const childValue = readConsigneCurrentValue(childState.consigne, overlay);
-          if (childState.row) {
-            setConsigneRowValue(childState.row, childState.consigne, childValue);
-          }
-          childValueEntries.push([childState.consigne?.id, childValue]);
-        });
-        updateParentChildAnsweredFlag();
-        setConsigneRowValue(row, consigne, newValue);
-        syncParentAnswered();
-        const childValueMap = new Map(childValueEntries.filter(([id]) => id != null));
-        if (typeof options.onSubmit === "function") {
-          options.onSubmit(newValue, { childValues: childValueMap });
-        }
-        closeOverlay();
+        commitResponse({ summary: null, close: true });
       });
     }
   };
@@ -5269,12 +5630,21 @@ function renderHistoryChart(data, { type, mode } = {}) {
             /\bhebdomadaire\b/.test(normalizedScope)
           ) {
             summaryScope = "weekly";
+          } else if (
+            normalizedScope.includes("annuel") ||
+            normalizedScope.includes("annuelle") ||
+            normalizedScope.includes("annual") ||
+            normalizedScope.includes("yearly")
+          ) {
+            summaryScope = "yearly";
           }
           const hasSummaryFlag =
             Boolean(entry.isSummary) ||
             Boolean(summaryScope) ||
             normalizedScope.includes("bilan") ||
-            normalizedScope.includes("summary");
+            normalizedScope.includes("summary") ||
+            normalizedScope.includes("yearly") ||
+            normalizedScope.includes("annuel");
           return {
             date: new Date(entry.date),
             value: Number(entry.value),
@@ -6044,16 +6414,28 @@ async function openHistory(ctx, consigne, options = {}) {
         /\b\d{4}-(0[1-9]|1[0-2])\b(?!-)/.test(value)
       );
     });
-    if (!hasSummaryField && !hasSummaryKeyword && !hasWeeklyMarker && !hasMonthlyMarker) {
+    const hasYearlyMarker = normalizedStrings.some((value) => {
+      if (!value) return false;
+      return (
+        value.includes("annuel") ||
+        value.includes("annuelle") ||
+        value.includes("annual") ||
+        value.includes("année") ||
+        value.includes("annee") ||
+        value.includes("yearly")
+      );
+    });
+    if (!hasSummaryField && !hasSummaryKeyword && !hasWeeklyMarker && !hasMonthlyMarker && !hasYearlyMarker) {
       return { isSummary: false, scope: "", isBilan: false };
     }
     let scope = "";
     if (hasMonthlyMarker) scope = "monthly";
     else if (hasWeeklyMarker) scope = "weekly";
+    else if (hasYearlyMarker) scope = "yearly";
     return {
       isSummary: hasSummaryField || hasSummaryKeyword || Boolean(scope),
       scope,
-      isBilan: hasBilanMarker || hasWeeklyMarker || hasMonthlyMarker,
+      isBilan: hasBilanMarker || hasWeeklyMarker || hasMonthlyMarker || hasYearlyMarker,
     };
   }
 
@@ -6261,6 +6643,8 @@ async function openHistory(ctx, consigne, options = {}) {
           ? "Bilan mensuel"
           : summaryInfo.scope === "weekly"
           ? "Bilan hebdomadaire"
+          : summaryInfo.scope === "yearly"
+          ? "Bilan annuel"
           : "Bilan"
         : "";
       const summaryNoteLabel = summaryInfo.isSummary
@@ -6268,6 +6652,8 @@ async function openHistory(ctx, consigne, options = {}) {
           ? "Note de bilan mensuel"
           : summaryInfo.scope === "weekly"
           ? "Note de bilan hebdomadaire"
+          : summaryInfo.scope === "yearly"
+          ? "Note de bilan annuel"
           : "Note de bilan"
         : "";
       const noteClasses = ["history-panel__note"];
@@ -7846,7 +8232,7 @@ async function renderDaily(ctx, root, opts = {}) {
     return AUTO_SAVE_DEFAULT_DELAY;
   };
 
-  const markAnswerAsSaved = (consigne, value, serialized) => {
+  const markAnswerAsSaved = (consigne, value, serialized, summary = null) => {
     const base = previousAnswers.get(consigne.id) || { consigneId: consigne.id };
     const entry = {
       ...base,
@@ -7855,6 +8241,29 @@ async function renderDaily(ctx, root, opts = {}) {
       updatedAt: new Date().toISOString(),
       __serialized: serialized,
     };
+    if (summary && typeof summary === "object") {
+      Object.assign(entry, summary);
+    } else {
+      ["summaryScope", "summaryLabel", "summaryPeriod", "summaryMode"].forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(entry, key)) {
+          delete entry[key];
+        }
+      });
+      ["source", "origin", "context", "moduleId"].forEach((key) => {
+        if (!Object.prototype.hasOwnProperty.call(entry, key)) {
+          return;
+        }
+        const value = entry[key];
+        if (value === null || value === undefined) {
+          delete entry[key];
+          return;
+        }
+        const stringValue = String(value).toLowerCase();
+        if (stringValue.startsWith("bilan")) {
+          delete entry[key];
+        }
+      });
+    }
     previousAnswers.set(consigne.id, entry);
   };
 
@@ -7882,13 +8291,17 @@ async function renderDaily(ctx, root, opts = {}) {
       autoSaveStates.set(consigneId, state);
       return;
     }
-    const { consigne, pendingValue, pendingSerialized } = state;
+    const { consigne, pendingValue, pendingSerialized, pendingSummary } = state;
     state.inFlight = true;
     autoSaveStates.set(consigneId, state);
+    const normalizedSummary = normalizeSummaryMetadataInput(pendingSummary);
     const answers = [{ consigne, value: pendingValue, dayKey }];
+    if (normalizedSummary) {
+      Object.assign(answers[0], normalizedSummary);
+    }
     Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers)
       .then(async () => {
-        markAnswerAsSaved(consigne, pendingValue, pendingSerialized);
+        markAnswerAsSaved(consigne, pendingValue, pendingSerialized, normalizedSummary);
         if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
           try {
             await window.__appBadge.refresh(ctx.user?.uid);
@@ -7930,7 +8343,7 @@ async function renderDaily(ctx, root, opts = {}) {
       });
   };
 
-  const scheduleAutoSave = (consigne, value, { serialized, hasContent } = {}) => {
+  const scheduleAutoSave = (consigne, value, { serialized, hasContent, summary } = {}) => {
     if (!consigne || !consigne.id) return;
     const consigneId = consigne.id;
     const computedSerialized = serialized !== undefined ? serialized : serializeValueForComparison(consigne, value);
@@ -7940,6 +8353,7 @@ async function renderDaily(ctx, root, opts = {}) {
       pendingValue: null,
       pendingSerialized: null,
       pendingHasContent: false,
+      pendingSummary: null,
       timeout: null,
       inFlight: false,
     };
@@ -7947,11 +8361,19 @@ async function renderDaily(ctx, root, opts = {}) {
     state.pendingValue = value;
     state.pendingSerialized = computedSerialized;
     state.pendingHasContent = effectiveHasContent;
+    state.pendingSummary = effectiveHasContent
+      ? normalizeSummaryMetadataInput(summary)
+      : null;
 
     const savedEntry = previousAnswers.get(consigneId);
     if (savedEntry && savedEntry.__serialized === undefined && Object.prototype.hasOwnProperty.call(savedEntry, "value")) {
       try {
-        savedEntry.__serialized = serializeValueForComparison(consigne, savedEntry.value);
+        const baseSerialized = serializeValueForComparison(consigne, savedEntry.value);
+        const savedSummary = normalizeSummaryMetadataInput(savedEntry);
+        const savedSummarySerialized = serializeSummaryMetadataForComparison(savedSummary);
+        savedEntry.__serialized = savedSummarySerialized
+          ? `${baseSerialized}__summary__${savedSummarySerialized}`
+          : baseSerialized;
         previousAnswers.set(consigneId, savedEntry);
       } catch (error) {
         console.warn("daily.autosave.serialize.previous", error);
@@ -7990,22 +8412,44 @@ async function renderDaily(ctx, root, opts = {}) {
     autoSaveStates.set(consigneId, state);
   };
 
-  const handleValueChange = (consigne, row, value, { serialized } = {}) => {
-    const valueSerialized = serialized !== undefined ? serialized : serializeValueForComparison(consigne, value);
+  const handleValueChange = (consigne, row, value, { serialized, summary, baseSerialized } = {}) => {
     const hasContent = hasValueForConsigne(consigne, value);
     if (!hasContent) {
       previousAnswers.delete(consigne.id);
+      if (row) {
+        clearConsigneSummaryMetadata(row);
+      }
     }
+    const summaryMetadata =
+      summary !== undefined
+        ? normalizeSummaryMetadataInput(summary)
+        : normalizeSummaryMetadataInput(readConsigneSummaryMetadata(row));
+    const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
+    const computedBaseSerialized =
+      baseSerialized !== undefined
+        ? baseSerialized
+        : serializeValueForComparison(consigne, value);
+    const providedCombined = typeof serialized === "string" ? serialized : null;
+    const combinedSerialized =
+      providedCombined !== null
+        ? providedCombined
+        : summarySerialized
+        ? `${computedBaseSerialized}__summary__${summarySerialized}`
+        : computedBaseSerialized;
     if (row) {
       if (!hasContent) {
         delete row.dataset.currentValue;
       } else if (typeof value === "object") {
-        row.dataset.currentValue = valueSerialized;
+        row.dataset.currentValue = computedBaseSerialized;
       } else {
         row.dataset.currentValue = String(value);
       }
     }
-    scheduleAutoSave(consigne, value, { serialized: valueSerialized, hasContent });
+    scheduleAutoSave(consigne, value, {
+      serialized: combinedSerialized,
+      hasContent,
+      summary: hasContent ? summaryMetadata : null,
+    });
   };
 
   const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
@@ -8059,6 +8503,12 @@ async function renderDaily(ctx, root, opts = {}) {
     if (holder) {
       holder.innerHTML = inputForType(item, previous?.value ?? null);
       enhanceRangeMeters(holder);
+    }
+    const previousSummary = normalizeSummaryMetadataInput(previous);
+    if (previousSummary) {
+      setConsigneSummaryMetadata(row, previousSummary);
+    } else {
+      clearConsigneSummaryMetadata(row);
     }
     const bH = row.querySelector(".js-histo");
     const bE = row.querySelector(".js-edit");
@@ -8148,17 +8598,26 @@ async function renderDaily(ctx, root, opts = {}) {
     bindConsigneRowValue(row, item, {
       initialValue,
       onChange: (value) => {
-        const serialized = serializeValueForComparison(item, value);
+        const baseSerialized = serializeValueForComparison(item, value);
+        const summaryMetadata = readConsigneSummaryMetadata(row);
+        const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
+        const combinedSerialized = summarySerialized
+          ? `${baseSerialized}__summary__${summarySerialized}`
+          : baseSerialized;
         const previousSerialized = observedValues.get(item.id);
         if (previousSerialized === undefined) {
-          observedValues.set(item.id, serialized);
+          observedValues.set(item.id, combinedSerialized);
           return;
         }
-        if (previousSerialized === serialized) {
+        if (previousSerialized === combinedSerialized) {
           return;
         }
-        observedValues.set(item.id, serialized);
-        handleValueChange(item, row, value, { serialized });
+        observedValues.set(item.id, combinedSerialized);
+        handleValueChange(item, row, value, {
+          serialized: combinedSerialized,
+          summary: summaryMetadata,
+          baseSerialized,
+        });
       },
     });
 
@@ -8178,20 +8637,35 @@ async function renderDaily(ctx, root, opts = {}) {
       childRow.dataset.parentId = child.parentId || group.consigne.id || "";
       childRow.draggable = false;
       parentCard.appendChild(childRow);
+      const childSummary = normalizeSummaryMetadataInput(previous);
+      if (childSummary) {
+        setConsigneSummaryMetadata(childRow, childSummary);
+      } else {
+        clearConsigneSummaryMetadata(childRow);
+      }
       bindConsigneRowValue(childRow, child, {
         initialValue,
         onChange: (value) => {
-          const serialized = serializeValueForComparison(child, value);
+          const baseSerialized = serializeValueForComparison(child, value);
+          const summaryMetadata = readConsigneSummaryMetadata(childRow);
+          const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
+          const combinedSerialized = summarySerialized
+            ? `${baseSerialized}__summary__${summarySerialized}`
+            : baseSerialized;
           const prevSerialized = observedValues.get(child.id);
           if (prevSerialized === undefined) {
-            observedValues.set(child.id, serialized);
+            observedValues.set(child.id, combinedSerialized);
             return;
           }
-          if (prevSerialized === serialized) {
+          if (prevSerialized === combinedSerialized) {
             return;
           }
-          observedValues.set(child.id, serialized);
-          handleValueChange(child, childRow, value, { serialized });
+          observedValues.set(child.id, combinedSerialized);
+          handleValueChange(child, childRow, value, {
+            serialized: combinedSerialized,
+            summary: summaryMetadata,
+            baseSerialized,
+          });
         },
       });
       let srEnabled = child?.srEnabled !== false;
@@ -8358,6 +8832,10 @@ Modes.bindConsigneRowValue = bindConsigneRowValue;
 Modes.attachConsigneEditor = attachConsigneEditor;
 Modes.createHiddenConsigneRow = createHiddenConsigneRow;
 Modes.hasValueForConsigne = hasValueForConsigne;
+Modes.setConsigneSummaryMetadata = setConsigneSummaryMetadata;
+Modes.clearConsigneSummaryMetadata = clearConsigneSummaryMetadata;
+Modes.readConsigneSummaryMetadata = readConsigneSummaryMetadata;
+Modes.buildSummaryMetadataForScope = buildSummaryMetadataForScope;
 Modes.setupConsigneActionMenus = setupConsigneActionMenus;
 Modes.closeConsigneActionMenuFromNode = closeConsigneActionMenuFromNode;
 

@@ -1345,6 +1345,13 @@ function monthKeyFromDate(d) {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function yearKeyFromDate(d) {
+  const dt = d instanceof Date ? new Date(d.getTime()) : new Date(d);
+  if (Number.isNaN(dt.getTime())) return "";
+  dt.setHours(0, 0, 0, 0);
+  return String(dt.getFullYear());
+}
+
 function monthRangeFromKey(monthKey) {
   const [yearStr, monthStr] = String(monthKey || "").split("-");
   const year = Number(yearStr);
@@ -1670,6 +1677,7 @@ async function loadObjectiveEntriesRange(db, uid, objectifId, _fromIso, _toIso) 
 function summaryCollectionName(scope) {
   if (scope === "week" || scope === "weekly") return "weekly_summaries";
   if (scope === "month" || scope === "monthly") return "monthly_summaries";
+  if (scope === "year" || scope === "yearly" || scope === "annual") return "yearly_summaries";
   return null;
 }
 
@@ -1678,6 +1686,17 @@ function normalizeSummaryScopeValue(scope) {
   const raw = String(scope).trim().toLowerCase();
   if (raw === "week" || raw === "weekly") return "weekly";
   if (raw === "month" || raw === "monthly") return "monthly";
+  if (
+    raw === "year" ||
+    raw === "yearly" ||
+    raw === "annual" ||
+    raw === "annuel" ||
+    raw === "annuelle" ||
+    raw === "annee" ||
+    raw === "année"
+  ) {
+    return "yearly";
+  }
   return raw;
 }
 
@@ -1785,6 +1804,8 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
       ? "Bilan mensuel"
       : normalizedSummaryScope === "weekly"
       ? "Bilan hebdomadaire"
+      : normalizedSummaryScope === "yearly"
+      ? "Bilan annuel"
       : "Bilan");
   const baseDate = resolveSummaryBaseDate(metadata);
   const createdAtIso = baseDate instanceof Date && !Number.isNaN(baseDate.getTime())
@@ -2101,6 +2122,7 @@ Object.assign(Schema, {
   startOfDay,
   endOfDay,
   monthKeyFromDate,
+  yearKeyFromDate,
   monthRangeFromKey,
   weekRangeFromDate,
   weekKeyFromDate,
