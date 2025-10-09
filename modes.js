@@ -5311,26 +5311,33 @@ function renderHistoryChart(data, { type, mode } = {}) {
     max = LIKERT6_ORDER.length - 1;
   }
   const hasVariance = Math.abs(max - min) > Number.EPSILON;
-  const range = hasVariance ? max - min : 1;
-  let yPadding = hasVariance ? range * 0.12 : 1;
-  if (type === "yesno") {
+  let yPadding;
+  if (type === "likert6") {
+    yPadding = hasVariance ? 0 : 0.5;
+  } else if (type === "yesno") {
+    yPadding = 0;
+  } else {
+    yPadding = hasVariance ? 0 : 1;
+  }
+  if (!Number.isFinite(yPadding) || yPadding < 0) {
     yPadding = 0;
   }
-  if (!Number.isFinite(yPadding) || yPadding <= 0) {
-    yPadding = 1;
-  }
-  let yMin = hasVariance ? min - yPadding : min - 1;
-  let yMax = hasVariance ? max + yPadding : max + 1;
+  let yMin = min - yPadding;
+  let yMax = max + yPadding;
   if (type === "yesno") {
     yMin = 0;
     yMax = 1;
   }
   if (type === "likert6") {
-    yMin = Math.min(0, min) - 0.4;
-    yMax = Math.max(max, LIKERT6_ORDER.length - 1) + 0.4;
+    yMin = hasVariance ? min : min - yPadding;
+    yMax = hasVariance ? max : max + yPadding;
   }
-  if (!Number.isFinite(yMin)) yMin = min - 1;
-  if (!Number.isFinite(yMax)) yMax = max + 1;
+  if (!Number.isFinite(yMin)) {
+    yMin = hasVariance ? min : min - 1;
+  }
+  if (!Number.isFinite(yMax)) {
+    yMax = hasVariance ? max : max + 1;
+  }
   if (yMax <= yMin) {
     yMax = yMin + 1;
   }
@@ -5341,10 +5348,10 @@ function renderHistoryChart(data, { type, mode } = {}) {
 
   const chartWidth = 960;
   const chartHeight = 320;
-  const paddingTop = 36;
-  const paddingRight = 68;
-  const paddingBottom = 70;
-  const paddingLeft = 76;
+  const paddingTop = 24;
+  const paddingRight = 56;
+  const paddingBottom = 60;
+  const paddingLeft = 64;
   const innerWidth = chartWidth - paddingLeft - paddingRight;
   const innerHeight = chartHeight - paddingTop - paddingBottom;
 
