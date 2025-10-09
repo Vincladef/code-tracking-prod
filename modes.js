@@ -5962,7 +5962,7 @@ async function openHistory(ctx, consigne, options = {}) {
 
   function detectSummaryNote(row) {
     if (!row || typeof row !== "object") {
-      return { isSummary: false, scope: "" };
+      return { isSummary: false, scope: "", isBilan: false };
     }
     const normalizedStrings = [];
     const pushString = (value) => {
@@ -5983,10 +5983,16 @@ async function openHistory(ctx, consigne, options = {}) {
     pushString(row.period);
     pushString(row.periodLabel);
     pushString(row.period_label);
+    pushString(row.periodKey);
+    pushString(row.period_key);
+    pushString(row.periodScope);
+    pushString(row.period_scope);
     pushString(row.mode);
     pushString(row.source);
     pushString(row.origin);
     pushString(row.context);
+    pushString(row.moduleId);
+    pushString(row.module_id);
     if (typeof row.key === "string") {
       pushString(row.key);
     }
@@ -6012,17 +6018,34 @@ async function openHistory(ctx, consigne, options = {}) {
       Object.prototype.hasOwnProperty.call(row, "summaryPeriod") ||
       Object.prototype.hasOwnProperty.call(row, "summary_period") ||
       hasSummaryObject;
-    const hasSummaryKeyword = normalizedStrings.some(
-      (value) => value.includes("summary") || value.includes("bilan")
-    );
-    const hasWeeklyMarker = normalizedStrings.some(
-      (value) => value.includes("hebdo") || value.includes("weekly") || /\bweek/.test(value)
-    );
-    const hasMonthlyMarker = normalizedStrings.some(
-      (value) => value.includes("mensu") || value.includes("mois") || value.includes("month")
-    );
+    const hasBilanMarker = normalizedStrings.some((value) => value.includes("bilan"));
+    const hasSummaryKeyword =
+      normalizedStrings.some((value) => value.includes("summary")) || hasBilanMarker;
+    const hasWeeklyMarker = normalizedStrings.some((value) => {
+      if (!value) return false;
+      return (
+        value.includes("hebdo") ||
+        value.includes("weekly") ||
+        value.includes("week") ||
+        /\bsemaine\b/.test(value) ||
+        /\bhebdomadaire\b/.test(value) ||
+        /\b\d{4}-w\d{1,2}\b(?!-)/i.test(value)
+      );
+    });
+    const hasMonthlyMarker = normalizedStrings.some((value) => {
+      if (!value) return false;
+      return (
+        value.includes("mensu") ||
+        value.includes("mensuel") ||
+        value.includes("mensuelle") ||
+        value.includes("mois") ||
+        value.includes("monthly") ||
+        value.includes("month") ||
+        /\b\d{4}-(0[1-9]|1[0-2])\b(?!-)/.test(value)
+      );
+    });
     if (!hasSummaryField && !hasSummaryKeyword && !hasWeeklyMarker && !hasMonthlyMarker) {
-      return { isSummary: false, scope: "" };
+      return { isSummary: false, scope: "", isBilan: false };
     }
     let scope = "";
     if (hasMonthlyMarker) scope = "monthly";
@@ -6030,6 +6053,7 @@ async function openHistory(ctx, consigne, options = {}) {
     return {
       isSummary: hasSummaryField || hasSummaryKeyword || Boolean(scope),
       scope,
+      isBilan: hasBilanMarker || hasWeeklyMarker || hasMonthlyMarker,
     };
   }
 
@@ -6277,7 +6301,9 @@ async function openHistory(ctx, consigne, options = {}) {
       const summaryAttr = summaryInfo.isSummary
         ? ` data-summary="1"${summaryInfo.scope ? ` data-summary-scope="${escapeHtml(summaryInfo.scope)}"` : ""}`
         : "";
+      const bilanAttr = summaryInfo.isBilan ? ' data-history-source="bilan"' : "";
       const summaryClass = summaryInfo.isSummary ? " history-panel__item--summary" : "";
+      const bilanClass = summaryInfo.isBilan ? " history-panel__item--bilan" : "";
       const summaryBadge = summaryLabel
         ? `<span class="history-panel__summary-badge">${escapeHtml(summaryLabel)}</span>`
         : "";
@@ -6320,7 +6346,7 @@ async function openHistory(ctx, consigne, options = {}) {
         ? `<button type="button" class="history-panel__item-edit" data-history-edit aria-label="Modifier la réponse">Modifier</button>`
         : "";
       return `
-        <li class="history-panel__item${summaryClass}" data-history-entry data-history-index="${index}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}${responseIdAttr}>
+        <li class="history-panel__item${summaryClass}${bilanClass}" data-history-entry data-history-index="${index}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}${responseIdAttr}${bilanAttr}>
           <div class="history-panel__item-row">
             <span class="${valueClasses.join(" ")}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}">
               <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
