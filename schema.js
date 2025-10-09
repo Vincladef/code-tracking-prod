@@ -54,6 +54,7 @@ window.firestoreAPI = window.firestoreAPI || (firestoreCompat
       limit: (count) => (ref) => ref.limit(count),
       serverTimestamp: () => firebaseCompat.firestore.FieldValue.serverTimestamp(),
       deleteField: () => firebaseCompat.firestore.FieldValue.delete(),
+      runTransaction: (db, updateFunction) => db.runTransaction(updateFunction),
     }
   : {
       getFirestore: () => missingFirestoreWarning(),
@@ -71,6 +72,7 @@ window.firestoreAPI = window.firestoreAPI || (firestoreCompat
       limit: () => missingFirestoreWarning(),
       serverTimestamp: () => missingFirestoreWarning(),
       deleteField: () => missingFirestoreWarning(),
+      runTransaction: () => missingFirestoreWarning(),
     });
 
 Schema.firestore = Schema.firestore || window.firestoreAPI;
@@ -90,6 +92,7 @@ const {
   limit,
   serverTimestamp,
   deleteField,
+  runTransaction,
 } = Schema.firestore;
 
 const snapshotExists =
@@ -193,6 +196,16 @@ function buildUserDailyLink(uid, dateIso) {
 
 // Timestamp lisible (les graphs lisent une chaîne)
 function dayKeyFromDate(dateInput = new Date()) {
+  if (typeof window !== "undefined" && window.DateUtils?.dayKeyParis) {
+    try {
+      const computed = window.DateUtils.dayKeyParis(dateInput);
+      if (computed) {
+        return computed;
+      }
+    } catch (error) {
+      schemaLog("dayKeyFromDate:paris:error", error);
+    }
+  }
   const d = dateInput instanceof Date ? new Date(dateInput.getTime()) : new Date(dateInput);
   if (Number.isNaN(d.getTime())) return "";
   const year = d.getFullYear();
@@ -1047,9 +1060,149 @@ async function addConsigne(db, uid, payload) {
   return ref;
 }
 
-async function updateConsigne(db, uid, id, payload) {
+const CONSIGNE_HISTORY_MAX_DEPTH = 8;
+
+function sanitizeConsigneHistoryPayload(value, depth = 0) {
+  if (depth > CONSIGNE_HISTORY_MAX_DEPTH) {
+    return null;
+  }
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value?.toDate === "function") {
+    try {
+      const converted = value.toDate();
+      return converted instanceof Date ? converted.toISOString() : converted;
+    } catch (error) {
+      schemaLog("history.consigne:sanitize:toDate", error);
+      return null;
+    }
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeConsigneHistoryPayload(item, depth + 1))
+      .filter((item) => item !== undefined);
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value);
+    const output = {};
+    entries.forEach(([key, val]) => {
+      if (typeof key !== "string") return;
+      const sanitized = sanitizeConsigneHistoryPayload(val, depth + 1);
+      if (sanitized !== undefined) {
+        output[key] = sanitized;
+      }
+    });
+    return output;
+  }
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "function") {
+    return undefined;
+  }
+  return String(value);
+}
+
+function ensureConsigneHistoryDateKey(input) {
+  if (typeof input === "string" && input.trim()) {
+    return input.trim();
+  }
+  if (input instanceof Date) {
+    return dayKeyFromDate(input);
+  }
+  if (typeof input?.toDate === "function") {
+    try {
+      const converted = input.toDate();
+      if (converted instanceof Date && !Number.isNaN(converted.getTime())) {
+        return dayKeyFromDate(converted);
+      }
+    } catch (error) {
+      schemaLog("history.consigne:dateKey:toDate", error);
+    }
+  }
+  if (typeof input === "number") {
+    const parsed = new Date(input);
+    if (!Number.isNaN(parsed.getTime())) {
+      return dayKeyFromDate(parsed);
+    }
+  }
+  return dayKeyFromDate(new Date());
+}
+
+function stableConsigneHistoryEntryId({ uid, consigneId, kind, dateKey, payload }) {
+  const raw = JSON.stringify({ uid, consigneId, kind, dateKey, payload });
+  let hash = 0;
+  for (let i = 0; i < raw.length; i += 1) {
+    hash = (hash * 31 + raw.charCodeAt(i)) >>> 0;
+  }
+  const safeDate = typeof dateKey === "string" && dateKey.trim() ? dateKey.trim() : "no-date";
+  const safeKind = kind || "event";
+  return `${safeDate}-${safeKind}-${hash.toString(16)}`;
+}
+
+function buildConsigneHistoryEntry(db, uid, consigneId, entryOptions = {}) {
+  if (!db || !uid || !consigneId) {
+    return null;
+  }
+  const kind = entryOptions.kind || "update";
+  const dateKey = ensureConsigneHistoryDateKey(entryOptions.dateKey);
+  const sanitizedPayload = sanitizeConsigneHistoryPayload(
+    entryOptions.payload !== undefined ? entryOptions.payload : {},
+  );
+  const metadata = entryOptions.metadata
+    ? sanitizeConsigneHistoryPayload(entryOptions.metadata)
+    : undefined;
+  const source = entryOptions.source || (kind === "autosave" ? "autosave" : "ui");
+  const entryId = entryOptions.id
+    || stableConsigneHistoryEntryId({
+      uid,
+      consigneId,
+      kind,
+      dateKey,
+      payload: sanitizedPayload,
+    });
+  const historyCollection = collection(db, "u", uid, "consignes", consigneId, "history");
+  const ref = doc(historyCollection, entryId);
+  const nowFieldValue = serverTimestamp();
+  const data = {
+    consigneId,
+    kind,
+    type: entryOptions.type || null,
+    dateKey,
+    payload: sanitizedPayload || {},
+    source,
+    createdAt: entryOptions.createdAt || nowFieldValue,
+    createdBy: entryOptions.createdBy || uid,
+    updatedAt: entryOptions.updatedAt || nowFieldValue,
+    updatedBy: entryOptions.updatedBy || uid,
+  };
+  if (metadata && Object.keys(metadata).length) {
+    data.metadata = metadata;
+  }
+  if (entryOptions.comment !== undefined) {
+    data.comment = entryOptions.comment;
+  }
+  return { ref, data };
+}
+
+async function logConsigneHistoryEntry(db, uid, consigneId, entryOptions = {}) {
+  const entry = buildConsigneHistoryEntry(db, uid, consigneId, entryOptions);
+  if (!entry) {
+    return;
+  }
+  await setDoc(entry.ref, entry.data, { merge: false });
+}
+
+async function updateConsigne(db, uid, id, payload, options = {}) {
   const ref = docIn(db, uid, "consignes", id);
-  await updateDoc(ref, {
+  const normalizedPayload = {
     ...payload,
     srEnabled: payload.srEnabled !== false,
     priority: normalizePriority(payload.priority),
@@ -1059,8 +1212,39 @@ async function updateConsigne(db, uid, id, payload) {
     ephemeral: payload.ephemeral === true,
     ephemeralDurationDays: normalizePositiveInteger(payload.ephemeralDurationDays),
     ephemeralDurationIterations: normalizePositiveInteger(payload.ephemeralDurationIterations),
-    updatedAt: serverTimestamp()
-  });
+    updatedAt: serverTimestamp(),
+    updatedBy: uid,
+  };
+
+  const historyOptions = options?.history || null;
+  if (historyOptions) {
+    const entry = buildConsigneHistoryEntry(db, uid, id, {
+      ...historyOptions,
+      payload: historyOptions.payload !== undefined ? historyOptions.payload : payload,
+      type: historyOptions.type || payload.type || null,
+    });
+    if (entry) {
+      if (typeof runTransaction === "function") {
+        try {
+          await runTransaction(db, async (transaction) => {
+            transaction.set(ref, normalizedPayload, { merge: true });
+            transaction.set(entry.ref, entry.data, { merge: false });
+          });
+          return;
+        } catch (error) {
+          schemaLog("updateConsigne:history:transaction", error);
+        }
+      }
+      await updateDoc(ref, normalizedPayload);
+      try {
+        await setDoc(entry.ref, entry.data, { merge: false });
+      } catch (error) {
+        schemaLog("updateConsigne:history:set", error);
+      }
+      return;
+    }
+  }
+  await updateDoc(ref, normalizedPayload);
 }
 
 async function updateConsigneOrder(db, uid, consigneId, order) {
@@ -1203,7 +1387,11 @@ async function listConsignesByCategory(db, uid, category) {
 async function loadConsigneHistory(db, uid, consigneId) {
   const colRef = collection(db, "u", uid, "history", consigneId, "entries");
   const snap = await getDocs(colRef);
-  return snap.docs.map((d) => ({ date: d.id, ...d.data() }));
+  return snap.docs.map((d) => {
+    const data = d.data() || {};
+    const dateKey = typeof data.dateKey === "string" && data.dateKey.trim() ? data.dateKey.trim() : d.id;
+    return { id: d.id, date: dateKey, ...data };
+  });
 }
 
 async function resolveHistoryResponseRef(db, uid, consigneId, dayKey, options = {}) {
@@ -2202,6 +2390,7 @@ Object.assign(Schema, {
   fetchConsignes,
   listChildConsignes,
   addConsigne,
+  logConsigneHistoryEntry,
   updateConsigne,
   updateConsigneOrder,
   softDeleteConsigne,
