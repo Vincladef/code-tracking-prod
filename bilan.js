@@ -703,7 +703,12 @@
 
   function buildSummarySaver(ctx, period, answersMap) {
     const pending = new Map();
-    const extras = { weekEndsOn: period.weekEndsOn };
+    const normalizedSummaryScope = period.scope === "week"
+      ? "weekly"
+      : period.scope === "month"
+      ? "monthly"
+      : period.scope || "";
+    const extras = { weekEndsOn: period.weekEndsOn, summaryScope: normalizedSummaryScope };
     if (period.scope === "week" && period.key) {
       extras.weekKey = period.key;
     }
@@ -715,7 +720,14 @@
       end: period.end,
       label: period.label,
       extras,
+      moduleId: "bilan",
     };
+
+    const summaryLabel = normalizedSummaryScope === "monthly"
+      ? "Bilan mensuel"
+      : normalizedSummaryScope === "weekly"
+      ? "Bilan hebdomadaire"
+      : "Bilan";
 
     const persist = async (consigne, value, row, key) => {
       if (!ctx?.db || !ctx?.user?.uid || !key) return;
@@ -735,6 +747,17 @@
             value,
             label: consigne?.text || null,
             category: consigne?.summaryCategory || consigne?.category || null,
+            summaryScope: normalizedSummaryScope || null,
+            summaryMode: "bilan",
+            summaryLabel,
+            summaryPeriod: period.key || null,
+            summaryKey: key,
+            source: "bilan",
+            origin: normalizedSummaryScope ? `bilan:${normalizedSummaryScope}` : "bilan",
+            context: ["bilan", normalizedSummaryScope || null, period.key || null]
+              .filter(Boolean)
+              .join(":") || "bilan",
+            moduleId: "bilan",
           };
           await Schema.saveSummaryAnswers(ctx.db, ctx.user.uid, period.scope, period.key, [payload], metadata);
           answersMap.set(key, { id: key, value, type: consigne?.type || null, family: consigne?.family || null });
