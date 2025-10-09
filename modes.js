@@ -4800,6 +4800,24 @@ function attachConsigneEditor(row, consigne, options = {}) {
   const childConsignes = Array.isArray(options.childConsignes)
     ? options.childConsignes.filter((item) => item && item.consigne)
     : [];
+  const summaryControlsEnabled = options.summaryControlsEnabled !== false;
+  const summaryToggleLabel =
+    typeof options.summaryToggleLabel === "string" && options.summaryToggleLabel.trim()
+      ? options.summaryToggleLabel.trim()
+      : "Réponse de bilan";
+  const summaryDefaultLabel =
+    typeof options.summaryDefaultLabel === "string" && options.summaryDefaultLabel.trim()
+      ? options.summaryDefaultLabel.trim()
+      : summaryToggleLabel;
+  const validateButtonLabel = (() => {
+    if (typeof options.validateButtonLabel === "string" && options.validateButtonLabel.trim()) {
+      return options.validateButtonLabel.trim();
+    }
+    if (typeof options.validateLabel === "string" && options.validateLabel.trim()) {
+      return options.validateLabel.trim();
+    }
+    return "Valider";
+  })();
   childConsignes.forEach((child) => {
     child.srEnabled = child?.srEnabled !== false;
   });
@@ -4947,22 +4965,23 @@ function attachConsigneEditor(row, consigne, options = {}) {
       .join("") +
       `<div class="practice-editor__summary-menu-divider" role="separator"></div>
         <button type="button" class="practice-editor__summary-menu-item practice-editor__summary-menu-item--clear" role="menuitem" data-summary-option="clear">Réponse standard</button>`;
-    const summaryControlMarkup = requiresValidation
-      ? `<div class="practice-editor__summary" data-consigne-editor-summary-root>
+    const summaryControlMarkup =
+      requiresValidation && summaryControlsEnabled
+        ? `<div class="practice-editor__summary" data-consigne-editor-summary-root>
           <button type="button" class="btn btn-ghost practice-editor__summary-toggle" data-consigne-editor-summary-toggle aria-haspopup="true" aria-expanded="false">
             <span aria-hidden="true">📝</span>
-            <span data-consigne-editor-summary-label>Réponse de bilan</span>
+            <span data-consigne-editor-summary-label>${escapeHtml(summaryToggleLabel)}</span>
           </button>
           <div class="practice-editor__summary-menu card" data-consigne-editor-summary-menu role="menu" hidden>
             ${summaryMenuMarkup}
           </div>
         </div>`
-      : "";
+        : "";
     const primaryActionsMarkup = requiresValidation
       ? `<div class="practice-editor__actions-buttons">
           <button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>
           <button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>
-          <button type="button" class="btn btn-primary" data-consigne-editor-validate>Valider</button>
+          <button type="button" class="btn btn-primary" data-consigne-editor-validate>${escapeHtml(validateButtonLabel)}</button>
         </div>`
       : `<div class="practice-editor__actions-buttons">
           <button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>
@@ -5265,7 +5284,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
     const summaryToggle = summaryRoot?.querySelector("[data-consigne-editor-summary-toggle]");
     const summaryMenu = summaryRoot?.querySelector("[data-consigne-editor-summary-menu]");
     const summaryLabelEl = summaryRoot?.querySelector("[data-consigne-editor-summary-label]");
-    const defaultSummaryLabel = "Réponse de bilan";
+    const defaultSummaryLabel = summaryDefaultLabel;
     const updateSummaryControlState = () => {
       if (!summaryRoot || !summaryLabelEl) return;
       const metadata = readConsigneSummaryMetadata(row);
