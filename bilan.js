@@ -574,12 +574,18 @@
         const baseEditorConfig = typeof options.editorConfig === "function"
           ? options.editorConfig(entry.consigne, childConfigs)
           : options.editorConfig || {};
+        const baseValidateLabel =
+          typeof baseEditorConfig.validateButtonLabel === "string" && baseEditorConfig.validateButtonLabel.trim()
+            ? baseEditorConfig.validateButtonLabel.trim()
+            : null;
         const editorConfig = {
           ...baseEditorConfig,
           childConsignes: [
             ...((Array.isArray(baseEditorConfig.childConsignes) && baseEditorConfig.childConsignes) || []),
             ...childConfigs,
           ],
+          summaryControlsEnabled: false,
+          validateButtonLabel: baseValidateLabel || "Valider le bilan",
         };
         const row = createConsigneRow(entry.consigne, {
           previous,
