@@ -727,6 +727,11 @@
       }
       try {
         if (hasValue) {
+          const summaryScope = period.scope === "week"
+            ? "weekly"
+            : period.scope === "month"
+            ? "monthly"
+            : period.scope || null;
           const payload = {
             key,
             consigneId: consigne?.id || null,
@@ -735,6 +740,10 @@
             value,
             label: consigne?.text || null,
             category: consigne?.summaryCategory || consigne?.category || null,
+            summaryScope,
+            summaryMode: summaryScope ? `${summaryScope}_summary` : "summary",
+            summaryPeriod: period.key || null,
+            summaryLabel: period.label || null,
           };
           await Schema.saveSummaryAnswers(ctx.db, ctx.user.uid, period.scope, period.key, [payload], metadata);
           answersMap.set(key, { id: key, value, type: consigne?.type || null, family: consigne?.family || null });
