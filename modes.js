@@ -6301,7 +6301,7 @@ async function openHistory(ctx, consigne, options = {}) {
         ? `<div class="history-panel__meta-row">${metaParts.join(" ")}</div>`
         : "";
       const dayKeyAttr = dayKey ? ` data-day-key="${escapeHtml(dayKey)}"` : "";
-      const responseIdAttr = row.id ? ` data-response-id="${escapeHtml(String(row.id))}"` : "";
+      const responseIdAttr = r.id ? ` data-response-id="${escapeHtml(String(r.id))}"` : "";
       const canEditEntry = EDITABLE_HISTORY_TYPES.has(consigne.type) && !summaryInfo.isSummary && dayKey;
       const editButtonMarkup = canEditEntry
         ? `<button type="button" class="history-panel__item-edit" data-history-edit aria-label="Modifier la réponse">Modifier</button>`
