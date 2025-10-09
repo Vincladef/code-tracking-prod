@@ -5475,10 +5475,11 @@ function renderHistoryChart(data, { type, mode } = {}) {
 
   return `
     <div class="history-panel__chart history-panel__chart--simple" data-average-status="${escapeHtml(averageStatus)}">
-      <figure class="history-chart">
-        <svg class="history-chart__svg" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="${escapeHtml(
-          chartLabel
-        )}" focusable="false">
+      <div class="history-panel__chart-scroll">
+        <figure class="history-chart">
+          <svg class="history-chart__svg" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="${escapeHtml(
+            chartLabel
+          )}" focusable="false">
           <defs>
             <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stop-color="${escapeHtml(colorPalette.gradientTop)}"></stop>
@@ -5509,7 +5510,8 @@ function renderHistoryChart(data, { type, mode } = {}) {
           }
           ${pointsMarkup}
         </svg>
-      </figure>
+        </figure>
+      </div>
     </div>
   `;
 }
@@ -5520,6 +5522,7 @@ function enhanceHistoryChart(container) {
   if (!container) return;
   const chartRoot = container.querySelector('.history-panel__chart');
   if (!chartRoot) return;
+  const scrollContainer = chartRoot.querySelector('.history-panel__chart-scroll') || chartRoot;
   const points = Array.from(chartRoot.querySelectorAll('[data-history-point]'));
   if (!points.length) return;
 
@@ -5563,8 +5566,8 @@ function enhanceHistoryChart(container) {
     const node = point.querySelector('.history-chart__point-node') || point;
     const nodeRect = node.getBoundingClientRect();
     const rootRect = chartRoot.getBoundingClientRect();
-    const left = nodeRect.left - rootRect.left + chartRoot.scrollLeft + nodeRect.width / 2;
-    const top = nodeRect.top - rootRect.top + chartRoot.scrollTop;
+    const left = nodeRect.left - rootRect.left + nodeRect.width / 2;
+    const top = nodeRect.top - rootRect.top;
 
     tooltip.style.left = `${left}px`;
     tooltip.style.top = `${top}px`;
@@ -5582,6 +5585,9 @@ function enhanceHistoryChart(container) {
 
   chartRoot.addEventListener('pointerleave', hideTooltip);
   chartRoot.addEventListener('pointercancel', hideTooltip);
+  if (scrollContainer && scrollContainer !== chartRoot) {
+    scrollContainer.addEventListener('scroll', hideTooltip, { passive: true });
+  }
 }
 
 
