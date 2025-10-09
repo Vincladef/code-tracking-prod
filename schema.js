@@ -356,11 +356,32 @@ async function ensureCategory(db, uid, name, mode){
     ownerUid: uid,
     name,
     mode,
+    order: Date.now(),
     createdAt: serverTimestamp()
   });
   const created = { id: ref.id, ownerUid: uid, name, mode };
   D.info("data.ensureCategory.ok", created);
   return created;
+}
+
+async function reorderCategories(db, uid, orderedIds = []) {
+  if (!db || !uid || !Array.isArray(orderedIds) || !orderedIds.length) {
+    return;
+  }
+  const writes = [];
+  orderedIds.forEach((id, index) => {
+    if (!id) return;
+    const orderValue = (index + 1) * 10;
+    const ref = docIn(db, uid, "categories", id);
+    writes.push(
+      updateDoc(ref, { order: orderValue, updatedAt: now() }).catch((error) => {
+        schemaLog("categories.reorder:update:error", { uid, categoryId: id, error });
+      })
+    );
+  });
+  if (writes.length) {
+    await Promise.all(writes);
+  }
 }
 
 // Fonction pour l'admin, utilise la collection racine "users"
@@ -2146,6 +2167,7 @@ Object.assign(Schema, {
   getUserName,
   fetchCategories,
   ensureCategory,
+  reorderCategories,
   newUid,
   readSRState,
   upsertSRState,

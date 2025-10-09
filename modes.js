@@ -1858,6 +1858,265 @@ window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx
   });
 };
 
+function resolveCategoryOrderValue(category) {
+  const hasOrder = category && Object.prototype.hasOwnProperty.call(category, "order");
+  const raw = hasOrder ? category.order : null;
+  if (raw == null) {
+    return Number.POSITIVE_INFINITY;
+  }
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw;
+  }
+  if (typeof raw === "string") {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+function sortCategoriesForDisplay(list = []) {
+  return list
+    .slice()
+    .sort((a, b) => {
+      const orderA = resolveCategoryOrderValue(a);
+      const orderB = resolveCategoryOrderValue(b);
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      const nameA = a?.name || "";
+      const nameB = b?.name || "";
+      return nameA.localeCompare(nameB, "fr", { sensitivity: "base" });
+    });
+}
+
+function createCategoryMenu({
+  categories = [],
+  currentName = "",
+  onSelect = null,
+  onReorder = null,
+  disabled = false,
+} = {}) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "relative";
+  wrapper.dataset.categoryMenu = "true";
+
+  let isOpen = false;
+  let dragSourceId = null;
+  let dragStartOrder = [];
+  let current = currentName || "";
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "btn btn-ghost text-sm min-w-[180px] justify-between gap-2 border border-slate-200 text-left";
+  trigger.disabled = disabled;
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+
+  const triggerLabel = document.createElement("span");
+  triggerLabel.className = "truncate";
+  trigger.appendChild(triggerLabel);
+  const triggerIcon = document.createElement("span");
+  triggerIcon.setAttribute("aria-hidden", "true");
+  triggerIcon.textContent = "▾";
+  trigger.appendChild(triggerIcon);
+
+  const menu = document.createElement("div");
+  menu.className = "absolute z-40 mt-2 w-64 rounded-xl border border-slate-200 bg-white shadow-lg";
+  menu.hidden = true;
+
+  const menuHeader = document.createElement("div");
+  menuHeader.className = "px-3 py-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]";
+  menuHeader.textContent = categories.length
+    ? "Glisser-déposer pour réordonner"
+    : "Aucune catégorie";
+  menu.appendChild(menuHeader);
+
+  const list = document.createElement("ul");
+  list.className = "max-h-64 overflow-y-auto py-1";
+  list.setAttribute("role", "listbox");
+  menu.appendChild(list);
+
+  const updateCurrentLabel = (name) => {
+    current = name || "";
+    triggerLabel.textContent = current || "Choisir…";
+    list.querySelectorAll("[data-cat-select]").forEach((btn) => {
+      const btnName = btn.getAttribute("data-cat-select") || "";
+      const isSelected = btnName === current;
+      btn.classList.toggle("bg-slate-100", isSelected);
+      btn.classList.toggle("font-semibold", isSelected);
+      btn.setAttribute("aria-selected", isSelected ? "true" : "false");
+    });
+  };
+
+  const escapeId = (value) => {
+    if (!value) return "";
+    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+      return CSS.escape(value);
+    }
+    return String(value).replace(/"/g, '\\"');
+  };
+
+  function closeMenu() {
+    if (!isOpen) return;
+    isOpen = false;
+    menu.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    document.removeEventListener("mousedown", handleDocumentClick);
+    document.removeEventListener("keydown", handleKeydown);
+  }
+
+  function handleDocumentClick(event) {
+    if (!wrapper.contains(event.target)) {
+      closeMenu();
+    }
+  }
+
+  function handleKeydown(event) {
+    if (event.key === "Escape") {
+      closeMenu();
+      trigger.focus({ preventScroll: true });
+    }
+  }
+
+  function openMenu() {
+    if (isOpen || disabled) return;
+    isOpen = true;
+    menu.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    document.addEventListener("mousedown", handleDocumentClick);
+    document.addEventListener("keydown", handleKeydown);
+  }
+
+  trigger.addEventListener("click", () => {
+    if (isOpen) {
+      closeMenu();
+    } else {
+      openMenu();
+    }
+  });
+
+  const captureOrder = () =>
+    Array.from(list.querySelectorAll("[data-cat-id]"))
+      .map((item) => item.getAttribute("data-cat-id") || "")
+      .filter(Boolean);
+
+  const buildItem = (cat) => {
+    const item = document.createElement("li");
+    item.className = "px-2";
+    item.dataset.catId = cat?.id || "";
+    item.dataset.catName = cat?.name || "";
+    if (!disabled && item.dataset.catId) {
+      item.draggable = true;
+    }
+
+    const row = document.createElement("div");
+    row.className = "flex items-center gap-2 rounded-lg px-2 py-1 text-sm hover:bg-slate-50";
+
+    const selectBtn = document.createElement("button");
+    selectBtn.type = "button";
+    selectBtn.className = "flex-1 truncate text-left";
+    selectBtn.textContent = cat?.name || "Sans nom";
+    selectBtn.dataset.catSelect = cat?.name || "";
+    row.appendChild(selectBtn);
+
+    const handle = document.createElement("span");
+    handle.className = "cursor-grab select-none text-lg text-slate-400";
+    handle.setAttribute("aria-hidden", "true");
+    handle.textContent = "⋮⋮";
+    row.appendChild(handle);
+
+    item.appendChild(row);
+
+    selectBtn.addEventListener("click", () => {
+      const name = selectBtn.dataset.catSelect || "";
+      updateCurrentLabel(name);
+      closeMenu();
+      if (typeof onSelect === "function") {
+        onSelect(name);
+      }
+    });
+
+    return item;
+  };
+
+  if (categories.length) {
+    categories.forEach((cat) => {
+      list.appendChild(buildItem(cat));
+    });
+  }
+
+  const handleDragStart = (event) => {
+    if (disabled) return;
+    const item = event.target.closest("[data-cat-id]");
+    if (!item || !item.dataset.catId) return;
+    dragSourceId = item.dataset.catId;
+    dragStartOrder = captureOrder();
+    event.dataTransfer.effectAllowed = "move";
+    try {
+      event.dataTransfer.setData("text/plain", item.dataset.catId);
+    } catch (error) {
+      // ignore — browsers may throw if unsupported
+    }
+    item.classList.add("ring", "ring-indigo-200");
+  };
+
+  const handleDragOver = (event) => {
+    if (!dragSourceId) return;
+    event.preventDefault();
+    const over = event.target.closest("[data-cat-id]");
+    if (!over || over.dataset.catId === dragSourceId) return;
+    const source = list.querySelector(`[data-cat-id="${escapeId(dragSourceId)}"]`);
+    if (!source) return;
+    const rect = over.getBoundingClientRect();
+    const before = event.clientY - rect.top < rect.height / 2;
+    over.parentNode.insertBefore(source, before ? over : over.nextSibling);
+  };
+
+  const handleDrop = (event) => {
+    if (!dragSourceId) return;
+    event.preventDefault();
+    const source = list.querySelector(`[data-cat-id="${escapeId(dragSourceId)}"]`);
+    if (source) {
+      source.classList.remove("ring", "ring-indigo-200");
+    }
+    const nextOrder = captureOrder();
+    const changed = JSON.stringify(nextOrder) !== JSON.stringify(dragStartOrder);
+    dragSourceId = null;
+    dragStartOrder = [];
+    if (changed && typeof onReorder === "function") {
+      onReorder(nextOrder);
+    }
+  };
+
+  const handleDragEnd = () => {
+    if (!dragSourceId) return;
+    const source = list.querySelector(`[data-cat-id="${escapeId(dragSourceId)}"]`);
+    if (source) {
+      source.classList.remove("ring", "ring-indigo-200");
+    }
+    dragSourceId = null;
+    dragStartOrder = [];
+  };
+
+  list.addEventListener("dragstart", handleDragStart);
+  list.addEventListener("dragover", handleDragOver);
+  list.addEventListener("drop", handleDrop);
+  list.addEventListener("dragend", handleDragEnd);
+
+  wrapper.appendChild(trigger);
+  wrapper.appendChild(menu);
+
+  updateCurrentLabel(current);
+
+  return {
+    element: wrapper,
+    close: closeMenu,
+    setCurrent: updateCurrentLabel,
+  };
+}
+
 async function categorySelect(ctx, mode, currentName = "") {
   const cats = await Schema.fetchCategories(ctx.db, ctx.user.uid);
   const uniqueNames = Array.from(new Set(cats.map((c) => c.name).filter(Boolean)));
@@ -7243,28 +7502,40 @@ async function renderPractice(ctx, root, _opts = {}) {
   root.appendChild(container);
 
   const currentHash = ctx.route || window.location.hash || "#/practice";
-  const cats = (await Schema.fetchCategories(ctx.db, ctx.user.uid)).filter((c) => c.mode === "practice");
-  const qp  = new URLSearchParams(currentHash.split("?")[1] || "");
-  let currentCat = qp.get("cat") || (cats[0]?.name || "");
+  const fetchedCategories = await Schema.fetchCategories(ctx.db, ctx.user.uid);
+  const categories = sortCategoriesForDisplay(
+    fetchedCategories.filter((cat) => cat.mode === "practice")
+  );
+  const qp = new URLSearchParams(currentHash.split("?")[1] || "");
+  const requestedCat = qp.get("cat") || "";
+  const storedCat = readStoredConsigneCategory(ctx?.user?.uid || null, "practice") || "";
+  const categoryNames = categories.map((cat) => cat.name).filter(Boolean);
 
-  if (!currentCat && cats.length) {
-    const base = (ctx.route || "#/practice").split("?")[0];
-    navigate(`${toAppPath(base)}?cat=${encodeURIComponent(cats[0].name)}`);
+  let currentCat = requestedCat && categoryNames.includes(requestedCat) ? requestedCat : "";
+  if (!currentCat) {
+    if (storedCat && categoryNames.includes(storedCat)) {
+      currentCat = storedCat;
+    } else if (categoryNames.length) {
+      currentCat = categoryNames[0];
+    }
+  }
+
+  const basePath = (ctx.route || "#/practice").split("?")[0];
+  if (currentCat && currentCat !== requestedCat) {
+    storeConsigneCategory(ctx?.user?.uid || null, "practice", currentCat);
+    navigate(`${toAppPath(basePath)}?cat=${encodeURIComponent(currentCat)}`);
     return;
   }
 
-  if (currentCat && cats.length && !cats.some((c) => c.name === currentCat)) {
-    const base = (ctx.route || "#/practice").split("?")[0];
-    navigate(`${toAppPath(base)}?cat=${encodeURIComponent(cats[0].name)}`);
-    return;
+  if (!currentCat && categoryNames.length) {
+    currentCat = categoryNames[0];
   }
 
-  const catOptions = cats
-    .map(
-      (c) =>
-        `<option value="${escapeHtml(c.name)}" ${c.name === currentCat ? "selected" : ""}>${escapeHtml(c.name)}</option>`
-    )
-    .join("");
+  if (currentCat) {
+    storeConsigneCategory(ctx?.user?.uid || null, "practice", currentCat);
+  } else {
+    storeConsigneCategory(ctx?.user?.uid || null, "practice", null);
+  }
 
   const autosaveDayKey = typeof Schema.todayKey === "function"
     ? Schema.todayKey()
@@ -7281,8 +7552,8 @@ async function renderPractice(ctx, root, _opts = {}) {
   card.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-2">
-        <label class="text-sm text-[var(--muted)]" for="practice-cat">Catégorie</label>
-        <select id="practice-cat" class="min-w-[160px]">${catOptions}</select>
+        <span class="text-sm text-[var(--muted)]">Catégorie</span>
+        <div data-practice-category-holder class="relative"></div>
       </div>
       <div class="flex items-center gap-2">
         ${smallBtn("📊 Tableau de bord", "js-dashboard")}
@@ -7296,14 +7567,39 @@ async function renderPractice(ctx, root, _opts = {}) {
   `;
   container.appendChild(card);
 
-  const selector = card.querySelector("#practice-cat");
-  if (selector) {
-    selector.disabled = !cats.length;
-    selector.onchange = (e) => {
-      const value = e.target.value;
-      const base = currentHash.split("?")[0];
-      navigate(`${toAppPath(base)}?cat=${encodeURIComponent(value)}`);
-    };
+  const categoryHolder = card.querySelector("[data-practice-category-holder]");
+  if (categoryHolder) {
+    if (categories.length) {
+      const picker = createCategoryMenu({
+        categories,
+        currentName: currentCat,
+        disabled: !categories.length,
+        onSelect: (name) => {
+          if (!name || name === currentCat) {
+            storeConsigneCategory(ctx?.user?.uid || null, "practice", name || null);
+            return;
+          }
+          storeConsigneCategory(ctx?.user?.uid || null, "practice", name);
+          navigate(`${toAppPath(basePath)}?cat=${encodeURIComponent(name)}`);
+        },
+        onReorder: async (orderedIds) => {
+          if (!ctx?.db || !ctx?.user?.uid) return;
+          try {
+            await Schema.reorderCategories(ctx.db, ctx.user.uid, orderedIds);
+          } catch (error) {
+            console.warn("practice.categories.reorder", error);
+          }
+        },
+      });
+      if (picker?.element) {
+        categoryHolder.appendChild(picker.element);
+      }
+    } else {
+      const empty = document.createElement("span");
+      empty.className = "text-sm text-[var(--muted)]";
+      empty.textContent = "Aucune catégorie";
+      categoryHolder.appendChild(empty);
+    }
   }
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null, { defaultCategory: currentCat });
   const dashBtn = card.querySelector(".js-dashboard");
@@ -8816,6 +9112,10 @@ async function renderDaily(ctx, root, opts = {}) {
 
       form.appendChild(section);
     });
+  }
+
+  if (typeof window.attachConsignesDragDrop === "function") {
+    window.attachConsignesDragDrop(form, ctx);
   }
 
   if (hidden.length) {
