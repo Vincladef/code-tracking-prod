@@ -4004,6 +4004,11 @@ function inputForType(consigne, initialValue = null) {
     const hasInitialStates = initialStates.length > 0;
     const optionsHash = computeChecklistOptionsHash(consigne);
     const optionsAttr = optionsHash ? ` data-checklist-options-hash="${escapeHtml(String(optionsHash))}"` : "";
+    const autosaveFieldName =
+      consigne?.id != null && consigne.id !== ""
+        ? `consigne:${String(consigne.id)}:checklist`
+        : null;
+    const autosaveAttr = autosaveFieldName ? ` data-autosave-field="${escapeHtml(String(autosaveFieldName))}"` : "";
     const checkboxes = items
       .map((label, index) => {
         const checked = normalizedValue[index];
@@ -4029,7 +4034,7 @@ function inputForType(consigne, initialValue = null) {
     return `
       <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}"${optionsAttr}>
         ${checkboxes || `<p class="text-sm text-[var(--muted)]">Aucun élément défini</p>`}
-        <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state data-autosave-track="1" ${
+        <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state data-autosave-track="1"${autosaveAttr} ${
           hasInitialStates ? 'data-dirty="1"' : ""
         }>
       </div>
@@ -5610,6 +5615,95 @@ function enhanceRangeMeters(scope) {
   });
 }
 
+function initializeChecklistScope(scope, { consigneId = null } = {}) {
+  if (!scope) return;
+
+  const collectRoots = (target) => {
+    const roots = [];
+    if (!target) return roots;
+    if (target instanceof Element) {
+      if (target.matches("[data-checklist-root]")) {
+        roots.push(target);
+      }
+      roots.push(...target.querySelectorAll("[data-checklist-root]"));
+    } else if (typeof target.querySelectorAll === "function") {
+      roots.push(...target.querySelectorAll("[data-checklist-root]"));
+    }
+    return roots;
+  };
+
+  const roots = collectRoots(scope);
+  if (!roots.length) return;
+
+  const resolveConsigneId = (root) => {
+    if (consigneId != null) return String(consigneId ?? "");
+    const attr = root.getAttribute("data-consigne-id");
+    if (attr && String(attr).trim()) return attr;
+    if (root.dataset?.consigneId && String(root.dataset.consigneId).trim()) {
+      return root.dataset.consigneId;
+    }
+    const owner = root.closest("[data-consigne-id]");
+    if (owner) {
+      const ownerAttr = owner.getAttribute("data-consigne-id");
+      if (ownerAttr && String(ownerAttr).trim()) return ownerAttr;
+      if (owner.dataset?.consigneId && String(owner.dataset.consigneId).trim()) {
+        return owner.dataset.consigneId;
+      }
+      if (owner.dataset?.id && String(owner.dataset.id).trim()) {
+        return owner.dataset.id;
+      }
+    }
+    return "";
+  };
+
+  roots.forEach((root) => {
+    const resolvedId = resolveConsigneId(root);
+    if (resolvedId && !root.getAttribute("data-consigne-id")) {
+      root.setAttribute("data-consigne-id", resolvedId);
+    }
+    const hidden = root.querySelector("[data-checklist-state]");
+    if (hidden && resolvedId) {
+      const fieldName = `consigne:${resolvedId}:checklist`;
+      hidden.setAttribute("data-autosave-field", fieldName);
+      if (hidden.dataset) {
+        hidden.dataset.autosaveField = fieldName;
+      }
+    }
+
+    const editor = root.querySelector("[contenteditable]");
+    if (editor) {
+      const setupFn =
+        window.setupChecklistEditor || window.setupCheckboxListBehavior || window.setupCheckboxLikeBullets;
+      if (typeof setupFn === "function" && !editor.__cbInstalled) {
+        try {
+          setupFn(editor);
+        } catch (error) {
+          modesLogger?.warn?.("checklist:setup", error);
+        }
+      }
+      const enterExit = window.installChecklistEnterExit;
+      if (typeof enterExit === "function") {
+        try {
+          enterExit(editor);
+        } catch (error) {
+          modesLogger?.warn?.("checklist:enter-exit", error);
+        }
+      }
+    }
+
+    const hydrate = window.hydrateChecklist;
+    if (typeof hydrate === "function") {
+      try {
+        Promise.resolve(hydrate({ container: root, consigneId: resolvedId, itemKeyAttr: "data-key" })).catch((error) => {
+          modesLogger?.warn?.("checklist:hydrate", error);
+        });
+      } catch (error) {
+        modesLogger?.warn?.("checklist:hydrate", error);
+      }
+    }
+  });
+}
+
 function findConsigneInputFields(row, consigne) {
   if (!row || !consigne) return [];
   const holder = row.querySelector("[data-consigne-input-holder]");
@@ -5621,6 +5715,14 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
   const row = document.createElement("div");
   row.className = "consigne-row consigne-row--child consigne-row--virtual";
   row.dataset.id = consigne?.id || "";
+  if (consigne?.id != null) {
+    const stringId = String(consigne.id);
+    row.dataset.consigneId = stringId;
+    row.setAttribute("data-consigne-id", stringId);
+  } else {
+    delete row.dataset.consigneId;
+    row.removeAttribute("data-consigne-id");
+  }
   const tone = priorityTone(consigne?.priority);
   if (tone) {
     row.dataset.priorityTone = tone;
@@ -5634,6 +5736,7 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
   holder.innerHTML = inputForType(consigne, initialValue);
   row.appendChild(holder);
   enhanceRangeMeters(row);
+  initializeChecklistScope(row, { consigneId: consigne?.id ?? null });
   return row;
 }
 
@@ -5948,6 +6051,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
       const preferTop = relevantItems.some((item) => pickPhoneModalClass(item) === "phone-top");
       overlay.classList.add(preferTop ? "phone-top" : "phone-center");
     }
+    initializeChecklistScope(overlay, {});
     overlay.querySelectorAll("textarea").forEach((textarea) => {
       autoGrowTextarea(textarea);
     });
@@ -8388,26 +8492,34 @@ async function renderPractice(ctx, root, _opts = {}) {
   } else {
     form.innerHTML = "";
 
-    const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
-      const tone = priorityTone(c.priority);
-      const row = document.createElement("div");
-      row.className = `consigne-row priority-surface priority-surface-${tone}`;
-      row.dataset.id = c.id;
-      row.dataset.priorityTone = tone;
-      if (isChild) {
-        row.classList.add("consigne-row--child");
-        if (c.parentId) {
-          row.dataset.parentId = c.parentId;
-        } else {
-          delete row.dataset.parentId;
-        }
-        row.draggable = false;
+  const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
+    const tone = priorityTone(c.priority);
+    const row = document.createElement("div");
+    row.className = `consigne-row priority-surface priority-surface-${tone}`;
+    row.dataset.id = c.id;
+    if (c?.id != null) {
+      const stringId = String(c.id);
+      row.dataset.consigneId = stringId;
+      row.setAttribute("data-consigne-id", stringId);
+    } else {
+      delete row.dataset.consigneId;
+      row.removeAttribute("data-consigne-id");
+    }
+    row.dataset.priorityTone = tone;
+    if (isChild) {
+      row.classList.add("consigne-row--child");
+      if (c.parentId) {
+        row.dataset.parentId = c.parentId;
       } else {
-        row.classList.add("consigne-row--parent");
         delete row.dataset.parentId;
-        row.draggable = true;
       }
-      row.innerHTML = `
+      row.draggable = false;
+    } else {
+      row.classList.add("consigne-row--parent");
+      delete row.dataset.parentId;
+      row.draggable = true;
+    }
+    row.innerHTML = `
         <div class="consigne-row__header">
           <div class="consigne-row__main">
             <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
@@ -8438,6 +8550,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (holder) {
         holder.innerHTML = inputForType(c);
         enhanceRangeMeters(holder);
+        initializeChecklistScope(holder, { consigneId: c?.id ?? null });
       }
       const bH = row.querySelector(".js-histo");
       const bE = row.querySelector(".js-edit");
