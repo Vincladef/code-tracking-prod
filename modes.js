@@ -650,6 +650,68 @@ function likert6NumericPoint(value) {
   return index;
 }
 
+function sanitizeChecklistItems(consigne) {
+  const rawItems = Array.isArray(consigne?.checklistItems) ? consigne.checklistItems : [];
+  return rawItems
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+}
+
+function readChecklistStates(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => item === true);
+  }
+  if (value && typeof value === "object" && Array.isArray(value.items)) {
+    return value.items.map((item) => item === true);
+  }
+  return [];
+}
+
+function buildChecklistValue(consigne, rawValue, fallbackValue = null) {
+  const labels = sanitizeChecklistItems(consigne);
+  const rawStates = readChecklistStates(rawValue);
+  const result = { items: [] };
+  if (labels.length) {
+    result.labels = labels.slice();
+    result.items = labels.map((_, index) => Boolean(rawStates[index]));
+  } else {
+    const fallbackLabels = (() => {
+      if (rawValue && typeof rawValue === "object" && Array.isArray(rawValue.labels)) {
+        return rawValue.labels;
+      }
+      if (fallbackValue && typeof fallbackValue === "object" && Array.isArray(fallbackValue.labels)) {
+        return fallbackValue.labels;
+      }
+      return [];
+    })();
+    if (fallbackLabels.length) {
+      const normalizedFallback = fallbackLabels.map((label) =>
+        typeof label === "string" ? label : String(label)
+      );
+      result.labels = normalizedFallback;
+      result.items = normalizedFallback.map((_, index) => Boolean(rawStates[index]));
+    } else {
+      result.items = rawStates.slice();
+    }
+  }
+  if (!Array.isArray(result.items)) {
+    result.items = [];
+  }
+  if (Array.isArray(result.labels) && result.items.length !== result.labels.length) {
+    result.items = result.labels.map((_, index) => Boolean(result.items[index]));
+  }
+  return result;
+}
+
+function checklistHasSelection(value) {
+  return readChecklistStates(value).some(Boolean);
+}
+
+function checklistIsComplete(value) {
+  const states = readChecklistStates(value);
+  return states.length > 0 && states.every(Boolean);
+}
+
 function numericPoint(type, value) {
   if (value === null || value === undefined || value === "") return null;
   if (type === "likert6") {
@@ -679,16 +741,31 @@ function formatConsigneValue(type, value, options = {}) {
   }
   if (value === null || value === undefined || value === "") return "—";
   if (type === "checklist") {
-    let items = [];
-    if (Array.isArray(value)) {
-      items = value;
-    } else if (value && typeof value === "object" && Array.isArray(value.items)) {
-      items = value.items;
+    const states = readChecklistStates(value);
+    if (wantsHtml) {
+      if (!states.length) {
+        return '<p class="history-checklist__empty">—</p>';
+      }
+      const labels = Array.isArray(value?.labels)
+        ? value.labels.map((label) => (typeof label === "string" ? label : String(label)))
+        : [];
+      const itemsMarkup = states
+        .map((checked, index) => {
+          const label = labels[index] || `Élément ${index + 1}`;
+          const statusClass = checked
+            ? "history-checklist__item--checked"
+            : "history-checklist__item--unchecked";
+          const symbol = checked ? "☑︎" : "☐";
+          return `<li class="history-checklist__item ${statusClass}"><span class="history-checklist__box" aria-hidden="true">${symbol}</span><span class="history-checklist__label">${escapeHtml(label)}</span></li>`;
+        })
+        .join("");
+      const completed = states.filter(Boolean).length;
+      const ariaLabel = `${completed} sur ${states.length} éléments cochés`;
+      return `<ul class="history-checklist" data-checked="${completed}" data-total="${states.length}" aria-label="${escapeHtml(ariaLabel)}">${itemsMarkup}</ul>`;
     }
-    if (!items.length) return "—";
-    const done = items.filter((item) => item === true).length;
-    const text = `${done} / ${items.length}`;
-    return wantsHtml ? escapeHtml(text) : text;
+    if (!states.length) return "—";
+    const done = states.filter(Boolean).length;
+    return `${done} / ${states.length}`;
   }
   if (type === "yesno") {
     const text = value === "yes" ? "Oui" : value === "no" ? "Non" : String(value);
@@ -1020,11 +1097,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (type === "likert5") return Math.max(0, Math.min(1, value / 4));
     if (type === "likert6") return Math.max(0, Math.min(1, value / (LIKERT6_ORDER.length - 1 || 1)));
     if (type === "yesno") return Math.max(0, Math.min(1, value));
-    if (type === "checklist") {
-      if (!Array.isArray(value) || value.length === 0) return null;
-      const completed = value.filter(Boolean).length;
-      return Math.max(0, Math.min(1, completed / value.length));
-    }
+  if (type === "checklist") {
+    const states = readChecklistStates(value);
+    if (!states.length) return null;
+    const completed = states.filter(Boolean).length;
+    return Math.max(0, Math.min(1, completed / states.length));
+  }
     return null;
   }
 
@@ -2552,7 +2630,7 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
         <button type="button" class="btn btn-ghost text-xs" data-rich-command="checkbox" title="Insérer une case à cocher" aria-label="Insérer une case à cocher">☐</button>
       </div>
       <div class="consigne-rich-text__content consigne-editor__textarea" data-rich-text-content contenteditable="true"${placeholderAttr}>${initialHtml}</div>
-      <input type="hidden"${hiddenIdAttr} name="${escapeHtml(String(name))}" value="${serialized}" data-rich-text-input data-rich-text-version="${RICH_TEXT_VERSION}">
+      <input type="hidden"${hiddenIdAttr} name="${escapeHtml(String(name))}" value="${serialized}" data-rich-text-input data-rich-text-version="${RICH_TEXT_VERSION}" data-autosave-track="1">
     </div>
   `;
 }
@@ -3739,7 +3817,7 @@ function inputForType(consigne, initialValue = null) {
     return `
       <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}">
         ${checkboxes || `<p class="text-sm text-[var(--muted)]">Aucun élément défini</p>`}
-        <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state ${
+        <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state data-autosave-track="1" ${
           Array.isArray(initialValue) ? 'data-dirty="1"' : ""
         }>
       </div>
@@ -4017,13 +4095,13 @@ function collectAnswers(form, consignes, options = {}) {
       if (hidden) {
         try {
           const parsed = JSON.parse(hidden.value || "[]");
-          if (Array.isArray(parsed) && parsed.length) {
-            const values = parsed.map((item) => item === true);
-            const hasSelection = values.some(Boolean);
-            const isDirty = hidden.dataset.dirty === "1";
-            if (hasSelection || isDirty) {
-              pushAnswer(values);
-            }
+          const normalizedValue = buildChecklistValue(consigne, parsed);
+          const states = readChecklistStates(normalizedValue);
+          const isDirty = hidden.dataset.dirty === "1";
+          const hasSelection = states.some(Boolean);
+          const shouldRecord = states.length ? hasSelection || isDirty : isDirty;
+          if (shouldRecord) {
+            pushAnswer(normalizedValue);
           }
         } catch (error) {
           console.warn("collectAnswers:checklist", error);
@@ -4036,7 +4114,7 @@ function collectAnswers(form, consignes, options = {}) {
           const values = Array.from(container.querySelectorAll("[data-checklist-input]"))
             .map((box) => Boolean(box.checked));
           if (values.length && values.some(Boolean)) {
-            pushAnswer(values);
+            pushAnswer(buildChecklistValue(consigne, values));
           }
         }
       }
@@ -4963,11 +5041,7 @@ function dotColor(type, v){
     if (v == null) {
       return "na";
     }
-    const values = Array.isArray(v)
-      ? v
-      : v && typeof v === "object" && Array.isArray(v.items)
-        ? v.items
-        : [];
+    const values = readChecklistStates(v);
     if (!values.length) return "na";
     const completed = values.filter(Boolean).length;
     if (completed === 0) return "ko-strong";
@@ -5097,6 +5171,18 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
   if (status === "na" && row.dataset.childAnswered === "1") {
     status = "note";
   }
+  if (consigne.type === "checklist") {
+    const highlight =
+      checklistIsComplete(valueForStatus) ||
+      (valueForStatus && typeof valueForStatus === "object" && valueForStatus.skipped === true);
+    if (highlight) {
+      row.classList.add("consigne-row--validated");
+    } else {
+      row.classList.remove("consigne-row--validated");
+    }
+  } else {
+    row.classList.remove("consigne-row--validated");
+  }
   const statusHolder = row.querySelector("[data-status]");
   const dot = row.querySelector("[data-status-dot]");
   const mark = row.querySelector("[data-status-mark]");
@@ -5132,10 +5218,7 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
         return richTextHasContent(valueForStatus);
       }
       if (consigne.type === "checklist") {
-        if (Array.isArray(valueForStatus)) return valueForStatus.some(Boolean);
-        if (valueForStatus && typeof valueForStatus === "object" && Array.isArray(valueForStatus.items)) {
-          return valueForStatus.items.some(Boolean);
-        }
+        return checklistHasSelection(valueForStatus);
       }
       return !(valueForStatus === null || valueForStatus === undefined || valueForStatus === "");
     })();
@@ -5223,9 +5306,7 @@ function readConsigneCurrentValue(consigne, scope) {
       }
       try {
         const parsed = JSON.parse(hidden.value || "[]");
-        if (Array.isArray(parsed)) {
-          return parsed.map((value) => value === true);
-        }
+        return buildChecklistValue(consigne, parsed);
       } catch (error) {
         console.warn("readConsigneCurrentValue:checklist", error);
       }
@@ -5236,10 +5317,10 @@ function readConsigneCurrentValue(consigne, scope) {
     if (container) {
       const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
       if (boxes.length) {
-        return boxes.map((box) => Boolean(box.checked));
+        return buildChecklistValue(consigne, boxes.map((box) => Boolean(box.checked)));
       }
     }
-    return [];
+    return buildChecklistValue(consigne, []);
   }
   const input = scope.querySelector(`[name$=":${id}"]`);
   return input ? input.value : "";
@@ -5326,15 +5407,19 @@ function setConsigneRowValue(row, consigne, value) {
       return;
     }
     const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
-    const normalizedArray = Array.isArray(value) ? value : [];
+    const normalizedValue =
+      value === null || value === undefined
+        ? null
+        : buildChecklistValue(consigne, value, value && typeof value === "object" ? value : null);
+    const states = normalizedValue ? readChecklistStates(normalizedValue) : [];
     boxes.forEach((box, index) => {
-      box.checked = Boolean(normalizedArray[index]);
+      box.checked = Boolean(states[index]);
     });
     const hidden = container.querySelector(`[name="checklist:${String(consigne.id ?? "")}"]`);
     if (hidden) {
       const serialized = JSON.stringify(boxes.map((box) => Boolean(box.checked)));
       hidden.value = serialized;
-      if (Array.isArray(value)) {
+      if (normalizedValue) {
         hidden.dataset.dirty = "1";
       } else {
         delete hidden.dataset.dirty;
@@ -5342,7 +5427,7 @@ function setConsigneRowValue(row, consigne, value) {
       hidden.dispatchEvent(new Event("input", { bubbles: true }));
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
     }
-    updateConsigneStatusUI(row, consigne, boxes.map((box) => Boolean(box.checked)));
+    updateConsigneStatusUI(row, consigne, normalizedValue);
     return;
   }
   const fields = findConsigneInputFields(row, consigne);
@@ -6084,11 +6169,7 @@ function hasValueForConsigne(consigne, value) {
     return typeof value === "string" && value.trim().length > 0;
   }
   if (type === "checklist") {
-    if (Array.isArray(value)) return value.some(Boolean);
-    if (value && typeof value === "object" && Array.isArray(value.items)) {
-      return value.items.some(Boolean);
-    }
-    return false;
+    return checklistHasSelection(value);
   }
   if (type === "num") {
     if (value === null || value === undefined || value === "") return false;
@@ -7982,8 +8063,22 @@ async function renderPractice(ctx, root, _opts = {}) {
     }
   }
 
+  const hiddenParentIds = new Set(hidden.map((entry) => entry?.c?.id).filter(Boolean));
+  const initialVisible = visible.filter((consigne) => {
+    if (!consigne) return false;
+    if (consigne.parentId && hiddenParentIds.has(consigne.parentId)) {
+      return false;
+    }
+    return true;
+  });
+  const visibleIdSet = new Set(initialVisible.map((consigne) => consigne.id));
+  const visibleConsignes = initialVisible.filter((consigne) => {
+    if (!consigne?.parentId) return true;
+    return visibleIdSet.has(consigne.parentId);
+  });
+
   const form = card.querySelector("#practice-form");
-  if (!visible.length) {
+  if (!visibleConsignes.length) {
     form.innerHTML = `<div class="rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]">Aucune consigne visible pour cette itération.</div>`;
   } else {
     form.innerHTML = "";
@@ -8136,7 +8231,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       return row;
     };
 
-    const grouped = groupConsignes(visible);
+    const grouped = groupConsignes(visibleConsignes);
     const renderGroup = (group, target) => {
       const wrapper = document.createElement("div");
       wrapper.className = "consigne-group";
@@ -8253,7 +8348,7 @@ async function renderPractice(ctx, root, _opts = {}) {
   const saveBtn = card.querySelector("#save");
   saveBtn.onclick = async (e) => {
     e.preventDefault();
-    const answers = collectAnswers(form, visible);
+    const answers = collectAnswers(form, visibleConsignes);
     const sessionNumber = sessionIndex + 1;
     const sessionId = `session-${String(sessionNumber).padStart(4, "0")}`;
     answers.forEach((ans) => {
@@ -8725,9 +8820,23 @@ async function renderDaily(ctx, root, opts = {}) {
     else hidden.push({ c, daysLeft: daysBetween(new Date(), next), when: next });
   }));
 
-  const orderIndex = new Map(visible.map((c, idx) => [c.id, idx]));
+  const hiddenParentIds = new Set(hidden.map((entry) => entry?.c?.id).filter(Boolean));
+  const initialVisible = visible.filter((consigne) => {
+    if (!consigne) return false;
+    if (consigne.parentId && hiddenParentIds.has(consigne.parentId)) {
+      return false;
+    }
+    return true;
+  });
+  const visibleIdSet = new Set(initialVisible.map((consigne) => consigne.id));
+  const visibleConsignes = initialVisible.filter((consigne) => {
+    if (!consigne?.parentId) return true;
+    return visibleIdSet.has(consigne.parentId);
+  });
+
+  const orderIndex = new Map(visibleConsignes.map((c, idx) => [c.id, idx]));
   const catGroups = new Map();
-  visible.forEach((consigne) => {
+  visibleConsignes.forEach((consigne) => {
     const cat = consigne.category || "Général";
     const list = catGroups.get(cat) || [];
     list.push(consigne);
@@ -9288,7 +9397,7 @@ async function renderDaily(ctx, root, opts = {}) {
   });
   card.appendChild(form);
 
-  if (!visible.length) {
+  if (!visibleConsignes.length) {
     const empty = document.createElement("div");
     empty.className = "rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)] daily-grid__item";
     empty.innerText = "Aucune consigne visible pour ce jour.";
@@ -9410,5 +9519,8 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     readConsigneCurrentValue,
     dotColor,
+    buildChecklistValue,
+    sanitizeChecklistItems,
+    readChecklistStates,
   };
 }

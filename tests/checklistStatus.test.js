@@ -70,7 +70,13 @@ function setupDomStubs() {
 
 setupDomStubs();
 
-const { readConsigneCurrentValue, dotColor } = require("../modes.js");
+const {
+  readConsigneCurrentValue,
+  dotColor,
+  buildChecklistValue,
+  sanitizeChecklistItems,
+  readChecklistStates,
+} = require("../modes.js");
 
 function testChecklistValueRemainsNullUntilDirty() {
   const consigne = { id: "c1", type: "checklist" };
@@ -92,7 +98,11 @@ function testChecklistValueRemainsNullUntilDirty() {
   hidden.dataset.dirty = "1";
   hidden.value = JSON.stringify([true, false]);
   const afterDirty = readConsigneCurrentValue(consigne, scope);
-  assert.deepStrictEqual(afterDirty, [true, false], "Une checklist marquée sale doit retourner les cases cochées");
+  assert.deepStrictEqual(
+    afterDirty,
+    { items: [true, false] },
+    "Une checklist marquée sale doit retourner les cases cochées"
+  );
 }
 
 function testDotColorTreatsNullAsNa() {
@@ -101,9 +111,37 @@ function testDotColorTreatsNullAsNa() {
 
 function testDotColorSignalsAllUncheckedAsKo() {
   assert.strictEqual(
-    dotColor("checklist", [false, false, false]),
+    dotColor("checklist", { items: [false, false, false] }),
     "ko-strong",
     "Une checklist explicitement décochée doit s’afficher en rouge",
+  );
+}
+
+function testBuildChecklistValueRespectsConsigneLabels() {
+  const consigne = { checklistItems: ["  Première ", "Deuxième", ""] };
+  const built = buildChecklistValue(consigne, [true, false, true]);
+  assert.deepStrictEqual(
+    built,
+    { items: [true, false], labels: ["Première", "Deuxième"] },
+    "Les labels de consigne doivent être nettoyés et faire correspondre les états",
+  );
+}
+
+function testReadChecklistStatesNormalizesValues() {
+  const states = readChecklistStates({ items: [true, "yes", 1, false] });
+  assert.deepStrictEqual(
+    states,
+    [true, false, false, false],
+    "Seules les valeurs booléennes strictes doivent être conservées",
+  );
+}
+
+function testSanitizeChecklistItemsDropsEmptyEntries() {
+  const consigne = { checklistItems: ["Alpha", "", "  ", "Beta"] };
+  assert.deepStrictEqual(
+    sanitizeChecklistItems(consigne),
+    ["Alpha", "Beta"],
+    "Les libellés vides ou blancs doivent être filtrés",
   );
 }
 
@@ -111,6 +149,9 @@ try {
   testChecklistValueRemainsNullUntilDirty();
   testDotColorTreatsNullAsNa();
   testDotColorSignalsAllUncheckedAsKo();
+  testBuildChecklistValueRespectsConsigneLabels();
+  testReadChecklistStatesNormalizesValues();
+  testSanitizeChecklistItemsDropsEmptyEntries();
   console.log("All checklist status tests passed.");
 } catch (error) {
   console.error(error);
