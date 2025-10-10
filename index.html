@@ -904,6 +904,14 @@
     .consigne-row--updated {
       animation:consigne-row-updated-pulse .9s ease-out;
     }
+    .consigne-row--validated {
+      background:rgba(59,130,246,.12);
+      border-top-color:rgba(59,130,246,.22);
+      box-shadow:0 0 0 1px rgba(59,130,246,.18);
+      border-radius:.65rem;
+      outline:2px solid rgba(37,99,235,.4);
+      outline-offset:2px;
+    }
     .consigne-row {
       position:relative;
       display:flex;
@@ -1763,6 +1771,12 @@
     .history-panel__value span:last-child ol{ margin:.35rem 0; padding-left:1.25rem; }
     .history-panel__value span:last-child li{ margin:.2rem 0; }
     .history-panel__value input[type="checkbox"]{ pointer-events:none; margin-right:.35rem; }
+    .history-panel__value .history-checklist{ margin:.35rem 0 0; padding:0; list-style:none; display:grid; gap:.3rem; }
+    .history-panel__value .history-checklist__item{ display:flex; align-items:flex-start; gap:.45rem; font-size:.95rem; line-height:1.4; }
+    .history-panel__value .history-checklist__box{ flex:none; font-family:"Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size:1.05rem; line-height:1.1; color:#1d4ed8; }
+    .history-panel__value .history-checklist__item--unchecked .history-checklist__box{ color:#94a3b8; }
+    .history-panel__value .history-checklist__label{ display:block; flex:1 1 auto; color:inherit; }
+    .history-panel__value .history-checklist__empty{ margin:.35rem 0 0; color:#64748b; font-style:italic; }
     .history-panel__dot{ width:.65rem; height:.65rem; border-radius:999px; background:#94a3b8; flex:none; }
     .history-panel__dot--ok-strong{ background:#16a34a; }
     .history-panel__dot--ok-soft{ background:#4ade80; }

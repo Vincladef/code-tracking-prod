@@ -1364,9 +1364,9 @@ function valueToNumericPoint(type, value) {
   if (type === "num") return Number(value) || 0;
   if (type === "checklist") {
     const values = Array.isArray(value)
-      ? value
+      ? value.map((item) => item === true)
       : value && typeof value === "object" && Array.isArray(value.items)
-        ? value.items
+        ? value.items.map((item) => item === true)
         : [];
     if (!values.length) return null;
     const completed = values.filter(Boolean).length;
