@@ -3263,7 +3263,7 @@ function inputForType(consigne, initialValue = null) {
           Array.isArray(initialValue) ? 'data-dirty="1"' : ""
         }>
       </div>
-      <script>(()=>{const script=document.currentScript;const hidden=script.previousElementSibling;const root=hidden?.closest('[data-checklist-root]');if(!root||!hidden)return;const inputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const sync=()=>{const values=inputs().map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);};const markDirty=()=>{hidden.dataset.dirty="1";};const notify=()=>{hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync();markDirty();notify();}});sync();})();</script>
+      <script>(()=>{const script=document.currentScript;const root=script?.previousElementSibling?.closest?.('[data-checklist-root]')||null;if(!root)return;const hidden=root.querySelector('[data-checklist-state]');if(!hidden)return;const inputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const sync=()=>{const values=inputs().map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);};const markDirty=()=>{hidden.dataset.dirty="1";};const notify=()=>{hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync();markDirty();notify();}});sync();})();</script>
     `;
   }
   return "";
