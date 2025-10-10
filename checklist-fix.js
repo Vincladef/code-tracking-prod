@@ -373,6 +373,20 @@
       } catch (error) {
         console.warn("[checklist-fix] hidden", error);
       }
+      if (hidden.dataset) {
+        hidden.dataset.dirty = "1";
+      }
+      if (typeof hidden.dispatchEvent === "function" && typeof Event === "function") {
+        try {
+          hidden.dispatchEvent(new Event("input", { bubbles: true }));
+          hidden.dispatchEvent(new Event("change", { bubbles: true }));
+        } catch (error) {
+          console.warn("[checklist-fix] hidden:dispatch", error);
+        }
+      }
+    }
+    if (root && root.dataset) {
+      root.dataset.checklistDirty = "1";
     }
   }
 
