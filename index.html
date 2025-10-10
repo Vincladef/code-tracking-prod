@@ -1890,6 +1890,25 @@
     .history-panel__item--summary{ border-color:rgba(59,130,246,0.25); background:linear-gradient(180deg, rgba(191,219,254,0.18), rgba(255,255,255,0.95)); }
     .history-panel__summary-badge{ display:inline-flex; align-items:center; gap:.3rem; padding:.2rem .65rem; border-radius:.75rem; font-size:.75rem; font-weight:600; background:rgba(37,99,235,0.12); color:#1d4ed8; }
 
+    @keyframes pulseSaved {
+      0% { box-shadow: 0 0 0 0 rgba(30, 102, 245, 0.4); }
+      100% { box-shadow: 0 0 0 12px rgba(30, 102, 245, 0); }
+    }
+
+    [data-checklist-item][data-validated="true"] {
+      background: #e9f1ff;
+      border-color: rgba(30, 102, 245, 0.35);
+      border-left-width: 4px;
+      border-left-color: #1e66f5;
+    }
+
+    [data-checklist-item].saved-burst {
+      animation: pulseSaved 0.4s ease-out 1;
+    }
+
+    [data-checklist-item] {
+      transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
   </style>
 </head>
 <body class="min-h-screen">

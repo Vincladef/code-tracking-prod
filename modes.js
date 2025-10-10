@@ -657,6 +657,31 @@ function sanitizeChecklistItems(consigne) {
     .filter((item) => item.length > 0);
 }
 
+function filterConsignesByParentVisibility(consignes, hiddenParentIds = new Set()) {
+  if (!Array.isArray(consignes) || consignes.length === 0) {
+    return [];
+  }
+  const initialVisible = consignes.filter((consigne) => {
+    if (!consigne) {
+      return false;
+    }
+    if (consigne.parentId && hiddenParentIds.has(consigne.parentId)) {
+      return false;
+    }
+    return true;
+  });
+  if (!initialVisible.length) {
+    return initialVisible;
+  }
+  const visibleIdSet = new Set(initialVisible.map((consigne) => consigne?.id).filter(Boolean));
+  return initialVisible.filter((consigne) => {
+    if (!consigne?.parentId) {
+      return true;
+    }
+    return visibleIdSet.has(consigne.parentId);
+  });
+}
+
 function readChecklistStates(value) {
   if (Array.isArray(value)) {
     return value.map((item) => item === true);
@@ -3806,9 +3831,11 @@ function inputForType(consigne, initialValue = null) {
     const checkboxes = items
       .map((label, index) => {
         const checked = normalizedValue[index];
+        const itemId = `${consigne.id ?? ""}:${index}`;
+        const validatedAttr = checked ? "true" : "false";
         return `
-          <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm" data-checklist-item>
-            <input type="checkbox" class="h-4 w-4" data-checklist-input ${checked ? "checked" : ""}>
+          <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm" data-checklist-item data-item-id="${escapeHtml(itemId)}" data-checklist-index="${index}" data-validated="${validatedAttr}">
+            <input type="checkbox" class="h-4 w-4" data-checklist-input data-checklist-index="${index}" ${checked ? "checked" : ""}>
             <span class="flex-1">${escapeHtml(label)}</span>
           </label>`;
       })
@@ -3821,7 +3848,7 @@ function inputForType(consigne, initialValue = null) {
           Array.isArray(initialValue) ? 'data-dirty="1"' : ""
         }>
       </div>
-      <script>(()=>{const script=document.currentScript;const hidden=script.previousElementSibling;const root=hidden?.closest('[data-checklist-root]');if(!root||!hidden)return;const inputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const sync=()=>{const values=inputs().map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);};const markDirty=()=>{hidden.dataset.dirty="1";};const notify=()=>{hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync();markDirty();notify();}});sync();})();</script>
+      <script>(()=>{const script=document.currentScript;const hidden=script.previousElementSibling;const root=hidden?.closest('[data-checklist-root]');if(!root||!hidden)return;const inputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const ensureItemIds=()=>{const consigneId=root.getAttribute('data-consigne-id')||root.dataset.consigneId||'';inputs().forEach((input,index)=>{const host=input.closest('[data-checklist-item]');if(!host)return;const attr=input.getAttribute('data-checklist-index');const idx=attr!==null?attr:index;host.setAttribute('data-validated',input.checked?'true':'false');if(!host.hasAttribute('data-item-id')){const prefix=consigneId?String(consigneId)+':':'';host.setAttribute('data-item-id',prefix+String(idx));}});};const sync=()=>{const values=inputs().map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);ensureItemIds();};const markDirty=()=>{hidden.dataset.dirty="1";};const notify=()=>{hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync();markDirty();notify();}});sync();})();</script>
     `;
   }
   return "";
@@ -8064,18 +8091,7 @@ async function renderPractice(ctx, root, _opts = {}) {
   }
 
   const hiddenParentIds = new Set(hidden.map((entry) => entry?.c?.id).filter(Boolean));
-  const initialVisible = visible.filter((consigne) => {
-    if (!consigne) return false;
-    if (consigne.parentId && hiddenParentIds.has(consigne.parentId)) {
-      return false;
-    }
-    return true;
-  });
-  const visibleIdSet = new Set(initialVisible.map((consigne) => consigne.id));
-  const visibleConsignes = initialVisible.filter((consigne) => {
-    if (!consigne?.parentId) return true;
-    return visibleIdSet.has(consigne.parentId);
-  });
+  const visibleConsignes = filterConsignesByParentVisibility(visible, hiddenParentIds);
 
   const form = card.querySelector("#practice-form");
   if (!visibleConsignes.length) {
@@ -8821,18 +8837,7 @@ async function renderDaily(ctx, root, opts = {}) {
   }));
 
   const hiddenParentIds = new Set(hidden.map((entry) => entry?.c?.id).filter(Boolean));
-  const initialVisible = visible.filter((consigne) => {
-    if (!consigne) return false;
-    if (consigne.parentId && hiddenParentIds.has(consigne.parentId)) {
-      return false;
-    }
-    return true;
-  });
-  const visibleIdSet = new Set(initialVisible.map((consigne) => consigne.id));
-  const visibleConsignes = initialVisible.filter((consigne) => {
-    if (!consigne?.parentId) return true;
-    return visibleIdSet.has(consigne.parentId);
-  });
+  const visibleConsignes = filterConsignesByParentVisibility(visible, hiddenParentIds);
 
   const orderIndex = new Map(visibleConsignes.map((c, idx) => [c.id, idx]));
   const catGroups = new Map();
