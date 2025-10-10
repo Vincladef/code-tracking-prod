@@ -452,17 +452,43 @@
       const host =
         input.closest("[data-checklist-item]") || input.closest('[data-rich-checkbox-wrapper="1"]') || null;
       const explicitId =
-        input.getAttribute("data-item-id") || input.dataset?.itemId || input.dataset?.id || null;
+        input.getAttribute("data-key") ||
+        input.dataset?.key ||
+        input.getAttribute("data-item-id") ||
+        input.dataset?.itemId ||
+        input.dataset?.id ||
+        host?.getAttribute?.("data-checklist-key") ||
+        null;
       const hostId = host?.getAttribute?.("data-item-id") || null;
+      const legacySource =
+        input.getAttribute("data-legacy-key") ||
+        input.dataset?.legacyKey ||
+        host?.getAttribute?.("data-checklist-legacy-key") ||
+        null;
       const fallbackId = consigneId ? `${consigneId}:${index}` : String(index);
+      const legacyId = legacySource || fallbackId;
       const itemId = explicitId || hostId || fallbackId;
       if (host && (!hostId || hostId !== itemId)) {
         host.setAttribute("data-item-id", itemId);
+        host.setAttribute("data-checklist-key", itemId);
+        if (legacyId) {
+          host.setAttribute("data-checklist-legacy-key", legacyId);
+        }
       }
       if (!explicitId && typeof input.setAttribute === "function") {
         input.setAttribute("data-item-id", itemId);
+        input.setAttribute("data-key", itemId);
+        if (input.dataset) {
+          input.dataset.key = itemId;
+        }
       }
-      return { input, host, itemId };
+      if (typeof input.setAttribute === "function") {
+        input.setAttribute("data-legacy-key", legacyId);
+        if (input.dataset) {
+          input.dataset.legacyKey = legacyId;
+        }
+      }
+      return { input, host, itemId, legacyId };
     });
   }
 
@@ -487,8 +513,9 @@
       return false;
     }
     let anyChange = false;
-    entries.forEach(({ input, host, itemId }) => {
-      const shouldCheck = selectedSet.has(String(itemId));
+    entries.forEach(({ input, host, itemId, legacyId }) => {
+      const shouldCheck =
+        selectedSet.has(String(itemId)) || (legacyId ? selectedSet.has(String(legacyId)) : false);
       if (input.checked !== shouldCheck) {
         input.checked = shouldCheck;
         anyChange = true;
