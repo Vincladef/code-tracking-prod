@@ -7133,91 +7133,6 @@ async function openHistory(ctx, consigne, options = {}) {
     return "";
   }
 
-  function parseDayKeyToDate(key) {
-    if (typeof key !== "string") {
-      return null;
-    }
-    const trimmed = key.trim();
-    if (!trimmed) {
-      return null;
-    }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-      const [yearStr, monthStr, dayStr] = trimmed.split("-");
-      const year = Number(yearStr);
-      const month = Number(monthStr);
-      const day = Number(dayStr);
-      if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
-        const candidate = new Date(year, (month || 1) - 1, day || 1);
-        if (!Number.isNaN(candidate.getTime())) {
-          candidate.setHours(0, 0, 0, 0);
-          return candidate;
-        }
-      }
-    }
-    const parsed = new Date(trimmed);
-    if (!Number.isNaN(parsed.getTime())) {
-      parsed.setHours(0, 0, 0, 0);
-      return parsed;
-    }
-    return null;
-  }
-
-  function toFirestoreTimestamp(date) {
-    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-      return null;
-    }
-    const tsSource =
-      modesFirestore?.Timestamp ||
-      Schema.firestore?.Timestamp ||
-      (typeof window !== "undefined" && window.firebase?.firestore?.Timestamp) ||
-      (typeof window !== "undefined" && window.firebase?.Timestamp) ||
-      null;
-    if (tsSource && typeof tsSource.fromDate === "function") {
-      try {
-        return tsSource.fromDate(date);
-      } catch (error) {
-        modesLogger?.debug?.("ui.daily.timestamp", error);
-      }
-    }
-    return null;
-  }
-
-  function mondayStartOf(date) {
-    const base = toStartOfDay(date);
-    if (!base) return null;
-    const diff = (base.getDay() + 6) % 7;
-    const monday = new Date(base.getTime());
-    monday.setDate(monday.getDate() - diff);
-    monday.setHours(0, 0, 0, 0);
-    return monday;
-  }
-
-  function computeDailyPageContext({ date, dayKey } = {}) {
-    const fromDate = date instanceof Date ? toStartOfDay(date) : null;
-    const fromKey = !fromDate && dayKey ? parseDayKeyToDate(dayKey) : null;
-    const baseDate = fromDate || fromKey || toStartOfDay(new Date());
-    if (!baseDate) {
-      return null;
-    }
-    const pageDateIso = typeof Schema?.dayKeyFromDate === "function"
-      ? Schema.dayKeyFromDate(baseDate)
-      : baseDate.toISOString().slice(0, 10);
-    const weekStartDate = mondayStartOf(baseDate);
-    const weekStart = weekStartDate && typeof Schema?.dayKeyFromDate === "function"
-      ? Schema.dayKeyFromDate(weekStartDate)
-      : weekStartDate
-      ? weekStartDate.toISOString().slice(0, 10)
-      : "";
-    const pageDayIndex = ((baseDate.getDay() + 6) % 7 + 7) % 7;
-    const pageDate = toFirestoreTimestamp(baseDate);
-    return {
-      pageDate,
-      pageDateIso,
-      weekStart,
-      pageDayIndex,
-    };
-  }
-
   const seenDailyDayKeys = new Set();
   rows = rows.filter((row) => {
     const modeKey = normalizeMode(row);
@@ -7578,7 +7493,7 @@ async function openHistory(ctx, consigne, options = {}) {
         createdAt = null;
       }
       const dayKey = resolveDayKey(r, createdAt);
-      const dayDate = dayKey ? parseDayKeyToDate(dayKey) : null;
+      const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
       const displayDate = dayDate || createdAt;
       const iso = displayDate && !Number.isNaN(displayDate.getTime()) ? displayDate.toISOString() : "";
       const dateText = displayDate && !Number.isNaN(displayDate.getTime())
@@ -7853,7 +7768,7 @@ async function openHistory(ctx, consigne, options = {}) {
     if (createdAt && Number.isNaN(createdAt.getTime())) {
       createdAt = null;
     }
-    const dayDate = dayKey ? parseDayKeyToDate(dayKey) : null;
+    const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
     const displayDate = dayDate || createdAt;
     const dateLabel = displayDate && !Number.isNaN(displayDate.getTime())
       ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
@@ -8765,6 +8680,101 @@ async function loadBilanSettings(ctx) {
     }
   })();
   return bilanSettingsPromise;
+}
+
+function modesParseDayKeyToDate(key) {
+  if (typeof key !== "string") {
+    return null;
+  }
+  const trimmed = key.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (typeof parseDayKeyToDate === "function") {
+    try {
+      const parsedViaGlobal = parseDayKeyToDate(trimmed);
+      if (parsedViaGlobal instanceof Date && !Number.isNaN(parsedViaGlobal.getTime())) {
+        return parsedViaGlobal;
+      }
+    } catch (error) {
+      modesLogger?.debug?.("ui.daily.parseDayKey", error);
+    }
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const [yearStr, monthStr, dayStr] = trimmed.split("-");
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    const day = Number(dayStr);
+    if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+      const candidate = new Date(year, (month || 1) - 1, day || 1);
+      if (!Number.isNaN(candidate.getTime())) {
+        candidate.setHours(0, 0, 0, 0);
+        return candidate;
+      }
+    }
+  }
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    parsed.setHours(0, 0, 0, 0);
+    return parsed;
+  }
+  return null;
+}
+
+function modesToFirestoreTimestamp(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const tsSource =
+    modesFirestore?.Timestamp ||
+    Schema.firestore?.Timestamp ||
+    (typeof window !== "undefined" && window.firebase?.firestore?.Timestamp) ||
+    (typeof window !== "undefined" && window.firebase?.Timestamp) ||
+    null;
+  if (tsSource && typeof tsSource.fromDate === "function") {
+    try {
+      return tsSource.fromDate(date);
+    } catch (error) {
+      modesLogger?.debug?.("ui.daily.timestamp", error);
+    }
+  }
+  return null;
+}
+
+function modesMondayStartOf(date) {
+  const base = toStartOfDay(date);
+  if (!base) return null;
+  const diff = (base.getDay() + 6) % 7;
+  const monday = new Date(base.getTime());
+  monday.setDate(monday.getDate() - diff);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+function computeDailyPageContext({ date, dayKey } = {}) {
+  const fromDate = date instanceof Date ? toStartOfDay(date) : null;
+  const fromKey = !fromDate && dayKey ? modesParseDayKeyToDate(dayKey) : null;
+  const baseDate = fromDate || fromKey || toStartOfDay(new Date());
+  if (!baseDate) {
+    return null;
+  }
+  const pageDateIso = typeof Schema?.dayKeyFromDate === "function"
+    ? Schema.dayKeyFromDate(baseDate)
+    : baseDate.toISOString().slice(0, 10);
+  const weekStartDate = modesMondayStartOf(baseDate);
+  const weekStart = weekStartDate && typeof Schema?.dayKeyFromDate === "function"
+    ? Schema.dayKeyFromDate(weekStartDate)
+    : weekStartDate
+    ? weekStartDate.toISOString().slice(0, 10)
+    : "";
+  const pageDayIndex = ((baseDate.getDay() + 6) % 7 + 7) % 7;
+  const pageDate = modesToFirestoreTimestamp(baseDate);
+  return {
+    pageDate,
+    pageDateIso,
+    weekStart,
+    pageDayIndex,
+  };
 }
 
 function toStartOfDay(dateInput) {
