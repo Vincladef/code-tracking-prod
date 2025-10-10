@@ -1917,6 +1917,29 @@
     [data-checklist-item] {
       transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     }
+
+    .preselect-hint {
+      margin: 0 0 0.5rem;
+      padding: 0.45rem 0.65rem;
+      border-radius: 0.75rem;
+      background: rgba(99, 102, 241, 0.12);
+      color: #3730a3;
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    .preselect-hint__note {
+      font-weight: 600;
+    }
+
+    .preselect-hint--warning {
+      background: rgba(245, 158, 11, 0.18);
+      color: #92400e;
+    }
+
+    .preselect-hint--warning .preselect-hint__note {
+      color: inherit;
+    }
   </style>
 </head>
 <body class="min-h-screen">
@@ -1995,6 +2018,7 @@
   <script src="modes.js"></script>
   <script src="goals.js"></script>
   <script src="autosave.js"></script>
+  <script src="./utils/checklist-state.js"></script>
   <script src="./text-editor-checkboxes.js"></script>
   <script src="./editor-checkboxes.js"></script>
   <script src="./checklist-fix.js"></script>

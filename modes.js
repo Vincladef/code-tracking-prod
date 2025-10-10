@@ -658,6 +658,80 @@ function sanitizeChecklistItems(consigne) {
     .filter((item) => item.length > 0);
 }
 
+function quickChecklistHash(value) {
+  const str = typeof value === "string" ? value : JSON.stringify(value || "");
+  let hash = 2166136261;
+  for (let index = 0; index < str.length; index += 1) {
+    hash ^= str.charCodeAt(index);
+    hash = (hash * 16777619) >>> 0;
+  }
+  return hash.toString(16);
+}
+
+function fallbackChecklistOptionsHash(items) {
+  if (!Array.isArray(items)) {
+    return quickChecklistHash("");
+  }
+  const normalized = items
+    .map((item) => (typeof item === "string" ? item.trim() : item == null ? "" : String(item)))
+    .filter((item) => item.length > 0);
+  return quickChecklistHash(JSON.stringify(normalized));
+}
+
+function computeChecklistOptionsHash(consigne) {
+  const items = sanitizeChecklistItems(consigne);
+  const hashFn = window.ChecklistState?.hashOptions;
+  if (typeof hashFn === "function") {
+    try {
+      const hashed = hashFn(items);
+      if (hashed) {
+        return String(hashed);
+      }
+    } catch (error) {
+      modesLogger?.warn?.("checklist.hash.error", error);
+    }
+  }
+  return fallbackChecklistOptionsHash(items);
+}
+
+function resolveChecklistItemId(consigne, index) {
+  const base =
+    consigne?.id ??
+    consigne?.slug ??
+    consigne?.slugId ??
+    consigne?.slug_id ??
+    consigne?.consigneId ??
+    "";
+  const baseStr = base ? String(base) : "";
+  return baseStr ? `${baseStr}:${index}` : String(index);
+}
+
+function collectChecklistSelectedIds(consigne, container, value) {
+  const states = readChecklistStates(value);
+  const selected = new Set();
+  if (container instanceof Element) {
+    const items = Array.from(container.querySelectorAll("[data-checklist-item]"));
+    if (items.length) {
+      items.forEach((item, index) => {
+        const input = item.querySelector('[data-checklist-input], input[type="checkbox"]');
+        const fallbackId = resolveChecklistItemId(consigne, index);
+        const itemId = item.getAttribute("data-item-id") || fallbackId;
+        const isChecked = input ? Boolean(input.checked) : Boolean(states[index]);
+        if (isChecked) {
+          selected.add(String(itemId));
+        }
+      });
+      return Array.from(selected);
+    }
+  }
+  states.forEach((checked, index) => {
+    if (checked) {
+      selected.add(resolveChecklistItemId(consigne, index));
+    }
+  });
+  return Array.from(selected);
+}
+
 function filterConsignesByParentVisibility(consignes, hiddenParentIds = new Set()) {
   if (!Array.isArray(consignes) || consignes.length === 0) {
     return [];
@@ -3890,6 +3964,8 @@ function inputForType(consigne, initialValue = null) {
     const normalizedValue = Array.isArray(initialValue)
       ? items.map((_, index) => Boolean(initialValue[index]))
       : items.map(() => false);
+    const optionsHash = computeChecklistOptionsHash(consigne);
+    const optionsAttr = optionsHash ? ` data-checklist-options-hash="${escapeHtml(String(optionsHash))}"` : "";
     const checkboxes = items
       .map((label, index) => {
         const checked = normalizedValue[index];
@@ -3904,7 +3980,7 @@ function inputForType(consigne, initialValue = null) {
       .join("");
     const initialSerialized = escapeHtml(JSON.stringify(normalizedValue));
     return `
-      <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}">
+      <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}"${optionsAttr}>
         ${checkboxes || `<p class="text-sm text-[var(--muted)]">Aucun élément défini</p>`}
         <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state data-autosave-track="1" ${
           Array.isArray(initialValue) ? 'data-dirty="1"' : ""
@@ -4202,6 +4278,7 @@ function collectAnswers(form, consignes, options = {}) {
       const val = form.querySelector(`[name="likert6:${consigne.id}"]`)?.value;
       if (val) pushAnswer(val);
     } else if (consigne.type === "checklist") {
+      const optionsHash = computeChecklistOptionsHash(consigne);
       const hidden = form.querySelector(`[name="checklist:${consigne.id}"]`);
       if (hidden) {
         try {
@@ -4212,12 +4289,15 @@ function collectAnswers(form, consignes, options = {}) {
           const rootDirty = root?.dataset?.checklistDirty === "1";
           if (isDirty || rootDirty) {
             const stats = deriveChecklistStats(normalizedValue);
+            const selectedIds = collectChecklistSelectedIds(consigne, root, normalizedValue);
             pushAnswer(normalizedValue, {
               checkedIds: stats.checkedIds,
               checkedCount: stats.checkedCount,
               total: stats.total,
               percentage: stats.percentage,
               isEmpty: stats.isEmpty,
+              selectedIds,
+              optionsHash,
             });
           }
         } catch (error) {
@@ -4234,12 +4314,15 @@ function collectAnswers(form, consignes, options = {}) {
           if (isDirty) {
             const normalized = buildChecklistValue(consigne, values);
             const stats = deriveChecklistStats(normalized);
+            const selectedIds = collectChecklistSelectedIds(consigne, container, normalized);
             pushAnswer(normalized, {
               checkedIds: stats.checkedIds,
               checkedCount: stats.checkedCount,
               total: stats.total,
               percentage: stats.percentage,
               isEmpty: stats.isEmpty,
+              selectedIds,
+              optionsHash,
             });
           }
         }
