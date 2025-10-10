@@ -117,6 +117,35 @@
         weekEndsOn,
       };
     }
+    if (type === "year" || type === "yearly") {
+      const baseDate = entry.yearEnd || entry.yearStart || entry.sunday || new Date();
+      const yearKey = entry.yearKey || (baseDate ? Schema.yearKeyFromDate(baseDate) : "");
+      const start = entry.yearStart
+        ? Schema.startOfDay(entry.yearStart)
+        : (() => {
+            const year = baseDate instanceof Date ? baseDate.getFullYear() : new Date().getFullYear();
+            const d = new Date(year, 0, 1);
+            d.setHours(0, 0, 0, 0);
+            return d;
+          })();
+      const end = entry.yearEnd
+        ? Schema.endOfDay(entry.yearEnd)
+        : (() => {
+            const year = start instanceof Date ? start.getFullYear() : new Date().getFullYear();
+            const d = new Date(year, 11, 31);
+            d.setHours(23, 59, 59, 999);
+            return d;
+          })();
+      return {
+        scope: "year",
+        start,
+        end,
+        key: yearKey || String(start?.getFullYear?.() || new Date().getFullYear()),
+        label: entry.navSubtitle || entry.navLabel || "",
+        entry,
+        weekEndsOn,
+      };
+    }
     return null;
   }
 
@@ -135,6 +164,24 @@
         };
       })
       .filter(Boolean);
+  }
+
+  function normalizeSectionsData(sections, period) {
+    if (!sections || typeof sections !== "object") {
+      return null;
+    }
+    const normalized = {
+      daily: normalizeConsignes(sections.daily || [], "daily"),
+      practice: normalizeConsignes(sections.practice || [], "practice"),
+      objective: [],
+    };
+    if (Array.isArray(sections.objective) && sections.objective.length) {
+      const alreadyNormalized = sections.objective.every((item) => item && item.family === "objective");
+      normalized.objective = alreadyNormalized
+        ? sections.objective.slice()
+        : normalizeObjectives(sections.objective, period);
+    }
+    return normalized;
   }
 
   function sortConsignes(list) {
@@ -828,7 +875,12 @@
     let sectionsData = null;
     let answersMap = new Map();
     try {
-      sectionsData = await loadConsignesForPeriod(ctx.db, ctx.user.uid, period);
+      if (options.sections) {
+        sectionsData = normalizeSectionsData(options.sections, period);
+      }
+      if (!sectionsData) {
+        sectionsData = await loadConsignesForPeriod(ctx.db, ctx.user.uid, period);
+      }
       answersMap = await Schema.loadSummaryAnswers(ctx.db, ctx.user.uid, period.scope, period.key);
     } catch (error) {
       bilanLogger?.error?.("bilan.render.load", error);
