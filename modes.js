@@ -658,6 +658,23 @@ function sanitizeChecklistItems(consigne) {
     .filter((item) => item.length > 0);
 }
 
+function slugifyChecklistLabel(label) {
+  if (typeof label !== "string") {
+    return "";
+  }
+  const trimmed = label.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const normalized = typeof trimmed.normalize === "function" ? trimmed.normalize("NFD") : trimmed;
+  return normalized
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
 function quickChecklistHash(value) {
   const str = typeof value === "string" ? value : JSON.stringify(value || "");
   let hash = 2166136261;
@@ -694,7 +711,7 @@ function computeChecklistOptionsHash(consigne) {
   return fallbackChecklistOptionsHash(items);
 }
 
-function resolveChecklistItemId(consigne, index) {
+function resolveChecklistItemId(consigne, index, label) {
   const base =
     consigne?.id ??
     consigne?.slug ??
@@ -703,7 +720,12 @@ function resolveChecklistItemId(consigne, index) {
     consigne?.consigneId ??
     "";
   const baseStr = base ? String(base) : "";
-  return baseStr ? `${baseStr}:${index}` : String(index);
+  const labelStr = typeof label === "string" ? label.trim() : "";
+  const slug = slugifyChecklistLabel(labelStr);
+  const hashSource = labelStr ? `${labelStr}#${index}` : `${index}`;
+  const hash = quickChecklistHash(hashSource).slice(0, 8);
+  const key = slug ? `${slug}-${hash}` : hash;
+  return baseStr ? `${baseStr}:${key}` : key;
 }
 
 function collectChecklistSelectedIds(consigne, container, value) {
@@ -714,8 +736,17 @@ function collectChecklistSelectedIds(consigne, container, value) {
     if (items.length) {
       items.forEach((item, index) => {
         const input = item.querySelector('[data-checklist-input], input[type="checkbox"]');
-        const fallbackId = resolveChecklistItemId(consigne, index);
-        const itemId = item.getAttribute("data-item-id") || fallbackId;
+        const fallbackId = resolveChecklistItemId(
+          consigne,
+          index,
+          item.getAttribute("data-checklist-label") || input?.getAttribute?.("data-label") || ""
+        );
+        const explicitKey =
+          input?.getAttribute?.("data-key") ||
+          input?.dataset?.key ||
+          item.getAttribute("data-checklist-key") ||
+          item.getAttribute("data-item-id");
+        const itemId = explicitKey || fallbackId;
         const isChecked = input ? Boolean(input.checked) : Boolean(states[index]);
         if (isChecked) {
           selected.add(String(itemId));
@@ -724,9 +755,10 @@ function collectChecklistSelectedIds(consigne, container, value) {
       return Array.from(selected);
     }
   }
+  const sanitizedItems = sanitizeChecklistItems(consigne);
   states.forEach((checked, index) => {
     if (checked) {
-      selected.add(resolveChecklistItemId(consigne, index));
+      selected.add(resolveChecklistItemId(consigne, index, sanitizedItems[index]));
     }
   });
   return Array.from(selected);
@@ -3958,9 +3990,7 @@ function inputForType(consigne, initialValue = null) {
     `;
   }
   if (consigne.type === "checklist") {
-    const items = Array.isArray(consigne.checklistItems)
-      ? consigne.checklistItems.filter((item) => typeof item === "string" && item.trim().length > 0)
-      : [];
+    const items = sanitizeChecklistItems(consigne);
     const normalizedValue = Array.isArray(initialValue)
       ? items.map((_, index) => Boolean(initialValue[index]))
       : items.map(() => false);
@@ -3969,11 +3999,20 @@ function inputForType(consigne, initialValue = null) {
     const checkboxes = items
       .map((label, index) => {
         const checked = normalizedValue[index];
-        const itemId = `${consigne.id ?? ""}:${index}`;
+        const trimmedLabel = typeof label === "string" ? label.trim() : "";
+        const itemId = resolveChecklistItemId(consigne, index, trimmedLabel);
+        const legacyBase =
+          consigne?.id ??
+          consigne?.slug ??
+          consigne?.slugId ??
+          consigne?.slug_id ??
+          consigne?.consigneId ??
+          "";
+        const legacyId = legacyBase ? `${legacyBase}:${index}` : String(index);
         const validatedAttr = checked ? "true" : "false";
         return `
-          <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm" data-checklist-item data-item-id="${escapeHtml(itemId)}" data-checklist-index="${index}" data-validated="${validatedAttr}">
-            <input type="checkbox" class="h-4 w-4" data-checklist-input data-checklist-index="${index}" ${checked ? "checked" : ""}>
+          <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm" data-checklist-item data-item-id="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-checklist-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" data-checklist-label="${escapeHtml(trimmedLabel)}" data-validated="${validatedAttr}">
+            <input type="checkbox" class="h-4 w-4" data-checklist-input data-key="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" ${checked ? "checked" : ""}>
             <span class="flex-1">${escapeHtml(label)}</span>
           </label>`;
       })
@@ -3986,7 +4025,7 @@ function inputForType(consigne, initialValue = null) {
           Array.isArray(initialValue) ? 'data-dirty="1"' : ""
         }>
       </div>
-      <script>(()=>{const script=document.currentScript;const hidden=script.previousElementSibling;const root=hidden?.closest('[data-checklist-root]');if(!root||!hidden)return;const inputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const ensureItemIds=()=>{const consigneId=root.getAttribute('data-consigne-id')||root.dataset.consigneId||'';inputs().forEach((input,index)=>{const host=input.closest('[data-checklist-item]');if(!host)return;const attr=input.getAttribute('data-checklist-index');const idx=attr!==null?attr:index;host.setAttribute('data-validated',input.checked?'true':'false');if(!host.hasAttribute('data-item-id')){const prefix=consigneId?String(consigneId)+':':'';host.setAttribute('data-item-id',prefix+String(idx));}});};const sync=()=>{const values=inputs().map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);ensureItemIds();};const markDirty=()=>{hidden.dataset.dirty="1";};const notify=()=>{hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync();markDirty();notify();}});sync();})();</script>
+      <script>(()=>{const script=document.currentScript;const hidden=script.previousElementSibling;const root=hidden?.closest('[data-checklist-root]');if(!root||!hidden)return;const queryInputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const ensureItemIds=()=>{const consigneId=root.getAttribute('data-consigne-id')||root.dataset.consigneId||'';queryInputs().forEach((input,index)=>{const host=input.closest('[data-checklist-item]');if(!host)return;const explicitKey=input.getAttribute('data-key')||input.dataset?.key||input.getAttribute('data-item-id')||host.getAttribute('data-item-id');const attr=input.getAttribute('data-checklist-index');const idx=attr!==null?attr:index;const fallback=consigneId?`${String(consigneId)}:${idx}`:String(idx);const resolvedKey=(explicitKey&&String(explicitKey).trim())||fallback;const legacyKey=input.getAttribute('data-legacy-key')||host.getAttribute('data-checklist-legacy-key')||fallback;input.setAttribute('data-key',resolvedKey);input.dataset.key=resolvedKey;input.setAttribute('data-item-id',resolvedKey);input.setAttribute('data-legacy-key',legacyKey);host.setAttribute('data-item-id',resolvedKey);host.setAttribute('data-checklist-key',resolvedKey);host.setAttribute('data-checklist-legacy-key',legacyKey);host.setAttribute('data-validated',input.checked?'true':'false');});};const sync=(options={})=>{const inputs=queryInputs();const values=inputs.map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);if(options.markDirty){hidden.dataset.dirty='1';}if(options.notify){hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));}ensureItemIds();};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync({markDirty:true,notify:true});}});sync();const hydrate=window.hydrateChecklist;const uid=window.AppCtx?.user?.uid||null;const consigneId=root.getAttribute('data-consigne-id')||root.dataset.consigneId||'';if(typeof hydrate==='function'){Promise.resolve(hydrate({uid,consigneId,container:root,itemKeyAttr:'data-key'})).then(()=>sync()).catch((error)=>{console.warn('[checklist] hydrate',error);});}})();</script>
     `;
   }
   return "";

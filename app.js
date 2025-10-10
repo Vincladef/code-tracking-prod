@@ -282,11 +282,34 @@
       if (!input || !root || !host) {
         return host?.getAttribute?.("data-item-id") || null;
       }
-      const existing = host.getAttribute("data-item-id");
-      if (existing) {
-        return existing;
-      }
       const consigneId = root.getAttribute("data-consigne-id") || root.dataset.consigneId || "";
+      const explicitKey =
+        input.getAttribute("data-key") ||
+        input.dataset?.key ||
+        input.getAttribute("data-item-id") ||
+        host.getAttribute("data-item-id");
+      const explicitLegacy =
+        input.getAttribute("data-legacy-key") ||
+        input.dataset?.legacyKey ||
+        host.getAttribute("data-checklist-legacy-key") ||
+        null;
+      if (explicitKey) {
+        const key = String(explicitKey);
+        input.setAttribute("data-item-id", key);
+        input.setAttribute("data-key", key);
+        input.dataset.key = key;
+        host.setAttribute("data-item-id", key);
+        host.setAttribute("data-checklist-key", key);
+        if (explicitLegacy) {
+          const legacy = String(explicitLegacy);
+          input.setAttribute("data-legacy-key", legacy);
+          if (input.dataset) {
+            input.dataset.legacyKey = legacy;
+          }
+          host.setAttribute("data-checklist-legacy-key", legacy);
+        }
+        return key;
+      }
       const attr = input.getAttribute("data-checklist-index");
       let indexValue = attr !== null ? attr : null;
       if (indexValue === null) {
@@ -301,7 +324,17 @@
       }
       const prefix = consigneId ? `${String(consigneId)}:` : "";
       const itemId = `${prefix}${indexValue}`;
+      const legacyKey =
+        explicitLegacy ||
+        (consigneId ? `${String(consigneId)}:${indexValue}` : String(indexValue));
+      input.setAttribute("data-item-id", itemId);
+      input.setAttribute("data-key", itemId);
+      input.dataset.key = itemId;
+      input.setAttribute("data-legacy-key", legacyKey);
+      input.dataset.legacyKey = legacyKey;
       host.setAttribute("data-item-id", itemId);
+      host.setAttribute("data-checklist-key", itemId);
+      host.setAttribute("data-checklist-legacy-key", legacyKey);
       return itemId;
     };
 
