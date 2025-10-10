@@ -3344,29 +3344,39 @@ function collectAnswers(form, consignes, options = {}) {
       if (val) answers.push({ consigne, value: val, dayKey });
     } else if (consigne.type === "checklist") {
       const hidden = form.querySelector(`[name="checklist:${consigne.id}"]`);
+      const container = form.querySelector(
+        `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+      );
+      let parsedValues = null;
+      let parsedHasSelection = false;
+      let parsedIsDirty = false;
       if (hidden) {
+        parsedIsDirty = hidden.dataset?.dirty === "1";
         try {
           const parsed = JSON.parse(hidden.value || "[]");
-          if (Array.isArray(parsed) && parsed.length) {
-            const values = parsed.map((item) => item === true);
-            const hasSelection = values.some(Boolean);
-            const isDirty = hidden.dataset.dirty === "1";
-            if (hasSelection || isDirty) {
-              answers.push({ consigne, value: values, dayKey });
+          if (Array.isArray(parsed)) {
+            parsedValues = parsed.map((item) => item === true);
+            parsedHasSelection = parsedValues.some(Boolean);
+            if (parsedHasSelection || parsedIsDirty) {
+              answers.push({ consigne, value: parsedValues, dayKey });
+              continue;
             }
           }
         } catch (error) {
           console.warn("collectAnswers:checklist", error);
         }
-      } else {
-        const container = form.querySelector(
-          `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
-        );
-        if (container) {
-          const values = Array.from(container.querySelectorAll("[data-checklist-input]"))
-            .map((box) => Boolean(box.checked));
-          if (values.length && values.some(Boolean)) {
-            answers.push({ consigne, value: values, dayKey });
+      }
+      if (container) {
+        const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
+        if (boxes.length) {
+          const fallbackValues = boxes.map((box) => Boolean(box.checked));
+          const fallbackHasSelection = fallbackValues.some(Boolean);
+          const fallbackDiffers = !Array.isArray(parsedValues)
+            ? fallbackHasSelection
+            : fallbackValues.length !== parsedValues.length ||
+              fallbackValues.some((value, index) => value !== parsedValues[index]);
+          if (fallbackHasSelection || fallbackDiffers || parsedIsDirty) {
+            answers.push({ consigne, value: fallbackValues, dayKey });
           }
         }
       }
@@ -4334,15 +4344,17 @@ function readConsigneCurrentValue(consigne, scope) {
   }
   if (type === "checklist") {
     const hidden = scope.querySelector(`[name="checklist:${id}"]`);
+    let parsedValues = null;
+    let isDirty = false;
     if (hidden) {
-      const isDirty = hidden.dataset && hidden.dataset.dirty === "1";
-      if (!isDirty) {
-        return null;
-      }
+      isDirty = hidden.dataset?.dirty === "1";
       try {
         const parsed = JSON.parse(hidden.value || "[]");
         if (Array.isArray(parsed)) {
-          return parsed.map((value) => value === true);
+          parsedValues = parsed.map((value) => value === true);
+          if (isDirty) {
+            return parsedValues;
+          }
         }
       } catch (error) {
         console.warn("readConsigneCurrentValue:checklist", error);
@@ -4354,10 +4366,21 @@ function readConsigneCurrentValue(consigne, scope) {
     if (container) {
       const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
       if (boxes.length) {
-        return boxes.map((box) => Boolean(box.checked));
+        const fallbackValues = boxes.map((box) => Boolean(box.checked));
+        const fallbackHasSelection = fallbackValues.some(Boolean);
+        const fallbackDiffers = !Array.isArray(parsedValues)
+          ? fallbackHasSelection
+          : fallbackValues.length !== parsedValues.length ||
+            fallbackValues.some((value, index) => value !== parsedValues[index]);
+        if (isDirty || fallbackHasSelection || fallbackDiffers) {
+          return fallbackValues;
+        }
       }
     }
-    return [];
+    if (isDirty && Array.isArray(parsedValues)) {
+      return parsedValues;
+    }
+    return null;
   }
   const input = scope.querySelector(`[name$=":${id}"]`);
   return input ? input.value : "";
@@ -6094,5 +6117,6 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     readConsigneCurrentValue,
     dotColor,
+    collectAnswers,
   };
 }
