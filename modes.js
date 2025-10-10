@@ -3475,7 +3475,7 @@ function inputForType(consigne, initialValue = null) {
           Array.isArray(initialValue) ? 'data-dirty="1"' : ""
         }>
       </div>
-      <script>(()=>{const script=document.currentScript;const root=script?.previousElementSibling?.closest?.('[data-checklist-root]')||null;if(!root)return;const hidden=root.querySelector('[data-checklist-state]');if(!hidden)return;const inputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const sync=()=>{const values=inputs().map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);};const markDirty=()=>{hidden.dataset.dirty="1";};const notify=()=>{hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync();markDirty();notify();}});sync();})();</script>
+      <script>(()=>{const script=document.currentScript;const root=script?.previousElementSibling?.closest?.('[data-checklist-root]')||null;if(!root)return;const hidden=root.querySelector('[data-checklist-state]');if(!hidden)return;const inputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const reflect=()=>{inputs().forEach((input)=>{const item=input.closest('[data-checklist-item]');if(item){item.classList.toggle('is-checked',Boolean(input.checked));if(input.checked){item.dataset.checked="1";}else{delete item.dataset.checked;}}});};const sync=()=>{const values=inputs().map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);reflect();};const markDirty=()=>{hidden.dataset.dirty="1";};const notify=()=>{hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync();markDirty();notify();}});sync();})();</script>
     `;
   }
   return "";
@@ -4681,7 +4681,17 @@ function setConsigneRowValue(row, consigne, value) {
     const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
     const normalizedArray = Array.isArray(value) ? value : [];
     boxes.forEach((box, index) => {
-      box.checked = Boolean(normalizedArray[index]);
+      const checked = Boolean(normalizedArray[index]);
+      box.checked = checked;
+      const item = box.closest('[data-checklist-item]');
+      if (item) {
+        item.classList.toggle('is-checked', checked);
+        if (checked) {
+          item.dataset.checked = "1";
+        } else {
+          delete item.dataset.checked;
+        }
+      }
     });
     const hidden = container.querySelector(`[name="checklist:${String(consigne.id ?? "")}"]`);
     if (hidden) {
