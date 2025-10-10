@@ -1728,6 +1728,13 @@
     .history-panel__nav-btn:disabled{ opacity:0.4; cursor:not-allowed; }
     .history-panel__nav-label{ white-space:nowrap; }
     .history-panel__badge{ display:inline-flex; align-items:center; gap:.35rem; padding:.3rem .7rem; border-radius:.75rem; background:rgba(99,102,241,0.1); color:#4338ca; font-size:.75rem; font-weight:600; }
+    .badge{ display:inline-flex; align-items:center; justify-content:center; gap:.25rem; padding:.2rem .55rem; border-radius:999px; font-size:.7rem; font-weight:600; letter-spacing:.01em; white-space:nowrap; }
+    .badge.badge--checklist{ min-width:2.75rem; }
+    .badge.red{ background:#e11d48; color:#fff; }
+    .badge.red-light{ background:#f87171; color:#1f2937; }
+    .badge.yellow{ background:#f59e0b; color:#1f2937; }
+    .badge.green-light{ background:#86efac; color:#064e3b; }
+    .badge.green{ background:#16a34a; color:#fff; }
     .history-panel__body{ max-height:70vh; overflow:auto; padding-right:.25rem; }
     .history-panel__list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.75rem; }
     .history-panel__item{ padding:.85rem .9rem; border:1px solid rgba(148,163,184,0.28); border-radius:1rem; background:#fff; display:flex; flex-direction:column; gap:.45rem; box-shadow:0 10px 20px rgba(15,23,42,0.1); transition:border-color .15s ease, background .15s ease, box-shadow .15s ease; }
@@ -1751,7 +1758,8 @@
     .history-panel__item-edit{ border:1px solid rgba(148,163,184,0.45); background:rgba(255,255,255,0.88); color:#1d4ed8; font-size:.75rem; font-weight:600; padding:.25rem .65rem; border-radius:.65rem; box-shadow:0 1px 2px rgba(15,23,42,0.08); transition:background .15s ease, border-color .15s ease, color .15s ease; }
     .history-panel__item-edit:hover{ background:rgba(59,130,246,0.12); border-color:rgba(59,130,246,0.35); color:#1e3a8a; }
     .history-panel__item-edit:focus-visible{ outline:2px solid rgba(59,130,246,0.4); outline-offset:2px; }
-    .history-panel__value{ display:flex; align-items:flex-start; gap:.55rem; font-size:1.05rem; font-weight:600; color:#0f172a; transition:color .15s ease; }
+    .history-panel__value{ display:flex; align-items:flex-start; gap:.55rem; flex-wrap:wrap; font-size:1.05rem; font-weight:600; color:#0f172a; transition:color .15s ease; }
+    .history-panel__value-text{ display:inline-flex; flex-direction:column; gap:.25rem; }
     .history-panel__value--summary{ gap:.75rem; }
     .history-panel__summary-marker{ display:inline-flex; align-items:center; justify-content:center; width:1.5rem; height:1.5rem; border-radius:999px; background:rgba(139,92,246,0.18); color:#6d28d9; font-size:.8rem; font-weight:700; line-height:1; box-shadow:0 0 0 1.5px rgba(139,92,246,0.22); margin-top:.1rem; }
     .history-panel__summary-marker::before{ content:"★"; }
@@ -1982,6 +1990,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
   <script src="./utils/dates.js"></script>
+  <script src="./utils/colors.js"></script>
   <script src="schema.js"></script>
   <script src="modes.js"></script>
   <script src="goals.js"></script>
