@@ -1284,6 +1284,12 @@
     .practice-editor__input:focus-visible,
     .practice-editor__select:focus-visible,
     .consigne-editor__textarea:focus-visible{ outline:3px solid var(--accent-200); outline-offset:1px; border-color:var(--accent-400); }
+    .practice-editor__checklist{ display:flex; flex-direction:column; gap:.5rem; padding:.25rem 0; }
+    .practice-editor__checklist-option{ display:flex; align-items:flex-start; gap:.55rem; border:1px solid #E2E8F0; border-radius:.75rem; background:#F8FAFC; padding:.5rem .65rem; font-size:.9rem; color:#1f2937; }
+    .practice-editor__checklist-option input[type="checkbox"]{ width:1rem; height:1rem; margin-top:.15rem; }
+    .practice-editor__checklist-option span{ flex:1 1 auto; }
+    .practice-editor__checklist-option--archived{ opacity:.7; font-style:italic; }
+    .practice-editor__checklist-empty{ font-size:.85rem; color:#64748b; margin:0; }
     .consigne-rich-text{ display:flex; flex-direction:column; gap:.5rem; }
     .consigne-rich-text__toolbar{ display:flex; flex-wrap:wrap; gap:.35rem; }
     .consigne-rich-text__toolbar .btn{ padding:.3rem .6rem; font-size:.75rem; line-height:1.1; }

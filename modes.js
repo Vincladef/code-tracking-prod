@@ -1555,6 +1555,34 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           inputId: fieldId,
         });
       }
+      if (type === "checklist") {
+        const items = Array.isArray(consigne?.checklistItems)
+          ? consigne.checklistItems.filter((item) => typeof item === "string" && item.trim().length > 0)
+          : [];
+        const initialValues = Array.isArray(value)
+          ? value
+          : value && typeof value === "object" && Array.isArray(value.items)
+            ? value.items
+            : [];
+        const maxLength = Math.max(items.length, initialValues.length);
+        const checklistEntries = [];
+        for (let index = 0; index < maxLength; index += 1) {
+          const sourceLabel = items[index];
+          const label = sourceLabel ? sourceLabel.trim() : `Élément ${index + 1}`;
+          const extraLabel = sourceLabel ? label : `${label} (archivé)`;
+          const checked = Boolean(initialValues[index]);
+          checklistEntries.push(`
+            <label class="practice-editor__checklist-option${sourceLabel ? "" : " practice-editor__checklist-option--archived"}" data-history-checklist-item>
+              <input type="checkbox" class="practice-editor__checklist-checkbox" data-history-checklist-input value="${index}" ${checked ? "checked" : ""}>
+              <span>${escapeHtml(extraLabel)}</span>
+            </label>
+          `);
+        }
+        if (!checklistEntries.length) {
+          return '<p class="practice-editor__checklist-empty">Aucun élément défini pour cette checklist.</p>';
+        }
+        return `<div class="practice-editor__checklist" data-history-checklist>${checklistEntries.join("")}</div>`;
+      }
       return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Réponse" value="${escapeHtml(String(value ?? ""))}">`;
     }
 
@@ -1584,6 +1612,13 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       }
       if (type === "yesno" || type === "likert6") {
         return field.value || "";
+      }
+      if (type === "checklist") {
+        const inputs = Array.from(form.querySelectorAll("[data-history-checklist-input]"));
+        if (!inputs.length) {
+          return "";
+        }
+        return inputs.map((input) => Boolean(input.checked));
       }
       return (field.value || "").trim();
     }
