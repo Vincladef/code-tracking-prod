@@ -80,6 +80,20 @@
     route: "#/admin",
   };
 
+  function updateChecklistStateContext() {
+    const manager = window.ChecklistState;
+    if (!manager) {
+      return;
+    }
+    if (ctx.db && ctx.user?.uid && typeof manager.setContext === "function") {
+      manager.setContext({ db: ctx.db, uid: ctx.user.uid });
+      return;
+    }
+    if (typeof manager.clearContext === "function") {
+      manager.clearContext();
+    }
+  }
+
   function ensureRichTextModalCheckboxBehavior() {
     if (typeof document === "undefined") return;
 
@@ -2278,6 +2292,7 @@
     ctx.app = app;
     ctx.db = db;
     if (typeof Schema.bindDb === "function") Schema.bindDb(db);
+    updateChecklistStateContext();
     bindNav();
     rememberInstallTargetFromHash(location.hash || "");
     if (!location.hash || location.hash === "#") {
@@ -2335,6 +2350,7 @@
     ctx.app = app;
     ctx.db = db;
     ctx.user = user;
+    updateChecklistStateContext();
 
     await refreshUserBadge(user.uid);
 
@@ -2655,8 +2671,10 @@
       // IMPORTANT: enlever la query de 'sub'
       sub = sub.split("?")[0];
       ctx.user = { uid };
+      updateChecklistStateContext();
     } else {
       ctx.user = null;
+      updateChecklistStateContext();
     }
 
     syncUserActionsContext();

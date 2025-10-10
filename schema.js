@@ -870,6 +870,8 @@ async function persistResponsesToHistory(db, uid, responses) {
       "pageDateIso",
       "pageDayIndex",
       "weekStart",
+      "selectedIds",
+      "optionsHash",
     ];
     metadataKeys.forEach((key) => {
       if (!Object.prototype.hasOwnProperty.call(entry, key)) {
@@ -983,6 +985,18 @@ async function saveResponses(db, uid, mode, answers) {
     if (a.context !== undefined) {
       payload.context = a.context;
     }
+    if (Array.isArray(a.selectedIds)) {
+      payload.selectedIds = a.selectedIds
+        .map((value) => String(value ?? ""))
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0);
+    }
+    if (a.optionsHash !== undefined && a.optionsHash !== null) {
+      const hashValue = String(a.optionsHash);
+      if (hashValue) {
+        payload.optionsHash = hashValue;
+      }
+    }
     if (Array.isArray(a.checkedIds)) {
       payload.checkedIds = a.checkedIds.slice();
     }
@@ -1088,6 +1102,13 @@ async function saveResponses(db, uid, mode, answers) {
     await persistResponsesToHistory(db, uid, results);
   } catch (error) {
     console.warn("responses.history:error", error);
+  }
+  if (window.ChecklistState?.persistResponses) {
+    try {
+      await window.ChecklistState.persistResponses(db, uid, results);
+    } catch (error) {
+      console.warn("responses.checklistHistory:error", error);
+    }
   }
   return results;
 }
