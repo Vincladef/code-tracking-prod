@@ -749,6 +749,174 @@ function showToast(msg){
   setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; setTimeout(()=>el.remove(), 250); }, 1200);
 }
 
+function summaryScopeLabel(scope) {
+  const normalized = String(scope || "").toLowerCase();
+  if (normalized === "monthly") return "Bilan mensuel";
+  if (normalized === "yearly") return "Bilan annuel";
+  return "Bilan hebdomadaire";
+}
+
+async function chooseBilanScope(options = {}) {
+  const allowMonthly = options.allowMonthly !== false;
+  const scopes = [
+    { scope: "weekly", label: "Bilan hebdomadaire", description: "Synthèse de la semaine écoulée." },
+  ];
+  if (allowMonthly) {
+    scopes.push({ scope: "monthly", label: "Bilan mensuel", description: "Vue d’ensemble du mois." });
+  }
+  scopes.push({ scope: "yearly", label: "Bilan annuel", description: "Recul sur l’année complète." });
+
+  const optionsMarkup = scopes
+    .map(
+      (item) => `
+        <button type="button" class="w-full rounded-xl border border-slate-200 px-4 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:outline-none" data-bilan-scope="${escapeHtml(item.scope)}" data-bilan-label="${escapeHtml(item.label)}">
+          <span class="flex items-center justify-between gap-3">
+            <span>
+              <span class="block font-medium text-slate-800">${escapeHtml(item.label)}</span>
+              ${item.description ? `<span class="mt-1 block text-sm text-slate-500">${escapeHtml(item.description)}</span>` : ""}
+            </span>
+            <span aria-hidden="true" class="text-slate-400">→</span>
+          </span>
+        </button>`
+    )
+    .join("");
+
+  const overlay = modal(`
+    <div class="space-y-4">
+      <header class="space-y-1">
+        <h2 class="text-lg font-semibold">Choisir un type de bilan</h2>
+        <p class="text-sm text-[var(--muted)]">Sélectionne la période qui correspond le mieux au bilan que tu souhaites réaliser.</p>
+      </header>
+      <div class="space-y-2">
+        ${optionsMarkup}
+      </div>
+      <div class="flex justify-end">
+        <button type="button" class="btn" data-bilan-cancel>Annuler</button>
+      </div>
+    </div>
+  `);
+
+  return new Promise((resolve) => {
+    if (!overlay) {
+      resolve(null);
+      return;
+    }
+    const originalRemove = overlay.remove.bind(overlay);
+    let settled = false;
+    const finalize = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+      originalRemove();
+    };
+    overlay.remove = () => {
+      if (!settled) {
+        settled = true;
+        resolve(null);
+      }
+      originalRemove();
+    };
+    overlay.querySelectorAll("[data-bilan-scope]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const scope = btn.getAttribute("data-bilan-scope");
+        const label = btn.getAttribute("data-bilan-label") || summaryScopeLabel(scope);
+        finalize({ scope, label });
+      });
+    });
+    const cancelBtn = overlay.querySelector("[data-bilan-cancel]");
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", () => finalize(null));
+    }
+  });
+}
+
+function createYearlySummaryEntry(baseDate) {
+  const anchor = toStartOfDay(baseDate || new Date());
+  if (!anchor) return null;
+  const year = anchor.getFullYear();
+  const start = new Date(year, 0, 1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(year, 11, 31, 23, 59, 59, 999);
+  const yearKey = typeof Schema?.yearKeyFromDate === "function" ? Schema.yearKeyFromDate(anchor) : String(year);
+  return {
+    type: "yearly",
+    year,
+    yearKey,
+    yearStart: start,
+    yearEnd: end,
+    navLabel: `Bilan ${year}`,
+    navSubtitle: `${year}`,
+    weekEndsOn: DAILY_WEEK_ENDS_ON,
+  };
+}
+
+function entryForSummaryScope(scope, baseDate = new Date()) {
+  const normalized = String(scope || "").toLowerCase();
+  if (normalized === "monthly") {
+    return createMonthlySummaryEntry(baseDate) || createWeeklySummaryEntry(baseDate);
+  }
+  if (normalized === "yearly") {
+    return createYearlySummaryEntry(baseDate);
+  }
+  return createWeeklySummaryEntry(baseDate);
+}
+
+async function openBilanModal(ctx, options = {}) {
+  const scope = options.scope || "weekly";
+  const entry = entryForSummaryScope(scope, new Date());
+  if (!entry) {
+    showToast("Impossible de préparer le bilan.");
+    return null;
+  }
+  const title = options.title || summaryScopeLabel(scope);
+  const periodLabel = entry.navSubtitle || "";
+  const contextSubtitle = options.subtitle || "";
+  const secondarySubtitle = contextSubtitle && contextSubtitle !== periodLabel ? contextSubtitle : "";
+  const overlay = modal(`
+    <div class="space-y-4">
+      <header class="flex flex-wrap items-start justify-between gap-3">
+        <div class="space-y-1">
+          <h2 class="text-lg font-semibold">${escapeHtml(title)}</h2>
+          ${periodLabel ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(periodLabel)}</p>` : ""}
+          ${secondarySubtitle ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(secondarySubtitle)}</p>` : ""}
+        </div>
+        <button type="button" class="btn" data-bilan-close>Fermer</button>
+      </header>
+      <div class="space-y-4" data-bilan-modal-root>
+        <p class="text-sm text-[var(--muted)]">Chargement du bilan…</p>
+      </div>
+    </div>
+  `);
+  if (!overlay) {
+    return null;
+  }
+  const closeBtn = overlay.querySelector("[data-bilan-close]");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => overlay.remove());
+  }
+  const mount = overlay.querySelector("[data-bilan-modal-root]");
+  if (!mount) {
+    return overlay;
+  }
+  if (!window.Bilan || typeof window.Bilan.renderSummary !== "function") {
+    mount.innerHTML = `<p class="text-sm text-red-600">Module de bilan indisponible.</p>`;
+    return overlay;
+  }
+  try {
+    const entryOverride = { ...entry, navLabel: title };
+    await window.Bilan.renderSummary({
+      ctx,
+      entry: entryOverride,
+      mount,
+      sections: options.sections || null,
+    });
+  } catch (error) {
+    console.error("bilan.modal.render", error);
+    mount.innerHTML = `<p class="text-sm text-red-600">Impossible de charger les consignes du bilan.</p>`;
+  }
+  return overlay;
+}
+
 function toAppPath(h) {
   return h.replace(/^#\/u\/[^/]+\//, "#/");
 }
@@ -5211,7 +5379,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
   const childConsignes = Array.isArray(options.childConsignes)
     ? options.childConsignes.filter((item) => item && item.consigne)
     : [];
-  const summaryControlsEnabled = options.summaryControlsEnabled !== false;
+    const summaryControlsEnabled = options.summaryControlsEnabled === true;
   const summaryToggleLabel =
     typeof options.summaryToggleLabel === "string" && options.summaryToggleLabel.trim()
       ? options.summaryToggleLabel.trim()
@@ -7708,7 +7876,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         <div data-practice-category-holder class="relative"></div>
       </div>
       <div class="flex items-center gap-2">
-        ${smallBtn("📊 Tableau de bord", "js-dashboard")}
+        ${smallBtn("📝 Faire un bilan", "js-bilan")}
         ${smallBtn("+ Nouvelle consigne", "js-new")}
       </div>
     </div>
@@ -7754,14 +7922,32 @@ async function renderPractice(ctx, root, _opts = {}) {
     }
   }
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null, { defaultCategory: currentCat });
-  const dashBtn = card.querySelector(".js-dashboard");
-  if (dashBtn) {
+  const bilanBtn = card.querySelector(".js-bilan");
+  if (bilanBtn) {
     const hasCategory = Boolean(currentCat);
-    dashBtn.disabled = !hasCategory;
-    dashBtn.classList.toggle("opacity-50", !hasCategory);
-    dashBtn.onclick = () => {
+    bilanBtn.disabled = !hasCategory;
+    bilanBtn.classList.toggle("opacity-50", !hasCategory);
+    bilanBtn.onclick = async () => {
       if (!currentCat) return;
-      window.openCategoryDashboard(ctx, currentCat);
+      await loadBilanSettings(ctx);
+      const scopeChoice = await chooseBilanScope({
+        allowMonthly: DAILY_MONTHLY_ENABLED,
+      });
+      if (!scopeChoice) {
+        return;
+      }
+      const { scope } = scopeChoice;
+      const practiceConsignes = orderSorted.slice();
+      openBilanModal(ctx, {
+        scope,
+        title: `${scopeChoice.label} — ${currentCat}`,
+        subtitle: `Catégorie : ${currentCat}`,
+        sections: {
+          practice: practiceConsignes,
+          daily: [],
+          objective: [],
+        },
+      });
     };
   }
 
@@ -8595,7 +8781,7 @@ async function renderDaily(ctx, root, opts = {}) {
           <span aria-hidden="true">→</span>
         </button>
       </div>
-      <div class="daily-header-actions flex items-center gap-2">${smallBtn("📊 Tableau de bord", "js-dashboard")}${smallBtn("+ Nouvelle consigne", "js-new")}</div>
+      <div class="daily-header-actions flex items-center gap-2">${smallBtn("📝 Faire un bilan", "js-bilan")}${smallBtn("+ Nouvelle consigne", "js-new")}</div>
     </div>
   `;
   container.appendChild(card);
@@ -8632,10 +8818,18 @@ async function renderDaily(ctx, root, opts = {}) {
     }
   }
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
-  const dashBtn = card.querySelector(".js-dashboard");
-  if (dashBtn) {
-    dashBtn.onclick = () => {
-      window.openCategoryDashboard(ctx, "", { mode: "daily" });
+  const bilanBtn = card.querySelector(".js-bilan");
+  if (bilanBtn) {
+    bilanBtn.onclick = async () => {
+      await loadBilanSettings(ctx);
+      const scopeChoice = await chooseBilanScope({ allowMonthly: DAILY_MONTHLY_ENABLED });
+      if (!scopeChoice) {
+        return;
+      }
+      openBilanModal(ctx, {
+        scope: scopeChoice.scope,
+        title: scopeChoice.label,
+      });
     };
   }
 
@@ -9332,6 +9526,7 @@ Modes.groupConsignes = groupConsignes;
 Modes.priorityTone = priorityTone;
 Modes.prioChip = prioChip;
 Modes.showToast = showToast;
+Modes.openBilanModal = openBilanModal;
 Modes.bindConsigneRowValue = bindConsigneRowValue;
 Modes.attachConsigneEditor = attachConsigneEditor;
 Modes.createHiddenConsigneRow = createHiddenConsigneRow;
