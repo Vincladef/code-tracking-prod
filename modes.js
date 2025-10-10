@@ -520,6 +520,8 @@ const NOTE_IGNORED_VALUES = new Set(["no_answer"]);
 
 function formatConsigneValue(type, value, options = {}) {
   const wantsHtml = options.mode === "html";
+  const consigne = options.consigne || null;
+  const providedChecklist = Array.isArray(options.checklistItems) ? options.checklistItems : null;
   if (type === "info") return "";
   if (value && typeof value === "object" && value.skipped) {
     const label = "Passée";
@@ -544,10 +546,36 @@ function formatConsigneValue(type, value, options = {}) {
     } else if (value && typeof value === "object" && Array.isArray(value.items)) {
       items = value.items;
     }
-    if (!items.length) return "—";
-    const done = items.filter((item) => item === true).length;
-    const text = `${done} / ${items.length}`;
-    return wantsHtml ? escapeHtml(text) : text;
+    const labelsSource = providedChecklist
+      || (consigne && Array.isArray(consigne.checklistItems) ? consigne.checklistItems : null)
+      || (value && typeof value === "object" && Array.isArray(value.labels) ? value.labels : null);
+    const labels = Array.isArray(labelsSource) ? labelsSource : [];
+    const maxLength = Math.max(items.length, labels.length);
+    if (!maxLength) return "—";
+    const entries = [];
+    for (let index = 0; index < maxLength; index += 1) {
+      const rawLabel = labels[index];
+      const label = typeof rawLabel === "string" && rawLabel.trim()
+        ? rawLabel.trim()
+        : `Élément ${index + 1}`;
+      const checked = Boolean(items[index]);
+      const statusText = checked ? "fait" : "à faire";
+      const icon = checked ? "✓" : "✗";
+      if (wantsHtml) {
+        entries.push(
+          `<span class="history-checklist__item"><span class="history-checklist__icon" aria-hidden="true">${icon}</span>` +
+            `<span class="sr-only">${checked ? "Fait" : "À faire"} : </span>` +
+            `<span class="history-checklist__label">${escapeHtml(label)}</span>` +
+            `<span class="history-checklist__status"> (${statusText})</span></span>`
+        );
+      } else {
+        entries.push(`${icon} ${label} : ${statusText}`);
+      }
+    }
+    if (wantsHtml) {
+      return `<span class="history-checklist">${entries.join("<br>")}</span>`;
+    }
+    return entries.join("; ");
   }
   if (type === "yesno") {
     const text = value === "yes" ? "Oui" : value === "no" ? "Non" : String(value);
@@ -1230,8 +1258,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           : "Aucune donnée disponible pour le moment.";
 
       const name = consigne.text || consigne.titre || consigne.name || consigne.id;
-      const lastFormattedText = formatConsigneValue(consigne.type, lastValue);
-      const lastFormattedHtml = formatConsigneValue(consigne.type, lastValue, { mode: "html" });
+      const lastFormattedText = formatConsigneValue(consigne.type, lastValue, { consigne });
+      const lastFormattedHtml = formatConsigneValue(consigne.type, lastValue, { mode: "html", consigne });
       const stat = {
         id: consigne.id,
         name,
@@ -1406,8 +1434,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               const statusLabel = statusLabels[statusKind] || "Valeur";
               const dateLabel = meta?.fullLabel || meta?.label || entry.date;
               const relativeLabel = formatRelativeDate(meta?.dateObj || entry.date);
-              const valueText = formatConsigneValue(stat.type, entry.value);
-              const valueHtml = formatConsigneValue(stat.type, entry.value, { mode: "html" });
+              const valueText = formatConsigneValue(stat.type, entry.value, { consigne: stat.consigne });
+              const valueHtml = formatConsigneValue(stat.type, entry.value, { mode: "html", consigne: stat.consigne });
               const normalizedValue = valueText == null ? "" : String(valueText).trim();
               const hasValue = normalizedValue && normalizedValue !== "—";
               const fallbackValue = stat.type === "info" ? "" : "—";
@@ -1680,8 +1708,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       stat.lastDateFull = lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais";
       stat.lastRelative = formatRelativeDate(lastDateObj || lastDateIso);
       stat.lastValue = lastValue;
-      stat.lastFormatted = formatConsigneValue(stat.type, lastValue);
-      stat.lastFormattedHtml = formatConsigneValue(stat.type, lastValue, { mode: "html" });
+      stat.lastFormatted = formatConsigneValue(stat.type, lastValue, { consigne: stat.consigne });
+      stat.lastFormattedHtml = formatConsigneValue(stat.type, lastValue, { mode: "html", consigne: stat.consigne });
       stat.lastCommentRaw = lastEntry?.note ?? "";
       stat.commentDisplay = truncateText(stat.lastCommentRaw, 180);
       stat.statusKind = dotColor(stat.type, lastValue);
@@ -4306,7 +4334,7 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
     const formattedValue = (() => {
       if (isNoteStatus) {
         if (textualNote) return textualNote;
-        const fallback = formatConsigneValue(consigne.type, valueForStatus);
+        const fallback = formatConsigneValue(consigne.type, valueForStatus, { consigne });
         if (fallback === null || fallback === undefined || fallback === "" || fallback === "—") {
           return skipFlag ? "Passée" : "Réponse enregistrée";
         }
@@ -4314,7 +4342,7 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
       }
       if (consigne.type === "info") return INFO_RESPONSE_LABEL;
       if (!hasValue) return "Sans donnée";
-      const result = formatConsigneValue(consigne.type, valueForStatus);
+      const result = formatConsigneValue(consigne.type, valueForStatus, { consigne });
       if (result === null || result === undefined || result === "" || result === "—") {
         return skipFlag ? "Passée" : "Réponse enregistrée";
       }
@@ -5163,8 +5191,8 @@ async function openHistory(ctx, consigne) {
       const iso = createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "";
       const dateText = createdAt && !Number.isNaN(createdAt.getTime()) ? dateFormatter.format(createdAt) : "Date inconnue";
       const relative = createdAt ? relativeLabel(createdAt) : "";
-      const formattedText = formatConsigneValue(consigne.type, r.value);
-      const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html" });
+      const formattedText = formatConsigneValue(consigne.type, r.value, { consigne });
+      const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html", consigne });
       const status = dotColor(consigne.type, r.value);
       const note = r.note && String(r.note).trim();
       const noteMarkup = note ? `<p class="history-panel__note">${escapeHtml(note)}</p>` : "";
