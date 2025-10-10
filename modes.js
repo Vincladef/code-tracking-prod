@@ -362,7 +362,8 @@ function richTextHasContent(value) {
   if (normalized.text && normalized.text.trim()) {
     return true;
   }
-  if (Array.isArray(normalized.checkboxes) && normalized.checkboxes.some(Boolean)) {
+  // S'il y a des cases, c'est une réponse, même si aucune n'est cochée.
+  if (Array.isArray(normalized.checkboxes) && normalized.checkboxes.length > 0) {
     return true;
   }
   const html = normalized.html || "";
@@ -6106,6 +6107,21 @@ function attachConsigneEditor(row, consigne, options = {}) {
     };
     updateSummaryControlState();
     const commitResponse = ({ summary = null, close = true, requireValueForSummary = false } = {}) => {
+      if (consigne.type === "checklist") {
+        const selectorId = String(consigne.id ?? "");
+        const container = overlay.querySelector(
+          `[data-checklist-root][data-consigne-id="${selectorId}"]`
+        );
+        if (container) {
+          container.dataset.checklistDirty = "1";
+        }
+        const hidden =
+          overlay.querySelector(`[name="checklist:${consigne.id}"]`) ||
+          overlay.querySelector(`[name="checklist:${selectorId}"]`);
+        if (hidden) {
+          hidden.dataset.dirty = "1";
+        }
+      }
       const newValue = readConsigneCurrentValue(consigne, overlay);
       if (summary && requireValueForSummary && !hasValueForConsigne(consigne, newValue)) {
         if (typeof showToast === "function") {
@@ -6308,22 +6324,7 @@ function hasChecklistResponse(consigne, row, value) {
     return true;
   }
   const states = readChecklistStates(value);
-  if (states.some(Boolean)) {
-    return true;
-  }
   if (states.length > 0) {
-    if (row instanceof HTMLElement) {
-      const hidden = row.querySelector(`[name="checklist:${consigne.id}"]`);
-      if (hidden) {
-        return hidden.dataset.dirty === "1";
-      }
-      const container = row.querySelector(
-        `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
-      );
-      if (container) {
-        return container.dataset.checklistDirty === "1";
-      }
-    }
     return true;
   }
   if (row instanceof HTMLElement) {

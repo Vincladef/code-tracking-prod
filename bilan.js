@@ -528,6 +528,14 @@
         Modes.enhanceRangeMeters(holder);
       }
     }
+    if (previous && typeof Modes.setConsigneRowValue === "function") {
+      const hasExplicitValue = Object.prototype.hasOwnProperty.call(previous, "value");
+      const looksLikeChecklistState = Array.isArray(previous.items);
+      if (hasExplicitValue || looksLikeChecklistState) {
+        const initial = hasExplicitValue && previous.value !== undefined ? previous.value : previous;
+        Modes.setConsigneRowValue(row, consigne, initial);
+      }
+    }
     if (typeof Modes.bindConsigneRowValue === "function") {
       let lastSerialized = stableSerializeValue(initialValue);
       Modes.bindConsigneRowValue(row, consigne, {
