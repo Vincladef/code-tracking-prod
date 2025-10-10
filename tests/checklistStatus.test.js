@@ -70,7 +70,7 @@ function setupDomStubs() {
 
 setupDomStubs();
 
-const { readConsigneCurrentValue, dotColor } = require("../modes.js");
+const { readConsigneCurrentValue, dotColor, collectAnswers } = require("../modes.js");
 
 function testChecklistValueRemainsNullUntilDirty() {
   const consigne = { id: "c1", type: "checklist" };
@@ -107,10 +107,46 @@ function testDotColorSignalsAllUncheckedAsKo() {
   );
 }
 
+function testCollectAnswersFallsBackToCheckboxes() {
+  const consigne = { id: "c1", type: "checklist" };
+  const hidden = {
+    value: JSON.stringify([false, false]),
+    dataset: {},
+  };
+  const boxes = [{ checked: true }, { checked: false }];
+  const container = {
+    querySelectorAll: (selector) => {
+      if (selector === "[data-checklist-input]") {
+        return boxes;
+      }
+      return [];
+    },
+  };
+  const form = {
+    querySelector: (selector) => {
+      if (selector === '[name="checklist:c1"]') {
+        return hidden;
+      }
+      if (selector === '[data-checklist-root][data-consigne-id="c1"]') {
+        return container;
+      }
+      return null;
+    },
+  };
+  const answers = collectAnswers(form, [consigne]);
+  assert.strictEqual(answers.length, 1, "Une checklist cochée doit produire une réponse");
+  assert.deepStrictEqual(
+    answers[0].value,
+    [true, false],
+    "La réponse doit refléter l’état des cases à cocher",
+  );
+}
+
 try {
   testChecklistValueRemainsNullUntilDirty();
   testDotColorTreatsNullAsNa();
   testDotColorSignalsAllUncheckedAsKo();
+  testCollectAnswersFallsBackToCheckboxes();
   console.log("All checklist status tests passed.");
 } catch (error) {
   console.error(error);
