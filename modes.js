@@ -3991,9 +3991,17 @@ function inputForType(consigne, initialValue = null) {
   }
   if (consigne.type === "checklist") {
     const items = sanitizeChecklistItems(consigne);
-    const normalizedValue = Array.isArray(initialValue)
-      ? items.map((_, index) => Boolean(initialValue[index]))
-      : items.map(() => false);
+    const initialStates = (() => {
+      if (Array.isArray(initialValue)) {
+        return initialValue.map((value) => value === true);
+      }
+      if (initialValue && typeof initialValue === "object") {
+        return readChecklistStates(initialValue);
+      }
+      return [];
+    })();
+    const normalizedValue = items.map((_, index) => Boolean(initialStates[index]));
+    const hasInitialStates = initialStates.length > 0;
     const optionsHash = computeChecklistOptionsHash(consigne);
     const optionsAttr = optionsHash ? ` data-checklist-options-hash="${escapeHtml(String(optionsHash))}"` : "";
     const checkboxes = items
@@ -4022,7 +4030,7 @@ function inputForType(consigne, initialValue = null) {
       <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}"${optionsAttr}>
         ${checkboxes || `<p class="text-sm text-[var(--muted)]">Aucun élément défini</p>`}
         <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state data-autosave-track="1" ${
-          Array.isArray(initialValue) ? 'data-dirty="1"' : ""
+          hasInitialStates ? 'data-dirty="1"' : ""
         }>
       </div>
       <script>(()=>{const script=document.currentScript;const hidden=script.previousElementSibling;const root=hidden?.closest('[data-checklist-root]');if(!root||!hidden)return;const queryInputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const ensureItemIds=()=>{const consigneId=root.getAttribute('data-consigne-id')||root.dataset.consigneId||'';queryInputs().forEach((input,index)=>{const host=input.closest('[data-checklist-item]');if(!host)return;const explicitKey=input.getAttribute('data-key')||input.dataset?.key||input.getAttribute('data-item-id')||host.getAttribute('data-item-id');const attr=input.getAttribute('data-checklist-index');const idx=attr!==null?attr:index;const fallback=consigneId?String(consigneId)+":"+idx:String(idx);const resolvedKey=(explicitKey&&String(explicitKey).trim())||fallback;const legacyKey=input.getAttribute('data-legacy-key')||host.getAttribute('data-checklist-legacy-key')||fallback;input.setAttribute('data-key',resolvedKey);input.dataset.key=resolvedKey;input.setAttribute('data-item-id',resolvedKey);input.setAttribute('data-legacy-key',legacyKey);host.setAttribute('data-item-id',resolvedKey);host.setAttribute('data-checklist-key',resolvedKey);host.setAttribute('data-checklist-legacy-key',legacyKey);host.setAttribute('data-validated',input.checked?'true':'false');});};const sync=(options={})=>{const inputs=queryInputs();const values=inputs.map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);if(options.markDirty){hidden.dataset.dirty='1';}if(options.notify){hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));}ensureItemIds();};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync({markDirty:true,notify:true});}});sync();const hydrate=window.hydrateChecklist;const uid=window.AppCtx?.user?.uid||null;const consigneId=root.getAttribute('data-consigne-id')||root.dataset.consigneId||'';if(typeof hydrate==='function'){Promise.resolve(hydrate({uid,consigneId,container:root,itemKeyAttr:'data-key'})).then(()=>sync()).catch((error)=>{console.warn('[checklist] hydrate',error);});}})();</script>
