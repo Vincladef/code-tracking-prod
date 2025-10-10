@@ -347,6 +347,7 @@
       const itemId = ensureItemId(target, root, item);
       item.setAttribute("data-validated", target.checked ? "true" : "false");
       updateHiddenState(root);
+      root.dataset.checklistDirty = "1";
       const detail = {
         consigneId,
         itemId,

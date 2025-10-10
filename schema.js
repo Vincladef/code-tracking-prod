@@ -95,6 +95,26 @@ const {
   runTransaction,
 } = Schema.firestore;
 
+const firestoreTimestampCtor =
+  Schema.firestore?.Timestamp ||
+  (typeof window !== "undefined" && window.firebase?.firestore?.Timestamp) ||
+  (typeof window !== "undefined" && window.firebase?.Timestamp) ||
+  null;
+
+function toFirestoreTimestamp(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return null;
+  }
+  if (firestoreTimestampCtor && typeof firestoreTimestampCtor.fromDate === "function") {
+    try {
+      return firestoreTimestampCtor.fromDate(date);
+    } catch (error) {
+      schemaLog("timestamp.fromDate", error);
+    }
+  }
+  return null;
+}
+
 const snapshotExists =
   Schema.snapshotExists ||
   ((snap) => {
@@ -711,6 +731,35 @@ function parseHistoryDate(value) {
   return null;
 }
 
+function parseDayKeyToDate(dayKey) {
+  if (typeof dayKey !== "string") {
+    return null;
+  }
+  const trimmed = dayKey.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const match = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(trimmed);
+  if (match) {
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+      const candidate = new Date(year, (month || 1) - 1, day || 1);
+      if (!Number.isNaN(candidate.getTime())) {
+        candidate.setHours(0, 0, 0, 0);
+        return candidate;
+      }
+    }
+  }
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  parsed.setHours(0, 0, 0, 0);
+  return parsed;
+}
+
 function toFiniteNumber(value) {
   if (value === undefined || value === null || value === "") {
     return null;
@@ -812,6 +861,15 @@ async function persistResponsesToHistory(db, uid, responses) {
       "weekEndsOn",
       "weekKey",
       "monthKey",
+      "checkedIds",
+      "checkedCount",
+      "total",
+      "percentage",
+      "isEmpty",
+      "pageDate",
+      "pageDateIso",
+      "pageDayIndex",
+      "weekStart",
     ];
     metadataKeys.forEach((key) => {
       if (!Object.prototype.hasOwnProperty.call(entry, key)) {
@@ -924,6 +982,71 @@ async function saveResponses(db, uid, mode, answers) {
     }
     if (a.context !== undefined) {
       payload.context = a.context;
+    }
+    if (Array.isArray(a.checkedIds)) {
+      payload.checkedIds = a.checkedIds.slice();
+    }
+    if (a.checkedCount !== undefined && a.checkedCount !== null) {
+      const countValue = Number(a.checkedCount);
+      if (Number.isFinite(countValue)) {
+        payload.checkedCount = countValue;
+      }
+    }
+    if (a.total !== undefined && a.total !== null) {
+      const totalValue = Number(a.total);
+      if (Number.isFinite(totalValue)) {
+        payload.total = totalValue;
+      }
+    }
+    if (a.percentage !== undefined && a.percentage !== null) {
+      const pctValue = Number(a.percentage);
+      if (Number.isFinite(pctValue)) {
+        const clamped = Math.max(0, Math.min(100, Math.round(pctValue)));
+        payload.percentage = clamped;
+      }
+    }
+    if (typeof a.isEmpty === "boolean") {
+      payload.isEmpty = a.isEmpty;
+    }
+    if (a.pageDate !== undefined && a.pageDate !== null) {
+      payload.pageDate = a.pageDate;
+    }
+    if (a.pageDateIso !== undefined) {
+      payload.pageDateIso = a.pageDateIso;
+    }
+    if (a.weekStart !== undefined) {
+      payload.weekStart = a.weekStart;
+    }
+    if (a.pageDayIndex !== undefined && a.pageDayIndex !== null) {
+      const dayIndexValue = Number(a.pageDayIndex);
+      if (Number.isFinite(dayIndexValue)) {
+        payload.pageDayIndex = dayIndexValue;
+      }
+    }
+    if (!payload.pageDate && payload.dayKey) {
+      const parsedDay = parseDayKeyToDate(payload.dayKey) || parseHistoryDate(payload.dayKey);
+      const ts = toFirestoreTimestamp(parsedDay);
+      if (ts) {
+        payload.pageDate = ts;
+      }
+    }
+    if (!payload.pageDateIso && payload.dayKey) {
+      payload.pageDateIso = payload.dayKey;
+    }
+    if (!payload.weekStart && payload.dayKey) {
+      const parsedDay = parseDayKeyToDate(payload.dayKey) || parseHistoryDate(payload.dayKey);
+      if (parsedDay) {
+        const range = weekRangeFromDate(parsedDay, 0);
+        if (range?.start) {
+          payload.weekStart = dayKeyFromDate(range.start);
+        }
+      }
+    }
+    if (payload.pageDayIndex === undefined && payload.dayKey) {
+      const parsedDay = parseDayKeyToDate(payload.dayKey) || parseHistoryDate(payload.dayKey);
+      if (parsedDay) {
+        payload.pageDayIndex = ((parsedDay.getDay() + 6) % 7 + 7) % 7;
+      }
     }
     // SR (seulement si activée sur la consigne)
     if (a.consigne?.srEnabled !== false) {
@@ -1336,6 +1459,7 @@ async function fetchHistory(db, uid, count = 200) {
   schemaLog("fetchHistory:start", { uid, count });
   const qy = query(
     col(db, uid, "responses"),
+    orderBy("pageDate", "desc"),
     orderBy("createdAt", "desc"),
     limit(count)
   );
@@ -1349,6 +1473,7 @@ async function fetchResponsesForConsigne(db, uid, consigneId, limitCount = 200) 
   const qy = query(
     col(db, uid, "responses"),
     where("consigneId","==", consigneId),
+    orderBy("pageDate","desc"),
     orderBy("createdAt","desc"),
     limit(limitCount)
   );
@@ -1368,9 +1493,15 @@ function valueToNumericPoint(type, value) {
       : value && typeof value === "object" && Array.isArray(value.items)
         ? value.items.map((item) => item === true)
         : [];
-    if (!values.length) return null;
+    if (!values.length) {
+      const hinted = Number(value?.percentage);
+      if (Number.isFinite(hinted)) {
+        return hinted / 100;
+      }
+      return 0;
+    }
     const completed = values.filter(Boolean).length;
-    return values.length ? completed / values.length : null;
+    return values.length ? completed / values.length : 0;
   }
   return null; // pour short/long -> pas de graph
 }
@@ -1491,6 +1622,19 @@ async function syncHistoryResponse(db, uid, consigneId, dayKey, data = {}, optio
   const effectiveDayKey = options.responseDayKey || dayKey;
   if (effectiveDayKey) {
     responsePayload.dayKey = effectiveDayKey;
+    const parsedDay = parseDayKeyToDate(effectiveDayKey) || parseHistoryDate(effectiveDayKey);
+    if (parsedDay) {
+      const ts = toFirestoreTimestamp(parsedDay);
+      if (ts) {
+        responsePayload.pageDate = ts;
+      }
+      responsePayload.pageDateIso = dayKeyFromDate(parsedDay);
+      const range = weekRangeFromDate(parsedDay, 0);
+      if (range?.start) {
+        responsePayload.weekStart = dayKeyFromDate(range.start);
+      }
+      responsePayload.pageDayIndex = ((parsedDay.getDay() + 6) % 7 + 7) % 7;
+    }
   }
   if (hasNote && data.note && String(data.note).trim()) {
     responsePayload.note = data.note;
