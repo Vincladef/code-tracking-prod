@@ -361,6 +361,12 @@
       const itemId = ensureItemId(target, root, item);
       item.setAttribute("data-validated", target.checked ? "true" : "false");
       updateHiddenState(root);
+      const persistFn = window.ChecklistState?.persistRoot;
+      if (typeof persistFn === "function") {
+        Promise.resolve(persistFn.call(window.ChecklistState, root)).catch((error) => {
+          console.warn("[app] checklist:persist", error);
+        });
+      }
       root.dataset.checklistDirty = "1";
       const detail = {
         consigneId,

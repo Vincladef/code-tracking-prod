@@ -10,7 +10,17 @@
     limit,
     getDocs,
     serverTimestamp,
+    doc,
+    getDoc,
+    setDoc,
   } = api;
+
+  const DEFAULT_TIMEZONE = "Europe/Paris";
+  const DAY_KEY_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
+  const FALLBACK_DAY_FORMATTER =
+    typeof Intl !== "undefined"
+      ? new Intl.DateTimeFormat("fr-CA", { timeZone: DEFAULT_TIMEZONE })
+      : null;
 
   const STORAGE_PREFIX = "lastChecklist";
   const HINT_CLASS = "preselect-hint";
@@ -23,6 +33,140 @@
 
   const processedRoots = new WeakSet();
   let observer = null;
+
+  function toMillis(value, fallback = Date.now()) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (value instanceof Date) {
+      const time = value.getTime();
+      return Number.isNaN(time) ? fallback : time;
+    }
+    if (value && typeof value.toMillis === "function") {
+      try {
+        const millis = value.toMillis();
+        if (typeof millis === "number" && Number.isFinite(millis)) {
+          return millis;
+        }
+      } catch (error) {
+        console.warn("[checklist-state] toMillis:toMillis", error);
+      }
+    }
+    if (value && typeof value.toDate === "function") {
+      try {
+        const date = value.toDate();
+        if (date instanceof Date && !Number.isNaN(date.getTime())) {
+          return date.getTime();
+        }
+      } catch (error) {
+        console.warn("[checklist-state] toMillis:toDate", error);
+      }
+    }
+    if (typeof value === "string" && value.trim()) {
+      const parsed = new Date(value.trim());
+      const parsedTime = parsed.getTime();
+      if (!Number.isNaN(parsedTime)) {
+        return parsedTime;
+      }
+    }
+    return fallback;
+  }
+
+  function parisDayKey(value) {
+    const date = value instanceof Date ? value : new Date(value ?? Date.now());
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return parisDayKey(Date.now());
+    }
+    const dayKeyParisFn = GLOBAL.DateUtils?.dayKeyParis;
+    if (typeof dayKeyParisFn === "function") {
+      try {
+        const key = dayKeyParisFn(date);
+        if (typeof key === "string" && DAY_KEY_REGEX.test(key)) {
+          return key;
+        }
+      } catch (error) {
+        console.warn("[checklist-state] dayKeyParis", error);
+      }
+    }
+    if (FALLBACK_DAY_FORMATTER) {
+      try {
+        const formatted = FALLBACK_DAY_FORMATTER.format(date);
+        if (typeof formatted === "string" && DAY_KEY_REGEX.test(formatted)) {
+          return formatted;
+        }
+      } catch (error) {
+        console.warn("[checklist-state] dayKey:fallback", error);
+      }
+    }
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function normalizeDateKey(value) {
+    if (typeof value === "string" && value.trim()) {
+      const trimmed = value.trim();
+      if (DAY_KEY_REGEX.test(trimmed)) {
+        return trimmed;
+      }
+      const parsed = new Date(trimmed);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parisDayKey(parsed);
+      }
+    }
+    if (value instanceof Date) {
+      return parisDayKey(value);
+    }
+    if (value && typeof value.toDate === "function") {
+      try {
+        return normalizeDateKey(value.toDate());
+      } catch (error) {
+        console.warn("[checklist-state] normalizeDateKey:toDate", error);
+      }
+    }
+    if (value && typeof value.toMillis === "function") {
+      try {
+        return normalizeDateKey(value.toMillis());
+      } catch (error) {
+        console.warn("[checklist-state] normalizeDateKey:toMillis", error);
+      }
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return parisDayKey(value);
+    }
+    return parisDayKey(Date.now());
+  }
+
+  function currentParisDayKey() {
+    return normalizeDateKey(Date.now());
+  }
+
+  function snapshotHasData(snap) {
+    const schemaSnapshotExists = GLOBAL.Schema?.snapshotExists;
+    if (typeof schemaSnapshotExists === "function") {
+      try {
+        return schemaSnapshotExists(snap);
+      } catch (error) {
+        console.warn("[checklist-state] snapshotExists", error);
+      }
+    }
+    if (!snap) return false;
+    if (typeof snap.exists === "function") {
+      try {
+        return !!snap.exists();
+      } catch (error) {
+        console.warn("[checklist-state] snapshot:existsFn", error);
+      }
+    }
+    if (typeof snap.exists === "boolean") {
+      return snap.exists;
+    }
+    if ("exists" in snap) {
+      return Boolean(snap.exists);
+    }
+    return false;
+  }
 
   function safeLocalStorage() {
     try {
@@ -43,10 +187,11 @@
     return String(consigneId || "");
   }
 
-  function storageKey(uid, consigneId) {
+  function storageKey(uid, consigneId, dateKey) {
     const safeUid = normalizeConsigneId(uid) || "anon";
     const safeConsigne = normalizeConsigneId(consigneId) || "consigne";
-    return `${STORAGE_PREFIX}:${safeUid}:${safeConsigne}`;
+    const safeDate = normalizeDateKey(dateKey);
+    return `${STORAGE_PREFIX}:${safeUid}:${safeConsigne}:${safeDate}`;
   }
 
   function quickHash(input) {
@@ -84,26 +229,35 @@
   }
 
   function normalizePayload(payload = {}) {
-    const selectedIds = normalizeSelectedIds(payload.selectedIds);
+    const selectedIds = normalizeSelectedIds(payload.selectedIds || payload.checked);
     const optionsHash = isNonEmptyString(payload.optionsHash)
       ? payload.optionsHash
       : payload.optionsHash == null
       ? null
       : String(payload.optionsHash || "");
-    const tsValue = typeof payload.ts === "number" ? payload.ts : Date.now();
+    const tsValue = toMillis(payload.updatedAt ?? payload.ts, Date.now());
+    const rawDateKey =
+      payload.dateKey ||
+      payload.dayKey ||
+      payload.date_key ||
+      payload.day_key ||
+      payload.date ||
+      null;
+    const dateKey = normalizeDateKey(rawDateKey || tsValue);
     return {
       type: "checklist",
       consigneId: normalizeConsigneId(payload.consigneId),
       selectedIds,
       optionsHash,
       ts: tsValue,
+      dateKey,
     };
   }
 
   function cacheSelection(uid, consigneId, payload) {
     const storage = safeLocalStorage();
     if (!storage) return;
-    const key = storageKey(uid, consigneId);
+    const key = storageKey(uid, consigneId, payload?.dateKey);
     try {
       storage.setItem(key, JSON.stringify(payload));
     } catch (error) {
@@ -111,16 +265,21 @@
     }
   }
 
-  function readCachedSelection(uid, consigneId) {
+  function readCachedSelection(uid, consigneId, dateKey = currentParisDayKey()) {
     const storage = safeLocalStorage();
     if (!storage) return null;
-    const key = storageKey(uid, consigneId);
+    const key = storageKey(uid, consigneId, dateKey);
     const raw = storage.getItem(key);
     if (!raw) return null;
     try {
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object") return null;
-      return normalizePayload({ ...parsed, consigneId });
+      const normalized = normalizePayload({ ...parsed, consigneId });
+      const expectedKey = normalizeDateKey(dateKey);
+      if (normalized.dateKey !== expectedKey) {
+        return null;
+      }
+      return normalized;
     } catch (error) {
       console.warn("[checklist-state] cache:parse", error);
       return null;
@@ -129,32 +288,76 @@
 
   async function saveSelection(db, uid, consigneId, payload = {}) {
     const normalized = normalizePayload({ ...payload, consigneId });
-    const { selectedIds } = normalized;
-    if (!uid || !consigneId) return normalized;
-    cacheSelection(uid, consigneId, normalized);
-    if (!db || typeof collection !== "function" || typeof addDoc !== "function") {
-      return normalized;
+    const finalPayload = {
+      ...normalized,
+      dateKey: normalizeDateKey(normalized.dateKey),
+    };
+    if (!uid || !consigneId) return finalPayload;
+    cacheSelection(uid, consigneId, finalPayload);
+    const timestamp = Date.now();
+    if (db && typeof doc === "function" && typeof setDoc === "function") {
+      try {
+        const docRef = doc(db, "users", uid, "answers", finalPayload.dateKey, "consignes", finalPayload.consigneId);
+        await setDoc(
+          docRef,
+          {
+            selectedIds: finalPayload.selectedIds,
+            checked: finalPayload.selectedIds,
+            optionsHash: finalPayload.optionsHash || null,
+            updatedAt: timestamp,
+            ts: finalPayload.ts,
+            dateKey: finalPayload.dateKey,
+          },
+          { merge: true }
+        );
+      } catch (error) {
+        console.warn("[checklist-state] firestore:answers", error);
+      }
     }
-    try {
-      const colRef = collection(db, "users", uid, "history");
-      await addDoc(colRef, {
-        type: "checklist",
-        consigneId: normalized.consigneId,
-        selectedIds,
-        optionsHash: normalized.optionsHash || null,
-        ts: typeof serverTimestamp === "function" ? serverTimestamp() : new Date(),
-      });
-    } catch (error) {
-      console.warn("[checklist-state] firestore:save", error);
+    if (db && typeof collection === "function" && typeof addDoc === "function") {
+      try {
+        const colRef = collection(db, "users", uid, "history");
+        await addDoc(colRef, {
+          type: "checklist",
+          consigneId: finalPayload.consigneId,
+          selectedIds: finalPayload.selectedIds,
+          optionsHash: finalPayload.optionsHash || null,
+          dateKey: finalPayload.dateKey,
+          ts: typeof serverTimestamp === "function" ? serverTimestamp() : new Date(),
+        });
+      } catch (error) {
+        console.warn("[checklist-state] firestore:save", error);
+      }
     }
-    return normalized;
+    return finalPayload;
   }
 
   async function loadSelection(db, uid, consigneId) {
     if (!uid || !consigneId) return null;
-    const cached = readCachedSelection(uid, consigneId);
+    const todayKey = currentParisDayKey();
+    const cached = readCachedSelection(uid, consigneId, todayKey);
     if (cached) {
       return cached;
+    }
+    if (db && typeof doc === "function" && typeof getDoc === "function") {
+      try {
+        const ref = doc(db, "users", uid, "answers", todayKey, "consignes", consigneId);
+        const snap = await getDoc(ref);
+        if (snapshotHasData(snap)) {
+          const data = typeof snap.data === "function" ? snap.data() || {} : snap?.data || {};
+          const normalized = normalizePayload({
+            consigneId,
+            selectedIds: data.checked || data.selectedIds,
+            optionsHash: data.optionsHash,
+            ts: data.updatedAt ?? data.ts,
+            dateKey: data.dateKey || data.dayKey || todayKey,
+          });
+          cacheSelection(uid, consigneId, normalized);
+          return normalized;
+        }
+      } catch (error) {
+        console.warn("[checklist-state] firestore:answers:load", error);
+      }
     }
     if (!db ||
       typeof collection !== "function" ||
@@ -174,15 +377,24 @@
         limit(1),
       ];
       const snap = await getDocs(query(...constraints));
-      const doc = snap?.docs?.[0];
-      if (!doc) return null;
-      const data = doc.data() || {};
+      const docSnap = snap?.docs?.[0];
+      if (!docSnap) return null;
+      const data = docSnap.data() || {};
       const normalized = normalizePayload({
         consigneId,
         selectedIds: data.selectedIds,
         optionsHash: data.optionsHash,
-        ts: data.ts instanceof Date ? data.ts.getTime() : data.ts,
+        ts:
+          data.ts instanceof Date
+            ? data.ts.getTime()
+            : data.ts && typeof data.ts.toDate === "function"
+            ? data.ts.toDate().getTime()
+            : data.ts,
+        dateKey: data.dateKey || data.dayKey,
       });
+      if (normalized.dateKey !== todayKey) {
+        return null;
+      }
       cacheSelection(uid, consigneId, normalized);
       return normalized;
     } catch (error) {
@@ -229,22 +441,53 @@
     parent.insertBefore(hint, root);
   }
 
+  function collectChecklistEntries(root, consigneId) {
+    if (!root) return [];
+    const checkboxes = Array.from(
+      root.querySelectorAll(
+        'input[type="checkbox"][data-checklist-input], input[type="checkbox"][data-rich-checkbox="1"]'
+      )
+    );
+    return checkboxes.map((input, index) => {
+      const host =
+        input.closest("[data-checklist-item]") || input.closest('[data-rich-checkbox-wrapper="1"]') || null;
+      const explicitId =
+        input.getAttribute("data-item-id") || input.dataset?.itemId || input.dataset?.id || null;
+      const hostId = host?.getAttribute?.("data-item-id") || null;
+      const fallbackId = consigneId ? `${consigneId}:${index}` : String(index);
+      const itemId = explicitId || hostId || fallbackId;
+      if (host && (!hostId || hostId !== itemId)) {
+        host.setAttribute("data-item-id", itemId);
+      }
+      if (!explicitId && typeof input.setAttribute === "function") {
+        input.setAttribute("data-item-id", itemId);
+      }
+      return { input, host, itemId };
+    });
+  }
+
+  function readSelectedIdsFromEntries(entries) {
+    if (!Array.isArray(entries) || !entries.length) {
+      return [];
+    }
+    return normalizeSelectedIds(
+      entries
+        .filter((entry) => entry && entry.input && entry.input.checked)
+        .map((entry) => entry.itemId)
+    );
+  }
+
   function applySelection(root, payload, options = {}) {
     if (!root || !payload) return false;
     const selectedIds = normalizeSelectedIds(payload.selectedIds);
     const consigneId = normalizeConsigneId(options.consigneId || root.getAttribute("data-consigne-id") || root.dataset?.consigneId);
-    const selectedSet = new Set(selectedIds);
-    const checkboxes = Array.from(
-      root.querySelectorAll('input[type="checkbox"][data-checklist-input], input[type="checkbox"][data-rich-checkbox="1"]')
-    );
-    if (!checkboxes.length) {
+    const selectedSet = new Set(selectedIds.map((value) => String(value)));
+    const entries = collectChecklistEntries(root, consigneId);
+    if (!entries.length) {
       return false;
     }
     let anyChange = false;
-    checkboxes.forEach((input, index) => {
-      const host = input.closest("[data-checklist-item]") || input.closest('[data-rich-checkbox-wrapper="1"]');
-      const fallbackId = consigneId ? `${consigneId}:${index}` : String(index);
-      const itemId = host?.getAttribute("data-item-id") || fallbackId;
+    entries.forEach(({ input, host, itemId }) => {
       const shouldCheck = selectedSet.has(String(itemId));
       if (input.checked !== shouldCheck) {
         input.checked = shouldCheck;
@@ -256,7 +499,7 @@
     });
     const hidden = root.querySelector("[data-checklist-state]");
     if (hidden) {
-      const values = checkboxes.map((input) => Boolean(input.checked));
+      const values = entries.map(({ input }) => Boolean(input.checked));
       try {
         hidden.value = JSON.stringify(values);
       } catch (error) {
@@ -280,6 +523,37 @@
     }
     root.dataset.checklistHydrated = "1";
     return anyChange;
+  }
+
+  async function persistRoot(root, options = {}) {
+    if (!(root instanceof Element)) return null;
+    const consigneId = normalizeConsigneId(options.consigneId || root.getAttribute("data-consigne-id") || root.dataset?.consigneId);
+    if (!consigneId) {
+      return null;
+    }
+    const entries = collectChecklistEntries(root, consigneId);
+    if (!entries.length) {
+      return null;
+    }
+    const selectedIds = readSelectedIdsFromEntries(entries);
+    const optionsHash =
+      options.optionsHash || root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
+    const payload = {
+      selectedIds,
+      optionsHash,
+      dateKey: options.dateKey || currentParisDayKey(),
+      ts: Date.now(),
+    };
+    const { db, uid } = context;
+    if (!uid) {
+      return normalizePayload({ consigneId, ...payload });
+    }
+    try {
+      return await saveSelection(db, uid, consigneId, payload);
+    } catch (error) {
+      console.warn("[checklist-state] persistRoot", error);
+      return null;
+    }
   }
 
   async function hydrateRoot(root) {
@@ -351,10 +625,15 @@
       if (!consigneId) return;
       const selectedIds = normalizeSelectedIds(entry.selectedIds || entry.selected_ids);
       const optionsHash = entry.optionsHash || entry.options_hash || null;
+      const dateKey =
+        entry.dateKey || entry.dayKey || entry.date_key || entry.day_key || entry.date || null;
+      const ts = entry.updatedAt || entry.ts;
       tasks.push(
         saveSelection(db, uid, consigneId, {
           selectedIds,
           optionsHash,
+          dateKey,
+          ts,
         })
       );
     });
@@ -387,6 +666,7 @@
     saveSelection,
     loadSelection,
     applySelection,
+    persistRoot,
     persistResponses,
     setContext,
     clearContext,
