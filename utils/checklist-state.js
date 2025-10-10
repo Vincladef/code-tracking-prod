@@ -228,6 +228,52 @@
     return result;
   }
 
+  function fallbackSelectedIds(consigneId, data = {}, { useLegacyIds = true } = {}) {
+    const normalizedConsigneId = normalizeConsigneId(consigneId);
+    if (!normalizedConsigneId) {
+      return [];
+    }
+    const fromSelected = Array.isArray(data.selectedIds) ? data.selectedIds : data.selected_ids;
+    if (Array.isArray(fromSelected) && fromSelected.length) {
+      return normalizeSelectedIds(fromSelected);
+    }
+    const legacyChecked = Array.isArray(data.checkedIds)
+      ? data.checkedIds
+      : Array.isArray(data.checked_ids)
+      ? data.checked_ids
+      : null;
+    if (Array.isArray(legacyChecked) && legacyChecked.length) {
+      const legacyIds = legacyChecked
+        .map((value, index) => {
+          if (!useLegacyIds) {
+            return null;
+          }
+          if (typeof value === "string" && value.trim()) {
+            return value.trim();
+          }
+          const numeric = Number(value);
+          if (Number.isFinite(numeric)) {
+            return `${normalizedConsigneId}:${numeric}`;
+          }
+          return `${normalizedConsigneId}:${index}`;
+        })
+        .filter(Boolean);
+      if (legacyIds.length) {
+        return normalizeSelectedIds(legacyIds);
+      }
+    }
+    const rawItems = data?.value && typeof data.value === "object" ? data.value.items : null;
+    if (Array.isArray(rawItems) && rawItems.length) {
+      const inferred = rawItems
+        .map((checked, index) => (checked ? `${normalizedConsigneId}:${index}` : null))
+        .filter(Boolean);
+      if (inferred.length) {
+        return normalizeSelectedIds(inferred);
+      }
+    }
+    return [];
+  }
+
   function normalizePayload(payload = {}) {
     const selectedIds = normalizeSelectedIds(payload.selectedIds || payload.checked);
     const optionsHash = isNonEmptyString(payload.optionsHash)
@@ -357,6 +403,39 @@
         }
       } catch (error) {
         console.warn("[checklist-state] firestore:answers:load", error);
+      }
+    }
+    if (db &&
+      typeof collection === "function" &&
+      typeof query === "function" &&
+      typeof where === "function" &&
+      typeof limit === "function" &&
+      typeof getDocs === "function") {
+      try {
+        const responsesSnap = await getDocs(
+          query(
+            collection(db, "u", uid, "responses"),
+            where("consigneId", "==", consigneId),
+            where("dayKey", "==", todayKey),
+            limit(1)
+          )
+        );
+        const docSnap = responsesSnap?.docs?.[0];
+        if (docSnap) {
+          const data = docSnap.data() || {};
+          const selectedIds = fallbackSelectedIds(consigneId, data);
+          const normalized = normalizePayload({
+            consigneId,
+            selectedIds,
+            optionsHash: data.optionsHash,
+            ts: data.updatedAt || data.ts || data.createdAt,
+            dateKey: data.dayKey || data.dateKey || todayKey,
+          });
+          cacheSelection(uid, consigneId, normalized);
+          return normalized;
+        }
+      } catch (error) {
+        console.warn("[checklist-state] firestore:responses:load", error);
       }
     }
     if (!db ||
