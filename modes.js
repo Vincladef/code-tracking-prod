@@ -8437,11 +8437,6 @@ function formatMonthLabel(date) {
   const raw = DAILY_MONTH_LABEL_FORMATTER.format(date);
   return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "";
 }
-function formatLongDateLabel(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
-  const raw = DAILY_LONG_DATE_FORMATTER.format(date);
-  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "";
-}
 function weekAnchorForDate(dateInput) {
   const base = toStartOfDay(dateInput);
   if (!base) return null;
@@ -8529,13 +8524,6 @@ function createMonthlySummaryEntry(anchorDate) {
     navSubtitle: monthInfo.monthLabel || weekly.navSubtitle,
   };
 }
-function entryDayAfterAnchor(anchorDate) {
-  const base = toStartOfDay(anchorDate);
-  if (!base) return null;
-  const next = new Date(base.getTime());
-  next.setDate(next.getDate() + 1);
-  return next;
-}
 function entryToDayKey(entry) {
   if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
     return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.date) : null;
@@ -8548,54 +8536,18 @@ function entryToDayKey(entry) {
 function computeNextEntry(entry) {
   if (!entry) return null;
   if (entry.type === DAILY_ENTRY_TYPES.DAY) {
-    if (entry.date?.getDay?.() === DAILY_WEEK_ENDS_ON) {
-      return createWeeklySummaryEntry(entry.date);
-    }
     const nextDate = new Date(entry.date.getTime());
     nextDate.setDate(nextDate.getDate() + 1);
     return createDayEntry(nextDate);
-  }
-  if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
-    const anchor = entry.weekEnd || entry.sunday;
-    const monthCandidate = createMonthlySummaryEntry(anchor);
-    if (monthCandidate) {
-      return monthCandidate;
-    }
-    const nextDay = entryDayAfterAnchor(anchor);
-    return nextDay ? createDayEntry(nextDay) : null;
-  }
-  if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
-    const anchor = entry.weekEnd || entry.sunday;
-    const nextDay = entryDayAfterAnchor(anchor);
-    return nextDay ? createDayEntry(nextDay) : null;
   }
   return null;
 }
 function computePrevEntry(entry) {
   if (!entry) return null;
   if (entry.type === DAILY_ENTRY_TYPES.DAY) {
-    const day = entry.date?.getDay?.();
-    const startOfWeekDay = (DAILY_WEEK_ENDS_ON + 1) % 7;
-    if (day === startOfWeekDay) {
-      const anchor = new Date(entry.date.getTime());
-      anchor.setDate(anchor.getDate() - 1);
-      const monthCandidate = createMonthlySummaryEntry(anchor);
-      if (monthCandidate) {
-        return monthCandidate;
-      }
-      return createWeeklySummaryEntry(anchor);
-    }
     const prevDate = new Date(entry.date.getTime());
     prevDate.setDate(prevDate.getDate() - 1);
     return createDayEntry(prevDate);
-  }
-  if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
-    const anchor = entry.weekEnd || entry.sunday;
-    return createDayEntry(anchor);
-  }
-  if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
-    const anchor = entry.weekEnd || entry.sunday;
-    return createWeeklySummaryEntry(anchor);
   }
   return null;
 }
@@ -8619,52 +8571,6 @@ function entryToQuery(entry, basePath, qp) {
   }
   const search = params.toString();
   return `${basePath}${search ? `?${search}` : ""}`;
-}
-async function appendSummaryCard(container, entry, ctx) {
-  if (!(container instanceof HTMLElement) || !entry) return;
-  const card = document.createElement("section");
-  card.className = "daily-summary card space-y-4 p-4 sm:p-5";
-  const isMonthly = entry.type === DAILY_ENTRY_TYPES.MONTHLY;
-  const title = isMonthly ? "Bilan du mois" : "Bilan de la semaine";
-  const icon = isMonthly ? "🌕" : "🗓️";
-  const period = isMonthly
-    ? entry.monthLabel || (entry.monthEnd ? formatMonthLabel(entry.monthEnd) : "")
-    : entry.weekStart && entry.weekEnd
-      ? formatWeekRangeLabel(entry.weekStart, entry.weekEnd)
-      : "";
-  const detailLines = [];
-  if (!isMonthly && entry.weekStart && entry.weekEnd) {
-    detailLines.push(`Du ${formatLongDateLabel(entry.weekStart)} au ${formatLongDateLabel(entry.weekEnd)}`);
-  }
-  card.innerHTML = `
-    <header class="daily-summary__header">
-      <div class="daily-summary__title"><span class="daily-summary__icon" aria-hidden="true">${icon}</span><span>${escapeHtml(title)}</span></div>
-      ${period ? `<div class="daily-summary__meta">${escapeHtml(period)}</div>` : ""}
-    </header>
-    <div class="daily-summary__body">
-      ${detailLines.length
-        ? `<ul class="daily-summary__details">${detailLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
-        : ""}
-      <div class="daily-summary__content space-y-4" data-bilan-root>
-        <p class="text-sm text-[var(--muted)]">Chargement du bilan…</p>
-      </div>
-    </div>
-  `;
-  container.appendChild(card);
-  const mount = card.querySelector("[data-bilan-root]");
-  if (!mount) {
-    return;
-  }
-  if (!window.Bilan || typeof window.Bilan.renderSummary !== "function") {
-    mount.innerHTML = `<p class="text-sm text-[var(--muted)]">Module de bilan non disponible.</p>`;
-    return;
-  }
-  try {
-    await window.Bilan.renderSummary({ ctx, entry, mount });
-  } catch (error) {
-    console.error("bilan.render", error);
-    mount.innerHTML = `<p class="text-sm text-red-600">Impossible de charger les consignes du bilan.</p>`;
-  }
 }
 function dateForDayFromToday(label){
   const target = DOW.indexOf(label);
@@ -8691,15 +8597,6 @@ async function renderDaily(ctx, root, opts = {}) {
   const currentHash = ctx.route || window.location.hash || "#/daily";
   const qp = new URLSearchParams(currentHash.split("?")[1] || "");
   await loadBilanSettings(ctx);
-  const viewParamRaw = String(opts.view || qp.get("view") || "").toLowerCase();
-  let normalizedView = viewParamRaw === "week"
-    ? DAILY_ENTRY_TYPES.WEEKLY
-    : viewParamRaw === "month"
-      ? DAILY_ENTRY_TYPES.MONTHLY
-      : DAILY_ENTRY_TYPES.DAY;
-  if (normalizedView === DAILY_ENTRY_TYPES.MONTHLY && !DAILY_MONTHLY_ENABLED) {
-    normalizedView = DAILY_ENTRY_TYPES.WEEKLY;
-  }
   const dateIso = opts.dateIso || qp.get("d");
   const explicitDate = dateIso ? toStartOfDay(dateIso) : null;
   const requestedDay = normalizeDay(opts.day) || normalizeDay(qp.get("day"));
@@ -8708,42 +8605,19 @@ async function renderDaily(ctx, root, opts = {}) {
   let selectedDate = null;
   let currentDay = null;
 
-  if (normalizedView === DAILY_ENTRY_TYPES.DAY) {
-    if (explicitDate) {
-      selectedDate = new Date(explicitDate.getTime());
-      entry = createDayEntry(selectedDate);
-      currentDay = entry?.dayCode || null;
-    } else if (requestedDay) {
-      selectedDate = dateForDayFromToday(requestedDay);
-      selectedDate.setHours(0, 0, 0, 0);
-      entry = createDayEntry(selectedDate);
-      currentDay = requestedDay;
-    } else {
-      selectedDate = toStartOfDay(new Date());
-      entry = createDayEntry(selectedDate);
-      currentDay = entry?.dayCode || null;
-    }
+  if (explicitDate) {
+    selectedDate = new Date(explicitDate.getTime());
+    entry = createDayEntry(selectedDate);
+    currentDay = entry?.dayCode || null;
+  } else if (requestedDay) {
+    selectedDate = dateForDayFromToday(requestedDay);
+    selectedDate.setHours(0, 0, 0, 0);
+    entry = createDayEntry(selectedDate);
+    currentDay = requestedDay;
   } else {
-    let anchor = explicitDate ? new Date(explicitDate.getTime()) : null;
-    if (!anchor) {
-      if (requestedDay) {
-        anchor = dateForDayFromToday(requestedDay);
-      } else {
-        anchor = new Date();
-      }
-    }
-    anchor.setHours(0, 0, 0, 0);
-    const weekAnchor = weekAnchorForDate(anchor);
-    if (normalizedView === DAILY_ENTRY_TYPES.MONTHLY) {
-      entry = createMonthlySummaryEntry(weekAnchor) || createWeeklySummaryEntry(weekAnchor);
-    } else {
-      entry = createWeeklySummaryEntry(weekAnchor);
-    }
-    if (!entry) {
-      entry = createDayEntry(anchor);
-    }
-    selectedDate = entry?.date ? new Date(entry.date.getTime()) : anchor;
-    currentDay = entry?.dayCode || (selectedDate ? DOW[selectedDate.getDay()] : null);
+    selectedDate = toStartOfDay(new Date());
+    entry = createDayEntry(selectedDate);
+    currentDay = entry?.dayCode || null;
   }
 
   if (!entry) {
@@ -8831,12 +8705,6 @@ async function renderDaily(ctx, root, opts = {}) {
         title: scopeChoice.label,
       });
     };
-  }
-
-  if (!isDayEntry) {
-    await appendSummaryCard(container, entry, ctx);
-    modesLogger.groupEnd();
-    return;
   }
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
