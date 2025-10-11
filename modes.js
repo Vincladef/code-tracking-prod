@@ -6717,7 +6717,15 @@ function readConsigneCurrentValue(consigne, scope) {
       isDirty = hidden.dataset?.dirty === "1";
       try {
         const parsed = JSON.parse(hidden.value || "[]");
-        return buildChecklistValue(consigne, parsed);
+        const value = buildChecklistValue(consigne, parsed);
+        const items = Array.isArray(value?.items) ? value.items : [];
+        const skipped = Array.isArray(value?.skipped) ? value.skipped : [];
+        const hasMeaningfulState =
+          items.some(Boolean) || skipped.some(Boolean) || (value && value.__hasAnswer === true);
+        if (!isDirty && !hasMeaningfulState) {
+          return null;
+        }
+        return value;
       } catch (error) {
         console.warn("readConsigneCurrentValue:checklist", error);
       }
