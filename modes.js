@@ -34,6 +34,18 @@ function waitForCheckboxSetupFunction() {
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+function withAlpha(hex, alpha) {
+  const safe = String(hex || "").replace("#", "");
+  if (safe.length !== 6) {
+    return `rgba(99, 102, 241, ${alpha})`;
+  }
+  const value = parseInt(safe, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function consigneCategoryStorageKey(uid, mode) {
   if (!uid || !mode) return null;
   return ["consigne", "last-category", uid, mode].map((part) => String(part)).join(":");
@@ -350,7 +362,8 @@ function richTextHasContent(value) {
   if (normalized.text && normalized.text.trim()) {
     return true;
   }
-  if (Array.isArray(normalized.checkboxes) && normalized.checkboxes.some(Boolean)) {
+  // S'il y a des cases, c'est une réponse, même si aucune n'est cochée.
+  if (Array.isArray(normalized.checkboxes) && normalized.checkboxes.length > 0) {
     return true;
   }
   const html = normalized.html || "";
@@ -483,19 +496,52 @@ function modal(html) {
 
 function drawer(html) {
   const wrap = document.createElement("div");
-  wrap.className = "fixed inset-0 z-50";
-  wrap.innerHTML = `
-    <div class="absolute inset-0 bg-black/30"></div>
-    <aside class="absolute right-0 top-0 h-full w-[min(480px,92vw)] bg-white border-l border-gray-200 shadow-xl p-4 translate-x-full transition-transform duration-200 will-change-transform overflow-y-auto">
-      ${html}
-    </aside>`;
-  wrap.addEventListener("click", (e) => {
-    if (e.target === wrap.firstElementChild) wrap.remove();
+  Object.assign(wrap.style, {
+    position: "fixed",
+    top: "0",
+    right: "0",
+    bottom: "0",
+    left: "0",
+    zIndex: "9999",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    background: "rgba(15,23,42,0.35)",
+    overscrollBehavior: "contain",
   });
+  wrap.setAttribute("role", "presentation");
+
+  const aside = document.createElement("aside");
+  aside.innerHTML = html;
+  Object.assign(aside.style, {
+    width: "min(960px, 94vw)",
+    maxWidth: "100%",
+    maxHeight: "90vh",
+    background: "#fff",
+    borderRadius: "1.25rem",
+    boxShadow: "0 24px 48px rgba(15,23,42,0.25)",
+    padding: "1.5rem",
+    overflowY: "auto",
+    transform: "translateY(24px) scale(0.98)",
+    opacity: "0",
+    transition: "transform 0.2s ease-out, opacity 0.2s ease-out",
+    willChange: "transform, opacity",
+  });
+  aside.setAttribute("role", "dialog");
+  aside.setAttribute("aria-modal", "true");
+
+  wrap.appendChild(aside);
+
+  wrap.addEventListener("click", (e) => {
+    if (e.target === wrap) wrap.remove();
+  });
+
   document.body.appendChild(wrap);
   requestAnimationFrame(() => {
-    wrap.querySelector("aside").classList.remove("translate-x-full");
+    aside.style.transform = "translateY(0) scale(1)";
+    aside.style.opacity = "1";
   });
+
   return wrap;
 }
 
@@ -518,12 +564,494 @@ const LIKERT6_LABELS = {
 
 const NOTE_IGNORED_VALUES = new Set(["no_answer"]);
 
+function renderConsigneValueField(consigne, value, fieldId) {
+  const type = consigne?.type || "short";
+  if (type === "info") {
+    return INFO_STATIC_BLOCK;
+  }
+  if (type === "num") {
+    const current = value === "" || value == null ? "" : Number(value);
+    return `<input id="${fieldId}" name="value" type="number" step="0.1" class="practice-editor__input" placeholder="Réponse" value="${
+      Number.isFinite(current) ? escapeHtml(String(current)) : ""
+    }">`;
+  }
+  if (type === "likert5") {
+    const current = value === "" || value == null ? "" : Number(value);
+    const options = [0, 1, 2, 3, 4]
+      .map((n) => `<option value="${n}" ${current === n ? "selected" : ""}>${n}</option>`)
+      .join("");
+    return `<select id="${fieldId}" name="value" class="practice-editor__select"><option value=""></option>${options}</select>`;
+  }
+  if (type === "likert6") {
+    const current = value === "" || value == null ? "" : String(value);
+    return `<select id="${fieldId}" name="value" class="practice-editor__select">
+      <option value="" ${current === "" ? "selected" : ""}>—</option>
+      <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
+      <option value="rather_yes" ${current === "rather_yes" ? "selected" : ""}>Plutôt oui</option>
+      <option value="medium" ${current === "medium" ? "selected" : ""}>Neutre</option>
+      <option value="rather_no" ${current === "rather_no" ? "selected" : ""}>Plutôt non</option>
+      <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
+      <option value="no_answer" ${current === "no_answer" ? "selected" : ""}>Pas de réponse</option>
+    </select>`;
+  }
+  if (type === "yesno") {
+    const current = value === "" || value == null ? "" : String(value);
+    return `<select id="${fieldId}" name="value" class="practice-editor__select">
+      <option value="" ${current === "" ? "selected" : ""}>—</option>
+      <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
+      <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
+    </select>`;
+  }
+  if (type === "long") {
+    return renderRichTextInput("value", {
+      initialValue: value,
+      placeholder: "Réponse",
+      inputId: fieldId,
+    });
+  }
+  return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Réponse" value="${escapeHtml(
+    String(value ?? "")
+  )}">`;
+}
+
+function readConsigneValueFromForm(consigne, form) {
+  const type = consigne?.type || "short";
+  if (type === "info") {
+    return "";
+  }
+  const field = form?.elements?.value;
+  if (!field) return "";
+  if (type === "long") {
+    const normalized = normalizeRichTextValue(field.value || "");
+    return richTextHasContent(normalized) ? normalized : "";
+  }
+  if (type === "short") {
+    return (field.value || "").trim();
+  }
+  if (type === "num") {
+    if (field.value === "" || field.value == null) return "";
+    const num = Number(field.value);
+    return Number.isFinite(num) ? num : "";
+  }
+  if (type === "likert5") {
+    if (field.value === "" || field.value == null) return "";
+    const num = Number(field.value);
+    return Number.isFinite(num) ? num : "";
+  }
+  if (type === "yesno" || type === "likert6") {
+    return field.value || "";
+  }
+  return (field.value || "").trim();
+}
+
+function likert6NumericPoint(value) {
+  if (!value) return null;
+  const index = LIKERT6_ORDER.indexOf(String(value));
+  if (index === -1) return null;
+  return index;
+}
+
+function sanitizeChecklistItems(consigne) {
+  const rawItems = Array.isArray(consigne?.checklistItems) ? consigne.checklistItems : [];
+  return rawItems
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+}
+
+function slugifyChecklistLabel(label) {
+  if (typeof label !== "string") {
+    return "";
+  }
+  const trimmed = label.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const normalized = typeof trimmed.normalize === "function" ? trimmed.normalize("NFD") : trimmed;
+  return normalized
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function quickChecklistHash(value) {
+  const str = typeof value === "string" ? value : JSON.stringify(value || "");
+  let hash = 2166136261;
+  for (let index = 0; index < str.length; index += 1) {
+    hash ^= str.charCodeAt(index);
+    hash = (hash * 16777619) >>> 0;
+  }
+  return hash.toString(16);
+}
+
+function fallbackChecklistOptionsHash(items) {
+  if (!Array.isArray(items)) {
+    return quickChecklistHash("");
+  }
+  const normalized = items
+    .map((item) => (typeof item === "string" ? item.trim() : item == null ? "" : String(item)))
+    .filter((item) => item.length > 0);
+  return quickChecklistHash(JSON.stringify(normalized));
+}
+
+function computeChecklistOptionsHash(consigne) {
+  const items = sanitizeChecklistItems(consigne);
+  const hashFn = window.ChecklistState?.hashOptions;
+  if (typeof hashFn === "function") {
+    try {
+      const hashed = hashFn(items);
+      if (hashed) {
+        return String(hashed);
+      }
+    } catch (error) {
+      modesLogger?.warn?.("checklist.hash.error", error);
+    }
+  }
+  return fallbackChecklistOptionsHash(items);
+}
+
+function resolveChecklistItemId(consigne, index, label) {
+  const base =
+    consigne?.id ??
+    consigne?.slug ??
+    consigne?.slugId ??
+    consigne?.slug_id ??
+    consigne?.consigneId ??
+    "";
+  const baseStr = base ? String(base) : "";
+  const labelStr = typeof label === "string" ? label.trim() : "";
+  const slug = slugifyChecklistLabel(labelStr);
+  const hashSource = labelStr ? `${labelStr}#${index}` : `${index}`;
+  const hash = quickChecklistHash(hashSource).slice(0, 8);
+  const key = slug ? `${slug}-${hash}` : hash;
+  return baseStr ? `${baseStr}:${key}` : key;
+}
+
+function collectChecklistSelectedIds(consigne, container, value) {
+  const { items: states, skipped: fallbackSkipped } = normalizeChecklistStateArrays(value);
+  const domSkipped = [];
+  const selected = new Set();
+  if (container instanceof Element) {
+    const items = Array.from(container.querySelectorAll("[data-checklist-item]"));
+    if (items.length) {
+      items.forEach((item, index) => {
+        const input = item.querySelector('[data-checklist-input], input[type="checkbox"]');
+        const fallbackId = resolveChecklistItemId(
+          consigne,
+          index,
+          item.getAttribute("data-checklist-label") || input?.getAttribute?.("data-label") || ""
+        );
+        const explicitKey =
+          input?.getAttribute?.("data-key") ||
+          input?.dataset?.key ||
+          item.getAttribute("data-checklist-key") ||
+          item.getAttribute("data-item-id");
+        const itemId = explicitKey || fallbackId;
+        const isChecked = input ? Boolean(input.checked) : Boolean(states[index]);
+        const isSkipped = (() => {
+          if (input && input.dataset?.checklistSkip === "1") {
+            return true;
+          }
+          if (item.dataset?.checklistSkipped === "1") {
+            return true;
+          }
+          return fallbackSkipped[index] || false;
+        })();
+        domSkipped[index] = isSkipped;
+        if (isChecked && !isSkipped) {
+          selected.add(String(itemId));
+        }
+      });
+      return Array.from(selected);
+    }
+  }
+  const sanitizedItems = sanitizeChecklistItems(consigne);
+  sanitizedItems.forEach((_, index) => {
+    const checked = Boolean(states[index]);
+    const isSkipped = Boolean(domSkipped[index] ?? fallbackSkipped[index]);
+    if (checked && !isSkipped) {
+      selected.add(resolveChecklistItemId(consigne, index, sanitizedItems[index]));
+    }
+  });
+  return Array.from(selected);
+}
+
+function filterConsignesByParentVisibility(consignes, hiddenParentIds = new Set()) {
+  if (!Array.isArray(consignes) || consignes.length === 0) {
+    return [];
+  }
+  const initialVisible = consignes.filter((consigne) => {
+    if (!consigne) {
+      return false;
+    }
+    if (consigne.parentId && hiddenParentIds.has(consigne.parentId)) {
+      return false;
+    }
+    return true;
+  });
+  if (!initialVisible.length) {
+    return initialVisible;
+  }
+  const visibleIdSet = new Set(initialVisible.map((consigne) => consigne?.id).filter(Boolean));
+  return initialVisible.filter((consigne) => {
+    if (!consigne?.parentId) {
+      return true;
+    }
+    return visibleIdSet.has(consigne.parentId);
+  });
+}
+
+function readChecklistStates(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => item === true);
+  }
+  if (value && typeof value === "object" && Array.isArray(value.items)) {
+    return value.items.map((item) => item === true);
+  }
+  return [];
+}
+
+function readChecklistSkipped(value) {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+  const raw = Array.isArray(value.skipped)
+    ? value.skipped
+    : Array.isArray(value.skipStates)
+    ? value.skipStates
+    : [];
+  return raw.map((item) => item === true);
+}
+
+function normalizeChecklistStateArrays(value, length = null) {
+  const states = readChecklistStates(value);
+  const skipped = readChecklistSkipped(value);
+  const size =
+    Number.isFinite(length) && length >= 0 ? Number(length) : Math.max(states.length, skipped.length);
+  if (!Number.isFinite(size) || size <= 0) {
+    return { items: states.slice(), skipped: skipped.slice() };
+  }
+  const normalizedItems = Array.from({ length: size }, (_, index) => Boolean(states[index]));
+  const normalizedSkipped = Array.from({ length: size }, (_, index) => Boolean(skipped[index]));
+  return { items: normalizedItems, skipped: normalizedSkipped };
+}
+
+function readChecklistDomState(container) {
+  if (typeof Element !== "undefined" && container instanceof Element) {
+    const inputs = Array.from(container.querySelectorAll("[data-checklist-input]"));
+    if (!inputs.length) {
+      return { items: [], skipped: [] };
+    }
+    const items = [];
+    const skipped = [];
+    inputs.forEach((input) => {
+      const host = input.closest("[data-checklist-item]");
+      const isSkipped = Boolean(
+        (input.dataset && input.dataset.checklistSkip === "1") ||
+          (host && host.dataset && host.dataset.checklistSkipped === "1")
+      );
+      items.push(Boolean(input.checked));
+      skipped.push(isSkipped);
+    });
+    return { items, skipped };
+  }
+  return { items: [], skipped: [] };
+}
+
+function applyChecklistDomState(container, value) {
+  if (!(typeof Element !== "undefined" && container instanceof Element)) {
+    return;
+  }
+  const inputs = Array.from(container.querySelectorAll("[data-checklist-input]"));
+  if (!inputs.length) {
+    return;
+  }
+  const { items: states, skipped } = normalizeChecklistStateArrays(value, inputs.length);
+  inputs.forEach((input, index) => {
+    const host = input.closest("[data-checklist-item]");
+    const isSkipped = Boolean(skipped[index]);
+    const isChecked = Boolean(states[index]);
+    input.checked = isSkipped ? true : isChecked;
+    if (typeof input.indeterminate === "boolean") {
+      input.indeterminate = false;
+    }
+    if (input.dataset) {
+      if (isSkipped) {
+        input.dataset.checklistSkip = "1";
+      } else {
+        delete input.dataset.checklistSkip;
+      }
+    }
+    if (host) {
+      if (isSkipped) {
+        host.dataset.checklistSkipped = "1";
+        host.classList.add("checklist-item--skipped");
+        host.setAttribute("data-validated", "skip");
+      } else {
+        host.classList.remove("checklist-item--skipped");
+        if (host.dataset) {
+          delete host.dataset.checklistSkipped;
+        }
+        host.setAttribute("data-validated", isChecked ? "true" : "false");
+      }
+    }
+  });
+}
+
+function deriveChecklistStats(value) {
+  const { items: states, skipped } = normalizeChecklistStateArrays(value);
+  const checkedIds = [];
+  let consideredTotal = 0;
+  states.forEach((checked, index) => {
+    if (skipped[index]) {
+      return;
+    }
+    consideredTotal += 1;
+    if (checked) {
+      checkedIds.push(index);
+    }
+  });
+  const checkedCount = checkedIds.length;
+  const ratio = consideredTotal > 0 ? checkedCount / consideredTotal : 0;
+  let percentage = Math.round(ratio * 100);
+  if (value && typeof value === "object") {
+    const hintedPercentage = Number(value.percentage);
+    if (Number.isFinite(hintedPercentage)) {
+      percentage = Math.max(0, Math.min(100, Math.round(hintedPercentage)));
+    }
+  }
+  return {
+    total: consideredTotal,
+    checkedCount,
+    checkedIds,
+    percentage,
+    isEmpty: checkedCount === 0,
+    skippedCount: skipped.filter(Boolean).length,
+  };
+}
+
+function resolveChecklistStatsFromResponse(response) {
+  if (!response || typeof response !== "object") {
+    return null;
+  }
+  const base = deriveChecklistStats(response.value);
+  const stats = { ...base };
+  if (Array.isArray(response.checkedIds)) {
+    stats.checkedIds = response.checkedIds.slice();
+    stats.checkedCount = response.checkedIds.length;
+  }
+  if (Number.isFinite(response.checkedCount)) {
+    stats.checkedCount = Number(response.checkedCount);
+  }
+  if (Number.isFinite(response.total)) {
+    stats.total = Number(response.total);
+  }
+  if (Number.isFinite(response.skippedCount)) {
+    stats.skippedCount = Number(response.skippedCount);
+  }
+  if (Number.isFinite(response.percentage)) {
+    stats.percentage = Math.max(0, Math.min(100, Math.round(Number(response.percentage))));
+  }
+  if (response.isEmpty !== undefined) {
+    stats.isEmpty = Boolean(response.isEmpty);
+  } else {
+    stats.isEmpty = stats.checkedCount === 0;
+  }
+  const total = stats.total;
+  if (total > 0) {
+    const ratio = stats.checkedCount / total;
+    stats.percentage = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  } else if (!Number.isFinite(stats.percentage)) {
+    stats.percentage = 0;
+  }
+  return stats;
+}
+
+function buildChecklistValue(consigne, rawValue, fallbackValue = null) {
+  const labels = sanitizeChecklistItems(consigne);
+  const normalized = normalizeChecklistStateArrays(rawValue, labels.length || undefined);
+  const result = { items: [] };
+  if (labels.length) {
+    result.labels = labels.slice();
+    result.items = labels.map((_, index) => Boolean(normalized.items[index]));
+    result.skipped = labels.map((_, index) => Boolean(normalized.skipped[index]));
+  } else {
+    const fallbackLabels = (() => {
+      if (rawValue && typeof rawValue === "object" && Array.isArray(rawValue.labels)) {
+        return rawValue.labels;
+      }
+      if (fallbackValue && typeof fallbackValue === "object" && Array.isArray(fallbackValue.labels)) {
+        return fallbackValue.labels;
+      }
+      return [];
+    })();
+    const fallbackNormalized = normalizeChecklistStateArrays(
+      rawValue,
+      fallbackLabels.length || undefined
+    );
+    if (fallbackLabels.length) {
+      const normalizedFallback = fallbackLabels.map((label) =>
+        typeof label === "string" ? label : String(label)
+      );
+      result.labels = normalizedFallback;
+      result.items = normalizedFallback.map((_, index) => Boolean(fallbackNormalized.items[index]));
+      result.skipped = normalizedFallback.map((_, index) => Boolean(fallbackNormalized.skipped[index]));
+    } else {
+      result.items = fallbackNormalized.items.slice();
+      result.skipped = fallbackNormalized.skipped.slice();
+    }
+  }
+  if (!Array.isArray(result.items)) {
+    result.items = [];
+  }
+  if (Array.isArray(result.labels) && result.items.length !== result.labels.length) {
+    result.items = result.labels.map((_, index) => Boolean(result.items[index]));
+    if (Array.isArray(result.skipped)) {
+      result.skipped = result.labels.map((_, index) => Boolean(result.skipped[index]));
+    }
+  }
+  if (Array.isArray(result.skipped) && result.skipped.every((value) => value === false)) {
+    delete result.skipped;
+  }
+  return result;
+}
+
+function checklistHasSelection(value) {
+  const { items, skipped } = normalizeChecklistStateArrays(value);
+  return items.some((checked, index) => checked && !skipped[index]);
+}
+
+function checklistIsComplete(value) {
+  const { items, skipped } = normalizeChecklistStateArrays(value);
+  let hasConsidered = false;
+  for (let index = 0; index < items.length; index += 1) {
+    if (skipped[index]) {
+      continue;
+    }
+    hasConsidered = true;
+    if (!items[index]) {
+      return false;
+    }
+  }
+  return hasConsidered;
+}
+
+function numericPoint(type, value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (type === "likert6") {
+    return likert6NumericPoint(value);
+  }
+  const point = Schema.valueToNumericPoint(type, value);
+  return Number.isFinite(point) ? point : null;
+}
+
 function formatConsigneValue(type, value, options = {}) {
   const wantsHtml = options.mode === "html";
   const consigne = options.consigne || null;
   const providedChecklist = Array.isArray(options.checklistItems) ? options.checklistItems : null;
   if (type === "info") return "";
-  if (value && typeof value === "object" && value.skipped) {
+  if (value && typeof value === "object" && value.skipped === true) {
     const label = "Passée";
     return wantsHtml ? escapeHtml(label) : label;
   }
@@ -540,42 +1068,55 @@ function formatConsigneValue(type, value, options = {}) {
   }
   if (value === null || value === undefined || value === "") return "—";
   if (type === "checklist") {
-    let items = [];
-    if (Array.isArray(value)) {
-      items = value;
-    } else if (value && typeof value === "object" && Array.isArray(value.items)) {
-      items = value.items;
-    }
-    const labelsSource = providedChecklist
-      || (consigne && Array.isArray(consigne.checklistItems) ? consigne.checklistItems : null)
-      || (value && typeof value === "object" && Array.isArray(value.labels) ? value.labels : null);
-    const labels = Array.isArray(labelsSource) ? labelsSource : [];
-    const maxLength = Math.max(items.length, labels.length);
-    if (!maxLength) return "—";
-    const entries = [];
-    for (let index = 0; index < maxLength; index += 1) {
-      const rawLabel = labels[index];
-      const label = typeof rawLabel === "string" && rawLabel.trim()
-        ? rawLabel.trim()
-        : `Élément ${index + 1}`;
-      const checked = Boolean(items[index]);
-      const statusText = checked ? "fait" : "à faire";
-      const icon = checked ? "✓" : "✗";
-      if (wantsHtml) {
-        entries.push(
-          `<span class="history-checklist__item"><span class="history-checklist__icon" aria-hidden="true">${icon}</span>` +
-            `<span class="sr-only">${checked ? "Fait" : "À faire"} : </span>` +
-            `<span class="history-checklist__label">${escapeHtml(label)}</span>` +
-            `<span class="history-checklist__status"> (${statusText})</span></span>`
-        );
-      } else {
-        entries.push(`${icon} ${label} : ${statusText}`);
-      }
-    }
+    const { items: states, skipped } = normalizeChecklistStateArrays(value);
     if (wantsHtml) {
-      return `<span class="history-checklist">${entries.join("<br>")}</span>`;
+      if (!states.length) {
+        return '<p class="history-checklist__empty">—</p>';
+      }
+      const labels = Array.isArray(value?.labels)
+        ? value.labels.map((label) => (typeof label === "string" ? label : String(label)))
+        : [];
+      const itemsMarkup = states
+        .map((checked, index) => {
+          const label = labels[index] || `Élément ${index + 1}`;
+          const skippedState = Boolean(skipped[index]);
+          const statusClass = skippedState
+            ? "history-checklist__item--skipped"
+            : checked
+            ? "history-checklist__item--checked"
+            : "history-checklist__item--unchecked";
+          const symbol = checked ? "☑︎" : "☐";
+          const skippedBadge = skippedState
+            ? '<span class="badge-skipped">passée</span>'
+            : '';
+          const labelMarkup = skippedBadge ? `${escapeHtml(label)} ${skippedBadge}` : escapeHtml(label);
+          return `<li class="history-checklist__item ${statusClass}"><span class="history-checklist__box" aria-hidden="true">${symbol}</span><span class="history-checklist__label">${labelMarkup}</span></li>`;
+        })
+        .join("");
+      const consideredTotal = states.reduce(
+        (acc, _, index) => (skipped[index] ? acc : acc + 1),
+        0
+      );
+      const completed = states.reduce(
+        (acc, checked, index) => (skipped[index] || !checked ? acc : acc + 1),
+        0
+      );
+      const ariaLabel =
+        consideredTotal > 0
+          ? `${completed} sur ${consideredTotal} éléments cochés`
+          : "Aucun élément pris en compte";
+      return `<ul class="history-checklist" data-checked="${completed}" data-total="${consideredTotal}" aria-label="${escapeHtml(ariaLabel)}">${itemsMarkup}</ul>`;
     }
-    return entries.join("; ");
+    if (!states.length) return "—";
+    const considered = states.reduce((acc, _, index) => (skipped[index] ? acc : acc + 1), 0);
+    if (considered === 0) {
+      return "—";
+    }
+    const done = states.reduce(
+      (acc, checked, index) => (skipped[index] || !checked ? acc : acc + 1),
+      0
+    );
+    return `${done} / ${considered}`;
   }
   if (type === "yesno") {
     const text = value === "yes" ? "Oui" : value === "no" ? "Non" : String(value);
@@ -634,6 +1175,174 @@ function showToast(msg){
   document.body.appendChild(el);
   requestAnimationFrame(() => { el.style.opacity = "1"; el.style.transform = "translateY(0)"; });
   setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; setTimeout(()=>el.remove(), 250); }, 1200);
+}
+
+function summaryScopeLabel(scope) {
+  const normalized = String(scope || "").toLowerCase();
+  if (normalized === "monthly") return "Bilan mensuel";
+  if (normalized === "yearly") return "Bilan annuel";
+  return "Bilan hebdomadaire";
+}
+
+async function chooseBilanScope(options = {}) {
+  const allowMonthly = options.allowMonthly !== false;
+  const scopes = [
+    { scope: "weekly", label: "Bilan hebdomadaire", description: "Synthèse de la semaine écoulée." },
+  ];
+  if (allowMonthly) {
+    scopes.push({ scope: "monthly", label: "Bilan mensuel", description: "Vue d’ensemble du mois." });
+  }
+  scopes.push({ scope: "yearly", label: "Bilan annuel", description: "Recul sur l’année complète." });
+
+  const optionsMarkup = scopes
+    .map(
+      (item) => `
+        <button type="button" class="w-full rounded-xl border border-slate-200 px-4 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:outline-none" data-bilan-scope="${escapeHtml(item.scope)}" data-bilan-label="${escapeHtml(item.label)}">
+          <span class="flex items-center justify-between gap-3">
+            <span>
+              <span class="block font-medium text-slate-800">${escapeHtml(item.label)}</span>
+              ${item.description ? `<span class="mt-1 block text-sm text-slate-500">${escapeHtml(item.description)}</span>` : ""}
+            </span>
+            <span aria-hidden="true" class="text-slate-400">→</span>
+          </span>
+        </button>`
+    )
+    .join("");
+
+  const overlay = modal(`
+    <div class="space-y-4">
+      <header class="space-y-1">
+        <h2 class="text-lg font-semibold">Choisir un type de bilan</h2>
+        <p class="text-sm text-[var(--muted)]">Sélectionne la période qui correspond le mieux au bilan que tu souhaites réaliser.</p>
+      </header>
+      <div class="space-y-2">
+        ${optionsMarkup}
+      </div>
+      <div class="flex justify-end">
+        <button type="button" class="btn" data-bilan-cancel>Annuler</button>
+      </div>
+    </div>
+  `);
+
+  return new Promise((resolve) => {
+    if (!overlay) {
+      resolve(null);
+      return;
+    }
+    const originalRemove = overlay.remove.bind(overlay);
+    let settled = false;
+    const finalize = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+      originalRemove();
+    };
+    overlay.remove = () => {
+      if (!settled) {
+        settled = true;
+        resolve(null);
+      }
+      originalRemove();
+    };
+    overlay.querySelectorAll("[data-bilan-scope]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const scope = btn.getAttribute("data-bilan-scope");
+        const label = btn.getAttribute("data-bilan-label") || summaryScopeLabel(scope);
+        finalize({ scope, label });
+      });
+    });
+    const cancelBtn = overlay.querySelector("[data-bilan-cancel]");
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", () => finalize(null));
+    }
+  });
+}
+
+function createYearlySummaryEntry(baseDate) {
+  const anchor = toStartOfDay(baseDate || new Date());
+  if (!anchor) return null;
+  const year = anchor.getFullYear();
+  const start = new Date(year, 0, 1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(year, 11, 31, 23, 59, 59, 999);
+  const yearKey = typeof Schema?.yearKeyFromDate === "function" ? Schema.yearKeyFromDate(anchor) : String(year);
+  return {
+    type: "yearly",
+    year,
+    yearKey,
+    yearStart: start,
+    yearEnd: end,
+    navLabel: `Bilan ${year}`,
+    navSubtitle: `${year}`,
+    weekEndsOn: DAILY_WEEK_ENDS_ON,
+  };
+}
+
+function entryForSummaryScope(scope, baseDate = new Date()) {
+  const normalized = String(scope || "").toLowerCase();
+  if (normalized === "monthly") {
+    return createMonthlySummaryEntry(baseDate) || createWeeklySummaryEntry(baseDate);
+  }
+  if (normalized === "yearly") {
+    return createYearlySummaryEntry(baseDate);
+  }
+  return createWeeklySummaryEntry(baseDate);
+}
+
+async function openBilanModal(ctx, options = {}) {
+  const scope = options.scope || "weekly";
+  const entry = entryForSummaryScope(scope, new Date());
+  if (!entry) {
+    showToast("Impossible de préparer le bilan.");
+    return null;
+  }
+  const title = options.title || summaryScopeLabel(scope);
+  const periodLabel = entry.navSubtitle || "";
+  const contextSubtitle = options.subtitle || "";
+  const secondarySubtitle = contextSubtitle && contextSubtitle !== periodLabel ? contextSubtitle : "";
+  const overlay = modal(`
+    <div class="space-y-4">
+      <header class="flex flex-wrap items-start justify-between gap-3">
+        <div class="space-y-1">
+          <h2 class="text-lg font-semibold">${escapeHtml(title)}</h2>
+          ${periodLabel ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(periodLabel)}</p>` : ""}
+          ${secondarySubtitle ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(secondarySubtitle)}</p>` : ""}
+        </div>
+        <button type="button" class="btn" data-bilan-close>Fermer</button>
+      </header>
+      <div class="space-y-4" data-bilan-modal-root>
+        <p class="text-sm text-[var(--muted)]">Chargement du bilan…</p>
+      </div>
+    </div>
+  `);
+  if (!overlay) {
+    return null;
+  }
+  const closeBtn = overlay.querySelector("[data-bilan-close]");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => overlay.remove());
+  }
+  const mount = overlay.querySelector("[data-bilan-modal-root]");
+  if (!mount) {
+    return overlay;
+  }
+  if (!window.Bilan || typeof window.Bilan.renderSummary !== "function") {
+    mount.innerHTML = `<p class="text-sm text-red-600">Module de bilan indisponible.</p>`;
+    return overlay;
+  }
+  try {
+    const entryOverride = { ...entry, navLabel: title };
+    await window.Bilan.renderSummary({
+      ctx,
+      entry: entryOverride,
+      mount,
+      sections: options.sections || null,
+    });
+  } catch (error) {
+    console.error("bilan.modal.render", error);
+    mount.innerHTML = `<p class="text-sm text-red-600">Impossible de charger les consignes du bilan.</p>`;
+  }
+  return overlay;
 }
 
 function toAppPath(h) {
@@ -716,18 +1425,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
-  function withAlpha(hex, alpha) {
-    const safe = String(hex || "").replace("#", "");
-    if (safe.length !== 6) {
-      return `rgba(99, 102, 241, ${alpha})`;
-    }
-    const value = parseInt(safe, 16);
-    const r = (value >> 16) & 255;
-    const g = (value >> 8) & 255;
-    const b = value & 255;
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  }
-
   function normalizePriorityValue(value) {
     const num = Number(value);
     if (Number.isFinite(num) && num >= 1 && num <= 3) return num;
@@ -746,32 +1443,17 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     return "Libre";
   }
 
-  function likert6NumericPoint(value) {
-    if (!value) return null;
-    const index = LIKERT6_ORDER.indexOf(String(value));
-    if (index === -1) return null;
-    return index;
-  }
-
-  function numericPoint(type, value) {
-    if (value === null || value === undefined || value === "") return null;
-    if (type === "likert6") {
-      return likert6NumericPoint(value);
-    }
-    const point = Schema.valueToNumericPoint(type, value);
-    return Number.isFinite(point) ? point : null;
-  }
-
   function normalizeScore(type, value) {
     if (value == null) return null;
     if (type === "likert5") return Math.max(0, Math.min(1, value / 4));
     if (type === "likert6") return Math.max(0, Math.min(1, value / (LIKERT6_ORDER.length - 1 || 1)));
     if (type === "yesno") return Math.max(0, Math.min(1, value));
-    if (type === "checklist") {
-      if (!Array.isArray(value) || value.length === 0) return null;
-      const completed = value.filter(Boolean).length;
-      return Math.max(0, Math.min(1, completed / value.length));
-    }
+  if (type === "checklist") {
+    const states = readChecklistStates(value);
+    if (!states.length) return null;
+    const completed = states.filter(Boolean).length;
+    return Math.max(0, Math.min(1, completed / states.length));
+  }
     return null;
   }
 
@@ -1222,9 +1904,17 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           modesLogger.warn("practice-dashboard:history:error", historyError);
         }
 
+        const seenHistoryEntryIds = new Set();
         (historyEntries || [])
           .filter((entry) => entry?.date)
           .forEach((entry) => {
+            const entryId = entry?.id || entry?.date;
+            if (entryId && seenHistoryEntryIds.has(entryId)) {
+              return;
+            }
+            if (entryId) {
+              seenHistoryEntryIds.add(entryId);
+            }
             const normalized = parseHistoryEntry(entry);
             const key = isDaily
               ? computeTemporalKey({ dayKey: entry.date }, normalized.createdAt)
@@ -1690,114 +2380,11 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     });
 
     function buildValueField(consigne, value, fieldId) {
-      const type = consigne?.type || "short";
-      if (type === "info") {
-        return INFO_STATIC_BLOCK;
-      }
-      if (type === "num") {
-        const current = value === "" || value == null ? "" : Number(value);
-        return `<input id="${fieldId}" name="value" type="number" step="0.1" class="practice-editor__input" placeholder="Réponse" value="${Number.isFinite(current) ? escapeHtml(String(current)) : ""}">`;
-      }
-      if (type === "likert5") {
-        const current = value === "" || value == null ? "" : Number(value);
-        const options = [0, 1, 2, 3, 4]
-          .map((n) => `<option value="${n}" ${current === n ? "selected" : ""}>${n}</option>`)
-          .join("");
-        return `<select id="${fieldId}" name="value" class="practice-editor__select"><option value=""></option>${options}</select>`;
-      }
-      if (type === "likert6") {
-        const current = value === "" || value == null ? "" : String(value);
-        return `<select id="${fieldId}" name="value" class="practice-editor__select">
-          <option value="" ${current === "" ? "selected" : ""}>—</option>
-          <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
-          <option value="rather_yes" ${current === "rather_yes" ? "selected" : ""}>Plutôt oui</option>
-          <option value="medium" ${current === "medium" ? "selected" : ""}>Neutre</option>
-          <option value="rather_no" ${current === "rather_no" ? "selected" : ""}>Plutôt non</option>
-          <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
-          <option value="no_answer" ${current === "no_answer" ? "selected" : ""}>Pas de réponse</option>
-        </select>`;
-      }
-      if (type === "yesno") {
-        const current = value === "" || value == null ? "" : String(value);
-        return `<select id="${fieldId}" name="value" class="practice-editor__select">
-          <option value="" ${current === "" ? "selected" : ""}>—</option>
-          <option value="yes" ${current === "yes" ? "selected" : ""}>Oui</option>
-          <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
-        </select>`;
-      }
-      if (type === "long") {
-        return renderRichTextInput("value", {
-          initialValue: value,
-          placeholder: "Réponse",
-          inputId: fieldId,
-        });
-      }
-      if (type === "checklist") {
-        const items = Array.isArray(consigne?.checklistItems)
-          ? consigne.checklistItems.filter((item) => typeof item === "string" && item.trim().length > 0)
-          : [];
-        const initialValues = Array.isArray(value)
-          ? value
-          : value && typeof value === "object" && Array.isArray(value.items)
-            ? value.items
-            : [];
-        const maxLength = Math.max(items.length, initialValues.length);
-        const checklistEntries = [];
-        for (let index = 0; index < maxLength; index += 1) {
-          const sourceLabel = items[index];
-          const label = sourceLabel ? sourceLabel.trim() : `Élément ${index + 1}`;
-          const extraLabel = sourceLabel ? label : `${label} (archivé)`;
-          const checked = Boolean(initialValues[index]);
-          checklistEntries.push(`
-            <label class="practice-editor__checklist-option${sourceLabel ? "" : " practice-editor__checklist-option--archived"}" data-history-checklist-item>
-              <input type="checkbox" class="practice-editor__checklist-checkbox" data-history-checklist-input value="${index}" ${checked ? "checked" : ""}>
-              <span>${escapeHtml(extraLabel)}</span>
-            </label>
-          `);
-        }
-        if (!checklistEntries.length) {
-          return '<p class="practice-editor__checklist-empty">Aucun élément défini pour cette checklist.</p>';
-        }
-        return `<div class="practice-editor__checklist" data-history-checklist>${checklistEntries.join("")}</div>`;
-      }
-      return `<input id="${fieldId}" name="value" type="text" class="practice-editor__input" placeholder="Réponse" value="${escapeHtml(String(value ?? ""))}">`;
+      return renderConsigneValueField(consigne, value, fieldId);
     }
 
     function readValueFromForm(consigne, form) {
-      const type = consigne?.type || "short";
-      if (type === "info") {
-        return "";
-      }
-      const field = form.elements.value;
-      if (!field) return "";
-      if (type === "long") {
-        const normalized = normalizeRichTextValue(field.value || "");
-        return richTextHasContent(normalized) ? normalized : "";
-      }
-      if (type === "short") {
-        return (field.value || "").trim();
-      }
-      if (type === "num") {
-        if (field.value === "" || field.value == null) return "";
-        const num = Number(field.value);
-        return Number.isFinite(num) ? num : "";
-      }
-      if (type === "likert5") {
-        if (field.value === "" || field.value == null) return "";
-        const num = Number(field.value);
-        return Number.isFinite(num) ? num : "";
-      }
-      if (type === "yesno" || type === "likert6") {
-        return field.value || "";
-      }
-      if (type === "checklist") {
-        const inputs = Array.from(form.querySelectorAll("[data-history-checklist-input]"));
-        if (!inputs.length) {
-          return "";
-        }
-        return inputs.map((input) => Boolean(input.checked));
-      }
-      return (field.value || "").trim();
+      return readConsigneValueFromForm(consigne, form);
     }
 
     function updateStatAfterEdit(stat, pointIndex, newRawValue, newNote) {
@@ -2024,6 +2611,345 @@ window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx
     dragWrapper = null;
   });
 };
+
+window.attachDailyCategoryDragDrop = function attachDailyCategoryDragDrop(container, ctx) {
+  if (!container || container.__dailyCategoryDragInstalled) return;
+  container.__dailyCategoryDragInstalled = true;
+  const selector = '.daily-category';
+  const ensureDraggable = () => {
+    container.querySelectorAll(selector).forEach((category) => {
+      if (!category.dataset.categoryDragReady) {
+        category.draggable = true;
+        category.dataset.categoryDragReady = '1';
+      }
+    });
+  };
+  ensureDraggable();
+  let dragging = null;
+  const clearDrag = () => {
+    if (dragging) {
+      dragging.classList.remove('opacity-70');
+    }
+    dragging = null;
+  };
+  const persistOrder = async () => {
+    const rows = Array.from(
+      container.querySelectorAll(
+        '.daily-category .consigne-row[data-id]:not([data-parent-id])'
+      )
+    );
+    if (!rows.length) return;
+    try {
+      await Promise.all(
+        rows.map((row, index) =>
+          Schema.updateConsigneOrder(ctx.db, ctx.user.uid, row.dataset.id, (index + 1) * 10)
+        )
+      );
+    } catch (error) {
+      console.warn('drag-drop:save-category-order:error', error);
+    }
+  };
+  container.addEventListener('dragstart', (event) => {
+    const category = event.target?.closest(selector);
+    if (!category) return;
+    if (event.target?.closest('.consigne-row')) return;
+    dragging = category;
+    category.classList.add('opacity-70');
+    event.dataTransfer.effectAllowed = 'move';
+    try {
+      event.dataTransfer.setData('text/plain', category.dataset.category || '');
+    } catch (error) {
+      // ignore
+    }
+  });
+  container.addEventListener('dragover', (event) => {
+    if (!dragging) return;
+    if (event.target?.closest('.consigne-row')) return;
+    const over = event.target?.closest(selector);
+    if (!over || over === dragging) return;
+    event.preventDefault();
+    const rect = over.getBoundingClientRect();
+    const before = event.clientY < rect.top + rect.height / 2;
+    over.parentNode.insertBefore(dragging, before ? over : over.nextSibling);
+  });
+  container.addEventListener('drop', async (event) => {
+    if (!dragging) return;
+    if (event.target?.closest('.consigne-row')) return;
+    event.preventDefault();
+    const target = event.target?.closest(selector);
+    if (target && target !== dragging) {
+      const rect = target.getBoundingClientRect();
+      const before = event.clientY < rect.top + rect.height / 2;
+      target.parentNode.insertBefore(dragging, before ? target : target.nextSibling);
+    }
+    clearDrag();
+    ensureDraggable();
+    await persistOrder();
+  });
+  container.addEventListener('dragend', () => {
+    clearDrag();
+    ensureDraggable();
+  });
+};
+
+function resolveCategoryOrderValue(category) {
+  const hasOrder = category && Object.prototype.hasOwnProperty.call(category, "order");
+  const raw = hasOrder ? category.order : null;
+  if (raw == null) {
+    return Number.POSITIVE_INFINITY;
+  }
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw;
+  }
+  if (typeof raw === "string") {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+function sortCategoriesForDisplay(list = []) {
+  return list
+    .slice()
+    .sort((a, b) => {
+      const orderA = resolveCategoryOrderValue(a);
+      const orderB = resolveCategoryOrderValue(b);
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      const nameA = a?.name || "";
+      const nameB = b?.name || "";
+      return nameA.localeCompare(nameB, "fr", { sensitivity: "base" });
+    });
+}
+
+function createCategoryMenu({
+  categories = [],
+  currentName = "",
+  onSelect = null,
+  onReorder = null,
+  disabled = false,
+} = {}) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "relative";
+  wrapper.dataset.categoryMenu = "true";
+
+  let isOpen = false;
+  let dragSourceId = null;
+  let dragStartOrder = [];
+  let current = currentName || "";
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "btn btn-ghost text-sm min-w-[180px] justify-between gap-2 border border-slate-200 text-left";
+  trigger.disabled = disabled;
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+
+  const triggerLabel = document.createElement("span");
+  triggerLabel.className = "truncate";
+  trigger.appendChild(triggerLabel);
+  const triggerIcon = document.createElement("span");
+  triggerIcon.setAttribute("aria-hidden", "true");
+  triggerIcon.textContent = "▾";
+  trigger.appendChild(triggerIcon);
+
+  const menu = document.createElement("div");
+  menu.className = "absolute z-40 mt-2 w-64 rounded-xl border border-slate-200 bg-white shadow-lg";
+  menu.hidden = true;
+
+  const menuHeader = document.createElement("div");
+  menuHeader.className = "px-3 py-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]";
+  menuHeader.textContent = categories.length
+    ? "Glisser-déposer pour réordonner"
+    : "Aucune catégorie";
+  menu.appendChild(menuHeader);
+
+  const list = document.createElement("ul");
+  list.className = "max-h-64 overflow-y-auto py-1";
+  list.setAttribute("role", "listbox");
+  menu.appendChild(list);
+
+  const updateCurrentLabel = (name) => {
+    current = name || "";
+    triggerLabel.textContent = current || "Choisir…";
+    list.querySelectorAll("[data-cat-select]").forEach((btn) => {
+      const btnName = btn.getAttribute("data-cat-select") || "";
+      const isSelected = btnName === current;
+      btn.classList.toggle("bg-slate-100", isSelected);
+      btn.classList.toggle("font-semibold", isSelected);
+      btn.setAttribute("aria-selected", isSelected ? "true" : "false");
+    });
+  };
+
+  const escapeId = (value) => {
+    if (!value) return "";
+    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+      return CSS.escape(value);
+    }
+    return String(value).replace(/"/g, '\\"');
+  };
+
+  function closeMenu() {
+    if (!isOpen) return;
+    isOpen = false;
+    menu.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    document.removeEventListener("mousedown", handleDocumentClick);
+    document.removeEventListener("keydown", handleKeydown);
+  }
+
+  function handleDocumentClick(event) {
+    if (!wrapper.contains(event.target)) {
+      closeMenu();
+    }
+  }
+
+  function handleKeydown(event) {
+    if (event.key === "Escape") {
+      closeMenu();
+      trigger.focus({ preventScroll: true });
+    }
+  }
+
+  function openMenu() {
+    if (isOpen || disabled) return;
+    isOpen = true;
+    menu.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    document.addEventListener("mousedown", handleDocumentClick);
+    document.addEventListener("keydown", handleKeydown);
+  }
+
+  trigger.addEventListener("click", () => {
+    if (isOpen) {
+      closeMenu();
+    } else {
+      openMenu();
+    }
+  });
+
+  const captureOrder = () =>
+    Array.from(list.querySelectorAll("[data-cat-id]"))
+      .map((item) => item.getAttribute("data-cat-id") || "")
+      .filter(Boolean);
+
+  const buildItem = (cat) => {
+    const item = document.createElement("li");
+    item.className = "px-2";
+    item.dataset.catId = cat?.id || "";
+    item.dataset.catName = cat?.name || "";
+    if (!disabled && item.dataset.catId) {
+      item.draggable = true;
+    }
+
+    const row = document.createElement("div");
+    row.className = "flex items-center gap-2 rounded-lg px-2 py-1 text-sm hover:bg-slate-50";
+
+    const selectBtn = document.createElement("button");
+    selectBtn.type = "button";
+    selectBtn.className = "flex-1 truncate text-left";
+    selectBtn.textContent = cat?.name || "Sans nom";
+    selectBtn.dataset.catSelect = cat?.name || "";
+    row.appendChild(selectBtn);
+
+    const handle = document.createElement("span");
+    handle.className = "cursor-grab select-none text-lg text-slate-400";
+    handle.setAttribute("aria-hidden", "true");
+    handle.textContent = "⋮⋮";
+    row.appendChild(handle);
+
+    item.appendChild(row);
+
+    selectBtn.addEventListener("click", () => {
+      const name = selectBtn.dataset.catSelect || "";
+      updateCurrentLabel(name);
+      closeMenu();
+      if (typeof onSelect === "function") {
+        onSelect(name);
+      }
+    });
+
+    return item;
+  };
+
+  if (categories.length) {
+    categories.forEach((cat) => {
+      list.appendChild(buildItem(cat));
+    });
+  }
+
+  const handleDragStart = (event) => {
+    if (disabled) return;
+    const item = event.target.closest("[data-cat-id]");
+    if (!item || !item.dataset.catId) return;
+    dragSourceId = item.dataset.catId;
+    dragStartOrder = captureOrder();
+    event.dataTransfer.effectAllowed = "move";
+    try {
+      event.dataTransfer.setData("text/plain", item.dataset.catId);
+    } catch (error) {
+      // ignore — browsers may throw if unsupported
+    }
+    item.classList.add("ring", "ring-indigo-200");
+  };
+
+  const handleDragOver = (event) => {
+    if (!dragSourceId) return;
+    event.preventDefault();
+    const over = event.target.closest("[data-cat-id]");
+    if (!over || over.dataset.catId === dragSourceId) return;
+    const source = list.querySelector(`[data-cat-id="${escapeId(dragSourceId)}"]`);
+    if (!source) return;
+    const rect = over.getBoundingClientRect();
+    const before = event.clientY - rect.top < rect.height / 2;
+    over.parentNode.insertBefore(source, before ? over : over.nextSibling);
+  };
+
+  const handleDrop = (event) => {
+    if (!dragSourceId) return;
+    event.preventDefault();
+    const source = list.querySelector(`[data-cat-id="${escapeId(dragSourceId)}"]`);
+    if (source) {
+      source.classList.remove("ring", "ring-indigo-200");
+    }
+    const nextOrder = captureOrder();
+    const changed = JSON.stringify(nextOrder) !== JSON.stringify(dragStartOrder);
+    dragSourceId = null;
+    dragStartOrder = [];
+    if (changed && typeof onReorder === "function") {
+      onReorder(nextOrder);
+    }
+  };
+
+  const handleDragEnd = () => {
+    if (!dragSourceId) return;
+    const source = list.querySelector(`[data-cat-id="${escapeId(dragSourceId)}"]`);
+    if (source) {
+      source.classList.remove("ring", "ring-indigo-200");
+    }
+    dragSourceId = null;
+    dragStartOrder = [];
+  };
+
+  list.addEventListener("dragstart", handleDragStart);
+  list.addEventListener("dragover", handleDragOver);
+  list.addEventListener("drop", handleDrop);
+  list.addEventListener("dragend", handleDragEnd);
+
+  wrapper.appendChild(trigger);
+  wrapper.appendChild(menu);
+
+  updateCurrentLabel(current);
+
+  return {
+    element: wrapper,
+    close: closeMenu,
+    setCurrent: updateCurrentLabel,
+  };
+}
 
 async function categorySelect(ctx, mode, currentName = "") {
   const cats = await Schema.fetchCategories(ctx.db, ctx.user.uid);
@@ -2284,7 +3210,7 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
         <button type="button" class="btn btn-ghost text-xs" data-rich-command="checkbox" title="Insérer une case à cocher" aria-label="Insérer une case à cocher">☐</button>
       </div>
       <div class="consigne-rich-text__content consigne-editor__textarea" data-rich-text-content contenteditable="true"${placeholderAttr}>${initialHtml}</div>
-      <input type="hidden"${hiddenIdAttr} name="${escapeHtml(String(name))}" value="${serialized}" data-rich-text-input data-rich-text-version="${RICH_TEXT_VERSION}">
+      <input type="hidden"${hiddenIdAttr} name="${escapeHtml(String(name))}" value="${serialized}" data-rich-text-input data-rich-text-version="${RICH_TEXT_VERSION}" data-autosave-track="1">
     </div>
   `;
 }
@@ -3451,31 +4377,469 @@ function inputForType(consigne, initialValue = null) {
     `;
   }
   if (consigne.type === "checklist") {
-    const items = Array.isArray(consigne.checklistItems)
-      ? consigne.checklistItems.filter((item) => typeof item === "string" && item.trim().length > 0)
-      : [];
-    const normalizedValue = Array.isArray(initialValue)
-      ? items.map((_, index) => Boolean(initialValue[index]))
-      : items.map(() => false);
+    const items = sanitizeChecklistItems(consigne);
+    const initialStates = (() => {
+      if (Array.isArray(initialValue)) {
+        return initialValue.map((value) => value === true);
+      }
+      if (initialValue && typeof initialValue === "object") {
+        return readChecklistStates(initialValue);
+      }
+      return [];
+    })();
+    const initialSkipStates = (() => {
+      if (initialValue && typeof initialValue === "object") {
+        return readChecklistSkipped(initialValue);
+      }
+      return [];
+    })();
+    const normalizedValue = items.map((_, index) => Boolean(initialStates[index]));
+    const normalizedSkipped = items.map((_, index) => Boolean(initialSkipStates[index]));
+    const hasInitialStates = normalizedValue.some(Boolean) || normalizedSkipped.some(Boolean);
+    const optionsHash = computeChecklistOptionsHash(consigne);
+    const optionsAttr = optionsHash ? ` data-checklist-options-hash="${escapeHtml(String(optionsHash))}"` : "";
+    const autosaveFieldName =
+      consigne?.id != null && consigne.id !== ""
+        ? `consigne:${String(consigne.id)}:checklist`
+        : null;
+    const autosaveAttr = autosaveFieldName ? ` data-autosave-field="${escapeHtml(String(autosaveFieldName))}"` : "";
     const checkboxes = items
       .map((label, index) => {
         const checked = normalizedValue[index];
+        const skipped = normalizedSkipped[index];
+        const trimmedLabel = typeof label === "string" ? label.trim() : "";
+        const itemId = resolveChecklistItemId(consigne, index, trimmedLabel);
+        const legacyBase =
+          consigne?.id ??
+          consigne?.slug ??
+          consigne?.slugId ??
+          consigne?.slug_id ??
+          consigne?.consigneId ??
+          "";
+        const legacyId = legacyBase ? `${legacyBase}:${index}` : String(index);
+        const validatedAttr = skipped ? "skip" : checked ? "true" : "false";
+        const skipClass = skipped ? " checklist-item--skipped" : "";
+        const skipAttr = skipped ? ' data-checklist-skipped="1"' : "";
+        const inputSkipAttr = skipped ? ' data-checklist-skip="1"' : "";
+        const checkedAttr = checked ? "checked" : "";
         return `
-          <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm" data-checklist-item>
-            <input type="checkbox" class="h-4 w-4" data-checklist-input ${checked ? "checked" : ""}>
+          <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm${skipClass}" data-checklist-item data-item-id="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-checklist-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" data-checklist-label="${escapeHtml(trimmedLabel)}" data-validated="${validatedAttr}"${skipAttr}>
+            <input type="checkbox" class="h-4 w-4" data-checklist-input data-key="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" ${inputSkipAttr} ${checkedAttr}>
             <span class="flex-1">${escapeHtml(label)}</span>
+            <button type="button" class="checklist-skip-btn" data-checklist-skip-btn title="Passer cet élément (ne pas le compter)">⏭</button>
           </label>`;
       })
       .join("");
-    const initialSerialized = escapeHtml(JSON.stringify(normalizedValue));
+    const initialPayload = {
+      items: normalizedValue,
+      skipped: normalizedSkipped,
+    };
+    const initialSerialized = escapeHtml(JSON.stringify(initialPayload));
+    const scriptContent = String.raw`
+      <script>
+        (() => {
+          const script = document.currentScript;
+          const hidden = script?.previousElementSibling;
+          const root = hidden?.closest('[data-checklist-root]');
+          if (!root || !hidden) return;
+          const SKIP_DATA_KEY = 'checklistSkip';
+          const PREV_CHECKED_KEY = 'checklistPrevChecked';
+          const LONG_PRESS_DELAY = 600;
+          let pressTimer = null;
+          let pressTarget = null;
+
+          const queryInputs = () => Array.from(root.querySelectorAll('[data-checklist-input]'));
+          const resolveClosest = (target, selector) => {
+            if (!target) return null;
+            if (target instanceof Element) {
+              return target.closest(selector);
+            }
+            if (target instanceof Node && target.parentElement) {
+              return target.parentElement.closest(selector);
+            }
+            return null;
+          };
+          const resolveHost = (input) => resolveClosest(input, '[data-checklist-item]');
+          const isSkipped = (input, host = resolveHost(input)) => {
+            if (!input) return false;
+            if (input.dataset && input.dataset[SKIP_DATA_KEY] === '1') return true;
+            if (host && host.dataset && host.dataset.checklistSkipped === '1') return true;
+            return false;
+          };
+          const setSkipState = (input, skip) => {
+            const host = resolveHost(input);
+            if (!input) return;
+            if (skip) {
+              let previous = null;
+              const hasStoredPrev =
+                Boolean(input.dataset) && Object.prototype.hasOwnProperty.call(input.dataset, PREV_CHECKED_KEY);
+              if (hasStoredPrev) {
+                previous = input.dataset ? input.dataset[PREV_CHECKED_KEY] : null;
+              } else if (input.hasAttribute('data-checklist-prev-checked')) {
+                previous = input.getAttribute('data-checklist-prev-checked');
+              } else {
+                previous = input.checked ? '1' : '0';
+              }
+              if (previous == null) {
+                previous = input.checked ? '1' : '0';
+              }
+              if (input.dataset) {
+                input.dataset[PREV_CHECKED_KEY] = previous;
+              }
+              input.setAttribute('data-checklist-prev-checked', previous);
+              if ('indeterminate' in input) {
+                input.indeterminate = true;
+              }
+              input.checked = false;
+              if (input.dataset) {
+                input.dataset[SKIP_DATA_KEY] = '1';
+              }
+              input.setAttribute('data-checklist-skip', '1');
+              if (host) {
+                host.dataset.checklistSkipped = '1';
+                host.setAttribute('data-checklist-skipped', '1');
+                host.classList.add('checklist-item--skipped');
+                host.setAttribute('data-validated', 'skip');
+              }
+            } else {
+              let previousChecked = null;
+              if ('indeterminate' in input) {
+                input.indeterminate = false;
+              }
+              if (input.dataset && Object.prototype.hasOwnProperty.call(input.dataset, PREV_CHECKED_KEY)) {
+                previousChecked = input.dataset[PREV_CHECKED_KEY];
+                delete input.dataset[PREV_CHECKED_KEY];
+              }
+              if (previousChecked == null && input.hasAttribute('data-checklist-prev-checked')) {
+                previousChecked = input.getAttribute('data-checklist-prev-checked');
+              }
+              input.removeAttribute('data-checklist-prev-checked');
+              if (input.dataset) {
+                delete input.dataset[SKIP_DATA_KEY];
+              }
+              input.removeAttribute('data-checklist-skip');
+              const shouldCheck =
+                previousChecked != null
+                  ? previousChecked === '1' || previousChecked === 'true'
+                  : Boolean(input.defaultChecked);
+              input.checked = Boolean(shouldCheck);
+              if (host) {
+                host.classList.remove('checklist-item--skipped');
+                if (host.dataset) {
+                  delete host.dataset.checklistSkipped;
+                }
+                host.removeAttribute('data-checklist-skipped');
+                host.setAttribute('data-validated', input.checked ? 'true' : 'false');
+              }
+            }
+          };
+          const ensureItemIds = () => {
+            const consigneId = root.getAttribute('data-consigne-id') || root.dataset.consigneId || '';
+            queryInputs().forEach((input, index) => {
+              const host = resolveHost(input);
+              if (!host) return;
+              const explicitKey = input.getAttribute('data-key') || input.dataset?.key || input.getAttribute('data-item-id') || host.getAttribute('data-item-id');
+              const attr = input.getAttribute('data-checklist-index');
+              const idx = attr !== null ? attr : index;
+              const fallback = consigneId ? String(consigneId) + ':' + idx : String(idx);
+              const resolvedKey = (explicitKey && String(explicitKey).trim()) || fallback;
+              const legacyKey = input.getAttribute('data-legacy-key') || host.getAttribute('data-checklist-legacy-key') || fallback;
+              input.setAttribute('data-key', resolvedKey);
+              if (input.dataset) {
+                input.dataset.key = resolvedKey;
+              }
+              input.setAttribute('data-item-id', resolvedKey);
+              input.setAttribute('data-legacy-key', legacyKey);
+              host.setAttribute('data-item-id', resolvedKey);
+              host.setAttribute('data-checklist-key', resolvedKey);
+              host.setAttribute('data-checklist-legacy-key', legacyKey);
+              const skip = isSkipped(input, host);
+              if (skip) {
+                host.dataset.checklistSkipped = '1';
+                host.setAttribute('data-checklist-skipped', '1');
+                host.classList.add('checklist-item--skipped');
+                host.setAttribute('data-validated', 'skip');
+                if (input.dataset) {
+                  input.dataset[SKIP_DATA_KEY] = '1';
+                }
+                input.setAttribute('data-checklist-skip', '1');
+              } else {
+                host.classList.remove('checklist-item--skipped');
+                host.removeAttribute('data-checklist-skipped');
+                host.setAttribute('data-validated', input.checked ? 'true' : 'false');
+                if (input.dataset) {
+                  delete input.dataset[SKIP_DATA_KEY];
+                }
+                input.removeAttribute('data-checklist-skip');
+              }
+            });
+          };
+          const serialize = () => {
+            const inputs = queryInputs();
+            const payload = {
+              items: inputs.map((input) => Boolean(input.checked)),
+              skipped: inputs.map((input) => isSkipped(input)),
+            };
+            if (Array.isArray(payload.skipped) && payload.skipped.every((value) => value === false)) {
+              delete payload.skipped;
+            }
+            return payload;
+          };
+          const sync = (options = {}) => {
+            const payload = serialize();
+            try {
+              hidden.value = JSON.stringify(payload);
+            } catch (error) {
+              hidden.value = JSON.stringify(payload.items || []);
+            }
+            if (options.markDirty) {
+              hidden.dataset.dirty = '1';
+            }
+            if (options.notify) {
+              hidden.dispatchEvent(new Event('input', { bubbles: true }));
+              hidden.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            ensureItemIds();
+          };
+          const toggleSkip = (host, nextState = null) => {
+            if (!host) return;
+            const input = host.querySelector('[data-checklist-input]');
+            if (!input) return;
+            const current = isSkipped(input, host);
+            const next = nextState == null ? !current : Boolean(nextState);
+            setSkipState(input, next);
+            if (!next && host) {
+              host.setAttribute('data-validated', input.checked ? 'true' : 'false');
+            }
+            root.dataset.checklistDirty = '1';
+            sync({ markDirty: true, notify: true });
+          };
+          root.addEventListener('click', (event) => {
+            const button = resolveClosest(event.target, '[data-checklist-skip-btn]');
+            if (!button || !root.contains(button)) return;
+            event.preventDefault();
+            const host = resolveClosest(button, '[data-checklist-item]');
+            toggleSkip(host);
+          });
+          const getContextMenuState = () => {
+            if (!window.__checklistContextMenuState) {
+              window.__checklistContextMenuState = { menu: null, button: null, host: null };
+            }
+            return window.__checklistContextMenuState;
+          };
+          const closeContextMenu = () => {
+            const state = getContextMenuState();
+            if (!state.menu || state.menu.hidden) {
+              return;
+            }
+            state.menu.hidden = true;
+            state.menu.setAttribute('aria-hidden', 'true');
+            state.host = null;
+          };
+          const ensureContextMenu = () => {
+            const state = getContextMenuState();
+            if (state.menu && state.button) {
+              return state;
+            }
+            const menu = document.createElement('div');
+            menu.dataset.checklistContextMenu = '1';
+            menu.className = 'checklist-context-menu';
+            menu.setAttribute('role', 'menu');
+            menu.setAttribute('aria-hidden', 'true');
+            menu.hidden = true;
+            const actionBtn = document.createElement('button');
+            actionBtn.type = 'button';
+            actionBtn.className = 'checklist-context-menu__action';
+            actionBtn.dataset.contextAction = 'toggle';
+            actionBtn.textContent = 'Passer l’élément';
+            actionBtn.addEventListener('click', () => {
+              if (!state.host) {
+                closeContextMenu();
+                return;
+              }
+              const resume = actionBtn.dataset.actionState === 'resume';
+              const host = state.host;
+              closeContextMenu();
+              toggleSkip(host, resume ? false : true);
+            });
+            menu.appendChild(actionBtn);
+            document.body.appendChild(menu);
+            if (!window.__checklistContextMenuListeners) {
+              const closeOnPointer = (event) => {
+                if (!state.menu || state.menu.hidden) return;
+                if (!state.menu.contains(event.target)) {
+                  closeContextMenu();
+                }
+              };
+              document.addEventListener('pointerdown', closeOnPointer);
+              document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') {
+                  closeContextMenu();
+                }
+              });
+              window.addEventListener('blur', () => closeContextMenu());
+              window.addEventListener('resize', () => closeContextMenu());
+              window.addEventListener('scroll', () => closeContextMenu(), true);
+              window.__checklistContextMenuListeners = true;
+            }
+            state.menu = menu;
+            state.button = actionBtn;
+            return state;
+          };
+          const openContextMenu = (host, position) => {
+            const state = ensureContextMenu();
+            const { menu, button } = state;
+            if (!menu || !button || !host) return;
+            const currentlySkipped = host.dataset && host.dataset.checklistSkipped === '1';
+            const label = currentlySkipped ? 'Reprendre l’élément' : 'Passer l’élément';
+            button.textContent = label;
+            button.dataset.actionState = currentlySkipped ? 'resume' : 'skip';
+            const margin = 8;
+            const x = Math.min(Math.max(position.x, margin), window.innerWidth - margin);
+            const y = Math.min(Math.max(position.y, margin), window.innerHeight - margin);
+            menu.style.left = String(x) + 'px';
+            menu.style.top = String(y) + 'px';
+            menu.hidden = false;
+            menu.setAttribute('aria-hidden', 'false');
+            state.host = host;
+            try {
+              button.focus({ preventScroll: true });
+            } catch (error) {
+              button.focus();
+            }
+          };
+          const handleContextAction = (host, coords) => {
+            if (!host) return;
+            const position = coords || { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+            openContextMenu(host, position);
+          };
+          let pressCoords = null;
+          const clearPress = () => {
+            if (pressTimer) {
+              window.clearTimeout(pressTimer);
+              pressTimer = null;
+            }
+            pressTarget = null;
+            pressCoords = null;
+          };
+          const resolveCoords = (event) => ({ x: event.clientX, y: event.clientY });
+          const triggerContextMenu = (host, coords) => {
+            handleContextAction(host, coords);
+          };
+          root.addEventListener('contextmenu', (event) => {
+            const host = resolveClosest(event.target, '[data-checklist-item]');
+            if (!host || !root.contains(host)) return;
+            event.preventDefault();
+            triggerContextMenu(host, resolveCoords(event));
+          });
+          root.addEventListener('pointerdown', (event) => {
+            if (event.pointerType !== 'touch') {
+              clearPress();
+              return;
+            }
+            const host = resolveClosest(event.target, '[data-checklist-item]');
+            if (!host || !root.contains(host)) return;
+            clearPress();
+            pressTarget = host;
+            pressCoords = resolveCoords(event);
+            pressTimer = window.setTimeout(() => {
+              pressTimer = null;
+              triggerContextMenu(host, pressCoords || resolveCoords(event));
+            }, LONG_PRESS_DELAY);
+          });
+          root.addEventListener('pointerup', clearPress);
+          root.addEventListener('pointercancel', clearPress);
+          root.addEventListener('pointerleave', clearPress);
+          root.addEventListener('pointermove', (event) => {
+            if (!pressTarget || event.pointerType !== 'touch') return;
+            const rect = pressTarget.getBoundingClientRect();
+            if (
+              event.clientX < rect.left - 16 ||
+              event.clientX > rect.right + 16 ||
+              event.clientY < rect.top - 16 ||
+              event.clientY > rect.bottom + 16
+            ) {
+              clearPress();
+            }
+          });
+          root.addEventListener('change', (event) => {
+            if (event.target instanceof Element && event.target.matches('[data-checklist-input]')) {
+              closeContextMenu();
+              const input = event.target;
+              const host = resolveHost(input);
+              const skipActive = isSkipped(input, host);
+              if (skipActive) {
+                setSkipState(input, true);
+              } else if (host) {
+                host.setAttribute('data-validated', input.checked ? 'true' : 'false');
+              }
+              root.dataset.checklistDirty = '1';
+              sync({ markDirty: true, notify: true });
+            }
+          });
+          const hydratePayload = () => {
+            try {
+              const raw = JSON.parse(hidden.value || '[]');
+              const payload = Array.isArray(raw)
+                ? { items: raw.map((item) => item === true), skipped: [] }
+                : {
+                    items: Array.isArray(raw.items) ? raw.items.map((item) => item === true) : [],
+                    skipped: Array.isArray(raw.skipped) ? raw.skipped.map((item) => item === true) : [],
+                  };
+              const inputs = queryInputs();
+              inputs.forEach((input, index) => {
+                const skip = Boolean(payload.skipped[index]);
+                const checked = Boolean(payload.items[index]);
+                input.checked = checked;
+                if (skip) {
+                  input.setAttribute('data-checklist-prev-checked', checked ? '1' : '0');
+                  if (input.dataset) {
+                    input.dataset[PREV_CHECKED_KEY] = checked ? '1' : '0';
+                  }
+                } else {
+                  input.removeAttribute('data-checklist-prev-checked');
+                  if (input.dataset) {
+                    delete input.dataset[PREV_CHECKED_KEY];
+                  }
+                }
+                setSkipState(input, skip);
+                const host = resolveHost(input);
+                if (!skip && host) {
+                  host.setAttribute('data-validated', input.checked ? 'true' : 'false');
+                }
+              });
+            } catch (error) {
+              console.warn('[checklist] payload', error);
+            }
+          };
+          const hydrate = window.hydrateChecklist;
+          const uid = window.AppCtx?.user?.uid || null;
+          const consigneId = root.getAttribute('data-consigne-id') || root.dataset.consigneId || '';
+          hydratePayload();
+          ensureItemIds();
+          sync();
+          if (typeof hydrate === 'function') {
+            Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key' }))
+              .then(() => {
+                hydratePayload();
+                ensureItemIds();
+                sync();
+              })
+              .catch((error) => {
+                console.warn('[checklist] hydrate', error);
+              });
+          }
+        })();
+      </script>
+    `;
     return `
-      <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}">
+      <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}"${optionsAttr}>
         ${checkboxes || `<p class="text-sm text-[var(--muted)]">Aucun élément défini</p>`}
-        <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state ${
-          Array.isArray(initialValue) ? 'data-dirty="1"' : ""
+        <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state data-autosave-track="1"${autosaveAttr} ${
+          hasInitialStates ? 'data-dirty="1"' : ""
         }>
       </div>
-      <script>(()=>{const script=document.currentScript;const root=script?.previousElementSibling?.closest?.('[data-checklist-root]')||null;if(!root)return;const hidden=root.querySelector('[data-checklist-state]');if(!hidden)return;const inputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const reflect=()=>{inputs().forEach((input)=>{const item=input.closest('[data-checklist-item]');if(item){item.classList.toggle('is-checked',Boolean(input.checked));if(input.checked){item.dataset.checked="1";}else{delete item.dataset.checked;}}});};const sync=()=>{const values=inputs().map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);reflect();};const markDirty=()=>{hidden.dataset.dirty="1";};const notify=()=>{hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync();markDirty();notify();}});sync();})();</script>
+      ${scriptContent}
     `;
   }
   return "";
@@ -3524,37 +4888,250 @@ function groupConsignes(consignes) {
   return groups;
 }
 
+function normalizeSummaryMetadataInput(metadata) {
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+  const sources = [metadata];
+  if (metadata.summary && typeof metadata.summary === "object") {
+    sources.push(metadata.summary);
+  }
+  const readField = (...keys) => {
+    for (const source of sources) {
+      if (!source || typeof source !== "object") continue;
+      for (const key of keys) {
+        if (!key || !Object.prototype.hasOwnProperty.call(source, key)) continue;
+        const raw = source[key];
+        if (raw === null || raw === undefined) continue;
+        const stringValue = typeof raw === "string" ? raw.trim() : String(raw).trim();
+        if (stringValue) return stringValue;
+      }
+    }
+    return "";
+  };
+  const normalized = {};
+  const scope = readField("summaryScope", "summary_scope", "scope");
+  if (scope) normalized.summaryScope = scope;
+  const label = readField("summaryLabel", "summary_label", "label");
+  if (label) normalized.summaryLabel = label;
+  const period = readField("summaryPeriod", "summary_period", "period");
+  if (period) normalized.summaryPeriod = period;
+  const mode = readField("summaryMode", "summary_mode", "mode");
+  if (mode) normalized.summaryMode = mode;
+  const source = readField("summarySource", "summary_source", "source");
+  if (source) normalized.source = source;
+  const origin = readField("summaryOrigin", "summary_origin", "origin");
+  if (origin) normalized.origin = origin;
+  const context = readField("summaryContext", "summary_context", "context");
+  if (context) normalized.context = context;
+  const moduleId = readField("summaryModuleId", "summary_module_id", "moduleId", "module_id");
+  if (moduleId) normalized.moduleId = moduleId;
+  if (!Object.keys(normalized).length) {
+    return null;
+  }
+  return normalized;
+}
+
+function serializeSummaryMetadataForComparison(metadata) {
+  const normalized = normalizeSummaryMetadataInput(metadata);
+  if (!normalized) {
+    return "";
+  }
+  const orderedKeys = Object.keys(normalized).sort();
+  const payload = {};
+  orderedKeys.forEach((key) => {
+    payload[key] = normalized[key];
+  });
+  return JSON.stringify(payload);
+}
+
+function setConsigneSummaryMetadata(row, metadata = null) {
+  if (!row || !row.dataset) return;
+  const dataset = row.dataset;
+  const normalized = normalizeSummaryMetadataInput(metadata);
+  if (normalized?.summaryScope) {
+    dataset.summaryScope = String(normalized.summaryScope);
+    dataset.summarySelected = "1";
+  } else {
+    delete dataset.summaryScope;
+    delete dataset.summarySelected;
+  }
+
+  if (normalized?.summaryLabel) dataset.summaryLabel = String(normalized.summaryLabel);
+  else delete dataset.summaryLabel;
+
+  if (normalized?.summaryPeriod) dataset.summaryPeriod = String(normalized.summaryPeriod);
+  else delete dataset.summaryPeriod;
+
+  if (normalized?.summaryMode) dataset.summaryMode = String(normalized.summaryMode);
+  else delete dataset.summaryMode;
+
+  if (normalized?.source) dataset.summarySource = String(normalized.source);
+  else delete dataset.summarySource;
+
+  if (normalized?.origin) dataset.summaryOrigin = String(normalized.origin);
+  else delete dataset.summaryOrigin;
+
+  if (normalized?.context) dataset.summaryContext = String(normalized.context);
+  else delete dataset.summaryContext;
+
+  if (normalized?.moduleId) dataset.summaryModuleId = String(normalized.moduleId);
+  else delete dataset.summaryModuleId;
+}
+
+function clearConsigneSummaryMetadata(row) {
+  setConsigneSummaryMetadata(row, null);
+}
+
+function readConsigneSummaryMetadata(row) {
+  if (!row || !row.dataset) {
+    return null;
+  }
+  const dataset = row.dataset;
+  if (!dataset.summaryScope && !dataset.summaryLabel && !dataset.summaryPeriod && !dataset.summaryMode) {
+    return null;
+  }
+  const raw = {
+    summaryScope: dataset.summaryScope,
+    summaryLabel: dataset.summaryLabel,
+    summaryPeriod: dataset.summaryPeriod,
+    summaryMode: dataset.summaryMode,
+    summarySource: dataset.summarySource,
+    summaryOrigin: dataset.summaryOrigin,
+    summaryContext: dataset.summaryContext,
+    summaryModuleId: dataset.summaryModuleId,
+  };
+  return normalizeSummaryMetadataInput(raw);
+}
+
+function buildSummaryMetadataForScope(scope, { date = new Date() } = {}) {
+  const raw = typeof scope === "string" ? scope.trim().toLowerCase() : "";
+  if (!raw) return null;
+  const baseDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
+  const result = {
+    summaryMode: "bilan",
+    source: "bilan",
+    moduleId: "bilan",
+  };
+  if (raw === "week" || raw === "weekly") {
+    result.summaryScope = "weekly";
+    result.summaryLabel = "Bilan hebdomadaire";
+    const weekKey =
+      typeof Schema?.weekKeyFromDate === "function"
+        ? Schema.weekKeyFromDate(baseDate, DAILY_WEEK_ENDS_ON)
+        : typeof Schema?.dayKeyFromDate === "function"
+        ? Schema.dayKeyFromDate(baseDate)
+        : "";
+    result.summaryPeriod = weekKey;
+  } else if (raw === "month" || raw === "monthly") {
+    result.summaryScope = "monthly";
+    result.summaryLabel = "Bilan mensuel";
+    const monthKey =
+      typeof Schema?.monthKeyFromDate === "function"
+        ? Schema.monthKeyFromDate(baseDate)
+        : `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, "0")}`;
+    result.summaryPeriod = monthKey;
+  } else if (
+    raw === "year" ||
+    raw === "yearly" ||
+    raw === "annual" ||
+    raw === "annuel" ||
+    raw === "annuelle" ||
+    raw === "annee" ||
+    raw === "année"
+  ) {
+    result.summaryScope = "yearly";
+    result.summaryLabel = "Bilan annuel";
+    const yearKey =
+      typeof Schema?.yearKeyFromDate === "function"
+        ? Schema.yearKeyFromDate(baseDate)
+        : String(baseDate.getFullYear());
+    result.summaryPeriod = yearKey;
+  } else {
+    return null;
+  }
+  result.scope = result.summaryScope;
+  result.label = result.summaryLabel;
+  result.period = result.summaryPeriod;
+  const originScope = result.summaryScope || "";
+  result.origin = originScope ? `bilan:${originScope}` : "bilan";
+  const contextParts = ["bilan", originScope || null, result.summaryPeriod || null].filter(Boolean);
+  result.context = contextParts.join(":") || "bilan";
+  return result;
+}
+
 function collectAnswers(form, consignes, options = {}) {
   const dayKey = options.dayKey || null;
+  const pageContext = options.pageContext || null;
   const answers = [];
+  const attachPageContext = (target) => {
+    if (!pageContext || !target) {
+      return;
+    }
+    if (pageContext.pageDate) {
+      target.pageDate = pageContext.pageDate;
+    }
+    if (pageContext.weekStart) {
+      target.weekStart = pageContext.weekStart;
+    }
+    if (pageContext.pageDateIso) {
+      target.pageDateIso = pageContext.pageDateIso;
+    }
+    if (typeof pageContext.pageDayIndex === "number") {
+      target.pageDayIndex = pageContext.pageDayIndex;
+    }
+  };
+  const findRowForConsigne = (consigne) => {
+    if (!form || !consigne?.id) return null;
+    const id = String(consigne.id);
+    const escapedId =
+      typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape(id)
+        : id.replace(/"/g, '\\"');
+    return form.querySelector(`.consigne-row[data-id="${escapedId}"]`);
+  };
   for (const consigne of consignes) {
     if (consigne.type === "info") {
       continue;
     }
+    const pushAnswer = (value, extras = {}) => {
+      const answer = { consigne, value, dayKey };
+      attachPageContext(answer);
+      if (extras && typeof extras === "object") {
+        Object.assign(answer, extras);
+      }
+      const row = findRowForConsigne(consigne);
+      const summaryMetadata = readConsigneSummaryMetadata(row);
+      if (summaryMetadata) {
+        Object.assign(answer, summaryMetadata);
+      }
+      answers.push(answer);
+    };
     if (consigne.type === "short") {
       const val = form.querySelector(`[name="short:${consigne.id}"]`)?.value?.trim();
-      if (val) answers.push({ consigne, value: val, dayKey });
+      if (val) pushAnswer(val);
     } else if (consigne.type === "long") {
       const input = form.querySelector(`[name="long:${consigne.id}"]`);
       if (input) {
         const normalized = normalizeRichTextValue(input.value || "");
         if (richTextHasContent(normalized)) {
-          answers.push({ consigne, value: normalized, dayKey });
+          pushAnswer(normalized);
         }
       }
     } else if (consigne.type === "num") {
       const val = form.querySelector(`[name="num:${consigne.id}"]`)?.value;
-      if (val) answers.push({ consigne, value: Number(val), dayKey });
+      if (val) pushAnswer(Number(val));
     } else if (consigne.type === "likert5") {
       const val = form.querySelector(`[name="likert5:${consigne.id}"]`)?.value;
-      if (val !== "" && val != null) answers.push({ consigne, value: Number(val), dayKey });
+      if (val !== "" && val != null) pushAnswer(Number(val));
     } else if (consigne.type === "yesno") {
       const val = form.querySelector(`[name="yesno:${consigne.id}"]`)?.value;
-      if (val) answers.push({ consigne, value: val, dayKey });
+      if (val) pushAnswer(val);
     } else if (consigne.type === "likert6") {
       const val = form.querySelector(`[name="likert6:${consigne.id}"]`)?.value;
-      if (val) answers.push({ consigne, value: val, dayKey });
+      if (val) pushAnswer(val);
     } else if (consigne.type === "checklist") {
+      const optionsHash = computeChecklistOptionsHash(consigne);
       const hidden = form.querySelector(`[name="checklist:${consigne.id}"]`);
       const container = form.querySelector(
         `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
@@ -3566,29 +5143,48 @@ function collectAnswers(form, consignes, options = {}) {
         parsedIsDirty = hidden.dataset?.dirty === "1";
         try {
           const parsed = JSON.parse(hidden.value || "[]");
-          if (Array.isArray(parsed)) {
-            parsedValues = parsed.map((item) => item === true);
-            parsedHasSelection = parsedValues.some(Boolean);
-            if (parsedHasSelection || parsedIsDirty) {
-              answers.push({ consigne, value: parsedValues, dayKey });
-              continue;
-            }
+          const normalizedValue = buildChecklistValue(consigne, parsed);
+          const isDirty = hidden.dataset.dirty === "1";
+          const root = hidden.closest(`[data-checklist-root]`);
+          const rootDirty = root?.dataset?.checklistDirty === "1";
+          if (isDirty || rootDirty) {
+            const stats = deriveChecklistStats(normalizedValue);
+            const selectedIds = collectChecklistSelectedIds(consigne, root, normalizedValue);
+            pushAnswer(normalizedValue, {
+              checkedIds: stats.checkedIds,
+              checkedCount: stats.checkedCount,
+              total: stats.total,
+              skippedCount: stats.skippedCount,
+              percentage: stats.percentage,
+              isEmpty: stats.isEmpty,
+              selectedIds,
+              optionsHash,
+            });
           }
         } catch (error) {
           console.warn("collectAnswers:checklist", error);
         }
-      }
-      if (container) {
-        const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
-        if (boxes.length) {
-          const fallbackValues = boxes.map((box) => Boolean(box.checked));
-          const fallbackHasSelection = fallbackValues.some(Boolean);
-          const fallbackDiffers = !Array.isArray(parsedValues)
-            ? fallbackHasSelection
-            : fallbackValues.length !== parsedValues.length ||
-              fallbackValues.some((value, index) => value !== parsedValues[index]);
-          if (fallbackHasSelection || fallbackDiffers || parsedIsDirty) {
-            answers.push({ consigne, value: fallbackValues, dayKey });
+      } else {
+        const container = form.querySelector(
+          `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+        );
+        if (container) {
+          const domState = readChecklistDomState(container);
+          const isDirty = container.dataset.checklistDirty === "1";
+          if (isDirty) {
+            const normalized = buildChecklistValue(consigne, domState);
+            const stats = deriveChecklistStats(normalized);
+            const selectedIds = collectChecklistSelectedIds(consigne, container, normalized);
+            pushAnswer(normalized, {
+              checkedIds: stats.checkedIds,
+              checkedCount: stats.checkedCount,
+              total: stats.total,
+              skippedCount: stats.skippedCount,
+              percentage: stats.percentage,
+              isEmpty: stats.isEmpty,
+              selectedIds,
+              optionsHash,
+            });
           }
         }
       }
@@ -3698,6 +5294,22 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       modesLogger.warn("ui.consigneForm.children.load", err);
     }
   }
+  const durationFieldName = mode === "daily" ? "ephemeralDurationDays" : "ephemeralDurationIterations";
+  const initialDurationRaw = consigne ? consigne[durationFieldName] : null;
+  const initialDurationNumber = Number(initialDurationRaw);
+  const durationInitialValue =
+    Number.isFinite(initialDurationNumber) && initialDurationNumber > 0
+      ? initialDurationNumber
+      : "";
+  const durationValueAttr = durationInitialValue === "" ? "" : escapeHtml(String(durationInitialValue));
+  const isEphemeral = consigne?.ephemeral === true;
+  const advancedOpenAttr = isEphemeral ? " open" : "";
+  const ephemeralHiddenAttr = isEphemeral ? "" : " hidden";
+  const durationLabel = mode === "daily" ? "Durée (jours)" : "Durée (itérations)";
+  const durationHint =
+    mode === "daily"
+      ? "La consigne disparaîtra après le nombre de jours indiqué."
+      : "La consigne disparaîtra après le nombre d'itérations indiqué.";
   const html = `
     <h3 class="text-lg font-semibold mb-2">${consigne ? "Modifier" : "Nouvelle"} consigne</h3>
     <form class="grid gap-4" id="consigne-form" data-autosave-key="${escapeHtml(
@@ -3753,6 +5365,26 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         <span>⏳ Activer la répétition espacée</span>
       </label>
 
+      <details class="consigne-advanced" data-advanced${advancedOpenAttr}>
+        <summary class="consigne-advanced__summary">
+          <span class="consigne-advanced__caret" aria-hidden="true">▸</span>
+          <span>Paramètres avancés</span>
+        </summary>
+        <div class="consigne-advanced__content">
+          <label class="inline-flex items-center gap-2">
+            <input type="checkbox" name="ephemeral" ${isEphemeral ? "checked" : ""}>
+            <span>Consigne éphémère</span>
+          </label>
+          <div class="grid gap-1 consigne-advanced__ephemeral" data-ephemeral-settings${ephemeralHiddenAttr}>
+            <label class="grid gap-1">
+              <span class="text-sm text-[var(--muted)]">${escapeHtml(durationLabel)}</span>
+              <input type="number" min="1" step="1" inputmode="numeric" class="w-full" name="${durationFieldName}" value="${durationValueAttr}">
+            </label>
+            <p class="consigne-advanced__hint">${escapeHtml(durationHint)}</p>
+          </div>
+        </div>
+      </details>
+
       ${canManageChildren ? `
       <fieldset class="grid gap-2" data-subconsignes>
         <legend class="text-sm text-[var(--muted)]">Sous-consignes</legend>
@@ -3792,6 +5424,44 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     </form>
   `;
   const m = modal(html);
+  const advancedDetailsEl = m.querySelector("[data-advanced]");
+  const ephemeralCheckboxEl = m.querySelector('input[name="ephemeral"]');
+  const ephemeralSettingsEl = m.querySelector("[data-ephemeral-settings]");
+  const ephemeralDurationInput = durationFieldName
+    ? m.querySelector(`[name="${durationFieldName}"]`)
+    : null;
+  const syncEphemeralControls = () => {
+    if (!ephemeralSettingsEl) return;
+    const enabled = Boolean(ephemeralCheckboxEl?.checked);
+    if (enabled) {
+      ephemeralSettingsEl.hidden = false;
+      ephemeralSettingsEl.classList.remove("hidden");
+    } else {
+      ephemeralSettingsEl.hidden = true;
+      ephemeralSettingsEl.classList.add("hidden");
+    }
+    if (ephemeralDurationInput) {
+      ephemeralDurationInput.disabled = !enabled;
+    }
+  };
+  if (ephemeralCheckboxEl) {
+    syncEphemeralControls();
+    ephemeralCheckboxEl.addEventListener("change", () => {
+      syncEphemeralControls();
+      if (ephemeralCheckboxEl.checked) {
+        if (advancedDetailsEl && typeof advancedDetailsEl.open === "boolean") {
+          advancedDetailsEl.open = true;
+        }
+        if (ephemeralDurationInput) {
+          try {
+            ephemeralDurationInput.focus({ preventScroll: true });
+          } catch (error) {
+            ephemeralDurationInput.focus();
+          }
+        }
+      }
+    });
+  }
   const typeSelectEl = m.querySelector('select[name="type"]');
   const checklistAnchor = m.querySelector('[data-checklist-editor-anchor]');
   const checklistEditor = document.createElement('fieldset');
@@ -3841,6 +5511,8 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     if (!checklistList) return null;
     const row = document.createElement('div');
     row.className = 'flex items-center gap-2';
+    row.dataset.checklistEditorRow = '';
+    row.draggable = true;
     const input = document.createElement('input');
     input.type = 'text';
     input.name = 'checklist-item';
@@ -3860,6 +5532,51 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     checklistList.appendChild(row);
     renderChecklistEmptyState();
     return row;
+  };
+  const setupChecklistDragAndDrop = () => {
+    if (!checklistList || checklistList.__dragInstalled) return;
+    checklistList.__dragInstalled = true;
+    let dragging = null;
+    const clearDrag = () => {
+      if (dragging) {
+        dragging.classList.remove('opacity-60');
+      }
+      dragging = null;
+    };
+    checklistList.addEventListener('dragstart', (event) => {
+      const row = event.target?.closest('[data-checklist-editor-row]');
+      if (!row) return;
+      dragging = row;
+      row.classList.add('opacity-60');
+      event.dataTransfer.effectAllowed = 'move';
+      try {
+        event.dataTransfer.setData('text/plain', '');
+      } catch (error) {
+        // ignore
+      }
+    });
+    checklistList.addEventListener('dragover', (event) => {
+      if (!dragging) return;
+      event.preventDefault();
+      const over = event.target?.closest('[data-checklist-editor-row]');
+      if (!over || over === dragging) return;
+      const rect = over.getBoundingClientRect();
+      const before = event.clientY < rect.top + rect.height / 2;
+      over.parentNode.insertBefore(dragging, before ? over : over.nextSibling);
+    });
+    checklistList.addEventListener('drop', (event) => {
+      if (!dragging) return;
+      event.preventDefault();
+      clearDrag();
+    });
+    checklistList.addEventListener('dragend', clearDrag);
+    checklistList.addEventListener('dragleave', (event) => {
+      if (!dragging) return;
+      const related = event.relatedTarget;
+      if (!checklistList.contains(related)) {
+        clearDrag();
+      }
+    });
   };
   checklistAddBtn.addEventListener('click', () => {
     addChecklistRow();
@@ -3896,6 +5613,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     mountChecklistEditor();
     ensureChecklistHasRow();
     renderChecklistEmptyState();
+    setupChecklistDragAndDrop();
   };
   if (typeSelectEl) {
     typeSelectEl.addEventListener('change', () => {
@@ -4009,6 +5727,8 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         if (!subChecklistList) return null;
         const itemRow = document.createElement('div');
         itemRow.className = 'flex items-center gap-2';
+        itemRow.dataset.subChecklistRow = '';
+        itemRow.draggable = true;
         const input = document.createElement('input');
         input.type = 'text';
         input.name = 'sub-checklist-item';
@@ -4028,6 +5748,44 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         subChecklistList.appendChild(itemRow);
         renderSubChecklistEmptyState();
         return itemRow;
+      };
+      const setupSubChecklistDragAndDrop = () => {
+        if (!subChecklistList || subChecklistList.__dragInstalled) return;
+        subChecklistList.__dragInstalled = true;
+        let dragging = null;
+        const clearDrag = () => {
+          if (dragging) {
+            dragging.classList.remove('opacity-60');
+          }
+          dragging = null;
+        };
+        subChecklistList.addEventListener('dragstart', (event) => {
+          const row = event.target?.closest('[data-sub-checklist-row]');
+          if (!row) return;
+          dragging = row;
+          row.classList.add('opacity-60');
+          event.dataTransfer.effectAllowed = 'move';
+          try {
+            event.dataTransfer.setData('text/plain', '');
+          } catch (error) {
+            // ignore
+          }
+        });
+        subChecklistList.addEventListener('dragover', (event) => {
+          if (!dragging) return;
+          event.preventDefault();
+          const over = event.target?.closest('[data-sub-checklist-row]');
+          if (!over || over === dragging) return;
+          const rect = over.getBoundingClientRect();
+          const before = event.clientY < rect.top + rect.height / 2;
+          over.parentNode.insertBefore(dragging, before ? over : over.nextSibling);
+        });
+        subChecklistList.addEventListener('drop', (event) => {
+          if (!dragging) return;
+          event.preventDefault();
+          clearDrag();
+        });
+        subChecklistList.addEventListener('dragend', clearDrag);
       };
       const ensureSubChecklistHasRow = () => {
         if (subChecklistEditor.hidden) return;
@@ -4055,6 +5813,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       if (initialSubChecklistItems.length) {
         initialSubChecklistItems.forEach((value) => addSubChecklistRow(value));
       }
+      setupSubChecklistDragAndDrop();
       const syncSubChecklistVisibility = () => {
         const isChecklist = typeSelect?.value === 'checklist';
         if (!isChecklist) {
@@ -4146,6 +5905,27 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
 
       storeConsigneCategory(ctx?.user?.uid || null, mode, cat);
 
+      const ephemeralEnabled = fd.get("ephemeral") !== null;
+      let ephemeralDurationDays = null;
+      let ephemeralDurationIterations = null;
+      if (ephemeralEnabled) {
+        const rawDurationValue = Number(fd.get(durationFieldName) || 0);
+        const normalizedDuration = Math.round(rawDurationValue);
+        if (!Number.isFinite(normalizedDuration) || normalizedDuration <= 0) {
+          alert(
+            `Indique une durée valide en ${
+              mode === "daily" ? "jours" : "itérations"
+            } (minimum 1).`
+          );
+          return;
+        }
+        if (mode === "daily") {
+          ephemeralDurationDays = normalizedDuration;
+        } else {
+          ephemeralDurationIterations = normalizedDuration;
+        }
+      }
+
       const payload = {
         ownerUid: ctx.user.uid,
         mode,
@@ -4154,6 +5934,9 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         category: cat,
         priority: Number(fd.get("priority") || 2),
         srEnabled: fd.get("srEnabled") !== null,
+        ephemeral: ephemeralEnabled,
+        ephemeralDurationDays,
+        ephemeralDurationIterations,
         active: true,
         parentId: consigne?.parentId || null,
       };
@@ -4214,13 +5997,56 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           return;
         }
       }
+      const historySnapshot = {
+        mode,
+        text: payload.text,
+        type: payload.type,
+        category: payload.category,
+        priority: payload.priority,
+        srEnabled: payload.srEnabled,
+        days: Array.isArray(payload.days) ? [...payload.days] : payload.days,
+        checklistItems: Array.isArray(payload.checklistItems) ? [...payload.checklistItems] : [],
+        ephemeral: payload.ephemeral,
+        ephemeralDurationDays: payload.ephemeralDurationDays,
+        ephemeralDurationIterations: payload.ephemeralDurationIterations,
+        parentId: payload.parentId || null,
+        objectiveId: selectedObjective || null,
+      };
+      if (subRows.length) {
+        historySnapshot.childrenCount = subRows.length;
+      }
+      const historyMetadata = {
+        objectiveId: selectedObjective || null,
+        hasChildren: subRows.length > 0,
+      };
       let consigneId = consigne?.id || null;
       if (consigne) {
-        await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, payload);
+        await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, payload, {
+          history: {
+            kind: "update",
+            source: "ui",
+            payload: historySnapshot,
+            metadata: historyMetadata,
+            type: payload.type,
+          },
+        });
         consigneId = consigne.id;
       } else {
         const ref = await Schema.addConsigne(ctx.db, ctx.user.uid, payload);
         consigneId = ref?.id || consigneId;
+        if (consigneId) {
+          try {
+            await Schema.logConsigneHistoryEntry(ctx.db, ctx.user.uid, consigneId, {
+              kind: "create",
+              source: "ui",
+              payload: historySnapshot,
+              metadata: historyMetadata,
+              type: payload.type,
+            });
+          } catch (error) {
+            console.warn("consigne.history:create", error);
+          }
+        }
       }
       if (consigneId) {
         await Schema.linkConsigneToObjective(ctx.db, ctx.user.uid, consigneId, selectedObjective || null);
@@ -4231,6 +6057,9 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
             category: payload.category,
             priority: payload.priority,
             srEnabled: payload.srEnabled,
+            ephemeral: payload.ephemeral,
+            ephemeralDurationDays: payload.ephemeralDurationDays,
+            ephemeralDurationIterations: payload.ephemeralDurationIterations,
             active: true,
             parentId: consigneId,
           };
@@ -4328,7 +6157,7 @@ function hasTextualNote(value) {
 }
 
 function dotColor(type, v){
-  if (v && typeof v === "object" && v.skipped) {
+  if (v && typeof v === "object" && v.skipped === true) {
     return "note";
   }
   if (type === "info") {
@@ -4371,16 +6200,14 @@ function dotColor(type, v){
     if (v == null) {
       return "na";
     }
-    const values = Array.isArray(v)
-      ? v
-      : v && typeof v === "object" && Array.isArray(v.items)
-        ? v.items
-        : [];
-    if (!values.length) return "na";
-    const completed = values.filter(Boolean).length;
-    if (completed === 0) return "ko-strong";
-    if (completed === values.length) return "ok-strong";
-    return "mid";
+    const stats = deriveChecklistStats(v);
+    const pct = Number.isFinite(stats.percentage) ? stats.percentage : 0;
+    if (pct >= 80) return "ok-strong";
+    if (pct >= 60) return "ok-soft";
+    if (pct >= 40) return "mid";
+    if (pct >= 20) return "ko-soft";
+    if (stats.total > 0 || stats.isEmpty) return "ko-strong";
+    return "na";
   }
   if (type === "short" || type === "long") {
     return hasTextualNote(v) ? "note" : "na";
@@ -4400,6 +6227,77 @@ const STATUS_LABELS = {
   note: "Réponse notée",
   na: "Sans donnée",
 };
+
+const HISTORY_STATUS_BASE_COLORS = {
+  "ok-strong": "#16a34a",
+  "ok-soft": "#4ade80",
+  mid: "#eab308",
+  "ko-soft": "#f87171",
+  "ko-strong": "#dc2626",
+  note: "#3b82f6",
+  na: "#94a3b8",
+  default: "#2563eb",
+};
+
+function resolveHistoryStatusColors(status) {
+  const base = HISTORY_STATUS_BASE_COLORS[status] || HISTORY_STATUS_BASE_COLORS.default;
+  return {
+    base,
+    line: withAlpha(base, 0.95),
+    circle: base,
+    gradientTop: withAlpha(base, 0.35),
+    gradientBottom: withAlpha(base, 0.05),
+  };
+}
+
+function historyStatusFromAverage(type, values) {
+  if (!Array.isArray(values) || !values.length) {
+    return null;
+  }
+  const numericValues = values.map((value) => Number(value)).filter((value) => Number.isFinite(value));
+  if (!numericValues.length) {
+    return null;
+  }
+  const average = numericValues.reduce((acc, value) => acc + value, 0) / numericValues.length;
+  if (!Number.isFinite(average)) {
+    return null;
+  }
+  if (type === "likert6") {
+    if (average >= 3.5) return "ok-strong";
+    if (average >= 2.5) return "ok-soft";
+    if (average >= 1.5) return "mid";
+    if (average >= 0.5) return "ko-soft";
+    return "ko-strong";
+  }
+  if (type === "likert5") {
+    if (average >= 4.5) return "ok-strong";
+    if (average >= 3.5) return "ok-soft";
+    if (average >= 2.5) return "mid";
+    if (average >= 1.5) return "ko-soft";
+    return "ko-strong";
+  }
+  if (type === "yesno") {
+    if (average >= 0.85) return "ok-strong";
+    if (average >= 0.6) return "ok-soft";
+    if (average >= 0.4) return "mid";
+    if (average >= 0.2) return "ko-soft";
+    return "ko-strong";
+  }
+  if (type === "checklist") {
+    const pct = average * 100;
+    if (pct >= 80) return "ok-strong";
+    if (pct >= 60) return "ok-soft";
+    if (pct >= 40) return "mid";
+    if (pct >= 20) return "ko-soft";
+    return "ko-strong";
+  }
+  if (type === "num") {
+    if (average >= 7) return "ok-strong";
+    if (average >= 4) return "mid";
+    return "ko-strong";
+  }
+  return null;
+}
 
 const consigneRowUpdateTimers = new WeakMap();
 const CONSIGNE_ROW_UPDATE_DURATION = 900;
@@ -4437,6 +6335,18 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
   if (status === "na" && row.dataset.childAnswered === "1") {
     status = "note";
   }
+  if (consigne.type === "checklist") {
+    const highlight =
+      checklistIsComplete(valueForStatus) ||
+      (valueForStatus && typeof valueForStatus === "object" && valueForStatus.skipped === true);
+    if (highlight) {
+      row.classList.add("consigne-row--validated");
+    } else {
+      row.classList.remove("consigne-row--validated");
+    }
+  } else {
+    row.classList.remove("consigne-row--validated");
+  }
   const statusHolder = row.querySelector("[data-status]");
   const dot = row.querySelector("[data-status-dot]");
   const mark = row.querySelector("[data-status-mark]");
@@ -4472,10 +6382,10 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
         return richTextHasContent(valueForStatus);
       }
       if (consigne.type === "checklist") {
-        if (Array.isArray(valueForStatus)) return valueForStatus.some(Boolean);
-        if (valueForStatus && typeof valueForStatus === "object" && Array.isArray(valueForStatus.items)) {
-          return valueForStatus.items.some(Boolean);
+        if (valueForStatus && typeof valueForStatus === "object" && valueForStatus.__hasAnswer) {
+          return true;
         }
+        return hasChecklistResponse(consigne, row, valueForStatus);
       }
       return !(valueForStatus === null || valueForStatus === undefined || valueForStatus === "");
     })();
@@ -4562,12 +6472,7 @@ function readConsigneCurrentValue(consigne, scope) {
       isDirty = hidden.dataset?.dirty === "1";
       try {
         const parsed = JSON.parse(hidden.value || "[]");
-        if (Array.isArray(parsed)) {
-          parsedValues = parsed.map((value) => value === true);
-          if (isDirty) {
-            return parsedValues;
-          }
-        }
+        return buildChecklistValue(consigne, parsed);
       } catch (error) {
         console.warn("readConsigneCurrentValue:checklist", error);
       }
@@ -4576,23 +6481,19 @@ function readConsigneCurrentValue(consigne, scope) {
       `[data-checklist-root][data-consigne-id="${String(id ?? "")}"]`
     );
     if (container) {
-      const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
-      if (boxes.length) {
-        const fallbackValues = boxes.map((box) => Boolean(box.checked));
-        const fallbackHasSelection = fallbackValues.some(Boolean);
-        const fallbackDiffers = !Array.isArray(parsedValues)
-          ? fallbackHasSelection
-          : fallbackValues.length !== parsedValues.length ||
-            fallbackValues.some((value, index) => value !== parsedValues[index]);
-        if (isDirty || fallbackHasSelection || fallbackDiffers) {
-          return fallbackValues;
+      const domState = readChecklistDomState(container);
+      if (domState.items.length) {
+        const isDirty = container.dataset && container.dataset.checklistDirty === "1";
+        const hasMeaningfulState =
+          domState.items.some((checked, index) => checked && !domState.skipped[index]) ||
+          domState.skipped.some(Boolean);
+        if (!isDirty && !hasMeaningfulState) {
+          return null;
         }
+        return buildChecklistValue(consigne, domState);
       }
     }
-    if (isDirty && Array.isArray(parsedValues)) {
-      return parsedValues;
-    }
-    return null;
+    return buildChecklistValue(consigne, []);
   }
   const input = scope.querySelector(`[name$=":${id}"]`);
   return input ? input.value : "";
@@ -4613,6 +6514,95 @@ function enhanceRangeMeters(scope) {
   });
 }
 
+function initializeChecklistScope(scope, { consigneId = null } = {}) {
+  if (!scope) return;
+
+  const collectRoots = (target) => {
+    const roots = [];
+    if (!target) return roots;
+    if (target instanceof Element) {
+      if (target.matches("[data-checklist-root]")) {
+        roots.push(target);
+      }
+      roots.push(...target.querySelectorAll("[data-checklist-root]"));
+    } else if (typeof target.querySelectorAll === "function") {
+      roots.push(...target.querySelectorAll("[data-checklist-root]"));
+    }
+    return roots;
+  };
+
+  const roots = collectRoots(scope);
+  if (!roots.length) return;
+
+  const resolveConsigneId = (root) => {
+    if (consigneId != null) return String(consigneId ?? "");
+    const attr = root.getAttribute("data-consigne-id");
+    if (attr && String(attr).trim()) return attr;
+    if (root.dataset?.consigneId && String(root.dataset.consigneId).trim()) {
+      return root.dataset.consigneId;
+    }
+    const owner = root.closest("[data-consigne-id]");
+    if (owner) {
+      const ownerAttr = owner.getAttribute("data-consigne-id");
+      if (ownerAttr && String(ownerAttr).trim()) return ownerAttr;
+      if (owner.dataset?.consigneId && String(owner.dataset.consigneId).trim()) {
+        return owner.dataset.consigneId;
+      }
+      if (owner.dataset?.id && String(owner.dataset.id).trim()) {
+        return owner.dataset.id;
+      }
+    }
+    return "";
+  };
+
+  roots.forEach((root) => {
+    const resolvedId = resolveConsigneId(root);
+    if (resolvedId && !root.getAttribute("data-consigne-id")) {
+      root.setAttribute("data-consigne-id", resolvedId);
+    }
+    const hidden = root.querySelector("[data-checklist-state]");
+    if (hidden && resolvedId) {
+      const fieldName = `consigne:${resolvedId}:checklist`;
+      hidden.setAttribute("data-autosave-field", fieldName);
+      if (hidden.dataset) {
+        hidden.dataset.autosaveField = fieldName;
+      }
+    }
+
+    const editor = root.querySelector("[contenteditable]");
+    if (editor) {
+      const setupFn =
+        window.setupChecklistEditor || window.setupCheckboxListBehavior || window.setupCheckboxLikeBullets;
+      if (typeof setupFn === "function" && !editor.__cbInstalled) {
+        try {
+          setupFn(editor);
+        } catch (error) {
+          modesLogger?.warn?.("checklist:setup", error);
+        }
+      }
+      const enterExit = window.installChecklistEnterExit;
+      if (typeof enterExit === "function") {
+        try {
+          enterExit(editor);
+        } catch (error) {
+          modesLogger?.warn?.("checklist:enter-exit", error);
+        }
+      }
+    }
+
+    const hydrate = window.hydrateChecklist;
+    if (typeof hydrate === "function") {
+      try {
+        Promise.resolve(hydrate({ container: root, consigneId: resolvedId, itemKeyAttr: "data-key" })).catch((error) => {
+          modesLogger?.warn?.("checklist:hydrate", error);
+        });
+      } catch (error) {
+        modesLogger?.warn?.("checklist:hydrate", error);
+      }
+    }
+  });
+}
+
 function findConsigneInputFields(row, consigne) {
   if (!row || !consigne) return [];
   const holder = row.querySelector("[data-consigne-input-holder]");
@@ -4624,6 +6614,14 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
   const row = document.createElement("div");
   row.className = "consigne-row consigne-row--child consigne-row--virtual";
   row.dataset.id = consigne?.id || "";
+  if (consigne?.id != null) {
+    const stringId = String(consigne.id);
+    row.dataset.consigneId = stringId;
+    row.setAttribute("data-consigne-id", stringId);
+  } else {
+    delete row.dataset.consigneId;
+    row.removeAttribute("data-consigne-id");
+  }
   const tone = priorityTone(consigne?.priority);
   if (tone) {
     row.dataset.priorityTone = tone;
@@ -4637,6 +6635,7 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
   holder.innerHTML = inputForType(consigne, initialValue);
   row.appendChild(holder);
   enhanceRangeMeters(row);
+  initializeChecklistScope(row, { consigneId: consigne?.id ?? null });
   return row;
 }
 
@@ -4678,26 +6677,41 @@ function setConsigneRowValue(row, consigne, value) {
       updateConsigneStatusUI(row, consigne, value);
       return;
     }
-    const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
-    const normalizedArray = Array.isArray(value) ? value : [];
-    boxes.forEach((box, index) => {
-      const checked = Boolean(normalizedArray[index]);
-      box.checked = checked;
-      const item = box.closest('[data-checklist-item]');
-      if (item) {
-        item.classList.toggle('is-checked', checked);
-        if (checked) {
-          item.dataset.checked = "1";
-        } else {
-          delete item.dataset.checked;
+    const normalizedValue =
+      value === null || value === undefined
+        ? null
+        : buildChecklistValue(consigne, value, value && typeof value === "object" ? value : null);
+    if (normalizedValue) {
+      applyChecklistDomState(container, normalizedValue);
+    } else {
+      applyChecklistDomState(container, { items: [], skipped: [] });
+      const inputs = Array.from(container.querySelectorAll("[data-checklist-input]"));
+      inputs.forEach((input) => {
+        input.checked = false;
+        if (input.dataset) {
+          delete input.dataset.checklistSkip;
         }
-      }
-    });
+        const host = input.closest("[data-checklist-item]");
+        if (host) {
+          host.classList.remove("checklist-item--skipped");
+          host.removeAttribute("data-checklist-skipped");
+          host.setAttribute("data-validated", "false");
+        }
+      });
+    }
     const hidden = container.querySelector(`[name="checklist:${String(consigne.id ?? "")}"]`);
     if (hidden) {
-      const serialized = JSON.stringify(boxes.map((box) => Boolean(box.checked)));
-      hidden.value = serialized;
-      if (Array.isArray(value)) {
+      const domState = readChecklistDomState(container);
+      const payload = {
+        items: domState.items,
+        skipped: domState.skipped,
+      };
+      try {
+        hidden.value = JSON.stringify(payload);
+      } catch (error) {
+        hidden.value = JSON.stringify({ items: domState.items });
+      }
+      if (normalizedValue) {
         hidden.dataset.dirty = "1";
       } else {
         delete hidden.dataset.dirty;
@@ -4705,7 +6719,12 @@ function setConsigneRowValue(row, consigne, value) {
       hidden.dispatchEvent(new Event("input", { bubbles: true }));
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
     }
-    updateConsigneStatusUI(row, consigne, boxes.map((box) => Boolean(box.checked)));
+    if (normalizedValue) {
+      container.dataset.checklistDirty = "1";
+    } else {
+      delete container.dataset.checklistDirty;
+    }
+    updateConsigneStatusUI(row, consigne, normalizedValue);
     return;
   }
   const fields = findConsigneInputFields(row, consigne);
@@ -4742,6 +6761,24 @@ function attachConsigneEditor(row, consigne, options = {}) {
   const childConsignes = Array.isArray(options.childConsignes)
     ? options.childConsignes.filter((item) => item && item.consigne)
     : [];
+    const summaryControlsEnabled = options.summaryControlsEnabled === true;
+  const summaryToggleLabel =
+    typeof options.summaryToggleLabel === "string" && options.summaryToggleLabel.trim()
+      ? options.summaryToggleLabel.trim()
+      : "Réponse de bilan";
+  const summaryDefaultLabel =
+    typeof options.summaryDefaultLabel === "string" && options.summaryDefaultLabel.trim()
+      ? options.summaryDefaultLabel.trim()
+      : summaryToggleLabel;
+  const validateButtonLabel = (() => {
+    if (typeof options.validateButtonLabel === "string" && options.validateButtonLabel.trim()) {
+      return options.validateButtonLabel.trim();
+    }
+    if (typeof options.validateLabel === "string" && options.validateLabel.trim()) {
+      return options.validateLabel.trim();
+    }
+    return "Valider";
+  })();
   childConsignes.forEach((child) => {
     child.srEnabled = child?.srEnabled !== false;
   });
@@ -4876,15 +6913,44 @@ function attachConsigneEditor(row, consigne, options = {}) {
           </div>
         </section>`
       : "";
-    const actionsMarkup = requiresValidation
-      ? `<footer class="practice-editor__actions">
+    const summaryMenuItems = [
+      { scope: "weekly", label: "Bilan hebdomadaire" },
+      { scope: "monthly", label: "Bilan mensuel" },
+      { scope: "yearly", label: "Bilan annuel" },
+    ];
+    const summaryMenuMarkup = summaryMenuItems
+      .map(
+        (item) =>
+          `<button type="button" class="practice-editor__summary-menu-item" role="menuitem" data-summary-option="${item.scope}">${item.label}</button>`
+      )
+      .join("") +
+      `<div class="practice-editor__summary-menu-divider" role="separator"></div>
+        <button type="button" class="practice-editor__summary-menu-item practice-editor__summary-menu-item--clear" role="menuitem" data-summary-option="clear">Réponse standard</button>`;
+    const summaryControlMarkup =
+      requiresValidation && summaryControlsEnabled
+        ? `<div class="practice-editor__summary" data-consigne-editor-summary-root>
+          <button type="button" class="btn btn-ghost practice-editor__summary-toggle" data-consigne-editor-summary-toggle aria-haspopup="true" aria-expanded="false">
+            <span aria-hidden="true">📝</span>
+            <span data-consigne-editor-summary-label>${escapeHtml(summaryToggleLabel)}</span>
+          </button>
+          <div class="practice-editor__summary-menu card" data-consigne-editor-summary-menu role="menu" hidden>
+            ${summaryMenuMarkup}
+          </div>
+        </div>`
+        : "";
+    const primaryActionsMarkup = requiresValidation
+      ? `<div class="practice-editor__actions-buttons">
           <button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>
           <button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>
-          <button type="button" class="btn btn-primary" data-consigne-editor-validate>Valider</button>
-        </footer>`
-      : `<footer class="practice-editor__actions">
+          <button type="button" class="btn btn-primary" data-consigne-editor-validate>${escapeHtml(validateButtonLabel)}</button>
+        </div>`
+      : `<div class="practice-editor__actions-buttons">
           <button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>
-        </footer>`;
+        </div>`;
+    const actionsMarkup = `<footer class="practice-editor__actions">
+        ${summaryControlMarkup}
+        ${primaryActionsMarkup}
+      </footer>`;
     const markup = `
       <div class="practice-editor">
         <header class="practice-editor__header">
@@ -4905,6 +6971,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
       const preferTop = relevantItems.some((item) => pickPhoneModalClass(item) === "phone-top");
       overlay.classList.add(preferTop ? "phone-top" : "phone-center");
     }
+    initializeChecklistScope(overlay, {});
     overlay.querySelectorAll("textarea").forEach((textarea) => {
       autoGrowTextarea(textarea);
     });
@@ -5175,6 +7242,178 @@ function attachConsigneEditor(row, consigne, options = {}) {
         }
       }
     });
+    const summaryRoot = overlay.querySelector("[data-consigne-editor-summary-root]");
+    const summaryToggle = summaryRoot?.querySelector("[data-consigne-editor-summary-toggle]");
+    const summaryMenu = summaryRoot?.querySelector("[data-consigne-editor-summary-menu]");
+    const summaryLabelEl = summaryRoot?.querySelector("[data-consigne-editor-summary-label]");
+    const defaultSummaryLabel = summaryDefaultLabel;
+    const updateSummaryControlState = () => {
+      if (!summaryRoot || !summaryLabelEl) return;
+      const metadata = readConsigneSummaryMetadata(row);
+      if (metadata && metadata.summaryScope) {
+        summaryRoot.dataset.summarySelected = "1";
+        const label = metadata.summaryLabel || metadata.label || metadata.summaryScope;
+        summaryLabelEl.textContent = label || defaultSummaryLabel;
+      } else {
+        delete summaryRoot.dataset.summarySelected;
+        summaryLabelEl.textContent = defaultSummaryLabel;
+      }
+    };
+    updateSummaryControlState();
+    const commitResponse = ({ summary = null, close = true, requireValueForSummary = false } = {}) => {
+      if (consigne.type === "checklist") {
+        const selectorId = String(consigne.id ?? "");
+        const container = overlay.querySelector(
+          `[data-checklist-root][data-consigne-id="${selectorId}"]`
+        );
+        if (container) {
+          container.dataset.checklistDirty = "1";
+        }
+        const hidden =
+          overlay.querySelector(`[name="checklist:${consigne.id}"]`) ||
+          overlay.querySelector(`[name="checklist:${selectorId}"]`);
+        if (hidden) {
+          hidden.dataset.dirty = "1";
+        }
+      }
+      const newValue = readConsigneCurrentValue(consigne, overlay);
+      if (summary && requireValueForSummary && !hasValueForConsigne(consigne, newValue)) {
+        if (typeof showToast === "function") {
+          showToast("Ajoute une réponse avant de créer un bilan.");
+        }
+        if (focusTarget && typeof focusTarget.focus === "function") {
+          try {
+            focusTarget.focus({ preventScroll: true });
+          } catch (err) {
+            focusTarget.focus();
+          }
+        }
+        return false;
+      }
+      const childValueEntries = [];
+      childConsignes.forEach((childState) => {
+        const childValue = readConsigneCurrentValue(childState.consigne, overlay);
+        if (childState.row) {
+          setConsigneRowValue(childState.row, childState.consigne, childValue);
+        }
+        childValueEntries.push([childState.consigne?.id, childValue]);
+      });
+      updateParentChildAnsweredFlag();
+      setConsigneRowValue(row, consigne, newValue);
+      syncParentAnswered();
+      if (summary) {
+        setConsigneSummaryMetadata(row, summary);
+      } else {
+        clearConsigneSummaryMetadata(row);
+      }
+      updateSummaryControlState();
+      const childValueMap = new Map(childValueEntries.filter(([id]) => id != null));
+      if (typeof options.onSubmit === "function") {
+        options.onSubmit(newValue, { childValues: childValueMap, summary });
+      }
+      if (close) {
+        closeOverlay();
+      }
+      return true;
+    };
+    let summaryMenuOpen = false;
+    const onSummaryDocumentClick = (event) => {
+      if (!summaryRoot) return;
+      if (summaryRoot.contains(event.target)) return;
+      closeSummaryMenu();
+    };
+    const onSummaryDocumentKeydown = (event) => {
+      if (event.key === "Escape" || event.key === "Esc") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSummaryMenu({ focusToggle: true });
+      }
+    };
+    const closeSummaryMenu = ({ focusToggle = false } = {}) => {
+      if (!summaryMenuOpen) return;
+      summaryMenuOpen = false;
+      if (summaryMenu) {
+        summaryMenu.hidden = true;
+      }
+      if (summaryRoot) {
+        delete summaryRoot.dataset.summaryMenuOpen;
+      }
+      if (summaryToggle) {
+        summaryToggle.setAttribute("aria-expanded", "false");
+      }
+      document.removeEventListener("click", onSummaryDocumentClick, true);
+      document.removeEventListener("keydown", onSummaryDocumentKeydown, true);
+      if (focusToggle && summaryToggle && typeof summaryToggle.focus === "function") {
+        try {
+          summaryToggle.focus({ preventScroll: true });
+        } catch (err) {
+          summaryToggle.focus();
+        }
+      }
+    };
+    const openSummaryMenu = () => {
+      if (!summaryRoot || !summaryMenu || !summaryToggle || summaryMenuOpen) return;
+      summaryMenu.hidden = false;
+      summaryRoot.dataset.summaryMenuOpen = "1";
+      summaryToggle.setAttribute("aria-expanded", "true");
+      summaryMenuOpen = true;
+      document.addEventListener("click", onSummaryDocumentClick, true);
+      document.addEventListener("keydown", onSummaryDocumentKeydown, true);
+    };
+    const toggleSummaryMenu = () => {
+      if (summaryMenuOpen) {
+        closeSummaryMenu();
+      } else {
+        openSummaryMenu();
+      }
+    };
+    if (summaryToggle && summaryMenu) {
+      summaryToggle.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleSummaryMenu();
+      });
+      summaryToggle.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" || event.key === "Esc") {
+          event.preventDefault();
+          closeSummaryMenu({ focusToggle: true });
+        }
+      });
+      summaryMenu.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" || event.key === "Esc") {
+          event.preventDefault();
+          event.stopPropagation();
+          closeSummaryMenu({ focusToggle: true });
+        }
+      });
+      summaryMenu.addEventListener("click", (event) => {
+        const target = event.target?.closest("[data-summary-option]");
+        if (!target) return;
+        event.preventDefault();
+        const choice = target.getAttribute("data-summary-option");
+        if (!choice) return;
+        if (choice === "clear") {
+          closeSummaryMenu();
+          commitResponse({ summary: null, close: true, requireValueForSummary: false });
+          return;
+        }
+        const metadata = buildSummaryMetadataForScope(choice, { date: new Date() });
+        if (!metadata) {
+          closeSummaryMenu();
+          return;
+        }
+        const success = commitResponse({ summary: metadata, close: true, requireValueForSummary: true });
+        if (!success) {
+          return;
+        }
+        closeSummaryMenu();
+        if (typeof showToast === "function") {
+          const toastLabel = metadata.summaryLabel || metadata.label || "Bilan";
+          showToast(`${toastLabel} enregistré.`);
+        }
+      });
+      childMenuCleanups.push(() => closeSummaryMenu());
+    }
     const background = variant === "drawer" ? overlay.firstElementChild : overlay;
     if (background) {
       background.addEventListener("click", (event) => {
@@ -5205,9 +7444,11 @@ function attachConsigneEditor(row, consigne, options = {}) {
       skipBtn.addEventListener("click", (event) => {
         event.preventDefault();
         row.dataset.skipAnswered = "1";
+        clearConsigneSummaryMetadata(row);
         updateParentChildAnsweredFlag();
         updateConsigneStatusUI(row, consigne, { skipped: true });
         syncParentAnswered();
+        updateSummaryControlState();
         if (typeof options.onSkip === "function") {
           options.onSkip({ event, close: closeOverlay, consigne, row });
         }
@@ -5218,23 +7459,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
     if (validateBtn) {
       validateBtn.addEventListener("click", (event) => {
         event.preventDefault();
-        const newValue = readConsigneCurrentValue(consigne, overlay);
-        const childValueEntries = [];
-        childConsignes.forEach((childState) => {
-          const childValue = readConsigneCurrentValue(childState.consigne, overlay);
-          if (childState.row) {
-            setConsigneRowValue(childState.row, childState.consigne, childValue);
-          }
-          childValueEntries.push([childState.consigne?.id, childValue]);
-        });
-        updateParentChildAnsweredFlag();
-        setConsigneRowValue(row, consigne, newValue);
-        syncParentAnswered();
-        const childValueMap = new Map(childValueEntries.filter(([id]) => id != null));
-        if (typeof options.onSubmit === "function") {
-          options.onSubmit(newValue, { childValues: childValueMap });
-        }
-        closeOverlay();
+        commitResponse({ summary: null, close: true });
       });
     }
   };
@@ -5248,32 +7473,62 @@ function attachConsigneEditor(row, consigne, options = {}) {
   }
 }
 
+function hasChecklistResponse(consigne, row, value) {
+  if (value && typeof value === "object" && value.__hasAnswer === true) {
+    return true;
+  }
+  const states = readChecklistStates(value);
+  if (states.length > 0) {
+    return true;
+  }
+  if (row instanceof HTMLElement) {
+    const hidden = row.querySelector(`[name="checklist:${consigne.id}"]`);
+    if (hidden && hidden.dataset.dirty === "1") {
+      return true;
+    }
+    const container = row.querySelector(
+      `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+    );
+    if (container && container.dataset.checklistDirty === "1") {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasValueForConsigne(consigne, value) {
+  const type = consigne?.type;
+  if (type === "long") {
+    return richTextHasContent(value);
+  }
+  if (type === "short") {
+    return typeof value === "string" && value.trim().length > 0;
+  }
+  if (type === "checklist") {
+    const states = readChecklistStates(value);
+    return states.length > 0;
+  }
+  if (type === "num") {
+    if (value === null || value === undefined || value === "") return false;
+    const num = Number(value);
+    return Number.isFinite(num);
+  }
+  return !(value === null || value === undefined || value === "");
+}
+
 function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
   if (!row || !consigne) return;
-  const hasValueForConsigne = (value) => {
-    const type = consigne.type;
-    if (type === "long") {
-      return richTextHasContent(value);
-    }
-    if (type === "short") {
-      return typeof value === "string" && value.trim().length > 0;
-    }
-    if (type === "checklist") {
-      if (Array.isArray(value)) return value.some(Boolean);
-      if (value && typeof value === "object" && Array.isArray(value.items)) {
-        return value.items.some(Boolean);
-      }
-      return false;
-    }
-    return !(value === null || value === undefined || value === "");
-  };
   const mapValueForStatus = (value) => {
     if (row?.dataset?.skipAnswered === "1") {
-      if (hasValueForConsigne(value)) {
+      if (hasValueForConsigne(consigne, value)) {
         delete row.dataset.skipAnswered;
         return value;
       }
       return { skipped: true };
+    }
+    if (consigne.type === "checklist" && value && typeof value === "object") {
+      const hasAnswer = hasChecklistResponse(consigne, row, value);
+      return { ...value, __hasAnswer: hasAnswer };
     }
     return value;
   };
@@ -5304,72 +7559,1245 @@ function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
   }
 }
 
-async function openHistory(ctx, consigne) {
-  modesLogger.group("ui.history.open", { consigneId: consigne.id, type: consigne.type });
-  const qy = modesFirestore.query(
-    modesFirestore.collection(ctx.db, `u/${ctx.user.uid}/responses`),
-    modesFirestore.where("consigneId", "==", consigne.id),
-    modesFirestore.orderBy("createdAt", "desc"),
-    modesFirestore.limit(60)
-  );
-  const ss = await modesFirestore.getDocs(qy);
-  modesLogger.info("ui.history.rows", ss.size);
-  const rows = ss.docs.map((d) => ({ id: d.id, ...d.data() }));
+function formatHistoryChartValue(type, value) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "";
+  }
+  if (type === "checklist") {
+    const pct = Math.round(Number(value) * 100);
+    return `${pct}%`;
+  }
+  if (type === "yesno") {
+    return value >= 0.5 ? "Oui" : "Non";
+  }
+  if (type === "likert6") {
+    const index = Math.round(Number(value));
+    const key = LIKERT6_ORDER[index] || "";
+    return LIKERT6_LABELS[key] || key || String(index);
+  }
+  if (type === "likert5") {
+    return String(Math.round(Number(value) * 100) / 100);
+  }
+  if (type === "num") {
+    const rounded = Math.round(Number(value) * 100) / 100;
+    return String(rounded);
+  }
+  return String(value);
+}
 
-  const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
+
+function renderHistoryChart(data, { type, mode } = {}) {
+  const dataset = Array.isArray(data)
+    ? { points: data }
+    : data && typeof data === "object"
+    ? data
+    : { points: [] };
+  const rawPoints = Array.isArray(dataset.points) ? dataset.points : [];
+  const supportsChart = !(type === "long" || type === "short" || type === "info");
+  if (!supportsChart) {
+    return `
+      <div class="history-panel__chart history-panel__chart--simple history-panel__chart--empty">
+        <p class="history-panel__chart-empty-text">Ce type de consigne ne génère pas de graphique.</p>
+      </div>
+    `;
+  }
+
+  const sanitizedPoints = Array.isArray(rawPoints)
+    ? rawPoints
+        .filter(
+          (entry) =>
+            entry &&
+            entry.date instanceof Date &&
+            !Number.isNaN(entry.date.getTime()) &&
+            entry.value !== null &&
+            entry.value !== undefined &&
+            Number.isFinite(Number(entry.value))
+        )
+        .map((entry) => {
+          const rawScope =
+            typeof entry.summaryScope === "string"
+              ? entry.summaryScope
+              : typeof entry.summary_scope === "string"
+              ? entry.summary_scope
+              : "";
+          const normalizedScope = rawScope.trim().toLowerCase();
+          const recordedAtValue =
+            entry.recordedAt instanceof Date && !Number.isNaN(entry.recordedAt.getTime())
+              ? new Date(entry.recordedAt.getTime())
+              : null;
+          const recordedAtFromString =
+            !recordedAtValue && typeof entry.recordedAt === "string"
+              ? new Date(entry.recordedAt)
+              : null;
+          const recordedAt =
+            recordedAtValue && recordedAtValue instanceof Date && !Number.isNaN(recordedAtValue.getTime())
+              ? recordedAtValue
+              : recordedAtFromString && !Number.isNaN(recordedAtFromString.getTime())
+              ? recordedAtFromString
+              : null;
+          const dayKeyValue =
+            typeof entry.dayKey === "string"
+              ? entry.dayKey
+              : typeof entry.day_key === "string"
+              ? entry.day_key
+              : "";
+          let summaryScope = "";
+          if (normalizedScope.includes("mensu") || normalizedScope.includes("month")) {
+            summaryScope = "monthly";
+          } else if (
+            normalizedScope.includes("hebdo") ||
+            normalizedScope.includes("week") ||
+            /\bhebdomadaire\b/.test(normalizedScope)
+          ) {
+            summaryScope = "weekly";
+          } else if (
+            normalizedScope.includes("annuel") ||
+            normalizedScope.includes("annuelle") ||
+            normalizedScope.includes("annual") ||
+            normalizedScope.includes("yearly")
+          ) {
+            summaryScope = "yearly";
+          }
+          const hasBilanFlag = Boolean(entry.isBilan) || normalizedScope.includes("bilan");
+          const hasSummaryFlag =
+            Boolean(entry.isSummary) ||
+            Boolean(summaryScope) ||
+            hasBilanFlag ||
+            normalizedScope.includes("summary") ||
+            normalizedScope.includes("yearly") ||
+            normalizedScope.includes("annuel");
+          return {
+            date: new Date(entry.date),
+            value: Number(entry.value),
+            isSummary: hasSummaryFlag,
+            summaryScope,
+            isBilan: hasBilanFlag,
+            recordedAt: recordedAt ? new Date(recordedAt.getTime()) : null,
+            dayKey: dayKeyValue,
+          };
+        })
+    : [];
+
+  const sorted = sanitizedPoints.slice().sort((a, b) => a.date - b.date);
+  if (!sorted.length) {
+    return `
+      <div class="history-panel__chart history-panel__chart--simple history-panel__chart--empty">
+        <p class="history-panel__chart-empty-text">Aucune donnée enregistrée pour le moment.</p>
+      </div>
+    `;
+  }
+
+  const values = sorted.map((entry) => entry.value);
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    min = 0;
+    max = 1;
+  }
+  if (type === "yesno") {
+    min = Math.min(0, min);
+    max = Math.max(1, max);
+  }
+  if (type === "likert6") {
+    min = 0;
+    max = LIKERT6_ORDER.length - 1;
+  }
+  const hasVariance = Math.abs(max - min) > Number.EPSILON;
+  let yPadding;
+  if (type === "likert6") {
+    yPadding = hasVariance ? 0 : 0.5;
+  } else if (type === "yesno") {
+    yPadding = 0;
+  } else {
+    yPadding = hasVariance ? 0 : 1;
+  }
+  if (!Number.isFinite(yPadding) || yPadding < 0) {
+    yPadding = 0;
+  }
+  let yMin = min - yPadding;
+  let yMax = max + yPadding;
+  if (type === "yesno") {
+    yMin = 0;
+    yMax = 1;
+  }
+  if (type === "likert6") {
+    yMin = hasVariance ? min : min - yPadding;
+    yMax = hasVariance ? max : max + yPadding;
+  }
+  if (!Number.isFinite(yMin)) {
+    yMin = hasVariance ? min : min - 1;
+  }
+  if (!Number.isFinite(yMax)) {
+    yMax = hasVariance ? max : max + 1;
+  }
+  if (yMax <= yMin) {
+    yMax = yMin + 1;
+  }
+  const yRange = yMax - yMin || 1;
+
+  const averageStatus = historyStatusFromAverage(type, values) || "na";
+  const colorPalette = resolveHistoryStatusColors(averageStatus);
+
+  const chartWidth = 960;
+  const chartHeight = 320;
+  const paddingTop = 24;
+  const paddingRight = 56;
+  const paddingBottom = 60;
+  const paddingLeft = 64;
+  const innerWidth = chartWidth - paddingLeft - paddingRight;
+  const innerHeight = chartHeight - paddingTop - paddingBottom;
+
+  const axisFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+  const tooltipFormatter = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" });
+  const timeFormatter = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  const iterationFormatter = new Intl.NumberFormat("fr-FR");
+
+  const coords = sorted.map((entry, index) => {
+    const ratio = sorted.length === 1 ? 0.5 : index / Math.max(sorted.length - 1, 1);
+    const x = paddingLeft + ratio * innerWidth;
+    const normalized = Number.isFinite(entry.value) ? (entry.value - yMin) / yRange : 0.5;
+    const clamped = Number.isFinite(normalized) ? Math.min(Math.max(normalized, 0), 1) : 0.5;
+    const y = paddingTop + (1 - clamped) * innerHeight;
+    const axisRaw = entry.dayKey || axisFormatter.format(entry.date);
+    const axisLabel = axisRaw ? axisRaw.charAt(0).toUpperCase() + axisRaw.slice(1) : axisRaw;
+    const tooltipDate = tooltipFormatter.format(entry.date);
+    const timeLabel = entry.recordedAt ? timeFormatter.format(entry.recordedAt) : "";
+    const summaryLabel =
+      entry.summaryScope === "monthly"
+        ? "Bilan mensuel"
+        : entry.summaryScope === "weekly"
+        ? "Bilan hebdomadaire"
+        : entry.summaryScope === "yearly"
+        ? "Bilan annuel"
+        : entry.isBilan
+        ? "Bilan"
+        : entry.isSummary
+        ? "Synthèse"
+        : "";
+    const tooltipMeta = [tooltipDate, timeLabel, summaryLabel]
+      .map((part) => part && part.trim())
+      .filter(Boolean)
+      .join(" · ");
+    return {
+      x,
+      y,
+      value: entry.value,
+      axisLabel,
+      tooltipMeta,
+      tooltipDate,
+      timeLabel,
+      iteration: index + 1,
+      isBilan: Boolean(entry.isBilan),
+    };
+  });
+
+  const linePath = coords
+    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+    .join(" ");
+  const baselineY = paddingTop + innerHeight;
+  let areaPath = "";
+  if (coords.length === 1) {
+    const point = coords[0];
+    const x = point.x.toFixed(2);
+    const y = point.y.toFixed(2);
+    const base = baselineY.toFixed(2);
+    areaPath = `M${x},${base} L${x},${y} L${(point.x + 0.1).toFixed(2)},${y} L${(point.x + 0.1).toFixed(2)},${base} Z`;
+  } else if (coords.length > 1) {
+    const firstX = coords[0].x.toFixed(2);
+    const lastX = coords[coords.length - 1].x.toFixed(2);
+    const segments = coords
+      .map((point) => `L${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+      .join(" ");
+    areaPath = `M${firstX},${baselineY.toFixed(2)} ${segments} L${lastX},${baselineY.toFixed(2)} Z`;
+  }
+
+  const yTicksCount = 4;
+  const yTicks = Array.from({ length: yTicksCount + 1 }, (_, idx) => {
+    const ratio = idx / yTicksCount;
+    const value = yMax - ratio * (yMax - yMin);
+    const label = formatHistoryChartValue(type, value);
+    const y = paddingTop + ratio * innerHeight;
+    return { y, label };
+  });
+
+  const xAxisLabels = coords
+    .map((point) => {
+      const label = point.axisLabel;
+      if (!label) return "";
+      return `<text class="history-chart__axis-label history-chart__axis-label--x" x="${point.x.toFixed(2)}" y="${(chartHeight - paddingBottom + 32).toFixed(2)}">${escapeHtml(
+        label
+      )}</text>`;
+    })
+    .join("");
+
+  const yAxisLabels = yTicks
+    .map(
+      (tick) => `
+        <text class="history-chart__axis-label history-chart__axis-label--y" x="${(paddingLeft - 16).toFixed(2)}" y="${(tick.y + 4).toFixed(2)}">${escapeHtml(
+          tick.label
+        )}</text>
+      `
+    )
+    .join("");
+
+  const horizontalLines = yTicks
+    .map(
+      (tick) => `
+        <line class="history-chart__grid-line" x1="${paddingLeft.toFixed(2)}" x2="${(chartWidth - paddingRight).toFixed(
+        2
+      )}" y1="${tick.y.toFixed(2)}" y2="${tick.y.toFixed(2)}"></line>
+      `
+    )
+    .join("");
+
+  const pointsMarkup = coords
+    .map((point) => {
+      const valueLabel = formatHistoryChartValue(type, point.value);
+      const iterationLabel = iterationFormatter.format(point.iteration);
+      const metaParts = [point.tooltipMeta, `Réponse ${iterationLabel}`].filter(Boolean);
+      const tooltipMeta = metaParts.join(" · ");
+      const ariaParts = [valueLabel, tooltipMeta].filter(Boolean);
+      const ariaLabel = ariaParts.join(" — ");
+      const metaAttr = tooltipMeta ? ` data-meta="${escapeHtml(tooltipMeta)}"` : "";
+      const pointColor = point.isBilan ? "#7c3aed" : colorPalette.circle;
+      const pointClasses = ["history-chart__point"];
+      if (point.isBilan) {
+        pointClasses.push("history-chart__point--bilan");
+      }
+      const pointStyle = ` style="--history-point-color:${escapeHtml(pointColor)}"`;
+      return `
+        <g class="${pointClasses.join(" ")}" data-history-point data-value="${escapeHtml(valueLabel)}"${metaAttr}${pointStyle} transform="translate(${point.x.toFixed(
+        2
+      )}, ${point.y.toFixed(2)})" tabindex="0" aria-label="${escapeHtml(ariaLabel)}">
+          <circle class="history-chart__point-hit" r="14"></circle>
+          <circle class="history-chart__point-node" r="6"></circle>
+        </g>
+      `;
+    })
+    .join("");
+
+  const plural = sorted.length > 1 ? "s" : "";
+  const responseCountLabel = `${sorted.length || 0} réponse${plural}`;
+
+  const gradientId = `historyChartSimple-${Math.random().toString(36).slice(2, 10)}`;
+  const chartLabel = `Évolution des réponses enregistrées (${responseCountLabel})`;
+
+  return `
+    <div class="history-panel__chart history-panel__chart--simple" data-average-status="${escapeHtml(averageStatus)}">
+      <div class="history-panel__chart-scroll">
+        <figure class="history-chart">
+          <svg class="history-chart__svg" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="${escapeHtml(
+            chartLabel
+          )}" focusable="false">
+          <defs>
+            <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="${escapeHtml(colorPalette.gradientTop)}"></stop>
+              <stop offset="100%" stop-color="${escapeHtml(colorPalette.gradientBottom)}"></stop>
+            </linearGradient>
+          </defs>
+          <rect class="history-chart__surface" x="${paddingLeft.toFixed(2)}" y="${paddingTop.toFixed(2)}" width="${innerWidth.toFixed(
+            2
+          )}" height="${innerHeight.toFixed(2)}" rx="18"></rect>
+          ${horizontalLines}
+          <line class="history-chart__axis-line" x1="${paddingLeft.toFixed(2)}" y1="${baselineY.toFixed(2)}" x2="${(chartWidth -
+            paddingRight
+          ).toFixed(2)}" y2="${baselineY.toFixed(2)}"></line>
+          <line class="history-chart__axis-line" x1="${paddingLeft.toFixed(2)}" y1="${paddingTop.toFixed(2)}" x2="${paddingLeft.toFixed(
+            2
+          )}" y2="${baselineY.toFixed(2)}"></line>
+          ${yAxisLabels}
+          ${xAxisLabels}
+          ${
+            areaPath
+              ? `<path class="history-chart__area" d="${areaPath}" fill="url(#${gradientId})"></path>`
+              : ""
+          }
+          ${
+            linePath
+              ? `<path class="history-chart__line" d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}"></path>`
+              : ""
+          }
+          ${pointsMarkup}
+        </svg>
+        </figure>
+      </div>
+    </div>
+  `;
+}
+
+
+
+function enhanceHistoryChart(container) {
+  if (!container) return;
+  const chartRoot = container.querySelector('.history-panel__chart');
+  if (!chartRoot) return;
+  const scrollContainer = chartRoot.querySelector('.history-panel__chart-scroll') || chartRoot;
+  const points = Array.from(chartRoot.querySelectorAll('[data-history-point]'));
+  if (!points.length) return;
+
+  const tooltipClass = 'history-chart__tooltip';
+  let tooltip = chartRoot._historyTooltip;
+  if (!(tooltip instanceof HTMLElement) || !tooltip.classList.contains(tooltipClass)) {
+    tooltip = document.createElement('div');
+    tooltip.className = tooltipClass;
+    tooltip.innerHTML = `
+      <div class="history-chart__tooltip-value"></div>
+      <div class="history-chart__tooltip-meta"></div>
+    `;
+    tooltip.hidden = true;
+    document.body.appendChild(tooltip);
+    chartRoot._historyTooltip = tooltip;
+  }
+
+  const valueEl = tooltip.querySelector('.history-chart__tooltip-value');
+  const metaEl = tooltip.querySelector('.history-chart__tooltip-meta');
+
+  const clearActive = () => {
+    points.forEach((pt) => pt.classList.remove('is-active'));
+  };
+
+  const hideTooltip = () => {
+    clearActive();
+    tooltip.classList.remove('is-visible');
+    tooltip.classList.remove('history-chart__tooltip--below');
+    tooltip.hidden = true;
+    tooltip.style.left = '';
+    tooltip.style.top = '';
+  };
+
+  const showTooltip = (point) => {
+    if (!point) return;
+    clearActive();
+    point.classList.add('is-active');
+    if (valueEl) valueEl.textContent = point.getAttribute('data-value') || '';
+    if (metaEl) {
+      const metaText = point.getAttribute('data-meta') || '';
+      metaEl.textContent = metaText;
+      metaEl.hidden = !metaText;
+    }
+
+    const node = point.querySelector('.history-chart__point-node') || point;
+    const nodeRect = node.getBoundingClientRect();
+    const gap = 18;
+    const visibleGap = 10;
+    tooltip.style.setProperty('--history-tooltip-gap', `${gap}px`);
+    tooltip.style.setProperty('--history-tooltip-visible-gap', `${visibleGap}px`);
+    tooltip.hidden = false;
+    tooltip.classList.remove('history-chart__tooltip--below');
+    tooltip.classList.add('is-visible');
+
+    const tooltipHeight = tooltip.offsetHeight || 0;
+    const shouldFlip = nodeRect.top - gap - tooltipHeight < 12;
+    if (shouldFlip) {
+      tooltip.classList.add('history-chart__tooltip--below');
+    }
+
+    const top = shouldFlip ? nodeRect.bottom : nodeRect.top;
+    const left = nodeRect.left + nodeRect.width / 2;
+
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  };
+
+  points.forEach((point) => {
+    point.addEventListener('pointerenter', () => showTooltip(point));
+    point.addEventListener('pointermove', () => showTooltip(point));
+    point.addEventListener('pointerleave', hideTooltip);
+    point.addEventListener('focus', () => showTooltip(point));
+    point.addEventListener('blur', hideTooltip);
+  });
+
+  chartRoot.addEventListener('pointerleave', hideTooltip);
+  chartRoot.addEventListener('pointercancel', hideTooltip);
+  if (scrollContainer && scrollContainer !== chartRoot) {
+    scrollContainer.addEventListener('scroll', hideTooltip, { passive: true });
+  }
+}
+
+
+function getRecentResponsesStore() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const existing = window.__hpRecentResponses;
+  if (existing instanceof Map) {
+    return existing;
+  }
+  if (existing && typeof existing === "object") {
+    const map = new Map();
+    try {
+      Object.entries(existing).forEach(([key, value]) => {
+        if (!key) return;
+        if (Array.isArray(value)) {
+          map.set(key, value.slice());
+        }
+      });
+    } catch (error) {
+      console.warn("recentResponsesStore:normalize", error);
+    }
+    window.__hpRecentResponses = map;
+    return map;
+  }
+  return null;
+}
+
+function historyRowIdentity(row) {
+  if (!row || typeof row !== "object") {
+    return "";
+  }
+  if (row.id) {
+    return `id:${row.id}`;
+  }
+  const rawDate = row.createdAt?.toDate?.() ?? row.createdAt ?? row.updatedAt ?? null;
+  let iso = "";
+  if (rawDate instanceof Date) {
+    if (!Number.isNaN(rawDate.getTime())) {
+      iso = rawDate.toISOString();
+    }
+  } else if (typeof rawDate === "string" || typeof rawDate === "number") {
+    const parsed = new Date(rawDate);
+    if (!Number.isNaN(parsed.getTime())) {
+      iso = parsed.toISOString();
+    }
+  }
+  let valueKey = "";
+  try {
+    valueKey = JSON.stringify(row.value ?? null);
+  } catch (error) {
+    valueKey = String(row.value ?? "");
+  }
+  return `created:${iso}::value:${valueKey}`;
+}
+
+function mergeRowsWithRecent(rows, consigneId) {
+  const remoteRows = Array.isArray(rows) ? rows.slice() : [];
+  const store = getRecentResponsesStore();
+  if (!store || !consigneId) {
+    return remoteRows;
+  }
+  const local = store.get(consigneId) || [];
+  if (!Array.isArray(local) || !local.length) {
+    return remoteRows;
+  }
+  const remoteIds = new Set(remoteRows.map((row) => historyRowIdentity(row)).filter(Boolean));
+  const existingIds = new Set(remoteIds);
+  const merged = remoteRows.slice();
+  const pending = [];
+  local.forEach((entry) => {
+    const identity = historyRowIdentity(entry);
+    if (!identity) {
+      return;
+    }
+    if (existingIds.has(identity)) {
+      return;
+    }
+    merged.push(entry);
+    existingIds.add(identity);
+    pending.push(entry);
+  });
+  if (pending.length) {
+    pending.sort((a, b) => {
+      const aTime = new Date(a.createdAt || 0).getTime();
+      const bTime = new Date(b.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
+    store.set(consigneId, pending.slice(0, 10));
+  } else {
+    store.delete(consigneId);
+  }
+  merged.sort((a, b) => {
+    const aRaw = a.createdAt?.toDate?.() ?? a.createdAt ?? a.updatedAt ?? null;
+    const bRaw = b.createdAt?.toDate?.() ?? b.createdAt ?? b.updatedAt ?? null;
+    const aTime = aRaw instanceof Date ? aRaw.getTime() : new Date(aRaw || 0).getTime();
+    const bTime = bRaw instanceof Date ? bRaw.getTime() : new Date(bRaw || 0).getTime();
+    return bTime - aTime;
+  });
+  return merged;
+}
+
+async function openHistory(ctx, consigne, options = {}) {
+  const consigneId = consigne?.id || "";
+  const consigneType = consigne?.type || "";
+  modesLogger.group("ui.history.open", { consigneId, type: consigneType });
+
+  if (!consigneId) {
+    modesLogger.warn("ui.history.consigne.missing", { consigne });
+    showToast("Historique indisponible : consigne introuvable.");
+    modesLogger.groupEnd();
+    return null;
+  }
+
+  const uid = ctx?.user?.uid;
+  if (!uid) {
+    modesLogger.warn("ui.history.user.missing", { hasCtx: Boolean(ctx) });
+    showToast("Historique indisponible : utilisateur non identifié.");
+    modesLogger.groupEnd();
+    return null;
+  }
+
+  const safeConsigneLabel = (item) =>
+    (item?.text || item?.titre || "Sans titre").toString();
+
+  let parentConsigneForDropdown = null;
+  let childConsignesForDropdown = [];
+  if (consigne.parentId) {
+    const parentId = consigne.parentId;
+    try {
+      const parentRef = modesFirestore.doc(ctx.db, "u", uid, "consignes", parentId);
+      const parentSnap = await modesFirestore.getDoc(parentRef);
+      if (Schema.snapshotExists?.(parentSnap)) {
+        parentConsigneForDropdown = { id: parentSnap.id, ...(parentSnap.data() || {}) };
+      }
+    } catch (error) {
+      modesLogger.warn("ui.history.parent.load", { error, parentId });
+    }
+    if (parentConsigneForDropdown) {
+      try {
+        childConsignesForDropdown = await Schema.listChildConsignes(ctx.db, uid, parentConsigneForDropdown.id);
+      } catch (error) {
+        modesLogger.warn("ui.history.children.load", { error, parentId });
+      }
+    }
+  } else if (consigne.id) {
+    try {
+      childConsignesForDropdown = await Schema.listChildConsignes(ctx.db, uid, consigne.id);
+    } catch (error) {
+      modesLogger.warn("ui.history.children.load", { error, parentId: consigne.id });
+    }
+  }
+
+  const dropdownConsignes = [];
+  const seenConsigneIds = new Set();
+  const pushConsigneCandidate = (item) => {
+    const id = String(item?.id ?? "");
+    if (!id || seenConsigneIds.has(id)) return;
+    dropdownConsignes.push(item);
+    seenConsigneIds.add(id);
+  };
+
+  if (parentConsigneForDropdown) {
+    pushConsigneCandidate(parentConsigneForDropdown);
+  }
+  if (!consigne.parentId) {
+    pushConsigneCandidate(consigne);
+  }
+  childConsignesForDropdown.forEach((child) => {
+    pushConsigneCandidate(child);
+  });
+  if (consigne.parentId) {
+    const currentId = String(consigne.id ?? "");
+    if (!seenConsigneIds.has(currentId)) {
+      pushConsigneCandidate(consigne);
+    } else {
+      const index = dropdownConsignes.findIndex((item) => String(item?.id ?? "") === currentId);
+      if (index >= 0) {
+        dropdownConsignes[index] = consigne;
+      }
+    }
+  }
+
+  const dropdownConsigneMap = new Map(dropdownConsignes.map((item) => [String(item?.id ?? ""), item]));
+  const hasDropdownSelection = dropdownConsignes.length > 1;
+
+  const missingFirestoreFns = ["collection", "where", "orderBy", "limit", "query", "getDocs"].filter(
+    (fn) => typeof modesFirestore?.[fn] !== "function"
+  );
+  if (!ctx?.db || missingFirestoreFns.length) {
+    modesLogger.warn("ui.history.firestore.missing", {
+      hasDb: Boolean(ctx?.db),
+      missing: missingFirestoreFns,
+    });
+    showToast("Historique indisponible : connexion aux données manquante.");
+    modesLogger.groupEnd();
+    return null;
+  }
+
+  let ss;
+  try {
+    const qy = modesFirestore.query(
+      modesFirestore.collection(ctx.db, "u", uid, "responses"),
+      modesFirestore.where("consigneId", "==", consigneId),
+      modesFirestore.orderBy("createdAt", "desc"),
+      modesFirestore.limit(60)
+    );
+    ss = await modesFirestore.getDocs(qy);
+  } catch (error) {
+    modesLogger.warn("ui.history.firestore.error", error);
+    showToast("Impossible de charger l’historique pour le moment.");
+    modesLogger.groupEnd();
+    return null;
+  }
+
+  const docs = Array.isArray(ss?.docs) ? ss.docs : [];
+  const size = typeof ss?.size === "number" ? ss.size : docs.length;
+  modesLogger.info("ui.history.rows", size);
+  let rows = docs.map((d) => ({ id: d.id, ...d.data() }));
+  rows = mergeRowsWithRecent(rows, consigneId);
+
+  const DAILY_MODE_KEYS = new Set(["daily"]);
+
+  function normalizeMode(row) {
+    const candidates = [row?.mode, row?.source, row?.origin, row?.context];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.trim()) {
+        return candidate.trim().toLowerCase();
+      }
+    }
+    return "";
+  }
+
+  function parseDateForDaily(value) {
+    if (!value) return null;
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+    }
+    if (typeof value.toDate === "function") {
+      try {
+        const parsed = value.toDate();
+        return Number.isNaN(parsed?.getTime?.()) ? null : parsed;
+      } catch (error) {
+        modesLogger.warn("ui.history.daily.parse", error);
+      }
+    }
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function resolveDayKey(row, createdAt) {
+    const rawDay =
+      row?.dayKey ||
+      row?.day_key ||
+      row?.date ||
+      row?.day ||
+      (typeof row?.getDayKey === "function" ? row.getDayKey() : null);
+    if (typeof rawDay === "string" && rawDay.trim()) {
+      return rawDay.trim();
+    }
+    if (rawDay instanceof Date && !Number.isNaN(rawDay.getTime())) {
+      return Schema?.dayKeyFromDate ? Schema.dayKeyFromDate(rawDay) : "";
+    }
+    if (typeof rawDay === "number" && Number.isFinite(rawDay)) {
+      const fromNumber = new Date(rawDay);
+      if (!Number.isNaN(fromNumber.getTime())) {
+        return Schema?.dayKeyFromDate ? Schema.dayKeyFromDate(fromNumber) : "";
+      }
+    }
+    if (createdAt instanceof Date && Schema?.dayKeyFromDate) {
+      return Schema.dayKeyFromDate(createdAt);
+    }
+    return "";
+  }
+
+  const seenDailyDayKeys = new Set();
+  rows = rows.filter((row) => {
+    const modeKey = normalizeMode(row);
+    if (!DAILY_MODE_KEYS.has(modeKey)) {
+      return true;
+    }
+    const createdAtSource = row?.createdAt ?? row?.updatedAt ?? null;
+    const createdAt = parseDateForDaily(createdAtSource);
+    const dayKey = resolveDayKey(row, createdAt);
+    if (!dayKey) {
+      return true;
+    }
+    if (seenDailyDayKeys.has(dayKey)) {
+      return false;
+    }
+    seenDailyDayKeys.add(dayKey);
+    return true;
+  });
+
+  const dateTimeFormatter = new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
     month: "long",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
-  const statusLabels = {
-    ok: "Positive",
-    mid: "Intermédiaire",
-    ko: "À surveiller",
-    note: "Réponse notée",
-    na: "Sans donnée",
+  const dayDisplayFormatter = new Intl.DateTimeFormat("fr-FR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  });
+  const capitalizeLabel = (value) => (typeof value === "string" && value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value);
+  const formatDisplayDate = (date, { preferDayView = false } = {}) => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return "";
+    }
+    const formatter = preferDayView ? dayDisplayFormatter : dateTimeFormatter;
+    const raw = formatter.format(date);
+    return capitalizeLabel(raw);
   };
-
   const priorityToneValue = priorityTone(consigne.priority);
 
   function relativeLabel(date) {
     if (!date || Number.isNaN(date.getTime())) return "";
     const today = new Date();
-    const diffDays = Math.round((today.getTime() - date.getTime()) / 86400000);
-    if (diffDays <= 0) return "Aujourd’hui";
+    today.setHours(0, 0, 0, 0);
+    const base = new Date(date.getTime());
+    base.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((today.getTime() - base.getTime()) / 86400000);
+    if (diffDays === 0) return "Aujourd’hui";
     if (diffDays === 1) return "Hier";
-    if (diffDays < 7) return `Il y a ${diffDays} j`;
+    if (diffDays > 1 && diffDays < 7) return `Il y a ${diffDays} j`;
+    if (diffDays < 0) {
+      const future = Math.abs(diffDays);
+      if (future === 1) return "Demain";
+      if (future < 7) return `Dans ${future} j`;
+    }
     return "";
   }
 
+  function detectSummaryNote(row) {
+    if (!row || typeof row !== "object") {
+      return { isSummary: false, scope: "", isBilan: false };
+    }
+    const normalizedStrings = [];
+    const pushString = (value) => {
+      if (typeof value === "string" && value.trim()) {
+        normalizedStrings.push(value.trim().toLowerCase());
+      }
+    };
+    pushString(row.summaryScope);
+    pushString(row.summary_scope);
+    pushString(row.summaryKey);
+    pushString(row.summary_key);
+    pushString(row.summaryLabel);
+    pushString(row.summary_label);
+    pushString(row.summaryMode);
+    pushString(row.summary_mode);
+    pushString(row.summaryPeriod);
+    pushString(row.summary_period);
+    pushString(row.period);
+    pushString(row.periodLabel);
+    pushString(row.period_label);
+    pushString(row.periodKey);
+    pushString(row.period_key);
+    pushString(row.periodScope);
+    pushString(row.period_scope);
+    pushString(row.mode);
+    pushString(row.source);
+    pushString(row.origin);
+    pushString(row.context);
+    pushString(row.moduleId);
+    pushString(row.module_id);
+    if (typeof row.key === "string") {
+      pushString(row.key);
+    }
+    const hasSummaryObject =
+      Object.prototype.hasOwnProperty.call(row, "summary") &&
+      row.summary &&
+      typeof row.summary === "object";
+    if (hasSummaryObject) {
+      pushString(row.summary.scope);
+      pushString(row.summary.type);
+      pushString(row.summary.mode);
+      pushString(row.summary.label);
+    }
+    const hasSummaryField =
+      Object.prototype.hasOwnProperty.call(row, "summaryScope") ||
+      Object.prototype.hasOwnProperty.call(row, "summary_scope") ||
+      Object.prototype.hasOwnProperty.call(row, "summaryKey") ||
+      Object.prototype.hasOwnProperty.call(row, "summary_key") ||
+      Object.prototype.hasOwnProperty.call(row, "summaryLabel") ||
+      Object.prototype.hasOwnProperty.call(row, "summary_label") ||
+      Object.prototype.hasOwnProperty.call(row, "summaryMode") ||
+      Object.prototype.hasOwnProperty.call(row, "summary_mode") ||
+      Object.prototype.hasOwnProperty.call(row, "summaryPeriod") ||
+      Object.prototype.hasOwnProperty.call(row, "summary_period") ||
+      hasSummaryObject;
+    const hasBilanMarker = normalizedStrings.some((value) => value.includes("bilan"));
+    const hasSummaryKeyword =
+      normalizedStrings.some((value) => value.includes("summary")) || hasBilanMarker;
+    const hasWeeklyMarker = normalizedStrings.some((value) => {
+      if (!value) return false;
+      return (
+        value.includes("hebdo") ||
+        value.includes("weekly") ||
+        value.includes("week") ||
+        /\bsemaine\b/.test(value) ||
+        /\bhebdomadaire\b/.test(value) ||
+        /\b\d{4}-w\d{1,2}\b(?!-)/i.test(value)
+      );
+    });
+    const hasMonthlyMarker = normalizedStrings.some((value) => {
+      if (!value) return false;
+      return (
+        value.includes("mensu") ||
+        value.includes("mensuel") ||
+        value.includes("mensuelle") ||
+        value.includes("mois") ||
+        value.includes("monthly") ||
+        value.includes("month") ||
+        /\b\d{4}-(0[1-9]|1[0-2])\b(?!-)/.test(value)
+      );
+    });
+    const hasYearlyMarker = normalizedStrings.some((value) => {
+      if (!value) return false;
+      return (
+        value.includes("annuel") ||
+        value.includes("annuelle") ||
+        value.includes("annual") ||
+        value.includes("année") ||
+        value.includes("annee") ||
+        value.includes("yearly")
+      );
+    });
+    if (!hasSummaryField && !hasSummaryKeyword && !hasWeeklyMarker && !hasMonthlyMarker && !hasYearlyMarker) {
+      return { isSummary: false, scope: "", isBilan: false };
+    }
+    let scope = "";
+    if (hasMonthlyMarker) scope = "monthly";
+    else if (hasWeeklyMarker) scope = "weekly";
+    else if (hasYearlyMarker) scope = "yearly";
+    return {
+      isSummary: hasSummaryField || hasSummaryKeyword || Boolean(scope),
+      scope,
+      isBilan: hasBilanMarker || hasWeeklyMarker || hasMonthlyMarker || hasYearlyMarker,
+    };
+  }
+
+  const chartPoints = [];
+  const HISTORY_RANGE_PRESETS = {
+    iterations: [
+      { value: "last5", label: "5 dernières itérations" },
+      { value: "last10", label: "10 dernières itérations" },
+      { value: "last20", label: "20 dernières itérations" },
+      { value: "last50", label: "50 dernières itérations" },
+    ],
+    periods: [
+      { value: "7d", label: "Hebdomadaire" },
+      { value: "30d", label: "Mensuel" },
+      { value: "365d", label: "Annuel" },
+      { value: "bilan", label: "Bilans" },
+      { value: "all", label: "Toutes les entrées" },
+    ],
+  };
+  const FALLBACK_HISTORY_RANGE = "last20";
+
+  function buildHistoryRangePresets(source) {
+    const iterationPresets = HISTORY_RANGE_PRESETS.iterations.slice();
+    const periodPresets = HISTORY_RANGE_PRESETS.periods.slice();
+    if (source === "daily") {
+      return periodPresets;
+    }
+    if (source === "practice") {
+      return periodPresets.concat(iterationPresets);
+    }
+    return iterationPresets.concat(periodPresets);
+  }
+
+  function ensureHistoryRangeKey(rangeKey, presets) {
+    const values = new Set(presets.map((preset) => preset.value));
+    if (values.has(rangeKey)) {
+      return rangeKey;
+    }
+    return presets[0]?.value || FALLBACK_HISTORY_RANGE;
+  }
+
+  function applyHistoryRange(points, rangeKey, options = {}) {
+    const allPoints = Array.isArray(points) ? points : [];
+    const validPoints = allPoints
+      .filter((pt) => pt && pt.date instanceof Date && !Number.isNaN(pt.date.getTime()))
+      .map((pt) => ({ ...pt }));
+    const DAY_MS = 86400000;
+    const sortedAsc = validPoints.slice().sort((a, b) => a.date - b.date);
+    const normalizedOffset = Number.isFinite(options.offset) ? Math.trunc(options.offset) : 0;
+
+    const buildResult = (items, range = {}, options = {}) => {
+      const sanitized = (Array.isArray(items) ? items : []).slice().sort((a, b) => a.date - b.date);
+      const firstDate = sanitized[0]?.date ?? null;
+      const lastDate = sanitized[sanitized.length - 1]?.date ?? null;
+      let start = range.start instanceof Date && !Number.isNaN(range.start.getTime()) ? range.start : firstDate;
+      let end = range.end instanceof Date && !Number.isNaN(range.end.getTime()) ? range.end : lastDate;
+      if (start && end && end <= start) {
+        end = new Date(start.getTime() + DAY_MS);
+      }
+      return {
+        points: sanitized,
+        range: {
+          start: start || null,
+          end: end || null,
+        },
+        axis: typeof options.axis === "string" ? options.axis : "",
+      };
+    };
+
+    const mostRecentPoint = sortedAsc[sortedAsc.length - 1]?.date instanceof Date
+      ? new Date(sortedAsc[sortedAsc.length - 1].date)
+      : new Date();
+
+    switch (rangeKey) {
+      case "last5":
+      case "last10":
+      case "last20":
+      case "last50": {
+        const count = Number(rangeKey.replace("last", ""));
+        const subset = sortedAsc.slice(-count);
+        return buildResult(subset, {}, { axis: "iteration" });
+      }
+      case "7d": {
+        const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
+        anchor.setHours(0, 0, 0, 0);
+        const startOfWindow = new Date(anchor);
+        startOfWindow.setDate(startOfWindow.getDate() - 6 + normalizedOffset * 7);
+        const endOfWindow = new Date(startOfWindow.getTime() + 7 * DAY_MS);
+        const filtered = sortedAsc.filter((pt) => pt.date >= startOfWindow && pt.date < endOfWindow);
+        return buildResult(filtered, { start: startOfWindow, end: endOfWindow }, { axis: "rolling7d" });
+      }
+      case "30d": {
+        const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
+        const startOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+        startOfMonth.setMonth(startOfMonth.getMonth() + normalizedOffset);
+        const endOfMonth = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth() + 1, 1);
+        const filtered = sortedAsc.filter((pt) => pt.date >= startOfMonth && pt.date < endOfMonth);
+        return buildResult(filtered, { start: startOfMonth, end: endOfMonth }, { axis: "month" });
+      }
+      case "365d": {
+        const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
+        const startOfYear = new Date(anchor.getFullYear(), 0, 1);
+        startOfYear.setFullYear(startOfYear.getFullYear() + normalizedOffset);
+        const endOfYear = new Date(startOfYear.getFullYear() + 1, 0, 1);
+        const filtered = sortedAsc.filter((pt) => pt.date >= startOfYear && pt.date < endOfYear);
+        return buildResult(filtered, { start: startOfYear, end: endOfYear }, { axis: "year" });
+      }
+      case "bilan": {
+        const filtered = sortedAsc.filter((pt) => pt.isBilan);
+        return buildResult(filtered, {}, { axis: "bilan" });
+      }
+      case "all":
+      default:
+        return buildResult(sortedAsc);
+    }
+  }
+
+  const HISTORY_NAVIGATION_FALLBACK_LIMITS = {
+    "7d": 52,
+    "30d": 24,
+    "365d": 5,
+  };
+
+  function computeHistoryNavigationBounds(points) {
+    const fallbackBounds = Object.entries(HISTORY_NAVIGATION_FALLBACK_LIMITS).reduce((acc, [key, limit]) => {
+      acc[key] = { min: Number.isFinite(limit) ? -Math.abs(limit) : 0, max: 0 };
+      return acc;
+    }, {});
+    const bounds = { ...fallbackBounds };
+    if (!Array.isArray(points) || !points.length) {
+      return bounds;
+    }
+    const sortedAsc = points
+      .filter((pt) => pt && pt.date instanceof Date && !Number.isNaN(pt.date.getTime()))
+      .slice()
+      .sort((a, b) => a.date - b.date);
+    if (!sortedAsc.length) {
+      return bounds;
+    }
+    const first = sortedAsc[0].date;
+    const last = sortedAsc[sortedAsc.length - 1].date;
+    if (!(first instanceof Date) || !(last instanceof Date)) {
+      return bounds;
+    }
+
+    const DAY_MS = 86400000;
+    const startOfWeek = (date) => {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      const day = d.getDay();
+      const diffToMonday = (day + 6) % 7;
+      d.setDate(d.getDate() - diffToMonday);
+      return d;
+    };
+    const latestWeekStart = startOfWeek(last);
+    const earliestWeekStart = startOfWeek(first);
+    const diffWeeks = Math.max(0, Math.floor((latestWeekStart - earliestWeekStart) / (7 * DAY_MS)));
+    const fallbackWeek = fallbackBounds["7d"]?.min ?? 0;
+    bounds["7d"] = { min: Math.min(-diffWeeks, fallbackWeek), max: 0 };
+
+    const monthIndex = (date) => date.getFullYear() * 12 + date.getMonth();
+    const latestMonthIndex = monthIndex(last);
+    const earliestMonthIndex = monthIndex(first);
+    const diffMonths = Math.max(0, latestMonthIndex - earliestMonthIndex);
+    const fallbackMonth = fallbackBounds["30d"]?.min ?? 0;
+    bounds["30d"] = { min: Math.min(-diffMonths, fallbackMonth), max: 0 };
+
+    const diffYears = Math.max(0, last.getFullYear() - first.getFullYear());
+    const fallbackYear = fallbackBounds["365d"]?.min ?? 0;
+    bounds["365d"] = { min: Math.min(-diffYears, fallbackYear), max: 0 };
+
+    return bounds;
+  }
+
+  const historySource = typeof options.source === "string" ? options.source.toLowerCase() : "";
+  const historyRangePresets = buildHistoryRangePresets(historySource);
+  const defaultHistoryRange = ensureHistoryRangeKey(FALLBACK_HISTORY_RANGE, historyRangePresets);
+  const historyRangeOptions = historyRangePresets
+    .map((option) => {
+      const selectedAttr = option.value === defaultHistoryRange ? " selected" : "";
+      return `<option value="${escapeHtml(option.value)}"${selectedAttr}>${escapeHtml(option.label)}</option>`;
+    })
+    .join("");
+
+  const EDITABLE_HISTORY_TYPES = new Set(["short", "long", "num", "likert5", "likert6", "yesno"]);
+
   const list = rows
-    .map((r) => {
-      const createdAtRaw = r.createdAt?.toDate?.() ?? r.createdAt;
-      const createdAt = createdAtRaw ? new Date(createdAtRaw) : null;
-      const iso = createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "";
-      const dateText = createdAt && !Number.isNaN(createdAt.getTime()) ? dateFormatter.format(createdAt) : "Date inconnue";
-      const relative = createdAt ? relativeLabel(createdAt) : "";
-      const formattedText = formatConsigneValue(consigne.type, r.value, { consigne });
-      const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html", consigne });
-      const status = dotColor(consigne.type, r.value);
+    .map((r, index) => {
+      const createdAtSource = r.createdAt?.toDate?.() ?? r.createdAt ?? r.updatedAt ?? null;
+      let createdAt = createdAtSource ? new Date(createdAtSource) : null;
+      if (createdAt && Number.isNaN(createdAt.getTime())) {
+        createdAt = null;
+      }
+      const dayKey = resolveDayKey(r, createdAt);
+      const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
+      const displayDate = dayDate || createdAt;
+      const iso = displayDate && !Number.isNaN(displayDate.getTime()) ? displayDate.toISOString() : "";
+      const dateText = displayDate && !Number.isNaN(displayDate.getTime())
+        ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
+        : "Date inconnue";
+      const relative = displayDate ? relativeLabel(displayDate) : "";
+      const formattedText = formatConsigneValue(consigne.type, r.value);
+      const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html" });
+      const status = dotColor(consigne.type, r.value) || "na";
+      const numericValue = numericPoint(consigne.type, r.value);
       const note = r.note && String(r.note).trim();
-      const noteMarkup = note ? `<p class="history-panel__note">${escapeHtml(note)}</p>` : "";
-      const relativeMarkup = relative ? `<span class="history-panel__meta">${escapeHtml(relative)}</span>` : "";
-      const statusLabel = statusLabels[status] || "Valeur";
+      const summaryInfo = detectSummaryNote(r);
+      const summaryLabel = summaryInfo.isSummary
+        ? summaryInfo.scope === "monthly"
+          ? "Bilan mensuel"
+          : summaryInfo.scope === "weekly"
+          ? "Bilan hebdomadaire"
+          : summaryInfo.scope === "yearly"
+          ? "Bilan annuel"
+          : "Bilan"
+        : "";
+      const summaryNoteLabel = summaryInfo.isSummary
+        ? summaryInfo.scope === "monthly"
+          ? "Note de bilan mensuel"
+          : summaryInfo.scope === "weekly"
+          ? "Note de bilan hebdomadaire"
+          : summaryInfo.scope === "yearly"
+          ? "Note de bilan annuel"
+          : "Note de bilan"
+        : "";
+      const noteClasses = ["history-panel__note"];
+      let noteDataAttrs = "";
+      let noteBadgeMarkup = "";
+      if (note && summaryInfo.isSummary) {
+        noteClasses.push("history-panel__note--bilan");
+        const scopeLabel = summaryNoteLabel || "Note de bilan";
+        noteBadgeMarkup = `<span class="history-panel__note-badge">${escapeHtml(scopeLabel)}</span>`;
+        const scopeAttr = summaryInfo.scope
+          ? ` data-note-scope="${escapeHtml(summaryInfo.scope)}"`
+          : "";
+        noteDataAttrs = ` data-note-source="bilan"${scopeAttr}`;
+      }
+      const noteMarkup = note
+        ? `<p class="${noteClasses.join(" ")}"${noteDataAttrs}>${noteBadgeMarkup}${noteBadgeMarkup ? " " : ""}<span class="history-panel__note-text">${escapeHtml(note)}</span></p>`
+        : "";
+      const statusLabel = STATUS_LABELS[status] || "Valeur";
       const hasFormatted = formattedText && formattedText.trim() && formattedText !== "—";
       const formattedMarkup = hasFormatted ? formattedHtml : escapeHtml(consigne.type === "info" ? "" : "—");
+      let checklistBadgeMarkup = "";
+      if (consigne.type === "checklist") {
+        const stats = resolveChecklistStatsFromResponse(r) || deriveChecklistStats(r.value);
+        if (stats) {
+          const pct = Number.isFinite(stats.percentage) ? stats.percentage : 0;
+          const colorFn = window.ColorUtils?.checklistColor;
+          let colorKey = null;
+          if (typeof colorFn === "function") {
+            colorKey = colorFn(pct);
+          } else if (pct >= 80) {
+            colorKey = "green";
+          } else if (pct >= 60) {
+            colorKey = "green-light";
+          } else if (pct >= 40) {
+            colorKey = "yellow";
+          } else if (pct >= 20) {
+            colorKey = "red-light";
+          } else {
+            colorKey = "red";
+          }
+          const badgeClasses = ["badge", "badge--checklist"];
+          if (colorKey) {
+            badgeClasses.push(colorKey);
+          }
+          checklistBadgeMarkup = `<span class="${badgeClasses.join(" ")}">${escapeHtml(`${pct}%`)}</span>`;
+        }
+      }
+      if (displayDate && numericValue !== null && !Number.isNaN(numericValue)) {
+        chartPoints.push({
+          date: displayDate,
+          value: Number(numericValue),
+          isSummary: Boolean(summaryInfo.isSummary),
+          summaryScope: summaryInfo.scope || "",
+          isBilan: Boolean(summaryInfo.isBilan),
+          recordedAt: createdAt instanceof Date && !Number.isNaN(createdAt?.getTime?.()) ? createdAt : null,
+          dayKey: typeof dayKey === "string" ? dayKey : "",
+        });
+      }
+      const summaryAttr = summaryInfo.isSummary
+        ? ` data-summary="1"${summaryInfo.scope ? ` data-summary-scope="${escapeHtml(summaryInfo.scope)}"` : ""}`
+        : "";
+      const bilanAttr = summaryInfo.isBilan ? ' data-history-source="bilan"' : "";
+      const summaryClass = summaryInfo.isSummary ? " history-panel__item--summary" : "";
+      const bilanClass = summaryInfo.isBilan ? " history-panel__item--bilan" : "";
+      const summaryBadge = summaryLabel
+        ? `<span class="history-panel__summary-badge">${escapeHtml(summaryLabel)}</span>`
+        : "";
+      const summaryMarker = summaryLabel
+        ? `<span class="history-panel__summary-marker" title="${escapeHtml(summaryLabel)}" aria-hidden="true"></span>`
+        : "";
+      const valueClasses = ["history-panel__value"];
+      if (summaryInfo.isSummary) {
+        valueClasses.push("history-panel__value--summary");
+      }
+      let recordedMetaLabel = "";
+      if (dayDate && createdAt && !Number.isNaN(createdAt.getTime())) {
+        const sameDay =
+          createdAt.getFullYear() === dayDate.getFullYear() &&
+          createdAt.getMonth() === dayDate.getMonth() &&
+          createdAt.getDate() === dayDate.getDate();
+        if (!sameDay) {
+          recordedMetaLabel = formatDisplayDate(createdAt, { preferDayView: false });
+        }
+      }
+      const metaParts = [];
+      if (relative) {
+        metaParts.push(`<span class="history-panel__meta">${escapeHtml(relative)}</span>`);
+      }
+      if (recordedMetaLabel && recordedMetaLabel !== dateText) {
+        metaParts.push(
+          `<span class="history-panel__meta">${escapeHtml(`Enregistré le ${recordedMetaLabel}`)}</span>`
+        );
+      }
+      if (summaryBadge) {
+        metaParts.push(summaryBadge);
+      }
+      const metaRowMarkup = metaParts.length
+        ? `<div class="history-panel__meta-row">${metaParts.join(" ")}</div>`
+        : "";
+      const dayKeyAttr = dayKey ? ` data-day-key="${escapeHtml(dayKey)}"` : "";
+      const responseIdAttr = r.id ? ` data-response-id="${escapeHtml(String(r.id))}"` : "";
+      const canEditEntry = EDITABLE_HISTORY_TYPES.has(consigne.type) && !summaryInfo.isSummary && dayKey;
+      const editButtonMarkup = canEditEntry
+        ? `<button type="button" class="history-panel__item-edit" data-history-edit aria-label="Modifier la réponse">Modifier</button>`
+        : "";
       return `
-        <li class="history-panel__item" data-priority-tone="${escapeHtml(priorityToneValue)}">
+        <li class="history-panel__item${summaryClass}${bilanClass}" data-history-entry data-history-index="${index}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}${responseIdAttr}${bilanAttr}>
           <div class="history-panel__item-row">
-            <span class="history-panel__value" data-priority-tone="${escapeHtml(priorityToneValue)}">
+            <span class="${valueClasses.join(" ")}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}">
               <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
-              <span>${formattedMarkup}</span>
+              ${summaryMarker}
+              <span class="history-panel__value-text">${formattedMarkup}</span>
+              ${checklistBadgeMarkup}
               <span class="sr-only">${escapeHtml(statusLabel)}</span>
             </span>
-            <time class="history-panel__date" datetime="${escapeHtml(iso)}">${escapeHtml(dateText)}</time>
+            <div class="history-panel__item-meta-group">
+              <time class="history-panel__date" datetime="${escapeHtml(iso)}">${escapeHtml(dateText)}</time>
+              ${editButtonMarkup}
+            </div>
           </div>
-          ${relativeMarkup ? `<div class="history-panel__meta-row">${relativeMarkup}</div>` : ""}
+          ${metaRowMarkup}
           ${noteMarkup}
         </li>
       `;
@@ -5377,26 +8805,430 @@ async function openHistory(ctx, consigne) {
     .join("");
 
   const totalLabel = rows.length === 0 ? "Aucune entrée" : rows.length === 1 ? "1 entrée" : `${rows.length} entrées`;
+  const navigationBounds = computeHistoryNavigationBounds(chartPoints);
+  const initialChartPoints = applyHistoryRange(chartPoints, defaultHistoryRange);
+  const chartMarkup = renderHistoryChart(initialChartPoints, { type: consigne.type, mode: historySource });
+  const consigneOptionsMarkup = hasDropdownSelection
+    ? dropdownConsignes
+        .map((item) => {
+          const id = String(item?.id ?? "");
+          if (!id) return "";
+          const selected = id === String(consigne.id ?? "");
+          return `<option value="${escapeHtml(id)}"${selected ? " selected" : ""}>${escapeHtml(
+            safeConsigneLabel(item)
+          )}</option>`;
+        })
+        .join("")
+    : "";
+  const historyHeadingMarkup = hasDropdownSelection
+    ? `Historique — <span class="history-panel__heading-select"><span class="sr-only">Choisir une consigne</span><select data-history-consigne aria-label="Choisir une consigne">${consigneOptionsMarkup}</select></span>`
+    : `Historique — ${escapeHtml(safeConsigneLabel(consigne))}`;
+
+  const resolveNavigationBounds = (key) => {
+    const fallbackLimit = HISTORY_NAVIGATION_FALLBACK_LIMITS[key];
+    const defaultBounds = Number.isFinite(fallbackLimit)
+      ? { min: -Math.abs(fallbackLimit), max: 0 }
+      : { min: 0, max: 0 };
+    const bounds = navigationBounds[key];
+    if (bounds && typeof bounds === "object") {
+      const hasMin = Object.prototype.hasOwnProperty.call(bounds, "min");
+      const hasMax = Object.prototype.hasOwnProperty.call(bounds, "max");
+      return {
+        min: hasMin ? bounds.min : defaultBounds.min,
+        max: hasMax ? bounds.max : defaultBounds.max,
+      };
+    }
+    return defaultBounds;
+  };
 
   const html = `
     <div class="history-panel">
       <header class="history-panel__header">
         <div class="history-panel__title">
-          <h3 class="history-panel__heading">Historique — ${escapeHtml(consigne.text)}</h3>
+          <h3 class="history-panel__heading">${historyHeadingMarkup}</h3>
           <p class="history-panel__subtitle">Dernières réponses enregistrées</p>
         </div>
         <div class="history-panel__actions">
+          <label class="history-panel__range">
+            <span>Vue</span>
+            <select data-history-range>${historyRangeOptions}</select>
+          </label>
+          <div class="history-panel__nav" data-history-nav hidden>
+            <button type="button" class="history-panel__nav-btn" data-history-nav-prev aria-label="Période précédente">&larr;</button>
+            <span class="history-panel__nav-label" data-history-range-label></span>
+            <button type="button" class="history-panel__nav-btn" data-history-nav-next aria-label="Période suivante">&rarr;</button>
+          </div>
           <span class="history-panel__badge">${escapeHtml(totalLabel)}</span>
           <button class="btn btn-ghost text-sm" data-close>Fermer</button>
         </div>
       </header>
       <div class="history-panel__body">
+        <div data-history-chart>${chartMarkup}</div>
         <ul class="history-panel__list">${list || '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>'}</ul>
       </div>
     </div>
   `;
   const panel = drawer(html);
   panel.querySelector('[data-close]')?.addEventListener('click', () => panel.remove());
+
+  const chartContainer = panel.querySelector('[data-history-chart]');
+  const rangeSelector = panel.querySelector('[data-history-range]');
+  const navContainer = panel.querySelector('[data-history-nav]');
+  const navLabel = panel.querySelector('[data-history-range-label]');
+  const navPrev = panel.querySelector('[data-history-nav-prev]');
+  const navNext = panel.querySelector('[data-history-nav-next]');
+  const consigneSelector = panel.querySelector('[data-history-consigne]');
+  const listContainer = panel.querySelector('.history-panel__list');
+  if (consigneSelector) {
+    consigneSelector.addEventListener('change', (event) => {
+      const nextId = String(event.target?.value ?? '');
+      const currentId = String(consigne.id ?? '');
+      if (!nextId || nextId === currentId) {
+        return;
+      }
+      const nextConsigne = dropdownConsigneMap.get(nextId);
+      if (!nextConsigne) {
+        return;
+      }
+      panel.remove();
+      openHistory(ctx, nextConsigne, options);
+    });
+  }
+
+  const reopenHistory = () => {
+    try {
+      panel.remove();
+    } catch (error) {
+      modesLogger.warn('ui.history.panel.remove', error);
+    }
+    openHistory(ctx, consigne, options);
+  };
+
+  const openEntryEditor = (entryIndex, itemNode) => {
+    if (!EDITABLE_HISTORY_TYPES.has(consigne.type)) {
+      showToast("Modification non disponible pour ce type de consigne.");
+      return;
+    }
+    const row = rows[entryIndex];
+    if (!row) return;
+    const dayKeyAttr = itemNode?.getAttribute('data-day-key');
+    const responseIdAttr = itemNode?.getAttribute('data-response-id');
+    const dayKey = dayKeyAttr && dayKeyAttr.trim() ? dayKeyAttr.trim() : resolveDayKey(row, null);
+    if (!dayKey) {
+      showToast("Impossible d’identifier la date de cette réponse.");
+      return;
+    }
+    const createdAtSource = row.createdAt?.toDate?.() ?? row.createdAt ?? row.updatedAt ?? null;
+    let createdAt = createdAtSource ? new Date(createdAtSource) : null;
+    if (createdAt && Number.isNaN(createdAt.getTime())) {
+      createdAt = null;
+    }
+    const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
+    const displayDate = dayDate || createdAt;
+    const dateLabel = displayDate && !Number.isNaN(displayDate.getTime())
+      ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
+      : dayKey || 'Date inconnue';
+    const relative = displayDate ? relativeLabel(displayDate) : '';
+    const noteValue = row.note ? String(row.note) : '';
+    const fieldId = `history-edit-value-${consigne.id}-${entryIndex}-${Date.now()}`;
+    const valueField = renderConsigneValueField(consigne, row.value, fieldId);
+    const autosaveKey = [`history-entry`, ctx.user?.uid || 'anon', consigne.id || 'consigne', dayKey]
+      .map((part) => String(part || ''))
+      .join(':');
+    const responseSyncOptions = {
+      responseId: responseIdAttr && responseIdAttr.trim() ? responseIdAttr.trim() : row.id || '',
+      responseMode: normalizeMode(row) || row.mode || row.source || '',
+      responseType: typeof row.type === 'string' && row.type.trim() ? row.type.trim() : consigne.type,
+      responseDayKey: dayKey,
+      responseCreatedAt:
+        createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
+          ? createdAt.toISOString()
+          : typeof createdAtSource === 'string'
+          ? createdAtSource
+          : '',
+    };
+    const editorHtml = `
+      <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
+        <header class="practice-editor__header">
+          <h3 class="practice-editor__title">Modifier la réponse</h3>
+          <p class="practice-editor__subtitle">${escapeHtml(safeConsigneLabel(consigne))}</p>
+        </header>
+        <div class="practice-editor__section">
+          <label class="practice-editor__label">Date</label>
+          <p class="practice-editor__value">${escapeHtml(dateLabel)}${relative ? ` <span class="practice-editor__meta">(${escapeHtml(relative)})</span>` : ''}</p>
+        </div>
+        <div class="practice-editor__section">
+          <label class="practice-editor__label" for="${fieldId}">Valeur</label>
+          ${valueField}
+        </div>
+        <div class="practice-editor__section">
+          <label class="practice-editor__label" for="${fieldId}-note">Commentaire</label>
+          <textarea id="${fieldId}-note" name="note" class="consigne-editor__textarea" placeholder="Ajouter un commentaire">${escapeHtml(noteValue)}</textarea>
+        </div>
+        <div class="practice-editor__actions">
+          <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
+          <button type="button" class="btn btn-danger" data-clear>Effacer</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </form>
+    `;
+    const previousOverlay = panel.querySelector('.history-panel__edit-overlay');
+    if (previousOverlay) {
+      previousOverlay.dispatchEvent(new Event('history-edit-request-close'));
+    }
+    const overlay = document.createElement('div');
+    overlay.className = 'history-panel__edit-overlay';
+    overlay.innerHTML = `
+      <div class="history-panel__edit-dialog" role="dialog" aria-modal="true" tabindex="-1">
+        ${editorHtml}
+      </div>
+    `;
+    panel.appendChild(overlay);
+    const dialog = overlay.querySelector('.history-panel__edit-dialog');
+    const form = overlay.querySelector('form');
+    const cancelBtn = form?.querySelector('[data-cancel]');
+    const clearBtn = form?.querySelector('[data-clear]');
+    const submitBtn = form?.querySelector('button[type="submit"]');
+    let handleKeyDown;
+    let overlayObserver;
+    let cleanupListeners = null;
+    const closeEditor = () => {
+      if (cleanupListeners) {
+        cleanupListeners();
+      }
+      if (overlay.isConnected) {
+        overlay.remove();
+      }
+    };
+    cleanupListeners = () => {
+      if (handleKeyDown) {
+        document.removeEventListener('keydown', handleKeyDown, true);
+        handleKeyDown = null;
+      }
+      overlay.removeEventListener('history-edit-request-close', closeEditor);
+      if (overlayObserver) {
+        overlayObserver.disconnect();
+        overlayObserver = null;
+      }
+      cleanupListeners = null;
+    };
+    handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeEditor();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    overlay.addEventListener('history-edit-request-close', closeEditor);
+    overlayObserver = new MutationObserver(() => {
+      if (!overlay.isConnected && cleanupListeners) {
+        cleanupListeners();
+      }
+    });
+    try {
+      overlayObserver.observe(panel, { childList: true });
+    } catch (error) {
+      modesLogger?.warn?.('ui.history.edit.observe', error);
+    }
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) {
+        closeEditor();
+      }
+    });
+    requestAnimationFrame(() => {
+      dialog?.focus({ preventScroll: true });
+    });
+    cancelBtn?.addEventListener('click', closeEditor);
+    if (clearBtn) {
+      const hasInitialData = (row.value !== '' && row.value != null) || (noteValue && noteValue.trim());
+      if (!hasInitialData) {
+        clearBtn.disabled = true;
+      }
+      clearBtn.addEventListener('click', async (event) => {
+        event.preventDefault();
+        if (!confirm('Effacer la note pour cette date ?')) {
+          return;
+        }
+        clearBtn.disabled = true;
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, responseSyncOptions);
+          closeEditor();
+          reopenHistory();
+        } catch (error) {
+          console.error('history-entry:clear', error);
+          clearBtn.disabled = false;
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+    form?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!submitBtn || submitBtn.disabled) return;
+      submitBtn.disabled = true;
+      if (clearBtn) clearBtn.disabled = true;
+      try {
+        const rawValue = readConsigneValueFromForm(consigne, form);
+        const note = (form.elements.note?.value || '').trim();
+        const isRawEmpty = rawValue === '' || rawValue == null;
+        if (isRawEmpty && !note) {
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, responseSyncOptions);
+        } else {
+          await Schema.saveHistoryEntry(
+            ctx.db,
+            ctx.user.uid,
+            consigne.id,
+            dayKey,
+            {
+              value: rawValue,
+              note,
+            },
+            responseSyncOptions
+          );
+        }
+        closeEditor();
+        reopenHistory();
+      } catch (error) {
+        console.error('history-entry:save', error);
+        submitBtn.disabled = false;
+        if (clearBtn) clearBtn.disabled = false;
+      }
+    });
+  };
+
+  if (listContainer) {
+    listContainer.addEventListener('click', (event) => {
+      const editTrigger = event.target.closest('[data-history-edit]');
+      if (!editTrigger) return;
+      const itemNode = editTrigger.closest('[data-history-entry]');
+      if (!itemNode) return;
+      const rawIndex = itemNode.getAttribute('data-history-index');
+      const entryIndex = Number(rawIndex);
+      if (!Number.isInteger(entryIndex) || entryIndex < 0 || entryIndex >= rows.length) {
+        return;
+      }
+      event.preventDefault();
+      openEntryEditor(entryIndex, itemNode);
+    });
+  }
+
+  const NAVIGABLE_RANGES = new Set(["7d", "30d", "365d"]);
+  const navigationState = {
+    key: defaultHistoryRange,
+    offsets: {
+      "7d": 0,
+      "30d": 0,
+      "365d": 0,
+    },
+  };
+
+  const weekRangeFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+  const monthRangeFormatter = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+  const yearRangeFormatter = new Intl.DateTimeFormat("fr-FR", { year: "numeric" });
+
+  const formatHistoryRangeLabel = (result) => {
+    if (!result || !result.range) return "";
+    const start = result.range.start instanceof Date && !Number.isNaN(result.range.start.getTime()) ? result.range.start : null;
+    const end = result.range.end instanceof Date && !Number.isNaN(result.range.end.getTime()) ? result.range.end : null;
+    if (!start || !end) return "";
+    const axis = typeof result.axis === "string" ? result.axis.toLowerCase() : "";
+    if (axis === "rolling7d") {
+      let inclusiveEnd = new Date(end.getTime() - 86400000);
+      if (inclusiveEnd < start) {
+        inclusiveEnd = new Date(start);
+      }
+      const sameYear = start.getFullYear() === inclusiveEnd.getFullYear();
+      const startLabel = `${weekRangeFormatter.format(start)}${sameYear ? "" : ` ${yearRangeFormatter.format(start)}`}`;
+      const endLabel = `${weekRangeFormatter.format(inclusiveEnd)} ${yearRangeFormatter.format(inclusiveEnd)}`;
+      return `Du ${startLabel} au ${endLabel}`;
+    }
+    if (axis === "week") {
+      let inclusiveEnd = new Date(end.getTime() - 86400000);
+      if (inclusiveEnd < start) {
+        inclusiveEnd = new Date(start);
+      }
+      const sameYear = start.getFullYear() === inclusiveEnd.getFullYear();
+      const startLabel = `${weekRangeFormatter.format(start)}${sameYear ? "" : ` ${yearRangeFormatter.format(start)}`}`;
+      const endLabel = `${weekRangeFormatter.format(inclusiveEnd)} ${yearRangeFormatter.format(inclusiveEnd)}`;
+      return `Semaine du ${startLabel} au ${endLabel}`;
+    }
+    if (axis === "month") {
+      return monthRangeFormatter.format(start);
+    }
+    if (axis === "year") {
+      return `Année ${yearRangeFormatter.format(start)}`;
+    }
+    return "";
+  };
+
+  const updateNavControls = (selected, result) => {
+    if (!navContainer || !navLabel || !navPrev || !navNext) return;
+    const isNavigable = NAVIGABLE_RANGES.has(selected);
+    navContainer.hidden = !isNavigable;
+    if (!isNavigable) {
+      navLabel.textContent = "";
+      return;
+    }
+    const bounds = resolveNavigationBounds(selected);
+    const offset = navigationState.offsets[selected] || 0;
+    navLabel.textContent = formatHistoryRangeLabel(result);
+    navPrev.disabled = offset <= (bounds.min ?? offset);
+    navNext.disabled = offset >= (bounds.max ?? 0);
+  };
+
+  if (chartContainer && rangeSelector) {
+    const updateChart = (forcedKey = null) => {
+      const selectedKey = ensureHistoryRangeKey(forcedKey || rangeSelector.value || defaultHistoryRange, historyRangePresets);
+      navigationState.key = selectedKey;
+      if (rangeSelector.value !== selectedKey) {
+        rangeSelector.value = selectedKey;
+      }
+      const offset = navigationState.offsets[selectedKey] || 0;
+      const filteredPoints = applyHistoryRange(chartPoints, selectedKey, { offset });
+      chartContainer.innerHTML = renderHistoryChart(filteredPoints, { type: consigne.type, mode: historySource });
+      enhanceHistoryChart(chartContainer);
+      updateNavControls(selectedKey, filteredPoints);
+    };
+
+    rangeSelector.addEventListener("change", () => {
+      const selectedKey = ensureHistoryRangeKey(rangeSelector.value || defaultHistoryRange, historyRangePresets);
+      if (NAVIGABLE_RANGES.has(selectedKey)) {
+        navigationState.offsets[selectedKey] = 0;
+      }
+      updateChart(selectedKey);
+    });
+
+    if (navPrev) {
+      navPrev.addEventListener("click", () => {
+        const selectedKey = navigationState.key;
+        if (!NAVIGABLE_RANGES.has(selectedKey)) return;
+        const bounds = resolveNavigationBounds(selectedKey);
+        const currentOffset = navigationState.offsets[selectedKey] || 0;
+        const nextOffset = Math.max(bounds.min ?? currentOffset, currentOffset - 1);
+        if (nextOffset === currentOffset) return;
+        navigationState.offsets[selectedKey] = nextOffset;
+        updateChart(selectedKey);
+      });
+    }
+
+    if (navNext) {
+      navNext.addEventListener("click", () => {
+        const selectedKey = navigationState.key;
+        if (!NAVIGABLE_RANGES.has(selectedKey)) return;
+        const bounds = resolveNavigationBounds(selectedKey);
+        const currentOffset = navigationState.offsets[selectedKey] || 0;
+        const nextOffset = Math.min(bounds.max ?? 0, currentOffset + 1);
+        if (nextOffset === currentOffset) return;
+        navigationState.offsets[selectedKey] = nextOffset;
+        updateChart(selectedKey);
+      });
+    }
+
+    updateChart(defaultHistoryRange);
+  }
+  if (chartContainer && !rangeSelector) {
+    enhanceHistoryChart(chartContainer);
+  }
 
   modesLogger.groupEnd();
 
@@ -5411,28 +9243,40 @@ async function renderPractice(ctx, root, _opts = {}) {
   root.appendChild(container);
 
   const currentHash = ctx.route || window.location.hash || "#/practice";
-  const cats = (await Schema.fetchCategories(ctx.db, ctx.user.uid)).filter((c) => c.mode === "practice");
-  const qp  = new URLSearchParams(currentHash.split("?")[1] || "");
-  let currentCat = qp.get("cat") || (cats[0]?.name || "");
+  const fetchedCategories = await Schema.fetchCategories(ctx.db, ctx.user.uid);
+  const categories = sortCategoriesForDisplay(
+    fetchedCategories.filter((cat) => cat.mode === "practice")
+  );
+  const qp = new URLSearchParams(currentHash.split("?")[1] || "");
+  const requestedCat = qp.get("cat") || "";
+  const storedCat = readStoredConsigneCategory(ctx?.user?.uid || null, "practice") || "";
+  const categoryNames = categories.map((cat) => cat.name).filter(Boolean);
 
-  if (!currentCat && cats.length) {
-    const base = (ctx.route || "#/practice").split("?")[0];
-    navigate(`${toAppPath(base)}?cat=${encodeURIComponent(cats[0].name)}`);
+  let currentCat = requestedCat && categoryNames.includes(requestedCat) ? requestedCat : "";
+  if (!currentCat) {
+    if (storedCat && categoryNames.includes(storedCat)) {
+      currentCat = storedCat;
+    } else if (categoryNames.length) {
+      currentCat = categoryNames[0];
+    }
+  }
+
+  const basePath = (ctx.route || "#/practice").split("?")[0];
+  if (currentCat && currentCat !== requestedCat) {
+    storeConsigneCategory(ctx?.user?.uid || null, "practice", currentCat);
+    navigate(`${toAppPath(basePath)}?cat=${encodeURIComponent(currentCat)}`);
     return;
   }
 
-  if (currentCat && cats.length && !cats.some((c) => c.name === currentCat)) {
-    const base = (ctx.route || "#/practice").split("?")[0];
-    navigate(`${toAppPath(base)}?cat=${encodeURIComponent(cats[0].name)}`);
-    return;
+  if (!currentCat && categoryNames.length) {
+    currentCat = categoryNames[0];
   }
 
-  const catOptions = cats
-    .map(
-      (c) =>
-        `<option value="${escapeHtml(c.name)}" ${c.name === currentCat ? "selected" : ""}>${escapeHtml(c.name)}</option>`
-    )
-    .join("");
+  if (currentCat) {
+    storeConsigneCategory(ctx?.user?.uid || null, "practice", currentCat);
+  } else {
+    storeConsigneCategory(ctx?.user?.uid || null, "practice", null);
+  }
 
   const autosaveDayKey = typeof Schema.todayKey === "function"
     ? Schema.todayKey()
@@ -5449,11 +9293,11 @@ async function renderPractice(ctx, root, _opts = {}) {
   card.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-2">
-        <label class="text-sm text-[var(--muted)]" for="practice-cat">Catégorie</label>
-        <select id="practice-cat" class="min-w-[160px]">${catOptions}</select>
+        <span class="text-sm text-[var(--muted)]">Catégorie</span>
+        <div data-practice-category-holder class="relative"></div>
       </div>
       <div class="flex items-center gap-2">
-        ${smallBtn("📊 Tableau de bord", "js-dashboard")}
+        ${smallBtn("📝 Faire un bilan", "js-bilan")}
         ${smallBtn("+ Nouvelle consigne", "js-new")}
       </div>
     </div>
@@ -5464,24 +9308,67 @@ async function renderPractice(ctx, root, _opts = {}) {
   `;
   container.appendChild(card);
 
-  const selector = card.querySelector("#practice-cat");
-  if (selector) {
-    selector.disabled = !cats.length;
-    selector.onchange = (e) => {
-      const value = e.target.value;
-      const base = currentHash.split("?")[0];
-      navigate(`${toAppPath(base)}?cat=${encodeURIComponent(value)}`);
-    };
+  const categoryHolder = card.querySelector("[data-practice-category-holder]");
+  if (categoryHolder) {
+    if (categories.length) {
+      const picker = createCategoryMenu({
+        categories,
+        currentName: currentCat,
+        disabled: !categories.length,
+        onSelect: (name) => {
+          if (!name || name === currentCat) {
+            storeConsigneCategory(ctx?.user?.uid || null, "practice", name || null);
+            return;
+          }
+          storeConsigneCategory(ctx?.user?.uid || null, "practice", name);
+          navigate(`${toAppPath(basePath)}?cat=${encodeURIComponent(name)}`);
+        },
+        onReorder: async (orderedIds) => {
+          if (!ctx?.db || !ctx?.user?.uid) return;
+          try {
+            await Schema.reorderCategories(ctx.db, ctx.user.uid, orderedIds);
+          } catch (error) {
+            console.warn("practice.categories.reorder", error);
+          }
+        },
+      });
+      if (picker?.element) {
+        categoryHolder.appendChild(picker.element);
+      }
+    } else {
+      const empty = document.createElement("span");
+      empty.className = "text-sm text-[var(--muted)]";
+      empty.textContent = "Aucune catégorie";
+      categoryHolder.appendChild(empty);
+    }
   }
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null, { defaultCategory: currentCat });
-  const dashBtn = card.querySelector(".js-dashboard");
-  if (dashBtn) {
+  const bilanBtn = card.querySelector(".js-bilan");
+  if (bilanBtn) {
     const hasCategory = Boolean(currentCat);
-    dashBtn.disabled = !hasCategory;
-    dashBtn.classList.toggle("opacity-50", !hasCategory);
-    dashBtn.onclick = () => {
+    bilanBtn.disabled = !hasCategory;
+    bilanBtn.classList.toggle("opacity-50", !hasCategory);
+    bilanBtn.onclick = async () => {
       if (!currentCat) return;
-      window.openCategoryDashboard(ctx, currentCat);
+      await loadBilanSettings(ctx);
+      const scopeChoice = await chooseBilanScope({
+        allowMonthly: DAILY_MONTHLY_ENABLED,
+      });
+      if (!scopeChoice) {
+        return;
+      }
+      const { scope } = scopeChoice;
+      const practiceConsignes = orderSorted.slice();
+      openBilanModal(ctx, {
+        scope,
+        title: `${scopeChoice.label} — ${currentCat}`,
+        subtitle: `Catégorie : ${currentCat}`,
+        sections: {
+          practice: practiceConsignes,
+          daily: [],
+          objective: [],
+        },
+      });
     };
   }
 
@@ -5516,32 +9403,43 @@ async function renderPractice(ctx, root, _opts = {}) {
     }
   }
 
+  const hiddenParentIds = new Set(hidden.map((entry) => entry?.c?.id).filter(Boolean));
+  const visibleConsignes = filterConsignesByParentVisibility(visible, hiddenParentIds);
+
   const form = card.querySelector("#practice-form");
-  if (!visible.length) {
+  if (!visibleConsignes.length) {
     form.innerHTML = `<div class="rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]">Aucune consigne visible pour cette itération.</div>`;
   } else {
     form.innerHTML = "";
 
-    const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
-      const tone = priorityTone(c.priority);
-      const row = document.createElement("div");
-      row.className = `consigne-row priority-surface priority-surface-${tone}`;
-      row.dataset.id = c.id;
-      row.dataset.priorityTone = tone;
-      if (isChild) {
-        row.classList.add("consigne-row--child");
-        if (c.parentId) {
-          row.dataset.parentId = c.parentId;
-        } else {
-          delete row.dataset.parentId;
-        }
-        row.draggable = false;
+  const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
+    const tone = priorityTone(c.priority);
+    const row = document.createElement("div");
+    row.className = `consigne-row priority-surface priority-surface-${tone}`;
+    row.dataset.id = c.id;
+    if (c?.id != null) {
+      const stringId = String(c.id);
+      row.dataset.consigneId = stringId;
+      row.setAttribute("data-consigne-id", stringId);
+    } else {
+      delete row.dataset.consigneId;
+      row.removeAttribute("data-consigne-id");
+    }
+    row.dataset.priorityTone = tone;
+    if (isChild) {
+      row.classList.add("consigne-row--child");
+      if (c.parentId) {
+        row.dataset.parentId = c.parentId;
       } else {
-        row.classList.add("consigne-row--parent");
         delete row.dataset.parentId;
-        row.draggable = true;
       }
-      row.innerHTML = `
+      row.draggable = false;
+    } else {
+      row.classList.add("consigne-row--parent");
+      delete row.dataset.parentId;
+      row.draggable = true;
+    }
+    row.innerHTML = `
         <div class="consigne-row__header">
           <div class="consigne-row__main">
             <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
@@ -5572,11 +9470,12 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (holder) {
         holder.innerHTML = inputForType(c);
         enhanceRangeMeters(holder);
+        initializeChecklistScope(holder, { consigneId: c?.id ?? null });
       }
       const bH = row.querySelector(".js-histo");
       const bE = row.querySelector(".js-edit");
       const bD = row.querySelector(".js-del");
-      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c); };
+      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c, { source: "practice" }); };
       bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
       bD.onclick = async (e) => {
         e.preventDefault(); e.stopPropagation();
@@ -5670,7 +9569,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       return row;
     };
 
-    const grouped = groupConsignes(visible);
+    const grouped = groupConsignes(visibleConsignes);
     const renderGroup = (group, target) => {
       const wrapper = document.createElement("div");
       wrapper.className = "consigne-group";
@@ -5689,7 +9588,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           srEnabled,
           onHistory: () => {
             Schema.D.info("ui.history.click", child.id);
-            openHistory(ctx, child);
+            openHistory(ctx, child, { source: "practice" });
           },
           onEdit: ({ close } = {}) => {
             Schema.D.info("ui.editConsigne.click", child.id);
@@ -5776,7 +9675,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (!id) return;
       if (e.target.classList.contains("js-histo-hidden")) {
         const c = hidden.find((x) => x.c.id === id)?.c;
-        if (c) openHistory(ctx, c);
+        if (c) openHistory(ctx, c, { source: "practice" });
       } else if (e.target.classList.contains("js-reset-sr")) {
         await Schema.resetSRForConsigne(ctx.db, ctx.user.uid, id);
         renderPractice(ctx, root);
@@ -5787,7 +9686,7 @@ async function renderPractice(ctx, root, _opts = {}) {
   const saveBtn = card.querySelector("#save");
   saveBtn.onclick = async (e) => {
     e.preventDefault();
-    const answers = collectAnswers(form, visible);
+    const answers = collectAnswers(form, visibleConsignes);
     const sessionNumber = sessionIndex + 1;
     const sessionId = `session-${String(sessionNumber).padStart(4, "0")}`;
     answers.forEach((ans) => {
@@ -5856,14 +9755,350 @@ async function renderPractice(ctx, root, _opts = {}) {
 }
 
 const DOW = ["DIM","LUN","MAR","MER","JEU","VEN","SAM"];
+const DAILY_ENTRY_TYPES = {
+  DAY: "day",
+  WEEKLY: "week",
+  MONTHLY: "month",
+};
 const DAILY_WEEKDAY_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
 const DAILY_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
+const DAILY_SHORT_RANGE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+const DAILY_LONG_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "2-digit", month: "long" });
+const DAILY_MONTH_LABEL_FORMATTER = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+const BILAN_MODULE_ID = "bilan";
+const BILAN_DEFAULT_SETTINGS = {
+  weekEndsOn: 0,
+  monthlyEnabled: true,
+  weeklyReminderEnabled: false,
+  monthlyReminderEnabled: false,
+};
+
+let DAILY_WEEK_ENDS_ON = BILAN_DEFAULT_SETTINGS.weekEndsOn;
+let DAILY_MONTHLY_ENABLED = BILAN_DEFAULT_SETTINGS.monthlyEnabled;
+
+let bilanSettingsCache = null;
+let bilanSettingsUid = null;
+let bilanSettingsPromise = null;
+
+function normalizeWeekdayIndex(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  const rounded = Math.round(num);
+  return ((rounded % 7) + 7) % 7;
+}
+
+function normalizeBilanReminder(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  if (value && typeof value === "object") {
+    if (typeof value.enabled === "boolean") {
+      return value.enabled;
+    }
+  }
+  return false;
+}
+
+function normalizeBilanSettings(raw) {
+  const data = raw && typeof raw === "object" ? raw : {};
+  const weekEndsOn = normalizeWeekdayIndex(data.weekEndsOn ?? data.weekEnd ?? BILAN_DEFAULT_SETTINGS.weekEndsOn);
+  const monthlyEnabled = data.monthlyEnabled !== false;
+  const weeklyReminderEnabled = normalizeBilanReminder(data.weeklyReminder ?? data.weeklyReminderEnabled);
+  const monthlyReminderEnabled = normalizeBilanReminder(data.monthlyReminder ?? data.monthlyReminderEnabled);
+  return {
+    weekEndsOn,
+    monthlyEnabled,
+    weeklyReminderEnabled,
+    monthlyReminderEnabled,
+  };
+}
+
+function setBilanRuntimeSettings(settings) {
+  const normalized = normalizeBilanSettings(settings);
+  DAILY_WEEK_ENDS_ON = normalized.weekEndsOn;
+  DAILY_MONTHLY_ENABLED = normalized.monthlyEnabled;
+  bilanSettingsCache = normalized;
+  return normalized;
+}
+
+async function loadBilanSettings(ctx) {
+  const uid = ctx?.user?.uid;
+  if (!uid || !ctx?.db || typeof Schema?.loadModuleSettings !== "function") {
+    return setBilanRuntimeSettings(BILAN_DEFAULT_SETTINGS);
+  }
+  if (bilanSettingsCache && bilanSettingsUid === uid) {
+    return bilanSettingsCache;
+  }
+  if (bilanSettingsPromise && bilanSettingsUid === uid) {
+    return bilanSettingsPromise;
+  }
+  bilanSettingsUid = uid;
+  bilanSettingsPromise = (async () => {
+    try {
+      const raw = await Schema.loadModuleSettings(ctx.db, uid, BILAN_MODULE_ID);
+      return setBilanRuntimeSettings(raw);
+    } catch (error) {
+      console.warn("bilan.settings.load", error);
+      return setBilanRuntimeSettings(BILAN_DEFAULT_SETTINGS);
+    } finally {
+      bilanSettingsPromise = null;
+    }
+  })();
+  return bilanSettingsPromise;
+}
+
+function modesParseDayKeyToDate(key) {
+  if (typeof key !== "string") {
+    return null;
+  }
+  const trimmed = key.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (typeof parseDayKeyToDate === "function") {
+    try {
+      const parsedViaGlobal = parseDayKeyToDate(trimmed);
+      if (parsedViaGlobal instanceof Date && !Number.isNaN(parsedViaGlobal.getTime())) {
+        return parsedViaGlobal;
+      }
+    } catch (error) {
+      modesLogger?.debug?.("ui.daily.parseDayKey", error);
+    }
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const [yearStr, monthStr, dayStr] = trimmed.split("-");
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    const day = Number(dayStr);
+    if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+      const candidate = new Date(year, (month || 1) - 1, day || 1);
+      if (!Number.isNaN(candidate.getTime())) {
+        candidate.setHours(0, 0, 0, 0);
+        return candidate;
+      }
+    }
+  }
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    parsed.setHours(0, 0, 0, 0);
+    return parsed;
+  }
+  return null;
+}
+
+function modesToFirestoreTimestamp(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const tsSource =
+    modesFirestore?.Timestamp ||
+    Schema.firestore?.Timestamp ||
+    (typeof window !== "undefined" && window.firebase?.firestore?.Timestamp) ||
+    (typeof window !== "undefined" && window.firebase?.Timestamp) ||
+    null;
+  if (tsSource && typeof tsSource.fromDate === "function") {
+    try {
+      return tsSource.fromDate(date);
+    } catch (error) {
+      modesLogger?.debug?.("ui.daily.timestamp", error);
+    }
+  }
+  return null;
+}
+
+function modesMondayStartOf(date) {
+  const base = toStartOfDay(date);
+  if (!base) return null;
+  const diff = (base.getDay() + 6) % 7;
+  const monday = new Date(base.getTime());
+  monday.setDate(monday.getDate() - diff);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+function computeDailyPageContext({ date, dayKey } = {}) {
+  const fromDate = date instanceof Date ? toStartOfDay(date) : null;
+  const fromKey = !fromDate && dayKey ? modesParseDayKeyToDate(dayKey) : null;
+  const baseDate = fromDate || fromKey || toStartOfDay(new Date());
+  if (!baseDate) {
+    return null;
+  }
+  const pageDateIso = typeof Schema?.dayKeyFromDate === "function"
+    ? Schema.dayKeyFromDate(baseDate)
+    : baseDate.toISOString().slice(0, 10);
+  const weekStartDate = modesMondayStartOf(baseDate);
+  const weekStart = weekStartDate && typeof Schema?.dayKeyFromDate === "function"
+    ? Schema.dayKeyFromDate(weekStartDate)
+    : weekStartDate
+    ? weekStartDate.toISOString().slice(0, 10)
+    : "";
+  const pageDayIndex = ((baseDate.getDay() + 6) % 7 + 7) % 7;
+  const pageDate = modesToFirestoreTimestamp(baseDate);
+  return {
+    pageDate,
+    pageDateIso,
+    weekStart,
+    pageDayIndex,
+  };
+}
+
+function toStartOfDay(dateInput) {
+  const date = dateInput instanceof Date ? new Date(dateInput.getTime()) : new Date(dateInput);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
 function formatDailyNavLabel(date) {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
   const weekday = DAILY_WEEKDAY_FORMATTER.format(date) || "";
   const digits = DAILY_DATE_FORMATTER.format(date) || "";
   const capitalized = weekday ? `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}` : "";
   return [capitalized, digits].filter(Boolean).join(" ");
+}
+function formatWeekRangeLabel(start, end) {
+  if (!(start instanceof Date) || !(end instanceof Date)) return "";
+  const startLabel = DAILY_SHORT_RANGE_FORMATTER.format(start);
+  const endLabel = DAILY_SHORT_RANGE_FORMATTER.format(end);
+  return `${startLabel} → ${endLabel}`;
+}
+function formatMonthLabel(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const raw = DAILY_MONTH_LABEL_FORMATTER.format(date);
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "";
+}
+function weekAnchorForDate(dateInput) {
+  const base = toStartOfDay(dateInput);
+  if (!base) return null;
+  const offset = (DAILY_WEEK_ENDS_ON - base.getDay() + 7) % 7;
+  const anchor = new Date(base.getTime());
+  anchor.setDate(anchor.getDate() + offset);
+  return anchor;
+}
+function weekWindowForAnchor(anchor) {
+  const end = toStartOfDay(anchor);
+  if (!end) return null;
+  const start = new Date(end.getTime());
+  start.setDate(start.getDate() - 6);
+  return { start, end };
+}
+function monthlySummaryInfoForAnchor(anchor) {
+  if (!DAILY_MONTHLY_ENABLED) return null;
+  const range = weekWindowForAnchor(anchor);
+  if (!range) return null;
+  let monthEnd = null;
+  for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
+    const cursor = new Date(range.start.getTime());
+    cursor.setDate(range.start.getDate() + dayOffset);
+    const lastDay = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+    if (cursor.getDate() === lastDay) {
+      monthEnd = cursor;
+      break;
+    }
+  }
+  if (!monthEnd) return null;
+  const monthKey = typeof Schema?.monthKeyFromDate === "function"
+    ? Schema.monthKeyFromDate(monthEnd)
+    : `${monthEnd.getFullYear()}-${String(monthEnd.getMonth() + 1).padStart(2, "0")}`;
+  const monthLabel = formatMonthLabel(monthEnd);
+  return { monthEnd, monthKey, monthLabel };
+}
+function createDayEntry(date) {
+  const normalized = toStartOfDay(date);
+  if (!normalized) return null;
+  const dayCode = DOW[normalized.getDay()];
+  const navLabel = formatDailyNavLabel(normalized);
+  const todayKey = typeof Schema?.todayKey === "function" ? Schema.todayKey() : null;
+  const dayKey = typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(normalized) : null;
+  const isTodaySelected = todayKey && dayKey ? todayKey === dayKey : false;
+  return {
+    type: DAILY_ENTRY_TYPES.DAY,
+    date: normalized,
+    dayCode,
+    navLabel,
+    navSubtitle: isTodaySelected ? "Aujourd’hui" : "",
+    isToday: isTodaySelected,
+  };
+}
+function createWeeklySummaryEntry(anchorDate) {
+  const anchor = weekAnchorForDate(anchorDate);
+  if (!anchor) return null;
+  const range = weekWindowForAnchor(anchor);
+  if (!range) return null;
+  const weekKey = typeof Schema?.weekKeyFromDate === "function"
+    ? Schema.weekKeyFromDate(anchor, DAILY_WEEK_ENDS_ON)
+    : null;
+  return {
+    type: DAILY_ENTRY_TYPES.WEEKLY,
+    sunday: anchor,
+    weekStart: range.start,
+    weekEnd: range.end,
+    weekEndsOn: DAILY_WEEK_ENDS_ON,
+    weekKey,
+    navLabel: "Bilan de la semaine",
+    navSubtitle: formatWeekRangeLabel(range.start, range.end),
+  };
+}
+function createMonthlySummaryEntry(anchorDate) {
+  const weekly = createWeeklySummaryEntry(anchorDate);
+  if (!weekly) return null;
+  const monthInfo = monthlySummaryInfoForAnchor(weekly.sunday);
+  if (!monthInfo) return null;
+  return {
+    ...weekly,
+    type: DAILY_ENTRY_TYPES.MONTHLY,
+    monthEnd: monthInfo.monthEnd,
+    monthKey: monthInfo.monthKey,
+    monthLabel: monthInfo.monthLabel,
+    navLabel: "Bilan du mois",
+    navSubtitle: monthInfo.monthLabel || weekly.navSubtitle,
+  };
+}
+function entryToDayKey(entry) {
+  if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
+    return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.date) : null;
+  }
+  if ((entry?.type === DAILY_ENTRY_TYPES.WEEKLY || entry?.type === DAILY_ENTRY_TYPES.MONTHLY) && entry.sunday) {
+    return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.sunday) : null;
+  }
+  return null;
+}
+function computeNextEntry(entry) {
+  if (!entry) return null;
+  if (entry.type === DAILY_ENTRY_TYPES.DAY) {
+    const nextDate = new Date(entry.date.getTime());
+    nextDate.setDate(nextDate.getDate() + 1);
+    return createDayEntry(nextDate);
+  }
+  return null;
+}
+function computePrevEntry(entry) {
+  if (!entry) return null;
+  if (entry.type === DAILY_ENTRY_TYPES.DAY) {
+    const prevDate = new Date(entry.date.getTime());
+    prevDate.setDate(prevDate.getDate() - 1);
+    return createDayEntry(prevDate);
+  }
+  return null;
+}
+function entryToQuery(entry, basePath, qp) {
+  const params = new URLSearchParams(qp);
+  params.delete("day");
+  if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
+    params.delete("view");
+    const key = entryToDayKey(entry);
+    if (key) {
+      params.set("d", key);
+    } else {
+      params.delete("d");
+    }
+  } else if (entry?.type === DAILY_ENTRY_TYPES.WEEKLY || entry?.type === DAILY_ENTRY_TYPES.MONTHLY) {
+    params.set("view", entry.type === DAILY_ENTRY_TYPES.WEEKLY ? "week" : "month");
+    const key = entryToDayKey(entry);
+    if (key) {
+      params.set("d", key);
+    }
+  }
+  const search = params.toString();
+  return `${basePath}${search ? `?${search}` : ""}`;
 }
 function dateForDayFromToday(label){
   const target = DOW.indexOf(label);
@@ -5889,45 +10124,67 @@ async function renderDaily(ctx, root, opts = {}) {
 
   const currentHash = ctx.route || window.location.hash || "#/daily";
   const qp = new URLSearchParams(currentHash.split("?")[1] || "");
-  const jours = ["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"];
-  const todayIdx = (new Date().getDay() + 6) % 7;
+  await loadBilanSettings(ctx);
   const dateIso = opts.dateIso || qp.get("d");
-  let explicitDate = null;
-  if (dateIso) {
-    const parsed = new Date(dateIso);
-    if (!Number.isNaN(parsed.getTime())) {
-      parsed.setHours(0, 0, 0, 0);
-      explicitDate = parsed;
-    }
-  }
-  const isoDay = explicitDate ? DOW[explicitDate.getDay()] : null;
-  const requested = normalizeDay(opts.day) || normalizeDay(qp.get("day")) || isoDay;
-  const currentDay = requested || jours[todayIdx];
-  modesLogger.group("screen.daily.render", { hash: ctx.route, day: currentDay, date: explicitDate?.toISOString?.() });
+  const explicitDate = dateIso ? toStartOfDay(dateIso) : null;
+  const requestedDay = normalizeDay(opts.day) || normalizeDay(qp.get("day"));
 
-  const selectedDate = explicitDate ? new Date(explicitDate) : dateForDayFromToday(currentDay);
-  selectedDate.setHours(0, 0, 0, 0);
-  const selectedKey = Schema.dayKeyFromDate(selectedDate);
-  const navLabel = formatDailyNavLabel(selectedDate) || selectedKey;
-  const isTodaySelected = Schema.todayKey() === selectedKey;
+  let entry = null;
+  let selectedDate = null;
+  let currentDay = null;
+
+  if (explicitDate) {
+    selectedDate = new Date(explicitDate.getTime());
+    entry = createDayEntry(selectedDate);
+    currentDay = entry?.dayCode || null;
+  } else if (requestedDay) {
+    selectedDate = dateForDayFromToday(requestedDay);
+    selectedDate.setHours(0, 0, 0, 0);
+    entry = createDayEntry(selectedDate);
+    currentDay = requestedDay;
+  } else {
+    selectedDate = toStartOfDay(new Date());
+    entry = createDayEntry(selectedDate);
+    currentDay = entry?.dayCode || null;
+  }
+
+  if (!entry) {
+    selectedDate = toStartOfDay(new Date());
+    entry = createDayEntry(selectedDate);
+    currentDay = entry?.dayCode || null;
+  }
+
+  const navLabel = entry?.navLabel || (selectedDate ? formatDailyNavLabel(selectedDate) : "Journalier");
+  const navSubtitle = entry?.navSubtitle || "";
+  const isDayEntry = entry?.type === DAILY_ENTRY_TYPES.DAY;
+  const selectedKey = isDayEntry && selectedDate && typeof Schema?.dayKeyFromDate === "function"
+    ? Schema.dayKeyFromDate(selectedDate)
+    : null;
+  const pageContext = computeDailyPageContext({ date: selectedDate, dayKey: selectedKey });
+  modesLogger.group("screen.daily.render", {
+    hash: ctx.route,
+    entryType: entry?.type || DAILY_ENTRY_TYPES.DAY,
+    day: currentDay,
+    date: selectedDate?.toISOString?.(),
+  });
 
   const card = document.createElement("section");
   card.className = "card space-y-4 p-3 sm:p-4";
   card.innerHTML = `
     <div class="flex flex-wrap items-center gap-2">
       <div class="day-nav" data-day-nav>
-        <button type="button" class="day-nav-btn" data-dir="prev" aria-label="Jour précédent">
+        <button type="button" class="day-nav-btn" data-dir="prev" aria-label="Entrée précédente">
           <span aria-hidden="true">←</span>
         </button>
         <div class="day-nav-label">
-          <span>${escapeHtml(navLabel)}</span>
-          ${isTodaySelected ? '<span class="day-nav-today">Aujourd\u2019hui</span>' : ""}
+          <span data-nav-main>${escapeHtml(navLabel)}</span>
+          ${navSubtitle ? `<span class="day-nav-sub">${escapeHtml(navSubtitle)}</span>` : ""}
         </div>
-        <button type="button" class="day-nav-btn" data-dir="next" aria-label="Jour suivant">
+        <button type="button" class="day-nav-btn" data-dir="next" aria-label="Entrée suivante">
           <span aria-hidden="true">→</span>
         </button>
       </div>
-      <div class="daily-header-actions flex items-center gap-2">${smallBtn("📊 Tableau de bord", "js-dashboard")}${smallBtn("+ Nouvelle consigne", "js-new")}</div>
+      <div class="daily-header-actions flex items-center gap-2">${smallBtn("📝 Faire un bilan", "js-bilan")}${smallBtn("+ Nouvelle consigne", "js-new")}</div>
     </div>
   `;
   container.appendChild(card);
@@ -5935,25 +10192,47 @@ async function renderDaily(ctx, root, opts = {}) {
   const navContainer = card.querySelector("[data-day-nav]");
   if (navContainer) {
     const basePath = toAppPath((currentHash.split("?")[0]) || "#/daily");
-    const goTo = (delta) => {
-      const target = new Date(selectedDate);
-      target.setDate(target.getDate() + delta);
-      const params = new URLSearchParams(qp);
-      params.set("d", Schema.dayKeyFromDate(target));
-      params.delete("day");
-      const search = params.toString();
-      navigate(`${basePath}${search ? `?${search}` : ""}`);
-    };
+    const prevEntry = computePrevEntry(entry);
+    const nextEntry = computeNextEntry(entry);
     const prevBtn = navContainer.querySelector('[data-dir="prev"]');
     const nextBtn = navContainer.querySelector('[data-dir="next"]');
-    if (prevBtn) prevBtn.onclick = () => goTo(-1);
-    if (nextBtn) nextBtn.onclick = () => goTo(1);
+    if (prevBtn) {
+      prevBtn.disabled = !prevEntry;
+      prevBtn.classList.toggle("opacity-50", !prevEntry);
+      prevBtn.onclick = prevEntry
+        ? () => navigate(entryToQuery(prevEntry, basePath, qp))
+        : null;
+    }
+    if (nextBtn) {
+      nextBtn.disabled = !nextEntry;
+      nextBtn.classList.toggle("opacity-50", !nextEntry);
+      nextBtn.onclick = nextEntry
+        ? () => navigate(entryToQuery(nextEntry, basePath, qp))
+        : null;
+    }
+    const mainLabel = navContainer.querySelector("[data-nav-main]");
+    if (mainLabel) {
+      mainLabel.textContent = navLabel;
+    }
+    const subLabel = navContainer.querySelector(".day-nav-sub");
+    if (subLabel) {
+      subLabel.textContent = navSubtitle;
+      subLabel.hidden = !navSubtitle;
+    }
   }
   card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
-  const dashBtn = card.querySelector(".js-dashboard");
-  if (dashBtn) {
-    dashBtn.onclick = () => {
-      window.openCategoryDashboard(ctx, "", { mode: "daily" });
+  const bilanBtn = card.querySelector(".js-bilan");
+  if (bilanBtn) {
+    bilanBtn.onclick = async () => {
+      await loadBilanSettings(ctx);
+      const scopeChoice = await chooseBilanScope({ allowMonthly: DAILY_MONTHLY_ENABLED });
+      if (!scopeChoice) {
+        return;
+      }
+      openBilanModal(ctx, {
+        scope: scopeChoice.scope,
+        title: scopeChoice.label,
+      });
     };
   }
 
@@ -5975,9 +10254,12 @@ async function renderDaily(ctx, root, opts = {}) {
     else hidden.push({ c, daysLeft: daysBetween(new Date(), next), when: next });
   }));
 
-  const orderIndex = new Map(visible.map((c, idx) => [c.id, idx]));
+  const hiddenParentIds = new Set(hidden.map((entry) => entry?.c?.id).filter(Boolean));
+  const visibleConsignes = filterConsignesByParentVisibility(visible, hiddenParentIds);
+
+  const orderIndex = new Map(visibleConsignes.map((c, idx) => [c.id, idx]));
   const catGroups = new Map();
-  visible.forEach((consigne) => {
+  visibleConsignes.forEach((consigne) => {
     const cat = consigne.category || "Général";
     const list = catGroups.get(cat) || [];
     list.push(consigne);
@@ -6002,6 +10284,317 @@ async function renderDaily(ctx, root, opts = {}) {
     ? previousAnswersRaw
     : new Map(previousAnswersRaw || []);
 
+  const observedValues = new Map();
+  const autoSaveStates = new Map();
+  const autoSaveErrorState = { lastShownAt: 0 };
+
+  const AUTO_SAVE_DEFAULT_DELAY = 900;
+  const AUTO_SAVE_LONG_DELAY = 1400;
+  const AUTO_SAVE_FAST_DELAY = 200;
+
+  const serializeValueForComparison = (consigne, value) => {
+    if (consigne?.type === "long") {
+      try {
+        return JSON.stringify(normalizeRichTextValue(value));
+      } catch (error) {
+        console.warn("daily.autosave.serialize.richtext", error);
+        return JSON.stringify({ value });
+      }
+    }
+    if (Array.isArray(value) || (value && typeof value === "object")) {
+      try {
+        return JSON.stringify(value);
+      } catch (error) {
+        console.warn("daily.autosave.serialize.object", error);
+        return String(value);
+      }
+    }
+    if (value === null || value === undefined) {
+      return "";
+    }
+    return String(value);
+  };
+
+  const resolveAutoSaveDelay = (consigne) => {
+    const type = consigne?.type;
+    if (type === "long") return AUTO_SAVE_LONG_DELAY;
+    if (type === "short") return AUTO_SAVE_DEFAULT_DELAY;
+    if (type === "checklist") return AUTO_SAVE_FAST_DELAY;
+    if (type === "yesno" || type === "likert6" || type === "likert5" || type === "num") {
+      return AUTO_SAVE_FAST_DELAY;
+    }
+    return AUTO_SAVE_DEFAULT_DELAY;
+  };
+
+  const markAnswerAsSaved = (consigne, value, serialized, summary = null) => {
+    const base = previousAnswers.get(consigne.id) || { consigneId: consigne.id };
+    const entry = {
+      ...base,
+      value,
+      dayKey,
+      updatedAt: new Date().toISOString(),
+      __serialized: serialized,
+    };
+    if (pageContext) {
+      if (pageContext.pageDate) {
+        entry.pageDate = pageContext.pageDate;
+      }
+      if (pageContext.weekStart) {
+        entry.weekStart = pageContext.weekStart;
+      }
+      if (pageContext.pageDateIso) {
+        entry.pageDateIso = pageContext.pageDateIso;
+      }
+      if (typeof pageContext.pageDayIndex === "number") {
+        entry.pageDayIndex = pageContext.pageDayIndex;
+      }
+    }
+    if (consigne.type === "checklist") {
+      const stats = deriveChecklistStats(value);
+      entry.checkedIds = stats.checkedIds;
+      entry.checkedCount = stats.checkedCount;
+      entry.total = stats.total;
+      entry.percentage = stats.percentage;
+      entry.isEmpty = stats.isEmpty;
+    }
+    if (summary && typeof summary === "object") {
+      Object.assign(entry, summary);
+    } else {
+      ["summaryScope", "summaryLabel", "summaryPeriod", "summaryMode"].forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(entry, key)) {
+          delete entry[key];
+        }
+      });
+      ["source", "origin", "context", "moduleId"].forEach((key) => {
+        if (!Object.prototype.hasOwnProperty.call(entry, key)) {
+          return;
+        }
+        const value = entry[key];
+        if (value === null || value === undefined) {
+          delete entry[key];
+          return;
+        }
+        const stringValue = String(value).toLowerCase();
+        if (stringValue.startsWith("bilan")) {
+          delete entry[key];
+        }
+      });
+    }
+    previousAnswers.set(consigne.id, entry);
+  };
+
+  const notifyAutoSaveError = () => {
+    const now = Date.now();
+    if (now - autoSaveErrorState.lastShownAt < 8000) {
+      return;
+    }
+    autoSaveErrorState.lastShownAt = now;
+    showToast("Impossible d’enregistrer automatiquement. Vérifie ta connexion.");
+  };
+
+  const runAutoSave = (consigneId) => {
+    const state = autoSaveStates.get(consigneId);
+    if (!state) return;
+    state.timeout = null;
+    if (!state.pendingHasContent) {
+      autoSaveStates.delete(consigneId);
+      return;
+    }
+    if (!ctx?.db || !ctx?.user?.uid) {
+      notifyAutoSaveError();
+      const retryDelay = Math.max(2000, resolveAutoSaveDelay(state.consigne));
+      state.timeout = setTimeout(() => runAutoSave(consigneId), retryDelay);
+      autoSaveStates.set(consigneId, state);
+      return;
+    }
+    const { consigne, pendingValue, pendingSerialized, pendingSummary } = state;
+    state.inFlight = true;
+    autoSaveStates.set(consigneId, state);
+    const normalizedSummary = normalizeSummaryMetadataInput(pendingSummary);
+    const extras = {};
+    if (consigne.type === "checklist") {
+      const stats = deriveChecklistStats(pendingValue);
+      Object.assign(extras, {
+        checkedIds: stats.checkedIds,
+        checkedCount: stats.checkedCount,
+        total: stats.total,
+        percentage: stats.percentage,
+        isEmpty: stats.isEmpty,
+      });
+    }
+    if (pageContext) {
+      if (pageContext.pageDate) {
+        extras.pageDate = pageContext.pageDate;
+      }
+      if (pageContext.weekStart) {
+        extras.weekStart = pageContext.weekStart;
+      }
+      if (pageContext.pageDateIso) {
+        extras.pageDateIso = pageContext.pageDateIso;
+      }
+      if (typeof pageContext.pageDayIndex === "number") {
+        extras.pageDayIndex = pageContext.pageDayIndex;
+      }
+    }
+    const answers = [{ consigne, value: pendingValue, dayKey, ...extras }];
+    if (normalizedSummary) {
+      Object.assign(answers[0], normalizedSummary);
+    }
+    Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers)
+      .then(async () => {
+        markAnswerAsSaved(consigne, pendingValue, pendingSerialized, normalizedSummary);
+        if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+          try {
+            await window.__appBadge.refresh(ctx.user?.uid);
+          } catch (error) {
+            console.warn("daily.autosave.badge", error);
+          }
+        }
+      })
+      .catch((error) => {
+        console.error("daily.autosave.error", error);
+        notifyAutoSaveError();
+        const retryDelay = Math.min(10000, Math.max(2000, resolveAutoSaveDelay(consigne) * 2));
+        state.timeout = setTimeout(() => runAutoSave(consigneId), retryDelay);
+      })
+      .finally(() => {
+        const latest = autoSaveStates.get(consigneId);
+        if (!latest) {
+          return;
+        }
+        latest.inFlight = false;
+        const hasPendingChange = latest.pendingHasContent && latest.pendingSerialized !== pendingSerialized;
+        if (hasPendingChange && !latest.timeout) {
+          const delay = resolveAutoSaveDelay(latest.consigne);
+          latest.timeout = setTimeout(() => runAutoSave(consigneId), delay);
+          autoSaveStates.set(consigneId, latest);
+          return;
+        }
+        if (latest.timeout) {
+          autoSaveStates.set(consigneId, latest);
+          return;
+        }
+        if (hasPendingChange) {
+          const delay = resolveAutoSaveDelay(latest.consigne);
+          latest.timeout = setTimeout(() => runAutoSave(consigneId), delay);
+          autoSaveStates.set(consigneId, latest);
+          return;
+        }
+        autoSaveStates.delete(consigneId);
+      });
+  };
+
+  const scheduleAutoSave = (consigne, value, { serialized, hasContent, summary } = {}) => {
+    if (!consigne || !consigne.id) return;
+    const consigneId = consigne.id;
+    const computedSerialized = serialized !== undefined ? serialized : serializeValueForComparison(consigne, value);
+    const effectiveHasContent = hasContent !== undefined ? hasContent : hasValueForConsigne(consigne, value);
+    const state = autoSaveStates.get(consigneId) || {
+      consigne,
+      pendingValue: null,
+      pendingSerialized: null,
+      pendingHasContent: false,
+      pendingSummary: null,
+      timeout: null,
+      inFlight: false,
+    };
+    state.consigne = consigne;
+    state.pendingValue = value;
+    state.pendingSerialized = computedSerialized;
+    state.pendingHasContent = effectiveHasContent;
+    state.pendingSummary = effectiveHasContent
+      ? normalizeSummaryMetadataInput(summary)
+      : null;
+
+    const savedEntry = previousAnswers.get(consigneId);
+    if (savedEntry && savedEntry.__serialized === undefined && Object.prototype.hasOwnProperty.call(savedEntry, "value")) {
+      try {
+        const baseSerialized = serializeValueForComparison(consigne, savedEntry.value);
+        const savedSummary = normalizeSummaryMetadataInput(savedEntry);
+        const savedSummarySerialized = serializeSummaryMetadataForComparison(savedSummary);
+        savedEntry.__serialized = savedSummarySerialized
+          ? `${baseSerialized}__summary__${savedSummarySerialized}`
+          : baseSerialized;
+        previousAnswers.set(consigneId, savedEntry);
+      } catch (error) {
+        console.warn("daily.autosave.serialize.previous", error);
+      }
+    }
+    if (savedEntry && savedEntry.__serialized === computedSerialized && !state.inFlight) {
+      if (state.timeout) {
+        clearTimeout(state.timeout);
+      }
+      autoSaveStates.delete(consigneId);
+      return;
+    }
+
+    if (!effectiveHasContent) {
+      if (state.timeout) {
+        clearTimeout(state.timeout);
+      }
+      if (!state.inFlight) {
+        autoSaveStates.delete(consigneId);
+      } else {
+        autoSaveStates.set(consigneId, state);
+      }
+      return;
+    }
+
+    if (state.inFlight) {
+      autoSaveStates.set(consigneId, state);
+      return;
+    }
+
+    if (state.timeout) {
+      clearTimeout(state.timeout);
+    }
+    const delay = resolveAutoSaveDelay(consigne);
+    state.timeout = setTimeout(() => runAutoSave(consigneId), delay);
+    autoSaveStates.set(consigneId, state);
+  };
+
+  const handleValueChange = (consigne, row, value, { serialized, summary, baseSerialized } = {}) => {
+    const hasContent = consigne.type === "checklist"
+      ? hasChecklistResponse(consigne, row, value)
+      : hasValueForConsigne(consigne, value);
+    if (!hasContent) {
+      previousAnswers.delete(consigne.id);
+      if (row) {
+        clearConsigneSummaryMetadata(row);
+      }
+    }
+    const summaryMetadata =
+      summary !== undefined
+        ? normalizeSummaryMetadataInput(summary)
+        : normalizeSummaryMetadataInput(readConsigneSummaryMetadata(row));
+    const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
+    const computedBaseSerialized =
+      baseSerialized !== undefined
+        ? baseSerialized
+        : serializeValueForComparison(consigne, value);
+    const providedCombined = typeof serialized === "string" ? serialized : null;
+    const combinedSerialized =
+      providedCombined !== null
+        ? providedCombined
+        : summarySerialized
+        ? `${computedBaseSerialized}__summary__${summarySerialized}`
+        : computedBaseSerialized;
+    if (row) {
+      if (!hasContent) {
+        delete row.dataset.currentValue;
+      } else if (typeof value === "object") {
+        row.dataset.currentValue = computedBaseSerialized;
+      } else {
+        row.dataset.currentValue = String(value);
+      }
+    }
+    scheduleAutoSave(consigne, value, {
+      serialized: combinedSerialized,
+      hasContent,
+      summary: hasContent ? summaryMetadata : null,
+    });
+  };
+
   const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
     const previous = previousAnswers.get(item.id);
     const hasPrevValue = previous && Object.prototype.hasOwnProperty.call(previous, "value");
@@ -6010,6 +10603,14 @@ async function renderDaily(ctx, root, opts = {}) {
     const tone = priorityTone(item.priority);
     row.className = `consigne-row priority-surface priority-surface-${tone}`;
     row.dataset.id = item.id;
+    if (item?.id != null) {
+      const stringId = String(item.id);
+      row.dataset.consigneId = stringId;
+      row.setAttribute("data-consigne-id", stringId);
+    } else {
+      delete row.dataset.consigneId;
+      row.removeAttribute("data-consigne-id");
+    }
     row.dataset.priorityTone = tone;
     if (isChild) {
       row.classList.add("consigne-row--child");
@@ -6018,9 +10619,11 @@ async function renderDaily(ctx, root, opts = {}) {
       } else {
         delete row.dataset.parentId;
       }
+      row.draggable = false;
     } else {
       row.classList.add("consigne-row--parent");
       delete row.dataset.parentId;
+      row.draggable = true;
     }
     row.innerHTML = `
       <div class="consigne-row__header">
@@ -6053,11 +10656,18 @@ async function renderDaily(ctx, root, opts = {}) {
     if (holder) {
       holder.innerHTML = inputForType(item, previous?.value ?? null);
       enhanceRangeMeters(holder);
+      initializeChecklistScope(holder, { consigneId: item?.id ?? null });
+    }
+    const previousSummary = normalizeSummaryMetadataInput(previous);
+    if (previousSummary) {
+      setConsigneSummaryMetadata(row, previousSummary);
+    } else {
+      clearConsigneSummaryMetadata(row);
     }
     const bH = row.querySelector(".js-histo");
     const bE = row.querySelector(".js-edit");
     const bD = row.querySelector(".js-del");
-    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item); };
+    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item, { source: "daily" }); };
     bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
     bD.onclick = async (e) => {
       e.preventDefault(); e.stopPropagation();
@@ -6142,13 +10752,26 @@ async function renderDaily(ctx, root, opts = {}) {
     bindConsigneRowValue(row, item, {
       initialValue,
       onChange: (value) => {
-        const base = previousAnswers.get(item.id) || { consigneId: item.id };
-        previousAnswers.set(item.id, { ...base, value });
-        if (value === null || value === undefined || value === "") {
-          delete row.dataset.currentValue;
-        } else {
-          row.dataset.currentValue = String(value);
+        const baseSerialized = serializeValueForComparison(item, value);
+        const summaryMetadata = readConsigneSummaryMetadata(row);
+        const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
+        const combinedSerialized = summarySerialized
+          ? `${baseSerialized}__summary__${summarySerialized}`
+          : baseSerialized;
+        const previousSerialized = observedValues.get(item.id);
+        if (previousSerialized === undefined) {
+          observedValues.set(item.id, combinedSerialized);
+          return;
         }
+        if (previousSerialized === combinedSerialized) {
+          return;
+        }
+        observedValues.set(item.id, combinedSerialized);
+        handleValueChange(item, row, value, {
+          serialized: combinedSerialized,
+          summary: summaryMetadata,
+          baseSerialized,
+        });
       },
     });
 
@@ -6168,11 +10791,35 @@ async function renderDaily(ctx, root, opts = {}) {
       childRow.dataset.parentId = child.parentId || group.consigne.id || "";
       childRow.draggable = false;
       parentCard.appendChild(childRow);
+      const childSummary = normalizeSummaryMetadataInput(previous);
+      if (childSummary) {
+        setConsigneSummaryMetadata(childRow, childSummary);
+      } else {
+        clearConsigneSummaryMetadata(childRow);
+      }
       bindConsigneRowValue(childRow, child, {
         initialValue,
         onChange: (value) => {
-          const base = previousAnswers.get(child.id) || { consigneId: child.id };
-          previousAnswers.set(child.id, { ...base, value });
+          const baseSerialized = serializeValueForComparison(child, value);
+          const summaryMetadata = readConsigneSummaryMetadata(childRow);
+          const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
+          const combinedSerialized = summarySerialized
+            ? `${baseSerialized}__summary__${summarySerialized}`
+            : baseSerialized;
+          const prevSerialized = observedValues.get(child.id);
+          if (prevSerialized === undefined) {
+            observedValues.set(child.id, combinedSerialized);
+            return;
+          }
+          if (prevSerialized === combinedSerialized) {
+            return;
+          }
+          observedValues.set(child.id, combinedSerialized);
+          handleValueChange(child, childRow, value, {
+            serialized: combinedSerialized,
+            summary: summaryMetadata,
+            baseSerialized,
+          });
         },
       });
       let srEnabled = child?.srEnabled !== false;
@@ -6182,7 +10829,7 @@ async function renderDaily(ctx, root, opts = {}) {
         srEnabled,
         onHistory: () => {
           Schema.D.info("ui.history.click", child.id);
-          openHistory(ctx, child);
+          openHistory(ctx, child, { source: "daily" });
         },
         onEdit: ({ close } = {}) => {
           Schema.D.info("ui.editConsigne.click", child.id);
@@ -6228,9 +10875,12 @@ async function renderDaily(ctx, root, opts = {}) {
 
   const form = document.createElement("form");
   form.className = "daily-grid";
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+  });
   card.appendChild(form);
 
-  if (!visible.length) {
+  if (!visibleConsignes.length) {
     const empty = document.createElement("div");
     empty.className = "rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)] daily-grid__item";
     empty.innerText = "Aucune consigne visible pour ce jour.";
@@ -6240,6 +10890,7 @@ async function renderDaily(ctx, root, opts = {}) {
       const { groups, total } = info;
       const section = document.createElement("section");
       section.className = "daily-category daily-grid__item";
+      section.dataset.category = cat;
       section.innerHTML = `
         <div class="daily-category__header">
           <div class="daily-category__name">${escapeHtml(cat)}</div>
@@ -6270,6 +10921,13 @@ async function renderDaily(ctx, root, opts = {}) {
     });
   }
 
+  if (typeof window.attachConsignesDragDrop === "function") {
+    window.attachConsignesDragDrop(form, ctx);
+  }
+  if (typeof window.attachDailyCategoryDragDrop === "function") {
+    window.attachDailyCategoryDragDrop(form, ctx);
+  }
+
   if (hidden.length) {
     const box = document.createElement("div");
     box.className = "card p-3 space-y-2";
@@ -6291,7 +10949,7 @@ async function renderDaily(ctx, root, opts = {}) {
       if (!id) return;
       if (e.target.classList.contains("js-histo-hidden")) {
         const c = hidden.find((x) => x.c.id === id)?.c;
-        if (c) openHistory(ctx, c);
+        if (c) openHistory(ctx, c, { source: "daily" });
       } else if (e.target.classList.contains("js-reset-sr")) {
         await Schema.resetSRForConsigne(ctx.db, ctx.user.uid, id);
         renderDaily(ctx, root, { day: currentDay });
@@ -6300,24 +10958,15 @@ async function renderDaily(ctx, root, opts = {}) {
   }
 
   const actions = document.createElement("div");
-  actions.className = "flex justify-end daily-grid__item daily-grid__actions";
-  actions.innerHTML = `<button type="submit" class="btn btn-primary">Enregistrer</button>`;
+  actions.className = "daily-grid__item daily-grid__actions";
+  actions.innerHTML = `
+    <div class="flex w-full justify-end text-sm text-[var(--muted)]">
+      <span class="inline-flex items-center gap-2 rounded-full border border-dashed border-slate-300/60 px-3 py-1">
+        <span aria-hidden="true">💾</span>
+        <span>Enregistrement automatique</span>
+      </span>
+    </div>`;
   form.appendChild(actions);
-
-  form.onsubmit = async (e) => {
-    e.preventDefault();
-    const answers = collectAnswers(form, visible, { dayKey });
-    if (!answers.length) {
-      alert("Aucune réponse");
-      return;
-    }
-    await Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers);
-    if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
-      window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
-    }
-    showToast("Journal enregistré");
-    renderDaily(ctx, root, { day: currentDay, dateIso: dayKey });
-  };
 
   modesLogger.groupEnd();
   if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
@@ -6334,11 +10983,33 @@ Modes.renderPractice = renderPractice;
 Modes.renderDaily = renderDaily;
 Modes.renderHistory = renderHistory;
 Modes.attachConsignesDragDrop = window.attachConsignesDragDrop;
+Modes.attachDailyCategoryDragDrop = window.attachDailyCategoryDragDrop;
+Modes.inputForType = inputForType;
+Modes.collectAnswers = collectAnswers;
+Modes.enhanceRangeMeters = enhanceRangeMeters;
+Modes.groupConsignes = groupConsignes;
+Modes.priorityTone = priorityTone;
+Modes.prioChip = prioChip;
+Modes.showToast = showToast;
+Modes.openBilanModal = openBilanModal;
+Modes.bindConsigneRowValue = bindConsigneRowValue;
+Modes.attachConsigneEditor = attachConsigneEditor;
+Modes.createHiddenConsigneRow = createHiddenConsigneRow;
+Modes.hasValueForConsigne = hasValueForConsigne;
+Modes.setConsigneSummaryMetadata = setConsigneSummaryMetadata;
+Modes.clearConsigneSummaryMetadata = clearConsigneSummaryMetadata;
+Modes.readConsigneSummaryMetadata = readConsigneSummaryMetadata;
+Modes.buildSummaryMetadataForScope = buildSummaryMetadataForScope;
+Modes.setupConsigneActionMenus = setupConsigneActionMenus;
+Modes.closeConsigneActionMenuFromNode = closeConsigneActionMenuFromNode;
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     readConsigneCurrentValue,
     dotColor,
-    collectAnswers,
+    buildChecklistValue,
+    sanitizeChecklistItems,
+    readChecklistStates,
+    readChecklistSkipped,
   };
 }

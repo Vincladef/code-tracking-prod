@@ -70,12 +70,19 @@ function setupDomStubs() {
 
 setupDomStubs();
 
-const { readConsigneCurrentValue, dotColor, collectAnswers } = require("../modes.js");
+const {
+  readConsigneCurrentValue,
+  dotColor,
+  buildChecklistValue,
+  sanitizeChecklistItems,
+  readChecklistStates,
+  readChecklistSkipped,
+} = require("../modes.js");
 
 function testChecklistValueRemainsNullUntilDirty() {
   const consigne = { id: "c1", type: "checklist" };
   const hidden = {
-    value: JSON.stringify([false, false]),
+    value: JSON.stringify({ items: [false, false], skipped: [false, false] }),
     dataset: {},
   };
   const scope = {
@@ -90,9 +97,35 @@ function testChecklistValueRemainsNullUntilDirty() {
   assert.strictEqual(initial, null, "Une checklist neuve doit retourner null tant qu’elle est propre");
 
   hidden.dataset.dirty = "1";
-  hidden.value = JSON.stringify([true, false]);
+  hidden.value = JSON.stringify({ items: [true, false], skipped: [false, false] });
   const afterDirty = readConsigneCurrentValue(consigne, scope);
-  assert.deepStrictEqual(afterDirty, [true, false], "Une checklist marquée sale doit retourner les cases cochées");
+  assert.deepStrictEqual(
+    afterDirty,
+    { items: [true, false] },
+    "Une checklist marquée sale doit retourner les cases cochées"
+  );
+}
+
+function testReadConsigneCurrentValueKeepsSkippedItems() {
+  const consigne = { id: "c2", type: "checklist" };
+  const hidden = {
+    value: JSON.stringify({ items: [true, true, false], skipped: [true, false, false] }),
+    dataset: { dirty: "1" },
+  };
+  const scope = {
+    querySelector: (selector) => {
+      if (selector === '[name="checklist:c2"]') {
+        return hidden;
+      }
+      return null;
+    },
+  };
+  const value = readConsigneCurrentValue(consigne, scope);
+  assert.deepStrictEqual(
+    value,
+    { items: [true, true, false], skipped: [true, false, false] },
+    "Les éléments passés doivent rester marqués lors de la lecture"
+  );
 }
 
 function testDotColorTreatsNullAsNa() {
@@ -101,52 +134,76 @@ function testDotColorTreatsNullAsNa() {
 
 function testDotColorSignalsAllUncheckedAsKo() {
   assert.strictEqual(
-    dotColor("checklist", [false, false, false]),
+    dotColor("checklist", { items: [false, false, false] }),
     "ko-strong",
     "Une checklist explicitement décochée doit s’afficher en rouge",
   );
 }
 
-function testCollectAnswersFallsBackToCheckboxes() {
-  const consigne = { id: "c1", type: "checklist" };
-  const hidden = {
-    value: JSON.stringify([false, false]),
-    dataset: {},
-  };
-  const boxes = [{ checked: true }, { checked: false }];
-  const container = {
-    querySelectorAll: (selector) => {
-      if (selector === "[data-checklist-input]") {
-        return boxes;
-      }
-      return [];
-    },
-  };
-  const form = {
-    querySelector: (selector) => {
-      if (selector === '[name="checklist:c1"]') {
-        return hidden;
-      }
-      if (selector === '[data-checklist-root][data-consigne-id="c1"]') {
-        return container;
-      }
-      return null;
-    },
-  };
-  const answers = collectAnswers(form, [consigne]);
-  assert.strictEqual(answers.length, 1, "Une checklist cochée doit produire une réponse");
+function testBuildChecklistValueRespectsConsigneLabels() {
+  const consigne = { checklistItems: ["  Première ", "Deuxième", ""] };
+  const built = buildChecklistValue(consigne, [true, false, true]);
   assert.deepStrictEqual(
-    answers[0].value,
-    [true, false],
-    "La réponse doit refléter l’état des cases à cocher",
+    built,
+    { items: [true, false], labels: ["Première", "Deuxième"] },
+    "Les labels de consigne doivent être nettoyés et faire correspondre les états",
+  );
+}
+
+function testBuildChecklistValueKeepsSkippedStates() {
+  const consigne = { checklistItems: ["Alpha", "Beta", "Gamma"] };
+  const built = buildChecklistValue(consigne, {
+    items: [true, false, true],
+    skipped: [false, true, false],
+  });
+  assert.deepStrictEqual(
+    built,
+    {
+      labels: ["Alpha", "Beta", "Gamma"],
+      items: [true, false, true],
+      skipped: [false, true, false],
+    },
+    "Les états passés doivent être conservés lors de la normalisation",
+  );
+}
+
+function testReadChecklistStatesNormalizesValues() {
+  const states = readChecklistStates({ items: [true, "yes", 1, false] });
+  assert.deepStrictEqual(
+    states,
+    [true, false, false, false],
+    "Seules les valeurs booléennes strictes doivent être conservées",
+  );
+}
+
+function testReadChecklistSkippedNormalizesValues() {
+  const skipped = readChecklistSkipped({ skipped: ["yes", true, 1, false] });
+  assert.deepStrictEqual(
+    skipped,
+    [false, true, false, false],
+    "Les éléments passés doivent être convertis en booléens",
+  );
+}
+
+function testSanitizeChecklistItemsDropsEmptyEntries() {
+  const consigne = { checklistItems: ["Alpha", "", "  ", "Beta"] };
+  assert.deepStrictEqual(
+    sanitizeChecklistItems(consigne),
+    ["Alpha", "Beta"],
+    "Les libellés vides ou blancs doivent être filtrés",
   );
 }
 
 try {
   testChecklistValueRemainsNullUntilDirty();
+  testReadConsigneCurrentValueKeepsSkippedItems();
   testDotColorTreatsNullAsNa();
   testDotColorSignalsAllUncheckedAsKo();
-  testCollectAnswersFallsBackToCheckboxes();
+  testBuildChecklistValueRespectsConsigneLabels();
+  testBuildChecklistValueKeepsSkippedStates();
+  testReadChecklistStatesNormalizesValues();
+  testReadChecklistSkippedNormalizesValues();
+  testSanitizeChecklistItemsDropsEmptyEntries();
   console.log("All checklist status tests passed.");
 } catch (error) {
   console.error(error);

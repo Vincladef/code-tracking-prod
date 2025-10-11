@@ -215,3 +215,295 @@
     window.installChecklistEnterExit = installChecklistEnterExit;
   }
 })();
+
+(function () {
+  const GLOBAL = typeof window !== "undefined" ? window : globalThis;
+  const DEFAULT_TIMEZONE = "Europe/Paris";
+
+  function todayKey(date = new Date()) {
+    const input = date instanceof Date ? new Date(date.getTime()) : new Date(date || Date.now());
+    if (!(input instanceof Date) || Number.isNaN(input.getTime())) {
+      return todayKey(new Date());
+    }
+    if (typeof Intl !== "undefined" && typeof Intl.DateTimeFormat === "function") {
+      try {
+        const formatter = new Intl.DateTimeFormat("fr-FR", {
+          timeZone: DEFAULT_TIMEZONE,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        });
+        const parts = formatter.formatToParts(input);
+        const lookup = { day: "", month: "", year: "" };
+        parts.forEach((part) => {
+          if (part && part.type && part.value && part.type in lookup) {
+            lookup[part.type] = part.value;
+          }
+        });
+        if (lookup.year && lookup.month && lookup.day) {
+          return `${lookup.year}-${lookup.month}-${lookup.day}`;
+        }
+      } catch (error) {
+        console.warn("[checklist-fix] todayKey", error);
+      }
+    }
+    const year = input.getFullYear();
+    const month = String(input.getMonth() + 1).padStart(2, "0");
+    const day = String(input.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function resolveFirestoreDb() {
+    const ctxDb = GLOBAL.AppCtx?.db;
+    if (ctxDb && typeof ctxDb.collection === "function") {
+      return ctxDb;
+    }
+    const firebase = GLOBAL.firebase;
+    if (firebase && typeof firebase.firestore === "function") {
+      try {
+        return firebase.firestore();
+      } catch (error) {
+        console.warn("[checklist-fix] firestore", error);
+      }
+    }
+    return null;
+  }
+
+  async function fallbackLoadAnswer(uid, consigneId, dateKey) {
+    const db = resolveFirestoreDb();
+    if (!db || !uid || !consigneId || !dateKey) {
+      return null;
+    }
+    try {
+      const ref = db
+        .collection("users")
+        .doc(uid)
+        .collection("answers")
+        .doc(dateKey)
+        .collection("consignes")
+        .doc(consigneId);
+      const snap = await ref.get();
+      if (!snap || !snap.exists) {
+        return null;
+      }
+      return snap.data() || null;
+    } catch (error) {
+      console.warn("[checklist-fix] loadAnswer", error);
+      return null;
+    }
+  }
+
+  async function fallbackSaveAnswer(uid, consigneId, dateKey, payload = {}) {
+    const db = resolveFirestoreDb();
+    if (!db || !uid || !consigneId || !dateKey) {
+      return null;
+    }
+    const selected = Array.isArray(payload.selectedIds)
+      ? payload.selectedIds
+      : Array.isArray(payload.selected)
+      ? payload.selected
+      : [];
+    const data = {
+      type: "checklist",
+      selectedIds: selected,
+      checked: selected,
+      updatedAt: payload.updatedAt || Date.now(),
+      dateKey,
+    };
+    try {
+      const ref = db
+        .collection("users")
+        .doc(uid)
+        .collection("answers")
+        .doc(dateKey)
+        .collection("consignes")
+        .doc(consigneId);
+      await ref.set(data, { merge: true });
+      return data;
+    } catch (error) {
+      console.warn("[checklist-fix] saveAnswer", error);
+      return null;
+    }
+  }
+
+  function collectSelectedKeys(root, itemKeyAttr) {
+    if (!(root instanceof Element)) {
+      return [];
+    }
+    const selector = `input[type="checkbox"][${itemKeyAttr}]`;
+    return Array.from(root.querySelectorAll(selector))
+      .map((input) => {
+        if (!(input instanceof HTMLInputElement)) {
+          return null;
+        }
+        const key = input.getAttribute(itemKeyAttr);
+        return input.checked && key ? String(key) : null;
+      })
+      .filter(Boolean);
+  }
+
+  function applySelectedKeys(root, itemKeyAttr, selectedKeys = []) {
+    if (!(root instanceof Element)) {
+      return;
+    }
+    const selector = `input[type="checkbox"][${itemKeyAttr}]`;
+    const inputs = Array.from(root.querySelectorAll(selector));
+    const keySet = new Set(selectedKeys.map((value) => String(value)));
+    inputs.forEach((input) => {
+      if (!(input instanceof HTMLInputElement)) {
+        return;
+      }
+      const key = input.getAttribute(itemKeyAttr);
+      const host = input.closest("[data-checklist-item]");
+      const legacyKey = input.getAttribute("data-legacy-key") || host?.getAttribute?.("data-checklist-legacy-key");
+      const shouldCheck =
+        (key && keySet.has(String(key))) || (legacyKey ? keySet.has(String(legacyKey)) : false);
+      if (input.checked !== shouldCheck) {
+        input.checked = shouldCheck;
+      }
+      if (host) {
+        host.setAttribute("data-validated", shouldCheck ? "true" : "false");
+      }
+    });
+    const hidden = root.querySelector("[data-checklist-state]");
+    if (hidden) {
+      try {
+        const values = inputs.map((input) => (input instanceof HTMLInputElement ? Boolean(input.checked) : false));
+        hidden.value = JSON.stringify(values);
+      } catch (error) {
+        console.warn("[checklist-fix] hidden", error);
+      }
+      if (hidden.dataset) {
+        hidden.dataset.dirty = "1";
+      }
+      if (typeof hidden.dispatchEvent === "function" && typeof Event === "function") {
+        try {
+          hidden.dispatchEvent(new Event("input", { bubbles: true }));
+          hidden.dispatchEvent(new Event("change", { bubbles: true }));
+        } catch (error) {
+          console.warn("[checklist-fix] hidden:dispatch", error);
+        }
+      }
+    }
+    if (root && root.dataset) {
+      root.dataset.checklistDirty = "1";
+    }
+  }
+
+  function resolveUid(fallback) {
+    if (fallback) {
+      return fallback;
+    }
+    const ctxUid = GLOBAL.AppCtx?.user?.uid;
+    if (ctxUid) {
+      return ctxUid;
+    }
+    const authUid = GLOBAL.Schema?.currentUser?.uid;
+    if (authUid) {
+      return authUid;
+    }
+    return null;
+  }
+
+  async function hydrateChecklist(options = {}) {
+    const root = options.container instanceof Element ? options.container : null;
+    if (!root) {
+      return null;
+    }
+    const itemKeyAttr = options.itemKeyAttr || "data-key";
+    const consigneId =
+      options.consigneId ||
+      root.getAttribute("data-consigne-id") ||
+      root.dataset?.consigneId ||
+      null;
+    const uid = resolveUid(options.uid);
+    const dateKey = options.dateKey || todayKey();
+    const manager = GLOBAL.ChecklistState || null;
+    const db = options.db || GLOBAL.AppCtx?.db || null;
+
+    if (!root.__hydrateChecklistBound) {
+      root.addEventListener(
+        "change",
+        (event) => {
+          const target = event?.target;
+          if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+            return;
+          }
+          if (!target.matches(`input[type="checkbox"][${itemKeyAttr}]`)) {
+            return;
+          }
+          const host = target.closest("[data-checklist-item]");
+          if (host) {
+            host.setAttribute("data-validated", target.checked ? "true" : "false");
+          }
+          const selectedKeys = collectSelectedKeys(root, itemKeyAttr);
+          if (manager && typeof manager.persistRoot === "function") {
+            try {
+              manager.persistRoot(root, { consigneId, dateKey });
+            } catch (error) {
+              console.warn("[checklist-fix] persistRoot", error);
+            }
+            return;
+          }
+          const effectiveUid = resolveUid(uid);
+          if (!effectiveUid || !consigneId) {
+            return;
+          }
+          fallbackSaveAnswer(effectiveUid, consigneId, dateKey, {
+            type: "checklist",
+            selected: selectedKeys,
+            selectedIds: selectedKeys,
+            updatedAt: Date.now(),
+          });
+        },
+        { passive: true }
+      );
+      root.__hydrateChecklistBound = true;
+    }
+
+    if (root.__hydrateChecklistPromise) {
+      return root.__hydrateChecklistPromise;
+    }
+
+    const promise = (async () => {
+      const effectiveUid = resolveUid(uid);
+      if (!consigneId || !effectiveUid) {
+        return null;
+      }
+      let saved = null;
+      if (manager && typeof manager.loadSelection === "function" && db) {
+        try {
+          saved = await manager.loadSelection(db, effectiveUid, consigneId);
+        } catch (error) {
+          console.warn("[checklist-fix] loadSelection", error);
+        }
+      }
+      if (!saved) {
+        saved = await fallbackLoadAnswer(effectiveUid, consigneId, dateKey);
+      }
+      const selected = Array.isArray(saved?.selectedIds)
+        ? saved.selectedIds
+        : Array.isArray(saved?.selected)
+        ? saved.selected
+        : [];
+      applySelectedKeys(root, itemKeyAttr, selected);
+      return saved;
+    })()
+      .catch((error) => {
+        console.warn("[checklist-fix] hydrate", error);
+        return null;
+      })
+      .finally(() => {
+        root.__hydrateChecklistPromise = null;
+        root.__hydrateChecklistHydrated = true;
+      });
+
+    root.__hydrateChecklistPromise = promise;
+    return promise;
+  }
+
+  if (typeof GLOBAL !== "undefined") {
+    GLOBAL.hydrateChecklist = hydrateChecklist;
+    GLOBAL.checklistTodayKey = todayKey;
+  }
+})();

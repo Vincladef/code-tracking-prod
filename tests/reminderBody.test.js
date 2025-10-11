@@ -30,6 +30,18 @@ function runTests() {
     "Paul, tu n’as rien à remplir aujourd’hui.",
     "Le message de repli doit être utilisé lorsque tous les compteurs sont nuls",
   );
+
+  assertEqual(
+    buildReminderBody("Claire", 0, 0, { weekly: true }),
+    "Claire, tu n’as rien à remplir aujourd’hui. Pense aussi à ton bilan de la semaine.",
+    "Le rappel hebdo doit s’ajouter même en absence de consignes",
+  );
+
+  assertEqual(
+    buildReminderBody("", 2, 1, { weekly: true, monthly: true }),
+    "tu as 2 consignes et 1 objectif à remplir aujourd’hui. Pense aussi à ton bilan de la semaine et ton bilan du mois.",
+    "Les rappels hebdo et mensuel doivent être concaténés",
+  );
 }
 
 try {

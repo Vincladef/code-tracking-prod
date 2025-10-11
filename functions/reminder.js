@@ -3,17 +3,51 @@ function pluralize(count, singular, plural = null) {
   return plural || `${singular}s`;
 }
 
-function buildReminderBody(firstName, consigneCount, objectiveCount) {
+function buildReminderBody(firstName, consigneCount, objectiveCount, options = {}) {
   const prefix = firstName ? `${firstName}, ` : "";
   if (consigneCount === 0 && objectiveCount === 0) {
-    return `${prefix}tu n’as rien à remplir aujourd’hui.`;
+    let message = `${prefix}tu n’as rien à remplir aujourd’hui.`;
+    const extras = reminderExtras(options);
+    if (extras) {
+      message = `${message} Pense aussi à ${extras}.`;
+    }
+    return message;
   }
   const objectiveLabel = pluralize(objectiveCount, "objectif");
   if (consigneCount === 0) {
-    return `${prefix}tu as ${objectiveCount} ${objectiveLabel} à remplir aujourd’hui.`;
+    let message = `${prefix}tu as ${objectiveCount} ${objectiveLabel} à remplir aujourd’hui.`;
+    const extras = reminderExtras(options);
+    if (extras) {
+      message = `${message} Pense aussi à ${extras}.`;
+    }
+    return message;
   }
   const consigneLabel = pluralize(consigneCount, "consigne");
-  return `${prefix}tu as ${consigneCount} ${consigneLabel} et ${objectiveCount} ${objectiveLabel} à remplir aujourd’hui.`;
+  let message = `${prefix}tu as ${consigneCount} ${consigneLabel} et ${objectiveCount} ${objectiveLabel} à remplir aujourd’hui.`;
+  const extras = reminderExtras(options);
+  if (extras) {
+    message = `${message} Pense aussi à ${extras}.`;
+  }
+  return message;
+}
+
+function reminderExtras(options = {}) {
+  const weekly = options && typeof options === "object" && options.weekly;
+  const monthly = options && typeof options === "object" && options.monthly;
+  const mentions = [];
+  if (weekly) {
+    mentions.push("ton bilan de la semaine");
+  }
+  if (monthly) {
+    mentions.push("ton bilan du mois");
+  }
+  if (!mentions.length) {
+    return "";
+  }
+  if (mentions.length === 1) {
+    return mentions[0];
+  }
+  return `${mentions[0]} et ${mentions[1]}`;
 }
 
 module.exports = { buildReminderBody };

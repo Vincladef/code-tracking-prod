@@ -80,7 +80,8 @@
     return false;
   }
 
-  const IGNORED_INPUT_TYPES = new Set(["button", "submit", "reset", "image", "file", "password", "hidden"]);
+  const IGNORED_INPUT_TYPES = new Set(["button", "submit", "reset", "image", "file", "password"]);
+  const TRACKED_HIDDEN_SELECTOR = "[data-autosave-track], [data-rich-text-input], [data-checklist-state]";
   const TRACKED_FIELD_SELECTOR = "input, select, textarea";
   const STATUS_REGION_SELECTOR = ".consigne-row__status, [data-status], [role=\"status\"], [aria-live]";
 
@@ -94,7 +95,16 @@
     if (tag === "FIELDSET" || tag === "OBJECT") return false;
     if (tag === "BUTTON") return false;
     const type = (field.type || "").toLowerCase();
-    if (IGNORED_INPUT_TYPES.has(type)) return false;
+    if (type === "hidden") {
+      const allowHidden =
+        field.hasAttribute("data-autosave-field") ||
+        field.hasAttribute("data-autosave-track") ||
+        field.dataset?.autosaveTrack === "1" ||
+        (typeof field.matches === "function" && field.matches(TRACKED_HIDDEN_SELECTOR));
+      if (!allowHidden) return false;
+    } else if (IGNORED_INPUT_TYPES.has(type)) {
+      return false;
+    }
     return true;
   }
 
