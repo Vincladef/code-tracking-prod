@@ -82,7 +82,7 @@ const {
 function testChecklistValueRemainsNullUntilDirty() {
   const consigne = { id: "c1", type: "checklist" };
   const hidden = {
-    value: JSON.stringify([false, false]),
+    value: JSON.stringify({ items: [false, false], skipped: [false, false] }),
     dataset: {},
   };
   const scope = {
@@ -97,12 +97,34 @@ function testChecklistValueRemainsNullUntilDirty() {
   assert.strictEqual(initial, null, "Une checklist neuve doit retourner null tant qu’elle est propre");
 
   hidden.dataset.dirty = "1";
-  hidden.value = JSON.stringify([true, false]);
+  hidden.value = JSON.stringify({ items: [true, false], skipped: [false, false] });
   const afterDirty = readConsigneCurrentValue(consigne, scope);
   assert.deepStrictEqual(
     afterDirty,
     { items: [true, false] },
     "Une checklist marquée sale doit retourner les cases cochées"
+  );
+}
+
+function testReadConsigneCurrentValueKeepsSkippedItems() {
+  const consigne = { id: "c2", type: "checklist" };
+  const hidden = {
+    value: JSON.stringify({ items: [true, true, false], skipped: [true, false, false] }),
+    dataset: { dirty: "1" },
+  };
+  const scope = {
+    querySelector: (selector) => {
+      if (selector === '[name="checklist:c2"]') {
+        return hidden;
+      }
+      return null;
+    },
+  };
+  const value = readConsigneCurrentValue(consigne, scope);
+  assert.deepStrictEqual(
+    value,
+    { items: [true, true, false], skipped: [true, false, false] },
+    "Les éléments passés doivent rester marqués lors de la lecture"
   );
 }
 
@@ -174,6 +196,7 @@ function testSanitizeChecklistItemsDropsEmptyEntries() {
 
 try {
   testChecklistValueRemainsNullUntilDirty();
+  testReadConsigneCurrentValueKeepsSkippedItems();
   testDotColorTreatsNullAsNa();
   testDotColorSignalsAllUncheckedAsKo();
   testBuildChecklistValueRespectsConsigneLabels();

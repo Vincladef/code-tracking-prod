@@ -605,9 +605,15 @@
     });
     const hidden = root.querySelector("[data-checklist-state]");
     if (hidden) {
-      const values = entries.map(({ input }) => Boolean(input.checked));
+      const payload = {
+        items: entries.map(({ input }) => Boolean(input.checked)),
+        skipped: entries.map(({ input }) => (input.dataset?.checklistSkip === "1" ? true : false)),
+      };
+      if (Array.isArray(payload.skipped) && payload.skipped.every((value) => value === false)) {
+        delete payload.skipped;
+      }
       try {
-        hidden.value = JSON.stringify(values);
+        hidden.value = JSON.stringify(payload);
       } catch (error) {
         console.warn("[checklist-state] hidden:update", error);
       }

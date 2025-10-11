@@ -1509,20 +1509,34 @@ function valueToNumericPoint(type, value) {
   if (type === "yesno")   return value === "yes" ? 1 : 0;
   if (type === "num") return Number(value) || 0;
   if (type === "checklist") {
-    const values = Array.isArray(value)
+    const items = Array.isArray(value)
       ? value.map((item) => item === true)
       : value && typeof value === "object" && Array.isArray(value.items)
         ? value.items.map((item) => item === true)
         : [];
-    if (!values.length) {
+    const skippedRaw = value && typeof value === "object" && Array.isArray(value.skipped)
+      ? value.skipped.map((item) => item === true)
+      : [];
+    const skipped = items.map((_, index) => Boolean(skippedRaw[index]));
+    let consideredTotal = 0;
+    let completed = 0;
+    items.forEach((checked, index) => {
+      if (skipped[index]) {
+        return;
+      }
+      consideredTotal += 1;
+      if (checked) {
+        completed += 1;
+      }
+    });
+    if (consideredTotal === 0) {
       const hinted = Number(value?.percentage);
       if (Number.isFinite(hinted)) {
         return hinted / 100;
       }
       return 0;
     }
-    const completed = values.filter(Boolean).length;
-    return values.length ? completed / values.length : 0;
+    return completed / consideredTotal;
   }
   return null; // pour short/long -> pas de graph
 }
