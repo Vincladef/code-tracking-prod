@@ -347,9 +347,15 @@
         return;
       }
       try {
-        const values = Array.from(root.querySelectorAll("[data-checklist-input]"))
-          .map((node) => Boolean(node.checked));
-        hidden.value = JSON.stringify(values);
+        const inputs = Array.from(root.querySelectorAll("[data-checklist-input]"));
+        const payload = {
+          items: inputs.map((node) => Boolean(node.checked)),
+          skipped: inputs.map((node) => (node.dataset?.checklistSkip === "1" ? true : false)),
+        };
+        if (Array.isArray(payload.skipped) && payload.skipped.every((value) => value === false)) {
+          delete payload.skipped;
+        }
+        hidden.value = JSON.stringify(payload);
         hidden.dataset.dirty = "1";
         hidden.dispatchEvent(new Event("input", { bubbles: true }));
         hidden.dispatchEvent(new Event("change", { bubbles: true }));

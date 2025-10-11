@@ -1084,7 +1084,11 @@ function formatConsigneValue(type, value, options = {}) {
             ? "history-checklist__item--checked"
             : "history-checklist__item--unchecked";
           const symbol = checked ? "☑︎" : "☐";
-          return `<li class="history-checklist__item ${statusClass}"><span class="history-checklist__box" aria-hidden="true">${symbol}</span><span class="history-checklist__label">${escapeHtml(label)}</span></li>`;
+          const skippedBadge = skippedState
+            ? '<span class="badge-skipped">passée</span>'
+            : '';
+          const labelMarkup = skippedBadge ? `${escapeHtml(label)} ${skippedBadge}` : escapeHtml(label);
+          return `<li class="history-checklist__item ${statusClass}"><span class="history-checklist__box" aria-hidden="true">${symbol}</span><span class="history-checklist__label">${labelMarkup}</span></li>`;
         })
         .join("");
       const consideredTotal = states.reduce(
@@ -4271,6 +4275,7 @@ function inputForType(consigne, initialValue = null) {
           <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm${skipClass}" data-checklist-item data-item-id="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-checklist-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" data-checklist-label="${escapeHtml(trimmedLabel)}" data-validated="${validatedAttr}"${skipAttr}>
             <input type="checkbox" class="h-4 w-4" data-checklist-input data-key="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" ${inputSkipAttr} ${checkedAttr}>
             <span class="flex-1">${escapeHtml(label)}</span>
+            <button type="button" class="checklist-skip-btn" data-checklist-skip-btn title="Passer cet élément (ne pas le compter)">⏭</button>
           </label>`;
       })
       .join("");
@@ -4307,8 +4312,10 @@ function inputForType(consigne, initialValue = null) {
               if (input.dataset) {
                 input.dataset[SKIP_DATA_KEY] = '1';
               }
+              input.setAttribute('data-checklist-skip', '1');
               if (host) {
                 host.dataset.checklistSkipped = '1';
+                host.setAttribute('data-checklist-skipped', '1');
                 host.classList.add('checklist-item--skipped');
                 host.setAttribute('data-validated', 'skip');
               }
@@ -4316,8 +4323,12 @@ function inputForType(consigne, initialValue = null) {
               if (input.dataset) {
                 delete input.dataset[SKIP_DATA_KEY];
               }
+              input.removeAttribute('data-checklist-skip');
               if (host) {
                 host.classList.remove('checklist-item--skipped');
+                if (host.dataset) {
+                  delete host.dataset.checklistSkipped;
+                }
                 host.removeAttribute('data-checklist-skipped');
                 host.setAttribute('data-validated', input.checked ? 'true' : 'false');
               }
@@ -4346,11 +4357,13 @@ function inputForType(consigne, initialValue = null) {
               const skip = isSkipped(input, host);
               if (skip) {
                 host.dataset.checklistSkipped = '1';
+                host.setAttribute('data-checklist-skipped', '1');
                 host.classList.add('checklist-item--skipped');
                 host.setAttribute('data-validated', 'skip');
                 if (input.dataset) {
                   input.dataset[SKIP_DATA_KEY] = '1';
                 }
+                input.setAttribute('data-checklist-skip', '1');
               } else {
                 host.classList.remove('checklist-item--skipped');
                 host.removeAttribute('data-checklist-skipped');
@@ -4358,15 +4371,20 @@ function inputForType(consigne, initialValue = null) {
                 if (input.dataset) {
                   delete input.dataset[SKIP_DATA_KEY];
                 }
+                input.removeAttribute('data-checklist-skip');
               }
             });
           };
           const serialize = () => {
             const inputs = queryInputs();
-            return {
+            const payload = {
               items: inputs.map((input) => Boolean(input.checked)),
               skipped: inputs.map((input) => isSkipped(input)),
             };
+            if (Array.isArray(payload.skipped) && payload.skipped.every((value) => value === false)) {
+              delete payload.skipped;
+            }
+            return payload;
           };
           const sync = (options = {}) => {
             const payload = serialize();
@@ -4397,6 +4415,13 @@ function inputForType(consigne, initialValue = null) {
             root.dataset.checklistDirty = '1';
             sync({ markDirty: true, notify: true });
           };
+          root.addEventListener('click', (event) => {
+            const button = event.target?.closest('[data-checklist-skip-btn]');
+            if (!button || !root.contains(button)) return;
+            event.preventDefault();
+            const host = button.closest('[data-checklist-item]');
+            toggleSkip(host);
+          });
           const getContextMenuState = () => {
             if (!window.__checklistContextMenuState) {
               window.__checklistContextMenuState = { menu: null, button: null, host: null };
@@ -4543,8 +4568,12 @@ function inputForType(consigne, initialValue = null) {
               closeContextMenu();
               const input = event.target;
               const host = resolveHost(input);
-              if (!input.checked && isSkipped(input, host)) {
-                setSkipState(input, false);
+              const skipActive = isSkipped(input, host);
+              if (skipActive) {
+                input.checked = true;
+                setSkipState(input, true);
+              } else if (host) {
+                host.setAttribute('data-validated', input.checked ? 'true' : 'false');
               }
               root.dataset.checklistDirty = '1';
               sync({ markDirty: true, notify: true });

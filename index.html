@@ -1924,6 +1924,46 @@
       text-decoration: line-through;
     }
 
+    [data-checklist-item].checklist-item--skipped input[type="checkbox"],
+    [data-checklist-item][data-checklist-skipped="1"] input[type="checkbox"] {
+      accent-color: #9ca3af !important;
+    }
+
+    .checklist-skip-btn {
+      margin-left: .35rem;
+      font-size: .75rem;
+      line-height: 1;
+      opacity: .7;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      transition: opacity .15s ease;
+    }
+
+    .checklist-skip-btn:hover,
+    .checklist-skip-btn:focus-visible {
+      opacity: 1;
+    }
+
+    .checklist-skip-btn:focus-visible {
+      outline: 2px solid rgba(148, 163, 184, 0.65);
+      outline-offset: 2px;
+    }
+
+    .badge-skipped {
+      display: inline-flex;
+      align-items: center;
+      gap: .15rem;
+      font-size: .7rem;
+      font-weight: 600;
+      padding: .1rem .45rem;
+      border-radius: .6rem;
+      background: #e5e7eb;
+      color: #4b5563;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
     [data-checklist-item].saved-burst {
       animation: pulseSaved 0.4s ease-out 1;
     }
