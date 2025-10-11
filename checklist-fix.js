@@ -342,13 +342,15 @@
       .filter(Boolean);
   }
 
-  function applySelectedKeys(root, itemKeyAttr, selectedKeys = []) {
+  function applySelectedKeys(root, itemKeyAttr, selectedKeys = [], options = {}) {
     if (!(root instanceof Element)) {
       return;
     }
     const selector = `input[type="checkbox"][${itemKeyAttr}]`;
     const inputs = Array.from(root.querySelectorAll(selector));
     const keySet = new Set(selectedKeys.map((value) => String(value)));
+    const markDirty = options.markDirty !== false;
+    const dispatchEvents = options.dispatch !== false;
     inputs.forEach((input) => {
       if (!(input instanceof HTMLInputElement)) {
         return;
@@ -373,10 +375,10 @@
       } catch (error) {
         console.warn("[checklist-fix] hidden", error);
       }
-      if (hidden.dataset) {
+      if (markDirty && hidden.dataset) {
         hidden.dataset.dirty = "1";
       }
-      if (typeof hidden.dispatchEvent === "function" && typeof Event === "function") {
+      if (dispatchEvents && typeof hidden.dispatchEvent === "function" && typeof Event === "function") {
         try {
           hidden.dispatchEvent(new Event("input", { bubbles: true }));
           hidden.dispatchEvent(new Event("change", { bubbles: true }));
@@ -385,7 +387,7 @@
         }
       }
     }
-    if (root && root.dataset) {
+    if (markDirty && root && root.dataset) {
       root.dataset.checklistDirty = "1";
     }
   }
@@ -481,12 +483,25 @@
       if (!saved) {
         saved = await fallbackLoadAnswer(effectiveUid, consigneId, dateKey);
       }
-      const selected = Array.isArray(saved?.selectedIds)
-        ? saved.selectedIds
-        : Array.isArray(saved?.selected)
-        ? saved.selected
-        : [];
-      applySelectedKeys(root, itemKeyAttr, selected);
+      if (manager && typeof manager.applySelection === "function") {
+        try {
+          manager.applySelection(root, saved, {
+            consigneId,
+            optionsHash: root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null,
+            markDirty: false,
+            showHint: false,
+          });
+        } catch (error) {
+          console.warn("[checklist-fix] applySelection", error);
+        }
+      } else {
+        const selected = Array.isArray(saved?.selectedIds)
+          ? saved.selectedIds
+          : Array.isArray(saved?.selected)
+          ? saved.selected
+          : [];
+        applySelectedKeys(root, itemKeyAttr, selected, { markDirty: false, dispatch: false });
+      }
       return saved;
     })()
       .catch((error) => {
