@@ -593,6 +593,7 @@
             ? data.ts.toDate().getTime()
             : data.ts,
         dateKey: data.dateKey || data.dayKey,
+        answers: data.answers,
       });
       cacheSelection(uid, consigneId, normalized);
       return normalized;
