@@ -4297,7 +4297,17 @@ function inputForType(consigne, initialValue = null) {
           let pressTarget = null;
 
           const queryInputs = () => Array.from(root.querySelectorAll('[data-checklist-input]'));
-          const resolveHost = (input) => input?.closest('[data-checklist-item]') || null;
+          const resolveClosest = (target, selector) => {
+            if (!target) return null;
+            if (target instanceof Element) {
+              return target.closest(selector);
+            }
+            if (target instanceof Node && target.parentElement) {
+              return target.parentElement.closest(selector);
+            }
+            return null;
+          };
+          const resolveHost = (input) => resolveClosest(input, '[data-checklist-item]');
           const isSkipped = (input, host = resolveHost(input)) => {
             if (!input) return false;
             if (input.dataset && input.dataset[SKIP_DATA_KEY] === '1') return true;
@@ -4416,10 +4426,10 @@ function inputForType(consigne, initialValue = null) {
             sync({ markDirty: true, notify: true });
           };
           root.addEventListener('click', (event) => {
-            const button = event.target?.closest('[data-checklist-skip-btn]');
+            const button = resolveClosest(event.target, '[data-checklist-skip-btn]');
             if (!button || !root.contains(button)) return;
             event.preventDefault();
-            const host = button.closest('[data-checklist-item]');
+            const host = resolveClosest(button, '[data-checklist-item]');
             toggleSkip(host);
           });
           const getContextMenuState = () => {
@@ -4528,7 +4538,7 @@ function inputForType(consigne, initialValue = null) {
             handleContextAction(host, coords);
           };
           root.addEventListener('contextmenu', (event) => {
-            const host = event.target?.closest('[data-checklist-item]');
+            const host = resolveClosest(event.target, '[data-checklist-item]');
             if (!host || !root.contains(host)) return;
             event.preventDefault();
             triggerContextMenu(host, resolveCoords(event));
@@ -4538,7 +4548,7 @@ function inputForType(consigne, initialValue = null) {
               clearPress();
               return;
             }
-            const host = event.target?.closest('[data-checklist-item]');
+            const host = resolveClosest(event.target, '[data-checklist-item]');
             if (!host || !root.contains(host)) return;
             clearPress();
             pressTarget = host;
@@ -4564,7 +4574,7 @@ function inputForType(consigne, initialValue = null) {
             }
           });
           root.addEventListener('change', (event) => {
-            if (event.target && event.target.matches('[data-checklist-input]')) {
+            if (event.target instanceof Element && event.target.matches('[data-checklist-input]')) {
               closeContextMenu();
               const input = event.target;
               const host = resolveHost(input);
