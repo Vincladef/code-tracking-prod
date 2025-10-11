@@ -76,6 +76,7 @@ const {
   buildChecklistValue,
   sanitizeChecklistItems,
   readChecklistStates,
+  readChecklistSkipped,
 } = require("../modes.js");
 
 function testChecklistValueRemainsNullUntilDirty() {
@@ -127,12 +128,38 @@ function testBuildChecklistValueRespectsConsigneLabels() {
   );
 }
 
+function testBuildChecklistValueKeepsSkippedStates() {
+  const consigne = { checklistItems: ["Alpha", "Beta", "Gamma"] };
+  const built = buildChecklistValue(consigne, {
+    items: [true, false, true],
+    skipped: [false, true, false],
+  });
+  assert.deepStrictEqual(
+    built,
+    {
+      labels: ["Alpha", "Beta", "Gamma"],
+      items: [true, false, true],
+      skipped: [false, true, false],
+    },
+    "Les états passés doivent être conservés lors de la normalisation",
+  );
+}
+
 function testReadChecklistStatesNormalizesValues() {
   const states = readChecklistStates({ items: [true, "yes", 1, false] });
   assert.deepStrictEqual(
     states,
     [true, false, false, false],
     "Seules les valeurs booléennes strictes doivent être conservées",
+  );
+}
+
+function testReadChecklistSkippedNormalizesValues() {
+  const skipped = readChecklistSkipped({ skipped: ["yes", true, 1, false] });
+  assert.deepStrictEqual(
+    skipped,
+    [false, true, false, false],
+    "Les éléments passés doivent être convertis en booléens",
   );
 }
 
@@ -150,7 +177,9 @@ try {
   testDotColorTreatsNullAsNa();
   testDotColorSignalsAllUncheckedAsKo();
   testBuildChecklistValueRespectsConsigneLabels();
+  testBuildChecklistValueKeepsSkippedStates();
   testReadChecklistStatesNormalizesValues();
+  testReadChecklistSkippedNormalizesValues();
   testSanitizeChecklistItemsDropsEmptyEntries();
   console.log("All checklist status tests passed.");
 } catch (error) {
