@@ -4292,6 +4292,7 @@ function inputForType(consigne, initialValue = null) {
           const root = hidden?.closest('[data-checklist-root]');
           if (!root || !hidden) return;
           const SKIP_DATA_KEY = 'checklistSkip';
+          const PREV_CHECKED_KEY = 'checklistPrevChecked';
           const LONG_PRESS_DELAY = 600;
           let pressTimer = null;
           let pressTarget = null;
@@ -4318,6 +4319,11 @@ function inputForType(consigne, initialValue = null) {
             const host = resolveHost(input);
             if (!input) return;
             if (skip) {
+              const previous = input.checked ? '1' : '0';
+              if (input.dataset) {
+                input.dataset[PREV_CHECKED_KEY] = previous;
+              }
+              input.setAttribute('data-checklist-prev-checked', previous);
               input.checked = true;
               if (input.dataset) {
                 input.dataset[SKIP_DATA_KEY] = '1';
@@ -4330,10 +4336,23 @@ function inputForType(consigne, initialValue = null) {
                 host.setAttribute('data-validated', 'skip');
               }
             } else {
+              let previousChecked = null;
+              if (input.dataset && Object.prototype.hasOwnProperty.call(input.dataset, PREV_CHECKED_KEY)) {
+                previousChecked = input.dataset[PREV_CHECKED_KEY];
+                delete input.dataset[PREV_CHECKED_KEY];
+              }
+              if (previousChecked == null && input.hasAttribute('data-checklist-prev-checked')) {
+                previousChecked = input.getAttribute('data-checklist-prev-checked');
+              }
+              input.removeAttribute('data-checklist-prev-checked');
               if (input.dataset) {
                 delete input.dataset[SKIP_DATA_KEY];
               }
               input.removeAttribute('data-checklist-skip');
+              if (previousChecked != null) {
+                const wasChecked = previousChecked === '1' || previousChecked === 'true';
+                input.checked = Boolean(wasChecked);
+              }
               if (host) {
                 host.classList.remove('checklist-item--skipped');
                 if (host.dataset) {
@@ -4602,10 +4621,17 @@ function inputForType(consigne, initialValue = null) {
               inputs.forEach((input, index) => {
                 const skip = Boolean(payload.skipped[index]);
                 const checked = Boolean(payload.items[index]);
+                input.checked = checked;
                 if (skip) {
-                  input.checked = true;
+                  input.setAttribute('data-checklist-prev-checked', checked ? '1' : '0');
+                  if (input.dataset) {
+                    input.dataset[PREV_CHECKED_KEY] = checked ? '1' : '0';
+                  }
                 } else {
-                  input.checked = checked;
+                  input.removeAttribute('data-checklist-prev-checked');
+                  if (input.dataset) {
+                    delete input.dataset[PREV_CHECKED_KEY];
+                  }
                 }
                 setSkipState(input, skip);
                 const host = resolveHost(input);
