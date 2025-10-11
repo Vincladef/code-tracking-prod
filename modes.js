@@ -4270,7 +4270,7 @@ function inputForType(consigne, initialValue = null) {
         const skipClass = skipped ? " checklist-item--skipped" : "";
         const skipAttr = skipped ? ' data-checklist-skipped="1"' : "";
         const inputSkipAttr = skipped ? ' data-checklist-skip="1"' : "";
-        const checkedAttr = skipped || checked ? "checked" : "";
+        const checkedAttr = checked ? "checked" : "";
         return `
           <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm${skipClass}" data-checklist-item data-item-id="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-checklist-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" data-checklist-label="${escapeHtml(trimmedLabel)}" data-validated="${validatedAttr}"${skipAttr}>
             <input type="checkbox" class="h-4 w-4" data-checklist-input data-key="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" ${inputSkipAttr} ${checkedAttr}>
@@ -4319,12 +4319,27 @@ function inputForType(consigne, initialValue = null) {
             const host = resolveHost(input);
             if (!input) return;
             if (skip) {
-              const previous = input.checked ? '1' : '0';
+              let previous = null;
+              const hasStoredPrev =
+                Boolean(input.dataset) && Object.prototype.hasOwnProperty.call(input.dataset, PREV_CHECKED_KEY);
+              if (hasStoredPrev) {
+                previous = input.dataset ? input.dataset[PREV_CHECKED_KEY] : null;
+              } else if (input.hasAttribute('data-checklist-prev-checked')) {
+                previous = input.getAttribute('data-checklist-prev-checked');
+              } else {
+                previous = input.checked ? '1' : '0';
+              }
+              if (previous == null) {
+                previous = input.checked ? '1' : '0';
+              }
               if (input.dataset) {
                 input.dataset[PREV_CHECKED_KEY] = previous;
               }
               input.setAttribute('data-checklist-prev-checked', previous);
-              input.checked = true;
+              if ('indeterminate' in input) {
+                input.indeterminate = true;
+              }
+              input.checked = false;
               if (input.dataset) {
                 input.dataset[SKIP_DATA_KEY] = '1';
               }
@@ -4337,6 +4352,9 @@ function inputForType(consigne, initialValue = null) {
               }
             } else {
               let previousChecked = null;
+              if ('indeterminate' in input) {
+                input.indeterminate = false;
+              }
               if (input.dataset && Object.prototype.hasOwnProperty.call(input.dataset, PREV_CHECKED_KEY)) {
                 previousChecked = input.dataset[PREV_CHECKED_KEY];
                 delete input.dataset[PREV_CHECKED_KEY];
@@ -4600,7 +4618,6 @@ function inputForType(consigne, initialValue = null) {
               const host = resolveHost(input);
               const skipActive = isSkipped(input, host);
               if (skipActive) {
-                input.checked = true;
                 setSkipState(input, true);
               } else if (host) {
                 host.setAttribute('data-validated', input.checked ? 'true' : 'false');
