@@ -21,6 +21,15 @@
     typeof Intl !== "undefined"
       ? new Intl.DateTimeFormat("fr-CA", { timeZone: DEFAULT_TIMEZONE })
       : null;
+  const HINT_DATE_FORMATTER =
+    typeof Intl !== "undefined"
+      ? new Intl.DateTimeFormat("fr-FR", {
+          timeZone: DEFAULT_TIMEZONE,
+          weekday: "short",
+          day: "numeric",
+          month: "long",
+        })
+      : null;
 
   const STORAGE_PREFIX = "lastChecklist";
   const HINT_CLASS = "preselect-hint";
@@ -585,9 +594,6 @@
             : data.ts,
         dateKey: data.dateKey || data.dayKey,
       });
-      if (normalized.dateKey !== todayKey) {
-        return null;
-      }
       cacheSelection(uid, consigneId, normalized);
       return normalized;
     } catch (error) {
@@ -612,7 +618,39 @@
     });
   }
 
-  function renderHint(root, consigneId, { optionsChanged = false } = {}) {
+  function formatHintDate(dayKey) {
+    if (typeof dayKey !== "string") {
+      return "";
+    }
+    const trimmed = dayKey.trim();
+    if (!trimmed) {
+      return "";
+    }
+    const match = DAY_KEY_REGEX.exec(trimmed);
+    if (!match) {
+      return trimmed;
+    }
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+      return trimmed;
+    }
+    const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    if (Number.isNaN(date.getTime())) {
+      return trimmed;
+    }
+    if (HINT_DATE_FORMATTER) {
+      try {
+        return HINT_DATE_FORMATTER.format(date);
+      } catch (error) {
+        console.warn("[checklist-state] hint:format", error);
+      }
+    }
+    return trimmed;
+  }
+
+  function renderHint(root, consigneId, { optionsChanged = false, previousDateKey = null } = {}) {
     if (!root) return;
     const parent = root.parentElement || root;
     if (!parent) return;
@@ -622,6 +660,16 @@
     hint.textContent = "Réponses précédentes pré-appliquées";
     if (consigneId) {
       hint.dataset.checklistFor = String(consigneId);
+    }
+    if (previousDateKey) {
+      const formatted = formatHintDate(previousDateKey);
+      if (formatted) {
+        const note = document.createElement("span");
+        note.className = `${HINT_CLASS}__note`;
+        note.textContent = `Dernière réponse du ${formatted}`;
+        hint.appendChild(document.createTextNode(" "));
+        hint.appendChild(note);
+      }
     }
     if (optionsChanged) {
       hint.classList.add(HINT_WARNING_CLASS);
@@ -912,8 +960,10 @@
     if (options.showHint !== false) {
       const optionsHash = options.optionsHash || root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash;
       const changed = payload.optionsHash && optionsHash && payload.optionsHash !== optionsHash;
-      if (selectedSet.size > 0 || changed) {
-        renderHint(root, consigneId, { optionsChanged: changed });
+      const todayKey = currentParisDayKey();
+      const previousDateKey = payload.dateKey && payload.dateKey !== todayKey ? payload.dateKey : null;
+      if (selectedSet.size > 0 || changed || previousDateKey) {
+        renderHint(root, consigneId, { optionsChanged: changed, previousDateKey });
       } else {
         clearHint(root, consigneId);
       }
