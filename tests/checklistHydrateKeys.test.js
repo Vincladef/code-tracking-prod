@@ -80,6 +80,10 @@ class MockElement {
     return this.attributes.get(name);
   }
 
+  hasAttribute(name) {
+    return this.attributes.has(name);
+  }
+
   removeAttribute(name) {
     this.attributes.delete(name);
     if (name.startsWith("data-")) {
@@ -284,7 +288,7 @@ function buildChecklistDom(document) {
   return { root, inputA, inputB, hidden };
 }
 
-(function runTest() {
+(async function runTest() {
   global.window = {};
   global.document = setupDom();
   global.window.document = global.document;
@@ -312,39 +316,61 @@ function buildChecklistDom(document) {
 
   require("../checklist-fix.js");
 
-  return Promise.resolve(
-    global.window.hydrateChecklist({ container: root, consigneId: "consigne-1", itemKeyAttr: "data-key" })
-  )
-    .then(() => {
-      assert.strictEqual(inputB.checked, true, "The saved key should restore the matching checkbox");
-      assert.strictEqual(
-        inputB.getAttribute("data-key"),
-        "consigne-1:item-b",
-        "Hydration should assign a stable data-key attribute"
-      );
-      assert.strictEqual(
-        inputA.getAttribute("data-key"),
-        "consigne-1:item-a",
-        "Inputs without data-key should receive one during hydration"
-      );
+  await global.window.hydrateChecklist({ container: root, consigneId: "consigne-1", itemKeyAttr: "data-key" });
 
-      inputA.checked = true;
-      const changeEvent = { type: "change", target: inputA };
-      root.dispatchEvent(changeEvent);
+  assert.strictEqual(inputB.checked, true, "The saved key should restore the matching checkbox");
+  assert.strictEqual(
+    inputB.getAttribute("data-key"),
+    "consigne-1:item-b",
+    "Hydration should assign a stable data-key attribute"
+  );
+  assert.strictEqual(
+    inputA.getAttribute("data-key"),
+    "consigne-1:item-a",
+    "Inputs without data-key should receive one during hydration"
+  );
 
-      assert.strictEqual(persistCalls, 1, "Persist should be triggered after a change event");
-      assert.strictEqual(inputA.getAttribute("data-key"), "consigne-1:item-a");
-      assert.strictEqual(root.dataset.checklistDirty, "1", "The checklist should be marked dirty after a change");
+  inputA.checked = true;
+  const changeEvent = { type: "change", target: inputA };
+  root.dispatchEvent(changeEvent);
 
-      const payload = JSON.parse(hidden.value || "[]");
-      const items = Array.isArray(payload.items) ? payload.items : payload;
-      assert.strictEqual(items[0], false, "Hydration should leave untouched items unchecked before edits");
-    })
-    .then(() => {
-      console.log("Checklist hydration key fallback test passed.");
-    })
-    .catch((error) => {
-      console.error(error);
-      process.exitCode = 1;
-    });
-})();
+  assert.strictEqual(persistCalls, 1, "Persist should be triggered after a change event");
+  assert.strictEqual(inputA.getAttribute("data-key"), "consigne-1:item-a");
+  assert.strictEqual(root.dataset.checklistDirty, "1", "The checklist should be marked dirty after a change");
+
+  const payload = JSON.parse(hidden.value || "[]");
+  const items = Array.isArray(payload.items) ? payload.items : payload;
+  assert.strictEqual(items[0], false, "Hydration should leave untouched items unchecked before edits");
+
+  // Second scenario: ensure answers map hydrates when no selectedIds are present.
+  require("../utils/checklist-state.js");
+  const manager = global.window.ChecklistState;
+  manager.loadSelection = async () => ({
+    consigneId: "consigne-1",
+    selectedIds: [],
+    answers: {
+      "consigne-1:item-b": { value: "yes", skipped: false },
+    },
+    optionsHash: "hash-1",
+  });
+  manager.persistRoot = async () => {
+    persistCalls += 1;
+    return null;
+  };
+
+  const { root: root2, inputA: inputA2, inputB: inputB2, hidden: hidden2 } = buildChecklistDom(global.document);
+  global.document.body.appendChild(root2);
+
+  await global.window.hydrateChecklist({ container: root2, consigneId: "consigne-1", itemKeyAttr: "data-key" });
+
+  assert.strictEqual(inputB2.checked, true, "Checklist answers map should hydrate checked items");
+  assert.strictEqual(inputA2.checked, false, "Unanswered items should remain unchecked");
+  const payload2 = JSON.parse(hidden2.value || "[]");
+  const items2 = Array.isArray(payload2.items) ? payload2.items : payload2;
+  assert.strictEqual(items2[1], true, "Serialized state should reflect hydrated answers");
+
+  console.log("Checklist hydration tests passed.");
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

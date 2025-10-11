@@ -609,12 +609,30 @@
       if (!saved) {
         saved = await fallbackLoadAnswer(effectiveUid, consigneId, dateKey);
       }
-      const selected = Array.isArray(saved?.selectedIds)
-        ? saved.selectedIds
-        : Array.isArray(saved?.selected)
-        ? saved.selected
-        : [];
-      applySelectedKeys(root, itemKeyAttr, selected);
+      let appliedWithManager = false;
+      if (saved && manager && typeof manager.applySelection === "function") {
+        try {
+          const optionsHash =
+            root.getAttribute("data-checklist-options-hash") ||
+            root.dataset?.checklistOptionsHash ||
+            null;
+          manager.applySelection(root, saved, {
+            consigneId,
+            optionsHash,
+          });
+          appliedWithManager = true;
+        } catch (error) {
+          console.warn("[checklist-fix] applySelection", error);
+        }
+      }
+      if (!appliedWithManager) {
+        const selected = Array.isArray(saved?.selectedIds)
+          ? saved.selectedIds
+          : Array.isArray(saved?.selected)
+          ? saved.selected
+          : [];
+        applySelectedKeys(root, itemKeyAttr, selected);
+      }
       return saved;
     })()
       .catch((error) => {
