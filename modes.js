@@ -729,7 +729,8 @@ function resolveChecklistItemId(consigne, index, label) {
 }
 
 function collectChecklistSelectedIds(consigne, container, value) {
-  const states = readChecklistStates(value);
+  const { items: states, skipped: fallbackSkipped } = normalizeChecklistStateArrays(value);
+  const domSkipped = [];
   const selected = new Set();
   if (container instanceof Element) {
     const items = Array.from(container.querySelectorAll("[data-checklist-item]"));
@@ -748,7 +749,17 @@ function collectChecklistSelectedIds(consigne, container, value) {
           item.getAttribute("data-item-id");
         const itemId = explicitKey || fallbackId;
         const isChecked = input ? Boolean(input.checked) : Boolean(states[index]);
-        if (isChecked) {
+        const isSkipped = (() => {
+          if (input && input.dataset?.checklistSkip === "1") {
+            return true;
+          }
+          if (item.dataset?.checklistSkipped === "1") {
+            return true;
+          }
+          return fallbackSkipped[index] || false;
+        })();
+        domSkipped[index] = isSkipped;
+        if (isChecked && !isSkipped) {
           selected.add(String(itemId));
         }
       });
@@ -756,8 +767,10 @@ function collectChecklistSelectedIds(consigne, container, value) {
     }
   }
   const sanitizedItems = sanitizeChecklistItems(consigne);
-  states.forEach((checked, index) => {
-    if (checked) {
+  sanitizedItems.forEach((_, index) => {
+    const checked = Boolean(states[index]);
+    const isSkipped = Boolean(domSkipped[index] ?? fallbackSkipped[index]);
+    if (checked && !isSkipped) {
       selected.add(resolveChecklistItemId(consigne, index, sanitizedItems[index]));
     }
   });
@@ -799,17 +812,108 @@ function readChecklistStates(value) {
   return [];
 }
 
-function deriveChecklistStats(value) {
+function readChecklistSkipped(value) {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+  const raw = Array.isArray(value.skipped)
+    ? value.skipped
+    : Array.isArray(value.skipStates)
+    ? value.skipStates
+    : [];
+  return raw.map((item) => item === true);
+}
+
+function normalizeChecklistStateArrays(value, length = null) {
   const states = readChecklistStates(value);
-  const total = states.length;
+  const skipped = readChecklistSkipped(value);
+  const size =
+    Number.isFinite(length) && length >= 0 ? Number(length) : Math.max(states.length, skipped.length);
+  if (!Number.isFinite(size) || size <= 0) {
+    return { items: states.slice(), skipped: skipped.slice() };
+  }
+  const normalizedItems = Array.from({ length: size }, (_, index) => Boolean(states[index]));
+  const normalizedSkipped = Array.from({ length: size }, (_, index) => Boolean(skipped[index]));
+  return { items: normalizedItems, skipped: normalizedSkipped };
+}
+
+function readChecklistDomState(container) {
+  if (typeof Element !== "undefined" && container instanceof Element) {
+    const inputs = Array.from(container.querySelectorAll("[data-checklist-input]"));
+    if (!inputs.length) {
+      return { items: [], skipped: [] };
+    }
+    const items = [];
+    const skipped = [];
+    inputs.forEach((input) => {
+      const host = input.closest("[data-checklist-item]");
+      const isSkipped = Boolean(
+        (input.dataset && input.dataset.checklistSkip === "1") ||
+          (host && host.dataset && host.dataset.checklistSkipped === "1")
+      );
+      items.push(Boolean(input.checked));
+      skipped.push(isSkipped);
+    });
+    return { items, skipped };
+  }
+  return { items: [], skipped: [] };
+}
+
+function applyChecklistDomState(container, value) {
+  if (!(typeof Element !== "undefined" && container instanceof Element)) {
+    return;
+  }
+  const inputs = Array.from(container.querySelectorAll("[data-checklist-input]"));
+  if (!inputs.length) {
+    return;
+  }
+  const { items: states, skipped } = normalizeChecklistStateArrays(value, inputs.length);
+  inputs.forEach((input, index) => {
+    const host = input.closest("[data-checklist-item]");
+    const isSkipped = Boolean(skipped[index]);
+    const isChecked = Boolean(states[index]);
+    input.checked = isSkipped ? true : isChecked;
+    if (typeof input.indeterminate === "boolean") {
+      input.indeterminate = false;
+    }
+    if (input.dataset) {
+      if (isSkipped) {
+        input.dataset.checklistSkip = "1";
+      } else {
+        delete input.dataset.checklistSkip;
+      }
+    }
+    if (host) {
+      if (isSkipped) {
+        host.dataset.checklistSkipped = "1";
+        host.classList.add("checklist-item--skipped");
+        host.setAttribute("data-validated", "skip");
+      } else {
+        host.classList.remove("checklist-item--skipped");
+        if (host.dataset) {
+          delete host.dataset.checklistSkipped;
+        }
+        host.setAttribute("data-validated", isChecked ? "true" : "false");
+      }
+    }
+  });
+}
+
+function deriveChecklistStats(value) {
+  const { items: states, skipped } = normalizeChecklistStateArrays(value);
   const checkedIds = [];
+  let consideredTotal = 0;
   states.forEach((checked, index) => {
+    if (skipped[index]) {
+      return;
+    }
+    consideredTotal += 1;
     if (checked) {
       checkedIds.push(index);
     }
   });
   const checkedCount = checkedIds.length;
-  const ratio = total > 0 ? checkedCount / total : 0;
+  const ratio = consideredTotal > 0 ? checkedCount / consideredTotal : 0;
   let percentage = Math.round(ratio * 100);
   if (value && typeof value === "object") {
     const hintedPercentage = Number(value.percentage);
@@ -818,11 +922,12 @@ function deriveChecklistStats(value) {
     }
   }
   return {
-    total,
+    total: consideredTotal,
     checkedCount,
     checkedIds,
     percentage,
     isEmpty: checkedCount === 0,
+    skippedCount: skipped.filter(Boolean).length,
   };
 }
 
@@ -841,6 +946,9 @@ function resolveChecklistStatsFromResponse(response) {
   }
   if (Number.isFinite(response.total)) {
     stats.total = Number(response.total);
+  }
+  if (Number.isFinite(response.skippedCount)) {
+    stats.skippedCount = Number(response.skippedCount);
   }
   if (Number.isFinite(response.percentage)) {
     stats.percentage = Math.max(0, Math.min(100, Math.round(Number(response.percentage))));
@@ -862,11 +970,12 @@ function resolveChecklistStatsFromResponse(response) {
 
 function buildChecklistValue(consigne, rawValue, fallbackValue = null) {
   const labels = sanitizeChecklistItems(consigne);
-  const rawStates = readChecklistStates(rawValue);
+  const normalized = normalizeChecklistStateArrays(rawValue, labels.length || undefined);
   const result = { items: [] };
   if (labels.length) {
     result.labels = labels.slice();
-    result.items = labels.map((_, index) => Boolean(rawStates[index]));
+    result.items = labels.map((_, index) => Boolean(normalized.items[index]));
+    result.skipped = labels.map((_, index) => Boolean(normalized.skipped[index]));
   } else {
     const fallbackLabels = (() => {
       if (rawValue && typeof rawValue === "object" && Array.isArray(rawValue.labels)) {
@@ -877,14 +986,20 @@ function buildChecklistValue(consigne, rawValue, fallbackValue = null) {
       }
       return [];
     })();
+    const fallbackNormalized = normalizeChecklistStateArrays(
+      rawValue,
+      fallbackLabels.length || undefined
+    );
     if (fallbackLabels.length) {
       const normalizedFallback = fallbackLabels.map((label) =>
         typeof label === "string" ? label : String(label)
       );
       result.labels = normalizedFallback;
-      result.items = normalizedFallback.map((_, index) => Boolean(rawStates[index]));
+      result.items = normalizedFallback.map((_, index) => Boolean(fallbackNormalized.items[index]));
+      result.skipped = normalizedFallback.map((_, index) => Boolean(fallbackNormalized.skipped[index]));
     } else {
-      result.items = rawStates.slice();
+      result.items = fallbackNormalized.items.slice();
+      result.skipped = fallbackNormalized.skipped.slice();
     }
   }
   if (!Array.isArray(result.items)) {
@@ -892,17 +1007,34 @@ function buildChecklistValue(consigne, rawValue, fallbackValue = null) {
   }
   if (Array.isArray(result.labels) && result.items.length !== result.labels.length) {
     result.items = result.labels.map((_, index) => Boolean(result.items[index]));
+    if (Array.isArray(result.skipped)) {
+      result.skipped = result.labels.map((_, index) => Boolean(result.skipped[index]));
+    }
+  }
+  if (Array.isArray(result.skipped) && result.skipped.every((value) => value === false)) {
+    delete result.skipped;
   }
   return result;
 }
 
 function checklistHasSelection(value) {
-  return readChecklistStates(value).some(Boolean);
+  const { items, skipped } = normalizeChecklistStateArrays(value);
+  return items.some((checked, index) => checked && !skipped[index]);
 }
 
 function checklistIsComplete(value) {
-  const states = readChecklistStates(value);
-  return states.length > 0 && states.every(Boolean);
+  const { items, skipped } = normalizeChecklistStateArrays(value);
+  let hasConsidered = false;
+  for (let index = 0; index < items.length; index += 1) {
+    if (skipped[index]) {
+      continue;
+    }
+    hasConsidered = true;
+    if (!items[index]) {
+      return false;
+    }
+  }
+  return hasConsidered;
 }
 
 function numericPoint(type, value) {
@@ -917,7 +1049,7 @@ function numericPoint(type, value) {
 function formatConsigneValue(type, value, options = {}) {
   const wantsHtml = options.mode === "html";
   if (type === "info") return "";
-  if (value && typeof value === "object" && value.skipped) {
+  if (value && typeof value === "object" && value.skipped === true) {
     const label = "Passée";
     return wantsHtml ? escapeHtml(label) : label;
   }
@@ -934,7 +1066,7 @@ function formatConsigneValue(type, value, options = {}) {
   }
   if (value === null || value === undefined || value === "") return "—";
   if (type === "checklist") {
-    const states = readChecklistStates(value);
+    const { items: states, skipped } = normalizeChecklistStateArrays(value);
     if (wantsHtml) {
       if (!states.length) {
         return '<p class="history-checklist__empty">—</p>';
@@ -945,20 +1077,40 @@ function formatConsigneValue(type, value, options = {}) {
       const itemsMarkup = states
         .map((checked, index) => {
           const label = labels[index] || `Élément ${index + 1}`;
-          const statusClass = checked
+          const skippedState = Boolean(skipped[index]);
+          const statusClass = skippedState
+            ? "history-checklist__item--skipped"
+            : checked
             ? "history-checklist__item--checked"
             : "history-checklist__item--unchecked";
           const symbol = checked ? "☑︎" : "☐";
           return `<li class="history-checklist__item ${statusClass}"><span class="history-checklist__box" aria-hidden="true">${symbol}</span><span class="history-checklist__label">${escapeHtml(label)}</span></li>`;
         })
         .join("");
-      const completed = states.filter(Boolean).length;
-      const ariaLabel = `${completed} sur ${states.length} éléments cochés`;
-      return `<ul class="history-checklist" data-checked="${completed}" data-total="${states.length}" aria-label="${escapeHtml(ariaLabel)}">${itemsMarkup}</ul>`;
+      const consideredTotal = states.reduce(
+        (acc, _, index) => (skipped[index] ? acc : acc + 1),
+        0
+      );
+      const completed = states.reduce(
+        (acc, checked, index) => (skipped[index] || !checked ? acc : acc + 1),
+        0
+      );
+      const ariaLabel =
+        consideredTotal > 0
+          ? `${completed} sur ${consideredTotal} éléments cochés`
+          : "Aucun élément pris en compte";
+      return `<ul class="history-checklist" data-checked="${completed}" data-total="${consideredTotal}" aria-label="${escapeHtml(ariaLabel)}">${itemsMarkup}</ul>`;
     }
     if (!states.length) return "—";
-    const done = states.filter(Boolean).length;
-    return `${done} / ${states.length}`;
+    const considered = states.reduce((acc, _, index) => (skipped[index] ? acc : acc + 1), 0);
+    if (considered === 0) {
+      return "—";
+    }
+    const done = states.reduce(
+      (acc, checked, index) => (skipped[index] || !checked ? acc : acc + 1),
+      0
+    );
+    return `${done} / ${considered}`;
   }
   if (type === "yesno") {
     const text = value === "yes" ? "Oui" : value === "no" ? "Non" : String(value);
@@ -2302,6 +2454,86 @@ window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx
   container.addEventListener('dragend', () => {
     dragId = null;
     dragWrapper = null;
+  });
+};
+
+window.attachDailyCategoryDragDrop = function attachDailyCategoryDragDrop(container, ctx) {
+  if (!container || container.__dailyCategoryDragInstalled) return;
+  container.__dailyCategoryDragInstalled = true;
+  const selector = '.daily-category';
+  const ensureDraggable = () => {
+    container.querySelectorAll(selector).forEach((category) => {
+      if (!category.dataset.categoryDragReady) {
+        category.draggable = true;
+        category.dataset.categoryDragReady = '1';
+      }
+    });
+  };
+  ensureDraggable();
+  let dragging = null;
+  const clearDrag = () => {
+    if (dragging) {
+      dragging.classList.remove('opacity-70');
+    }
+    dragging = null;
+  };
+  const persistOrder = async () => {
+    const rows = Array.from(
+      container.querySelectorAll(
+        '.daily-category .consigne-row[data-id]:not([data-parent-id])'
+      )
+    );
+    if (!rows.length) return;
+    try {
+      await Promise.all(
+        rows.map((row, index) =>
+          Schema.updateConsigneOrder(ctx.db, ctx.user.uid, row.dataset.id, (index + 1) * 10)
+        )
+      );
+    } catch (error) {
+      console.warn('drag-drop:save-category-order:error', error);
+    }
+  };
+  container.addEventListener('dragstart', (event) => {
+    const category = event.target?.closest(selector);
+    if (!category) return;
+    if (event.target?.closest('.consigne-row')) return;
+    dragging = category;
+    category.classList.add('opacity-70');
+    event.dataTransfer.effectAllowed = 'move';
+    try {
+      event.dataTransfer.setData('text/plain', category.dataset.category || '');
+    } catch (error) {
+      // ignore
+    }
+  });
+  container.addEventListener('dragover', (event) => {
+    if (!dragging) return;
+    if (event.target?.closest('.consigne-row')) return;
+    const over = event.target?.closest(selector);
+    if (!over || over === dragging) return;
+    event.preventDefault();
+    const rect = over.getBoundingClientRect();
+    const before = event.clientY < rect.top + rect.height / 2;
+    over.parentNode.insertBefore(dragging, before ? over : over.nextSibling);
+  });
+  container.addEventListener('drop', async (event) => {
+    if (!dragging) return;
+    if (event.target?.closest('.consigne-row')) return;
+    event.preventDefault();
+    const target = event.target?.closest(selector);
+    if (target && target !== dragging) {
+      const rect = target.getBoundingClientRect();
+      const before = event.clientY < rect.top + rect.height / 2;
+      target.parentNode.insertBefore(dragging, before ? target : target.nextSibling);
+    }
+    clearDrag();
+    ensureDraggable();
+    await persistOrder();
+  });
+  container.addEventListener('dragend', () => {
+    clearDrag();
+    ensureDraggable();
   });
 };
 
@@ -4000,8 +4232,15 @@ function inputForType(consigne, initialValue = null) {
       }
       return [];
     })();
+    const initialSkipStates = (() => {
+      if (initialValue && typeof initialValue === "object") {
+        return readChecklistSkipped(initialValue);
+      }
+      return [];
+    })();
     const normalizedValue = items.map((_, index) => Boolean(initialStates[index]));
-    const hasInitialStates = initialStates.length > 0;
+    const normalizedSkipped = items.map((_, index) => Boolean(initialSkipStates[index]));
+    const hasInitialStates = normalizedValue.some(Boolean) || normalizedSkipped.some(Boolean);
     const optionsHash = computeChecklistOptionsHash(consigne);
     const optionsAttr = optionsHash ? ` data-checklist-options-hash="${escapeHtml(String(optionsHash))}"` : "";
     const autosaveFieldName =
@@ -4012,6 +4251,7 @@ function inputForType(consigne, initialValue = null) {
     const checkboxes = items
       .map((label, index) => {
         const checked = normalizedValue[index];
+        const skipped = normalizedSkipped[index];
         const trimmedLabel = typeof label === "string" ? label.trim() : "";
         const itemId = resolveChecklistItemId(consigne, index, trimmedLabel);
         const legacyBase =
@@ -4022,15 +4262,342 @@ function inputForType(consigne, initialValue = null) {
           consigne?.consigneId ??
           "";
         const legacyId = legacyBase ? `${legacyBase}:${index}` : String(index);
-        const validatedAttr = checked ? "true" : "false";
+        const validatedAttr = skipped ? "skip" : checked ? "true" : "false";
+        const skipClass = skipped ? " checklist-item--skipped" : "";
+        const skipAttr = skipped ? ' data-checklist-skipped="1"' : "";
+        const inputSkipAttr = skipped ? ' data-checklist-skip="1"' : "";
+        const checkedAttr = skipped || checked ? "checked" : "";
         return `
-          <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm" data-checklist-item data-item-id="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-checklist-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" data-checklist-label="${escapeHtml(trimmedLabel)}" data-validated="${validatedAttr}">
-            <input type="checkbox" class="h-4 w-4" data-checklist-input data-key="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" ${checked ? "checked" : ""}>
+          <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm${skipClass}" data-checklist-item data-item-id="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-checklist-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" data-checklist-label="${escapeHtml(trimmedLabel)}" data-validated="${validatedAttr}"${skipAttr}>
+            <input type="checkbox" class="h-4 w-4" data-checklist-input data-key="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" ${inputSkipAttr} ${checkedAttr}>
             <span class="flex-1">${escapeHtml(label)}</span>
           </label>`;
       })
       .join("");
-    const initialSerialized = escapeHtml(JSON.stringify(normalizedValue));
+    const initialPayload = {
+      items: normalizedValue,
+      skipped: normalizedSkipped,
+    };
+    const initialSerialized = escapeHtml(JSON.stringify(initialPayload));
+    const scriptContent = String.raw`
+      <script>
+        (() => {
+          const script = document.currentScript;
+          const hidden = script?.previousElementSibling;
+          const root = hidden?.closest('[data-checklist-root]');
+          if (!root || !hidden) return;
+          const SKIP_DATA_KEY = 'checklistSkip';
+          const LONG_PRESS_DELAY = 600;
+          let pressTimer = null;
+          let pressTarget = null;
+
+          const queryInputs = () => Array.from(root.querySelectorAll('[data-checklist-input]'));
+          const resolveHost = (input) => input?.closest('[data-checklist-item]') || null;
+          const isSkipped = (input, host = resolveHost(input)) => {
+            if (!input) return false;
+            if (input.dataset && input.dataset[SKIP_DATA_KEY] === '1') return true;
+            if (host && host.dataset && host.dataset.checklistSkipped === '1') return true;
+            return false;
+          };
+          const setSkipState = (input, skip) => {
+            const host = resolveHost(input);
+            if (!input) return;
+            if (skip) {
+              input.checked = true;
+              if (input.dataset) {
+                input.dataset[SKIP_DATA_KEY] = '1';
+              }
+              if (host) {
+                host.dataset.checklistSkipped = '1';
+                host.classList.add('checklist-item--skipped');
+                host.setAttribute('data-validated', 'skip');
+              }
+            } else {
+              if (input.dataset) {
+                delete input.dataset[SKIP_DATA_KEY];
+              }
+              if (host) {
+                host.classList.remove('checklist-item--skipped');
+                host.removeAttribute('data-checklist-skipped');
+                host.setAttribute('data-validated', input.checked ? 'true' : 'false');
+              }
+            }
+          };
+          const ensureItemIds = () => {
+            const consigneId = root.getAttribute('data-consigne-id') || root.dataset.consigneId || '';
+            queryInputs().forEach((input, index) => {
+              const host = resolveHost(input);
+              if (!host) return;
+              const explicitKey = input.getAttribute('data-key') || input.dataset?.key || input.getAttribute('data-item-id') || host.getAttribute('data-item-id');
+              const attr = input.getAttribute('data-checklist-index');
+              const idx = attr !== null ? attr : index;
+              const fallback = consigneId ? String(consigneId) + ':' + idx : String(idx);
+              const resolvedKey = (explicitKey && String(explicitKey).trim()) || fallback;
+              const legacyKey = input.getAttribute('data-legacy-key') || host.getAttribute('data-checklist-legacy-key') || fallback;
+              input.setAttribute('data-key', resolvedKey);
+              if (input.dataset) {
+                input.dataset.key = resolvedKey;
+              }
+              input.setAttribute('data-item-id', resolvedKey);
+              input.setAttribute('data-legacy-key', legacyKey);
+              host.setAttribute('data-item-id', resolvedKey);
+              host.setAttribute('data-checklist-key', resolvedKey);
+              host.setAttribute('data-checklist-legacy-key', legacyKey);
+              const skip = isSkipped(input, host);
+              if (skip) {
+                host.dataset.checklistSkipped = '1';
+                host.classList.add('checklist-item--skipped');
+                host.setAttribute('data-validated', 'skip');
+                if (input.dataset) {
+                  input.dataset[SKIP_DATA_KEY] = '1';
+                }
+              } else {
+                host.classList.remove('checklist-item--skipped');
+                host.removeAttribute('data-checklist-skipped');
+                host.setAttribute('data-validated', input.checked ? 'true' : 'false');
+                if (input.dataset) {
+                  delete input.dataset[SKIP_DATA_KEY];
+                }
+              }
+            });
+          };
+          const serialize = () => {
+            const inputs = queryInputs();
+            return {
+              items: inputs.map((input) => Boolean(input.checked)),
+              skipped: inputs.map((input) => isSkipped(input)),
+            };
+          };
+          const sync = (options = {}) => {
+            const payload = serialize();
+            try {
+              hidden.value = JSON.stringify(payload);
+            } catch (error) {
+              hidden.value = JSON.stringify(payload.items || []);
+            }
+            if (options.markDirty) {
+              hidden.dataset.dirty = '1';
+            }
+            if (options.notify) {
+              hidden.dispatchEvent(new Event('input', { bubbles: true }));
+              hidden.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            ensureItemIds();
+          };
+          const toggleSkip = (host, nextState = null) => {
+            if (!host) return;
+            const input = host.querySelector('[data-checklist-input]');
+            if (!input) return;
+            const current = isSkipped(input, host);
+            const next = nextState == null ? !current : Boolean(nextState);
+            setSkipState(input, next);
+            if (!next && host) {
+              host.setAttribute('data-validated', input.checked ? 'true' : 'false');
+            }
+            root.dataset.checklistDirty = '1';
+            sync({ markDirty: true, notify: true });
+          };
+          const getContextMenuState = () => {
+            if (!window.__checklistContextMenuState) {
+              window.__checklistContextMenuState = { menu: null, button: null, host: null };
+            }
+            return window.__checklistContextMenuState;
+          };
+          const closeContextMenu = () => {
+            const state = getContextMenuState();
+            if (!state.menu || state.menu.hidden) {
+              return;
+            }
+            state.menu.hidden = true;
+            state.menu.setAttribute('aria-hidden', 'true');
+            state.host = null;
+          };
+          const ensureContextMenu = () => {
+            const state = getContextMenuState();
+            if (state.menu && state.button) {
+              return state;
+            }
+            const menu = document.createElement('div');
+            menu.dataset.checklistContextMenu = '1';
+            menu.className = 'checklist-context-menu';
+            menu.setAttribute('role', 'menu');
+            menu.setAttribute('aria-hidden', 'true');
+            menu.hidden = true;
+            const actionBtn = document.createElement('button');
+            actionBtn.type = 'button';
+            actionBtn.className = 'checklist-context-menu__action';
+            actionBtn.dataset.contextAction = 'toggle';
+            actionBtn.textContent = 'Passer l’élément';
+            actionBtn.addEventListener('click', () => {
+              if (!state.host) {
+                closeContextMenu();
+                return;
+              }
+              const resume = actionBtn.dataset.actionState === 'resume';
+              const host = state.host;
+              closeContextMenu();
+              toggleSkip(host, resume ? false : true);
+            });
+            menu.appendChild(actionBtn);
+            document.body.appendChild(menu);
+            if (!window.__checklistContextMenuListeners) {
+              const closeOnPointer = (event) => {
+                if (!state.menu || state.menu.hidden) return;
+                if (!state.menu.contains(event.target)) {
+                  closeContextMenu();
+                }
+              };
+              document.addEventListener('pointerdown', closeOnPointer);
+              document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') {
+                  closeContextMenu();
+                }
+              });
+              window.addEventListener('blur', () => closeContextMenu());
+              window.addEventListener('resize', () => closeContextMenu());
+              window.addEventListener('scroll', () => closeContextMenu(), true);
+              window.__checklistContextMenuListeners = true;
+            }
+            state.menu = menu;
+            state.button = actionBtn;
+            return state;
+          };
+          const openContextMenu = (host, position) => {
+            const state = ensureContextMenu();
+            const { menu, button } = state;
+            if (!menu || !button || !host) return;
+            const currentlySkipped = host.dataset && host.dataset.checklistSkipped === '1';
+            const label = currentlySkipped ? 'Reprendre l’élément' : 'Passer l’élément';
+            button.textContent = label;
+            button.dataset.actionState = currentlySkipped ? 'resume' : 'skip';
+            const margin = 8;
+            const x = Math.min(Math.max(position.x, margin), window.innerWidth - margin);
+            const y = Math.min(Math.max(position.y, margin), window.innerHeight - margin);
+            menu.style.left = String(x) + 'px';
+            menu.style.top = String(y) + 'px';
+            menu.hidden = false;
+            menu.setAttribute('aria-hidden', 'false');
+            state.host = host;
+            try {
+              button.focus({ preventScroll: true });
+            } catch (error) {
+              button.focus();
+            }
+          };
+          const handleContextAction = (host, coords) => {
+            if (!host) return;
+            const position = coords || { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+            openContextMenu(host, position);
+          };
+          let pressCoords = null;
+          const clearPress = () => {
+            if (pressTimer) {
+              window.clearTimeout(pressTimer);
+              pressTimer = null;
+            }
+            pressTarget = null;
+            pressCoords = null;
+          };
+          const resolveCoords = (event) => ({ x: event.clientX, y: event.clientY });
+          const triggerContextMenu = (host, coords) => {
+            handleContextAction(host, coords);
+          };
+          root.addEventListener('contextmenu', (event) => {
+            const host = event.target?.closest('[data-checklist-item]');
+            if (!host || !root.contains(host)) return;
+            event.preventDefault();
+            triggerContextMenu(host, resolveCoords(event));
+          });
+          root.addEventListener('pointerdown', (event) => {
+            if (event.pointerType !== 'touch') {
+              clearPress();
+              return;
+            }
+            const host = event.target?.closest('[data-checklist-item]');
+            if (!host || !root.contains(host)) return;
+            clearPress();
+            pressTarget = host;
+            pressCoords = resolveCoords(event);
+            pressTimer = window.setTimeout(() => {
+              pressTimer = null;
+              triggerContextMenu(host, pressCoords || resolveCoords(event));
+            }, LONG_PRESS_DELAY);
+          });
+          root.addEventListener('pointerup', clearPress);
+          root.addEventListener('pointercancel', clearPress);
+          root.addEventListener('pointerleave', clearPress);
+          root.addEventListener('pointermove', (event) => {
+            if (!pressTarget || event.pointerType !== 'touch') return;
+            const rect = pressTarget.getBoundingClientRect();
+            if (
+              event.clientX < rect.left - 16 ||
+              event.clientX > rect.right + 16 ||
+              event.clientY < rect.top - 16 ||
+              event.clientY > rect.bottom + 16
+            ) {
+              clearPress();
+            }
+          });
+          root.addEventListener('change', (event) => {
+            if (event.target && event.target.matches('[data-checklist-input]')) {
+              closeContextMenu();
+              const input = event.target;
+              const host = resolveHost(input);
+              if (!input.checked && isSkipped(input, host)) {
+                setSkipState(input, false);
+              }
+              root.dataset.checklistDirty = '1';
+              sync({ markDirty: true, notify: true });
+            }
+          });
+          const hydratePayload = () => {
+            try {
+              const raw = JSON.parse(hidden.value || '[]');
+              const payload = Array.isArray(raw)
+                ? { items: raw.map((item) => item === true), skipped: [] }
+                : {
+                    items: Array.isArray(raw.items) ? raw.items.map((item) => item === true) : [],
+                    skipped: Array.isArray(raw.skipped) ? raw.skipped.map((item) => item === true) : [],
+                  };
+              const inputs = queryInputs();
+              inputs.forEach((input, index) => {
+                const skip = Boolean(payload.skipped[index]);
+                const checked = Boolean(payload.items[index]);
+                if (skip) {
+                  input.checked = true;
+                } else {
+                  input.checked = checked;
+                }
+                setSkipState(input, skip);
+                const host = resolveHost(input);
+                if (!skip && host) {
+                  host.setAttribute('data-validated', input.checked ? 'true' : 'false');
+                }
+              });
+            } catch (error) {
+              console.warn('[checklist] payload', error);
+            }
+          };
+          const hydrate = window.hydrateChecklist;
+          const uid = window.AppCtx?.user?.uid || null;
+          const consigneId = root.getAttribute('data-consigne-id') || root.dataset.consigneId || '';
+          hydratePayload();
+          ensureItemIds();
+          sync();
+          if (typeof hydrate === 'function') {
+            Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key' }))
+              .then(() => {
+                hydratePayload();
+                ensureItemIds();
+                sync();
+              })
+              .catch((error) => {
+                console.warn('[checklist] hydrate', error);
+              });
+          }
+        })();
+      </script>
+    `;
     return `
       <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}"${optionsAttr}>
         ${checkboxes || `<p class="text-sm text-[var(--muted)]">Aucun élément défini</p>`}
@@ -4038,7 +4605,7 @@ function inputForType(consigne, initialValue = null) {
           hasInitialStates ? 'data-dirty="1"' : ""
         }>
       </div>
-      <script>(()=>{const script=document.currentScript;const hidden=script.previousElementSibling;const root=hidden?.closest('[data-checklist-root]');if(!root||!hidden)return;const queryInputs=()=>Array.from(root.querySelectorAll('[data-checklist-input]'));const ensureItemIds=()=>{const consigneId=root.getAttribute('data-consigne-id')||root.dataset.consigneId||'';queryInputs().forEach((input,index)=>{const host=input.closest('[data-checklist-item]');if(!host)return;const explicitKey=input.getAttribute('data-key')||input.dataset?.key||input.getAttribute('data-item-id')||host.getAttribute('data-item-id');const attr=input.getAttribute('data-checklist-index');const idx=attr!==null?attr:index;const fallback=consigneId?String(consigneId)+":"+idx:String(idx);const resolvedKey=(explicitKey&&String(explicitKey).trim())||fallback;const legacyKey=input.getAttribute('data-legacy-key')||host.getAttribute('data-checklist-legacy-key')||fallback;input.setAttribute('data-key',resolvedKey);input.dataset.key=resolvedKey;input.setAttribute('data-item-id',resolvedKey);input.setAttribute('data-legacy-key',legacyKey);host.setAttribute('data-item-id',resolvedKey);host.setAttribute('data-checklist-key',resolvedKey);host.setAttribute('data-checklist-legacy-key',legacyKey);host.setAttribute('data-validated',input.checked?'true':'false');});};const sync=(options={})=>{const inputs=queryInputs();const values=inputs.map((input)=>Boolean(input.checked));hidden.value=JSON.stringify(values);if(options.markDirty){hidden.dataset.dirty='1';}if(options.notify){hidden.dispatchEvent(new Event('input',{bubbles:true}));hidden.dispatchEvent(new Event('change',{bubbles:true}));}ensureItemIds();};root.addEventListener('change',(event)=>{if(event.target&&event.target.matches('[data-checklist-input]')){sync({markDirty:true,notify:true});}});sync();const hydrate=window.hydrateChecklist;const uid=window.AppCtx?.user?.uid||null;const consigneId=root.getAttribute('data-consigne-id')||root.dataset.consigneId||'';if(typeof hydrate==='function'){Promise.resolve(hydrate({uid,consigneId,container:root,itemKeyAttr:'data-key'})).then(()=>sync()).catch((error)=>{console.warn('[checklist] hydrate',error);});}})();</script>
+      ${scriptContent}
     `;
   }
   return "";
@@ -4346,6 +4913,7 @@ function collectAnswers(form, consignes, options = {}) {
               checkedIds: stats.checkedIds,
               checkedCount: stats.checkedCount,
               total: stats.total,
+              skippedCount: stats.skippedCount,
               percentage: stats.percentage,
               isEmpty: stats.isEmpty,
               selectedIds,
@@ -4360,17 +4928,17 @@ function collectAnswers(form, consignes, options = {}) {
           `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
         );
         if (container) {
-          const values = Array.from(container.querySelectorAll("[data-checklist-input]"))
-            .map((box) => Boolean(box.checked));
+          const domState = readChecklistDomState(container);
           const isDirty = container.dataset.checklistDirty === "1";
           if (isDirty) {
-            const normalized = buildChecklistValue(consigne, values);
+            const normalized = buildChecklistValue(consigne, domState);
             const stats = deriveChecklistStats(normalized);
             const selectedIds = collectChecklistSelectedIds(consigne, container, normalized);
             pushAnswer(normalized, {
               checkedIds: stats.checkedIds,
               checkedCount: stats.checkedCount,
               total: stats.total,
+              skippedCount: stats.skippedCount,
               percentage: stats.percentage,
               isEmpty: stats.isEmpty,
               selectedIds,
@@ -4702,6 +5270,8 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     if (!checklistList) return null;
     const row = document.createElement('div');
     row.className = 'flex items-center gap-2';
+    row.dataset.checklistEditorRow = '';
+    row.draggable = true;
     const input = document.createElement('input');
     input.type = 'text';
     input.name = 'checklist-item';
@@ -4721,6 +5291,51 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     checklistList.appendChild(row);
     renderChecklistEmptyState();
     return row;
+  };
+  const setupChecklistDragAndDrop = () => {
+    if (!checklistList || checklistList.__dragInstalled) return;
+    checklistList.__dragInstalled = true;
+    let dragging = null;
+    const clearDrag = () => {
+      if (dragging) {
+        dragging.classList.remove('opacity-60');
+      }
+      dragging = null;
+    };
+    checklistList.addEventListener('dragstart', (event) => {
+      const row = event.target?.closest('[data-checklist-editor-row]');
+      if (!row) return;
+      dragging = row;
+      row.classList.add('opacity-60');
+      event.dataTransfer.effectAllowed = 'move';
+      try {
+        event.dataTransfer.setData('text/plain', '');
+      } catch (error) {
+        // ignore
+      }
+    });
+    checklistList.addEventListener('dragover', (event) => {
+      if (!dragging) return;
+      event.preventDefault();
+      const over = event.target?.closest('[data-checklist-editor-row]');
+      if (!over || over === dragging) return;
+      const rect = over.getBoundingClientRect();
+      const before = event.clientY < rect.top + rect.height / 2;
+      over.parentNode.insertBefore(dragging, before ? over : over.nextSibling);
+    });
+    checklistList.addEventListener('drop', (event) => {
+      if (!dragging) return;
+      event.preventDefault();
+      clearDrag();
+    });
+    checklistList.addEventListener('dragend', clearDrag);
+    checklistList.addEventListener('dragleave', (event) => {
+      if (!dragging) return;
+      const related = event.relatedTarget;
+      if (!checklistList.contains(related)) {
+        clearDrag();
+      }
+    });
   };
   checklistAddBtn.addEventListener('click', () => {
     addChecklistRow();
@@ -4757,6 +5372,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     mountChecklistEditor();
     ensureChecklistHasRow();
     renderChecklistEmptyState();
+    setupChecklistDragAndDrop();
   };
   if (typeSelectEl) {
     typeSelectEl.addEventListener('change', () => {
@@ -4870,6 +5486,8 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         if (!subChecklistList) return null;
         const itemRow = document.createElement('div');
         itemRow.className = 'flex items-center gap-2';
+        itemRow.dataset.subChecklistRow = '';
+        itemRow.draggable = true;
         const input = document.createElement('input');
         input.type = 'text';
         input.name = 'sub-checklist-item';
@@ -4889,6 +5507,44 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         subChecklistList.appendChild(itemRow);
         renderSubChecklistEmptyState();
         return itemRow;
+      };
+      const setupSubChecklistDragAndDrop = () => {
+        if (!subChecklistList || subChecklistList.__dragInstalled) return;
+        subChecklistList.__dragInstalled = true;
+        let dragging = null;
+        const clearDrag = () => {
+          if (dragging) {
+            dragging.classList.remove('opacity-60');
+          }
+          dragging = null;
+        };
+        subChecklistList.addEventListener('dragstart', (event) => {
+          const row = event.target?.closest('[data-sub-checklist-row]');
+          if (!row) return;
+          dragging = row;
+          row.classList.add('opacity-60');
+          event.dataTransfer.effectAllowed = 'move';
+          try {
+            event.dataTransfer.setData('text/plain', '');
+          } catch (error) {
+            // ignore
+          }
+        });
+        subChecklistList.addEventListener('dragover', (event) => {
+          if (!dragging) return;
+          event.preventDefault();
+          const over = event.target?.closest('[data-sub-checklist-row]');
+          if (!over || over === dragging) return;
+          const rect = over.getBoundingClientRect();
+          const before = event.clientY < rect.top + rect.height / 2;
+          over.parentNode.insertBefore(dragging, before ? over : over.nextSibling);
+        });
+        subChecklistList.addEventListener('drop', (event) => {
+          if (!dragging) return;
+          event.preventDefault();
+          clearDrag();
+        });
+        subChecklistList.addEventListener('dragend', clearDrag);
       };
       const ensureSubChecklistHasRow = () => {
         if (subChecklistEditor.hidden) return;
@@ -4916,6 +5572,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       if (initialSubChecklistItems.length) {
         initialSubChecklistItems.forEach((value) => addSubChecklistRow(value));
       }
+      setupSubChecklistDragAndDrop();
       const syncSubChecklistVisibility = () => {
         const isChecklist = typeSelect?.value === 'checklist';
         if (!isChecklist) {
@@ -5259,7 +5916,7 @@ function hasTextualNote(value) {
 }
 
 function dotColor(type, v){
-  if (v && typeof v === "object" && v.skipped) {
+  if (v && typeof v === "object" && v.skipped === true) {
     return "note";
   }
   if (type === "info") {
@@ -5584,14 +6241,16 @@ function readConsigneCurrentValue(consigne, scope) {
       `[data-checklist-root][data-consigne-id="${String(id ?? "")}"]`
     );
     if (container) {
-      const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
-      if (boxes.length) {
+      const domState = readChecklistDomState(container);
+      if (domState.items.length) {
         const isDirty = container.dataset && container.dataset.checklistDirty === "1";
-        const hasChecked = boxes.some((box) => Boolean(box.checked));
-        if (!isDirty && !hasChecked) {
+        const hasMeaningfulState =
+          domState.items.some((checked, index) => checked && !domState.skipped[index]) ||
+          domState.skipped.some(Boolean);
+        if (!isDirty && !hasMeaningfulState) {
           return null;
         }
-        return buildChecklistValue(consigne, boxes.map((box) => Boolean(box.checked)));
+        return buildChecklistValue(consigne, domState);
       }
     }
     return buildChecklistValue(consigne, []);
@@ -5778,19 +6437,40 @@ function setConsigneRowValue(row, consigne, value) {
       updateConsigneStatusUI(row, consigne, value);
       return;
     }
-    const boxes = Array.from(container.querySelectorAll("[data-checklist-input]"));
     const normalizedValue =
       value === null || value === undefined
         ? null
         : buildChecklistValue(consigne, value, value && typeof value === "object" ? value : null);
-    const states = normalizedValue ? readChecklistStates(normalizedValue) : [];
-    boxes.forEach((box, index) => {
-      box.checked = Boolean(states[index]);
-    });
+    if (normalizedValue) {
+      applyChecklistDomState(container, normalizedValue);
+    } else {
+      applyChecklistDomState(container, { items: [], skipped: [] });
+      const inputs = Array.from(container.querySelectorAll("[data-checklist-input]"));
+      inputs.forEach((input) => {
+        input.checked = false;
+        if (input.dataset) {
+          delete input.dataset.checklistSkip;
+        }
+        const host = input.closest("[data-checklist-item]");
+        if (host) {
+          host.classList.remove("checklist-item--skipped");
+          host.removeAttribute("data-checklist-skipped");
+          host.setAttribute("data-validated", "false");
+        }
+      });
+    }
     const hidden = container.querySelector(`[name="checklist:${String(consigne.id ?? "")}"]`);
     if (hidden) {
-      const serialized = JSON.stringify(boxes.map((box) => Boolean(box.checked)));
-      hidden.value = serialized;
+      const domState = readChecklistDomState(container);
+      const payload = {
+        items: domState.items,
+        skipped: domState.skipped,
+      };
+      try {
+        hidden.value = JSON.stringify(payload);
+      } catch (error) {
+        hidden.value = JSON.stringify({ items: domState.items });
+      }
       if (normalizedValue) {
         hidden.dataset.dirty = "1";
       } else {
@@ -9683,6 +10363,14 @@ async function renderDaily(ctx, root, opts = {}) {
     const tone = priorityTone(item.priority);
     row.className = `consigne-row priority-surface priority-surface-${tone}`;
     row.dataset.id = item.id;
+    if (item?.id != null) {
+      const stringId = String(item.id);
+      row.dataset.consigneId = stringId;
+      row.setAttribute("data-consigne-id", stringId);
+    } else {
+      delete row.dataset.consigneId;
+      row.removeAttribute("data-consigne-id");
+    }
     row.dataset.priorityTone = tone;
     if (isChild) {
       row.classList.add("consigne-row--child");
@@ -9691,9 +10379,11 @@ async function renderDaily(ctx, root, opts = {}) {
       } else {
         delete row.dataset.parentId;
       }
+      row.draggable = false;
     } else {
       row.classList.add("consigne-row--parent");
       delete row.dataset.parentId;
+      row.draggable = true;
     }
     row.innerHTML = `
       <div class="consigne-row__header">
@@ -9726,6 +10416,7 @@ async function renderDaily(ctx, root, opts = {}) {
     if (holder) {
       holder.innerHTML = inputForType(item, previous?.value ?? null);
       enhanceRangeMeters(holder);
+      initializeChecklistScope(holder, { consigneId: item?.id ?? null });
     }
     const previousSummary = normalizeSummaryMetadataInput(previous);
     if (previousSummary) {
@@ -9959,6 +10650,7 @@ async function renderDaily(ctx, root, opts = {}) {
       const { groups, total } = info;
       const section = document.createElement("section");
       section.className = "daily-category daily-grid__item";
+      section.dataset.category = cat;
       section.innerHTML = `
         <div class="daily-category__header">
           <div class="daily-category__name">${escapeHtml(cat)}</div>
@@ -9991,6 +10683,9 @@ async function renderDaily(ctx, root, opts = {}) {
 
   if (typeof window.attachConsignesDragDrop === "function") {
     window.attachConsignesDragDrop(form, ctx);
+  }
+  if (typeof window.attachDailyCategoryDragDrop === "function") {
+    window.attachDailyCategoryDragDrop(form, ctx);
   }
 
   if (hidden.length) {
@@ -10048,6 +10743,7 @@ Modes.renderPractice = renderPractice;
 Modes.renderDaily = renderDaily;
 Modes.renderHistory = renderHistory;
 Modes.attachConsignesDragDrop = window.attachConsignesDragDrop;
+Modes.attachDailyCategoryDragDrop = window.attachDailyCategoryDragDrop;
 Modes.inputForType = inputForType;
 Modes.collectAnswers = collectAnswers;
 Modes.enhanceRangeMeters = enhanceRangeMeters;
@@ -10074,5 +10770,6 @@ if (typeof module !== "undefined" && module.exports) {
     buildChecklistValue,
     sanitizeChecklistItems,
     readChecklistStates,
+    readChecklistSkipped,
   };
 }
