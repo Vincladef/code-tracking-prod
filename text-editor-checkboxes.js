@@ -81,10 +81,41 @@
     return wrap;
   }
 
+  function assignChecklistIdentifiers(editor, input, index) {
+    if (!editor || !isCbInput(input)) return;
+    const editorRoot = editor.closest?.('[data-consigne-id]') || editor.closest?.('[data-rich-text-root]');
+    const explicitId = editorRoot?.getAttribute?.('data-consigne-id') || editorRoot?.dataset?.consigneId || editorRoot?.dataset?.id;
+    const consigneId = explicitId != null ? String(explicitId) : '';
+    const existingKey = input.getAttribute('data-key') || input.dataset?.key || input.getAttribute('data-item-id');
+    const indexAttr = input.getAttribute('data-checklist-index');
+    const fallbackIndex = indexAttr !== null ? indexAttr : index;
+    const resolvedKey = (existingKey && String(existingKey).trim()) || (consigneId ? `${consigneId}:${fallbackIndex}` : String(fallbackIndex));
+    input.setAttribute('data-key', resolvedKey);
+    input.setAttribute('data-item-id', resolvedKey);
+    if (input.dataset) {
+      input.dataset.key = resolvedKey;
+    }
+    if (!input.hasAttribute('data-checklist-input')) {
+      input.setAttribute('data-checklist-input', '');
+    }
+    const existingLegacy = input.getAttribute('data-legacy-key') || input.dataset?.legacyKey;
+    const legacyKey = (existingLegacy && String(existingLegacy).trim()) || (consigneId ? `${consigneId}:${fallbackIndex}` : String(fallbackIndex));
+    input.setAttribute('data-legacy-key', legacyKey);
+    if (input.dataset) {
+      input.dataset.legacyKey = legacyKey;
+    }
+    const host = input.closest('[data-checklist-item], .cb-wrap, [data-rich-checkbox-wrapper="1"]');
+    if (host instanceof HTMLElement) {
+      host.setAttribute('data-item-id', resolvedKey);
+      host.setAttribute('data-checklist-key', resolvedKey);
+      host.setAttribute('data-checklist-legacy-key', legacyKey);
+    }
+  }
+
   function normalizeCheckboxes(editor) {
     if (!editor) return;
     const checkboxes = Array.from(editor.querySelectorAll('input[type="checkbox"]'));
-    checkboxes.forEach((input) => {
+    checkboxes.forEach((input, index) => {
       const wrap = normalizeCheckbox(input);
       if (!wrap) return;
       const next = wrap.nextSibling;
@@ -93,6 +124,7 @@
       } else if (!next.textContent) {
         next.textContent = ' ';
       }
+      assignChecklistIdentifiers(editor, input, index);
     });
   }
 

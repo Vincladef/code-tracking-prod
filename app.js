@@ -80,6 +80,20 @@
     route: "#/admin",
   };
 
+  function updateChecklistStateContext() {
+    const manager = window.ChecklistState;
+    if (!manager) {
+      return;
+    }
+    if (ctx.db && ctx.user?.uid && typeof manager.setContext === "function") {
+      manager.setContext({ db: ctx.db, uid: ctx.user.uid });
+      return;
+    }
+    if (typeof manager.clearContext === "function") {
+      manager.clearContext();
+    }
+  }
+
   function ensureRichTextModalCheckboxBehavior() {
     if (typeof document === "undefined") return;
 
@@ -240,7 +254,479 @@
     }
   }
 
+  window.ensureRichTextModalCheckboxBehavior = ensureRichTextModalCheckboxBehavior;
   ensureRichTextModalCheckboxBehavior();
+
+  function installChecklistAutosaveEvents() {
+    if (typeof document === "undefined") {
+      return;
+    }
+    if (window.__checklistAutosaveEventsInstalled) {
+      return;
+    }
+    window.__checklistAutosaveEventsInstalled = true;
+
+    const toEscapedSelector = (value) => {
+      const stringValue = String(value ?? "");
+      if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+        try {
+          return CSS.escape(stringValue);
+        } catch (error) {
+          console.warn("[app] checklist:escape", error);
+        }
+      }
+      return stringValue.replace(/"/g, '\\"');
+    };
+
+    const ensureItemId = (input, root, host) => {
+      if (!input || !root || !host) {
+        return host?.getAttribute?.("data-item-id") || null;
+      }
+      const consigneId = root.getAttribute("data-consigne-id") || root.dataset.consigneId || "";
+      const explicitKey =
+        input.getAttribute("data-key") ||
+        input.dataset?.key ||
+        input.getAttribute("data-item-id") ||
+        host.getAttribute("data-item-id");
+      const explicitLegacy =
+        input.getAttribute("data-legacy-key") ||
+        input.dataset?.legacyKey ||
+        host.getAttribute("data-checklist-legacy-key") ||
+        null;
+      if (explicitKey) {
+        const key = String(explicitKey);
+        input.setAttribute("data-item-id", key);
+        input.setAttribute("data-key", key);
+        input.dataset.key = key;
+        host.setAttribute("data-item-id", key);
+        host.setAttribute("data-checklist-key", key);
+        if (explicitLegacy) {
+          const legacy = String(explicitLegacy);
+          input.setAttribute("data-legacy-key", legacy);
+          if (input.dataset) {
+            input.dataset.legacyKey = legacy;
+          }
+          host.setAttribute("data-checklist-legacy-key", legacy);
+        }
+        return key;
+      }
+      const attr = input.getAttribute("data-checklist-index");
+      let indexValue = attr !== null ? attr : null;
+      if (indexValue === null) {
+        const inputs = Array.from(root.querySelectorAll("[data-checklist-input]"));
+        const position = inputs.indexOf(input);
+        if (position !== -1) {
+          indexValue = String(position);
+        }
+      }
+      if (indexValue === null) {
+        indexValue = String(Date.now());
+      }
+      const prefix = consigneId ? `${String(consigneId)}:` : "";
+      const itemId = `${prefix}${indexValue}`;
+      const legacyKey =
+        explicitLegacy ||
+        (consigneId ? `${String(consigneId)}:${indexValue}` : String(indexValue));
+      input.setAttribute("data-item-id", itemId);
+      input.setAttribute("data-key", itemId);
+      input.dataset.key = itemId;
+      input.setAttribute("data-legacy-key", legacyKey);
+      input.dataset.legacyKey = legacyKey;
+      host.setAttribute("data-item-id", itemId);
+      host.setAttribute("data-checklist-key", itemId);
+      host.setAttribute("data-checklist-legacy-key", legacyKey);
+      return itemId;
+    };
+
+    const updateHiddenState = (root) => {
+      if (!root) {
+        return;
+      }
+      const hidden = root.querySelector("[data-checklist-state]");
+      if (!hidden) {
+        return;
+      }
+      try {
+        const inputs = Array.from(root.querySelectorAll("[data-checklist-input]"));
+        const payload = {
+          items: inputs.map((node) => Boolean(node.checked)),
+          skipped: inputs.map((node) => (node.dataset?.checklistSkip === "1" ? true : false)),
+        };
+        if (Array.isArray(payload.skipped) && payload.skipped.every((value) => value === false)) {
+          delete payload.skipped;
+        }
+        const answers = {};
+        inputs.forEach((input, index) => {
+          const host = input.closest("[data-checklist-item]");
+          const rawId =
+            host?.getAttribute?.("data-item-id") ||
+            input.getAttribute("data-item-id") ||
+            input.dataset?.key ||
+            input.dataset?.itemId ||
+            String(index);
+          const itemId = String(rawId ?? "").trim();
+          if (!itemId) {
+            return;
+          }
+          const skipFlag =
+            (input.dataset && input.dataset.checklistSkip === "1") ||
+            (host && host.dataset && host.dataset.checklistSkipped === "1");
+          const value = skipFlag || Boolean(input.checked) ? "yes" : "no";
+          answers[itemId] = { value, skipped: skipFlag };
+        });
+        if (Object.keys(answers).length) {
+          payload.answers = answers;
+        }
+        hidden.value = JSON.stringify(payload);
+        hidden.dataset.dirty = "1";
+        hidden.dispatchEvent(new Event("input", { bubbles: true }));
+        hidden.dispatchEvent(new Event("change", { bubbles: true }));
+      } catch (error) {
+        console.warn("[app] checklist:hidden", error);
+      }
+    };
+
+    const findChecklistItemNode = (consigneId, itemId) => {
+      const hasIds = consigneId && itemId;
+      if (!hasIds) {
+        return null;
+      }
+      const escapedConsigne = toEscapedSelector(consigneId);
+      const escapedItem = toEscapedSelector(itemId);
+      const selector = `[data-checklist-root][data-consigne-id="${escapedConsigne}"] [data-checklist-item][data-item-id="${escapedItem}"]`;
+      try {
+        const node = document.querySelector(selector);
+        if (node) {
+          return node;
+        }
+      } catch (error) {
+        console.warn("[app] checklist:query", error);
+      }
+      return document.querySelector(`[data-checklist-item][data-item-id="${escapedItem}"]`);
+    };
+
+    const CHECKLIST_SKIP_DATA_KEY = "checklistSkip";
+    const CHECKLIST_PREV_CHECKED_KEY = "checklistPrevChecked";
+
+    const storePreviousCheckedState = (input) => {
+      if (!input) {
+        return "0";
+      }
+      let previous = null;
+      if (input.dataset && Object.prototype.hasOwnProperty.call(input.dataset, CHECKLIST_PREV_CHECKED_KEY)) {
+        previous = input.dataset[CHECKLIST_PREV_CHECKED_KEY];
+      }
+      if (previous == null && input.hasAttribute("data-checklist-prev-checked")) {
+        previous = input.getAttribute("data-checklist-prev-checked");
+      }
+      if (previous == null) {
+        previous = input.checked ? "1" : "0";
+      }
+      if (input.dataset) {
+        input.dataset[CHECKLIST_PREV_CHECKED_KEY] = previous;
+      }
+      input.setAttribute("data-checklist-prev-checked", previous);
+      return previous;
+    };
+
+    const readPreviousCheckedState = (input) => {
+      if (!input) {
+        return null;
+      }
+      let previous = null;
+      if (input.dataset && Object.prototype.hasOwnProperty.call(input.dataset, CHECKLIST_PREV_CHECKED_KEY)) {
+        previous = input.dataset[CHECKLIST_PREV_CHECKED_KEY];
+        delete input.dataset[CHECKLIST_PREV_CHECKED_KEY];
+      }
+      if (previous == null && input.hasAttribute("data-checklist-prev-checked")) {
+        previous = input.getAttribute("data-checklist-prev-checked");
+      }
+      input.removeAttribute("data-checklist-prev-checked");
+      return previous;
+    };
+
+    const applySkipState = (input, host, skip, options = {}) => {
+      if (!input) {
+        return;
+      }
+      if (skip) {
+        storePreviousCheckedState(input);
+        if ("indeterminate" in input) {
+          input.indeterminate = true;
+        }
+        input.checked = false;
+        if (input.dataset) {
+          input.dataset[CHECKLIST_SKIP_DATA_KEY] = "1";
+        }
+        input.setAttribute("data-checklist-skip", "1");
+        if (host) {
+          if (host.dataset) {
+            host.dataset.checklistSkipped = "1";
+          }
+          host.setAttribute("data-checklist-skipped", "1");
+          if (host.classList && typeof host.classList.add === "function") {
+            host.classList.add("checklist-item--skipped");
+          }
+          host.setAttribute("data-validated", "skip");
+        }
+        return;
+      }
+
+      if ("indeterminate" in input) {
+        input.indeterminate = false;
+      }
+      if (input.dataset) {
+        delete input.dataset[CHECKLIST_SKIP_DATA_KEY];
+      }
+      input.removeAttribute("data-checklist-skip");
+      let nextChecked = readPreviousCheckedState(input);
+      if (nextChecked == null && Object.prototype.hasOwnProperty.call(options, "fallbackChecked")) {
+        nextChecked = options.fallbackChecked ? "1" : "0";
+        if (input.dataset) {
+          input.dataset[CHECKLIST_PREV_CHECKED_KEY] = nextChecked;
+        }
+        input.setAttribute("data-checklist-prev-checked", nextChecked);
+      }
+      if (nextChecked != null) {
+        const normalized = nextChecked === "1" || nextChecked === "true";
+        input.checked = normalized;
+      }
+      if (host) {
+        if (host.dataset) {
+          delete host.dataset.checklistSkipped;
+        }
+        host.removeAttribute("data-checklist-skipped");
+        if (host.classList && typeof host.classList.remove === "function") {
+          host.classList.remove("checklist-item--skipped");
+        }
+        host.setAttribute("data-validated", input.checked ? "true" : "false");
+      }
+    };
+
+    document.addEventListener("click", (event) => {
+      const target = event?.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const button = target.closest("[data-checklist-skip-btn]");
+      if (!button) {
+        return;
+      }
+      const host = button.closest("[data-checklist-item]");
+      const root = button.closest("[data-checklist-root]");
+      if (!host || !root) {
+        return;
+      }
+      const input = host.querySelector("[data-checklist-input]");
+      if (!input) {
+        return;
+      }
+      event.preventDefault();
+      const wasSkipped =
+        (input.dataset && input.dataset.checklistSkip === "1") ||
+        (host.dataset && host.dataset.checklistSkipped === "1");
+      const nextSkipped = !wasSkipped;
+      applySkipState(input, host, nextSkipped);
+      const changeEvent = new Event("change", { bubbles: true });
+      input.dispatchEvent(changeEvent);
+    });
+
+    document.addEventListener("change", async (event) => {
+      const target = event?.target;
+      if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+        return;
+      }
+      if (!target.matches("[data-checklist-input]")) {
+        return;
+      }
+      const root = target.closest("[data-checklist-root]");
+      const item = target.closest("[data-checklist-item]");
+      if (!root || !item) {
+        return;
+      }
+      const consigneId = root.getAttribute("data-consigne-id") || root.dataset.consigneId || null;
+      const itemId = ensureItemId(target, root, item);
+      const skipped =
+        (target.dataset && target.dataset.checklistSkip === "1") ||
+        (item.dataset && item.dataset.checklistSkipped === "1");
+      if (skipped) {
+        applySkipState(target, item, true);
+      } else {
+        applySkipState(target, item, false);
+      }
+      updateHiddenState(root);
+      const persistFn = window.ChecklistState?.persistRoot;
+      if (typeof persistFn === "function") {
+        Promise.resolve(persistFn.call(window.ChecklistState, root)).catch((error) => {
+          console.warn("[app] checklist:persist", error);
+        });
+      }
+      root.dataset.checklistDirty = "1";
+      const detail = {
+        consigneId,
+        itemId,
+        checked: Boolean(target.checked),
+        skipped,
+        type: "checklist",
+      };
+      let queueError = null;
+      if (typeof window.queueSave === "function") {
+        try {
+          await window.queueSave({
+            kind: "checklist-answer",
+            consigneId,
+            itemId,
+            checked: Boolean(target.checked),
+            ts: Date.now(),
+          });
+        } catch (error) {
+          queueError = error;
+        }
+      }
+      if (queueError) {
+        console.error("Checklist save failed", queueError);
+        document.dispatchEvent(
+          new CustomEvent("answer:failed", {
+            detail: { ...detail, err: queueError },
+          })
+        );
+        return;
+      }
+      document.dispatchEvent(new CustomEvent("answer:saved", { detail }));
+    });
+
+    const HISTORY_LIMIT = 200;
+
+    document.addEventListener("answer:saved", (event) => {
+      const detail = event?.detail || {};
+      if (detail.type !== "checklist") {
+        return;
+      }
+      const node = findChecklistItemNode(detail.consigneId, detail.itemId);
+      if (node) {
+        const isSkipped = detail.skipped === true;
+        if (isSkipped) {
+          if (node.dataset) {
+            node.dataset.checklistSkipped = "1";
+          }
+          node.setAttribute("data-checklist-skipped", "1");
+          if (node.classList && typeof node.classList.add === "function") {
+            node.classList.add("checklist-item--skipped");
+          }
+          node.setAttribute("data-validated", "skip");
+        } else {
+          if (node.dataset) {
+            delete node.dataset.checklistSkipped;
+          }
+          node.removeAttribute("data-checklist-skipped");
+          if (node.classList && typeof node.classList.remove === "function") {
+            node.classList.remove("checklist-item--skipped");
+          }
+          node.setAttribute("data-validated", detail.checked ? "true" : "false");
+        }
+        const checkbox = node.querySelector?.("[data-checklist-input]") || node.querySelector?.('input[type="checkbox"]');
+        if (checkbox instanceof HTMLInputElement) {
+          applySkipState(checkbox, node, isSkipped, {
+            fallbackChecked: Boolean(detail.checked),
+          });
+          if (!isSkipped) {
+            checkbox.checked = Boolean(detail.checked);
+            node.setAttribute("data-validated", checkbox.checked ? "true" : "false");
+          }
+        }
+        node.classList.remove("saved-burst");
+        void node.offsetWidth;
+        node.classList.add("saved-burst");
+      }
+      const log = Array.isArray(window.historyLog) ? window.historyLog : [];
+      window.historyLog = log;
+      const entry = {
+        consigneId: detail.consigneId || null,
+        itemId: detail.itemId || null,
+        type: detail.type,
+        value: detail.skipped ? null : detail.checked ? 1 : 0,
+        skipped: Boolean(detail.skipped),
+        at: new Date().toISOString(),
+      };
+      log.unshift(entry);
+      if (log.length > HISTORY_LIMIT) {
+        log.length = HISTORY_LIMIT;
+      }
+      document.dispatchEvent(
+        new CustomEvent("history:updated", {
+          detail: {
+            latest: entry,
+            entries: log.slice(0, 20),
+          },
+        })
+      );
+    });
+
+    document.addEventListener("answer:failed", (event) => {
+      const detail = event?.detail || {};
+      if (detail.type !== "checklist") {
+        return;
+      }
+      const node = findChecklistItemNode(detail.consigneId, detail.itemId);
+      if (node) {
+        node.classList.remove("saved-burst");
+        const isSkipped = detail.skipped === true;
+        if (isSkipped) {
+          if (node.dataset) {
+            node.dataset.checklistSkipped = "1";
+          }
+          node.setAttribute("data-checklist-skipped", "1");
+          if (node.classList && typeof node.classList.add === "function") {
+            node.classList.add("checklist-item--skipped");
+          }
+          node.setAttribute("data-validated", "skip");
+        } else {
+          if (node.dataset) {
+            delete node.dataset.checklistSkipped;
+          }
+          node.removeAttribute("data-checklist-skipped");
+          if (node.classList && typeof node.classList.remove === "function") {
+            node.classList.remove("checklist-item--skipped");
+          }
+          node.setAttribute("data-validated", detail.checked ? "true" : "false");
+        }
+        const checkbox = node.querySelector?.("[data-checklist-input]") || node.querySelector?.('input[type="checkbox"]');
+        if (checkbox instanceof HTMLInputElement) {
+          applySkipState(checkbox, node, isSkipped, {
+            fallbackChecked: Boolean(detail.checked),
+          });
+          if (!isSkipped) {
+            checkbox.checked = Boolean(detail.checked);
+            node.setAttribute("data-validated", checkbox.checked ? "true" : "false");
+          }
+        }
+      }
+    });
+
+    const initializeStates = () => {
+      const roots = Array.from(document.querySelectorAll("[data-checklist-root]"));
+      roots.forEach((root) => {
+        const boxes = Array.from(root.querySelectorAll("[data-checklist-input]"));
+        boxes.forEach((input) => {
+          const item = input.closest("[data-checklist-item]");
+          if (!item) {
+            return;
+          }
+          ensureItemId(input, root, item);
+          item.setAttribute("data-validated", input.checked ? "true" : "false");
+        });
+      });
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initializeStates, { once: true });
+    } else {
+      initializeStates();
+    }
+  }
+
+  window.installChecklistAutosaveEvents = installChecklistAutosaveEvents;
+  installChecklistAutosaveEvents();
 
   const badgeManager = (() => {
     const DOW = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
@@ -1765,6 +2251,7 @@
       admin: "#/admin",
       daily: "#/daily",
       practice: "#/practice",
+      history: "#/history",
       goals: "#/goals",
     };
     const activeTarget = map[alias] || "#/admin";
@@ -2065,6 +2552,7 @@
     ctx.app = app;
     ctx.db = db;
     if (typeof Schema.bindDb === "function") Schema.bindDb(db);
+    updateChecklistStateContext();
     bindNav();
     rememberInstallTargetFromHash(location.hash || "");
     if (!location.hash || location.hash === "#") {
@@ -2122,6 +2610,7 @@
     ctx.app = app;
     ctx.db = db;
     ctx.user = user;
+    updateChecklistStateContext();
 
     await refreshUserBadge(user.uid);
 
@@ -2442,8 +2931,10 @@
       // IMPORTANT: enlever la query de 'sub'
       sub = sub.split("?")[0];
       ctx.user = { uid };
+      updateChecklistStateContext();
     } else {
       ctx.user = null;
+      updateChecklistStateContext();
     }
 
     syncUserActionsContext();
