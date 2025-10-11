@@ -355,6 +355,28 @@
         if (Array.isArray(payload.skipped) && payload.skipped.every((value) => value === false)) {
           delete payload.skipped;
         }
+        const answers = {};
+        inputs.forEach((input, index) => {
+          const host = input.closest("[data-checklist-item]");
+          const rawId =
+            host?.getAttribute?.("data-item-id") ||
+            input.getAttribute("data-item-id") ||
+            input.dataset?.key ||
+            input.dataset?.itemId ||
+            String(index);
+          const itemId = String(rawId ?? "").trim();
+          if (!itemId) {
+            return;
+          }
+          const skipFlag =
+            (input.dataset && input.dataset.checklistSkip === "1") ||
+            (host && host.dataset && host.dataset.checklistSkipped === "1");
+          const value = skipFlag || Boolean(input.checked) ? "yes" : "no";
+          answers[itemId] = { value, skipped: skipFlag };
+        });
+        if (Object.keys(answers).length) {
+          payload.answers = answers;
+        }
         hidden.value = JSON.stringify(payload);
         hidden.dataset.dirty = "1";
         hidden.dispatchEvent(new Event("input", { bubbles: true }));
@@ -398,7 +420,39 @@
       }
       const consigneId = root.getAttribute("data-consigne-id") || root.dataset.consigneId || null;
       const itemId = ensureItemId(target, root, item);
-      item.setAttribute("data-validated", target.checked ? "true" : "false");
+      const skipped =
+        (target.dataset && target.dataset.checklistSkip === "1") ||
+        (item.dataset && item.dataset.checklistSkipped === "1");
+      if (skipped) {
+        if (item.dataset) {
+          item.dataset.checklistSkipped = "1";
+        }
+        item.setAttribute("data-checklist-skipped", "1");
+        if (item.classList && typeof item.classList.add === "function") {
+          item.classList.add("checklist-item--skipped");
+        }
+        if (target.dataset) {
+          target.dataset.checklistSkip = "1";
+        }
+        target.setAttribute("data-checklist-skip", "1");
+        if (!target.checked) {
+          target.checked = true;
+        }
+        item.setAttribute("data-validated", "skip");
+      } else {
+        if (item.dataset) {
+          delete item.dataset.checklistSkipped;
+        }
+        item.removeAttribute("data-checklist-skipped");
+        if (item.classList && typeof item.classList.remove === "function") {
+          item.classList.remove("checklist-item--skipped");
+        }
+        if (target.dataset) {
+          delete target.dataset.checklistSkip;
+        }
+        target.removeAttribute("data-checklist-skip");
+        item.setAttribute("data-validated", target.checked ? "true" : "false");
+      }
       updateHiddenState(root);
       const persistFn = window.ChecklistState?.persistRoot;
       if (typeof persistFn === "function") {
@@ -411,6 +465,7 @@
         consigneId,
         itemId,
         checked: Boolean(target.checked),
+        skipped,
         type: "checklist",
       };
       let queueError = null;
@@ -448,7 +503,42 @@
       }
       const node = findChecklistItemNode(detail.consigneId, detail.itemId);
       if (node) {
-        node.setAttribute("data-validated", detail.checked ? "true" : "false");
+        const isSkipped = detail.skipped === true;
+        if (isSkipped) {
+          if (node.dataset) {
+            node.dataset.checklistSkipped = "1";
+          }
+          node.setAttribute("data-checklist-skipped", "1");
+          if (node.classList && typeof node.classList.add === "function") {
+            node.classList.add("checklist-item--skipped");
+          }
+          node.setAttribute("data-validated", "skip");
+        } else {
+          if (node.dataset) {
+            delete node.dataset.checklistSkipped;
+          }
+          node.removeAttribute("data-checklist-skipped");
+          if (node.classList && typeof node.classList.remove === "function") {
+            node.classList.remove("checklist-item--skipped");
+          }
+          node.setAttribute("data-validated", detail.checked ? "true" : "false");
+        }
+        const checkbox = node.querySelector?.("[data-checklist-input]") || node.querySelector?.('input[type="checkbox"]');
+        if (checkbox instanceof HTMLInputElement) {
+          if (isSkipped) {
+            if (checkbox.dataset) {
+              checkbox.dataset.checklistSkip = "1";
+            }
+            checkbox.setAttribute("data-checklist-skip", "1");
+            checkbox.checked = true;
+          } else {
+            if (checkbox.dataset) {
+              delete checkbox.dataset.checklistSkip;
+            }
+            checkbox.removeAttribute("data-checklist-skip");
+            checkbox.checked = Boolean(detail.checked);
+          }
+        }
         node.classList.remove("saved-burst");
         void node.offsetWidth;
         node.classList.add("saved-burst");
@@ -459,7 +549,8 @@
         consigneId: detail.consigneId || null,
         itemId: detail.itemId || null,
         type: detail.type,
-        value: detail.checked ? 1 : 0,
+        value: detail.skipped ? null : detail.checked ? 1 : 0,
+        skipped: Boolean(detail.skipped),
         at: new Date().toISOString(),
       };
       log.unshift(entry);
@@ -484,7 +575,40 @@
       const node = findChecklistItemNode(detail.consigneId, detail.itemId);
       if (node) {
         node.classList.remove("saved-burst");
-        node.setAttribute("data-validated", detail.checked ? "true" : "false");
+        const isSkipped = detail.skipped === true;
+        if (isSkipped) {
+          if (node.dataset) {
+            node.dataset.checklistSkipped = "1";
+          }
+          node.setAttribute("data-checklist-skipped", "1");
+          if (node.classList && typeof node.classList.add === "function") {
+            node.classList.add("checklist-item--skipped");
+          }
+          node.setAttribute("data-validated", "skip");
+        } else {
+          if (node.dataset) {
+            delete node.dataset.checklistSkipped;
+          }
+          node.removeAttribute("data-checklist-skipped");
+          if (node.classList && typeof node.classList.remove === "function") {
+            node.classList.remove("checklist-item--skipped");
+          }
+          node.setAttribute("data-validated", detail.checked ? "true" : "false");
+        }
+        const checkbox = node.querySelector?.("[data-checklist-input]") || node.querySelector?.('input[type="checkbox"]');
+        if (checkbox instanceof HTMLInputElement) {
+          if (isSkipped) {
+            if (checkbox.dataset) {
+              checkbox.dataset.checklistSkip = "1";
+            }
+            checkbox.setAttribute("data-checklist-skip", "1");
+          } else {
+            if (checkbox.dataset) {
+              delete checkbox.dataset.checklistSkip;
+            }
+            checkbox.removeAttribute("data-checklist-skip");
+          }
+        }
       }
     });
 

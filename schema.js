@@ -1514,6 +1514,9 @@ function valueToNumericPoint(type, value) {
       : value && typeof value === "object" && Array.isArray(value.items)
         ? value.items.map((item) => item === true)
         : [];
+    // Les réponses par élément peuvent également être stockées dans un objet "answers"
+    // de la forme { [itemId]: { value: "yes" | "maybe" | "no", skipped: boolean } }.
+    // Pour la rétro-compatibilité, une valeur sans champ "skipped" est considérée comme false.
     const skippedRaw = value && typeof value === "object" && Array.isArray(value.skipped)
       ? value.skipped.map((item) => item === true)
       : [];

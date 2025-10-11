@@ -228,6 +228,109 @@
     return result;
   }
 
+  function normalizeAnswerValue(value) {
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (!normalized) return "no";
+      if (["yes", "true", "1", "ok", "done"].includes(normalized)) {
+        return "yes";
+      }
+      if (["maybe", "partial", "pending", "partial_yes"].includes(normalized)) {
+        return "maybe";
+      }
+      if (["no", "false", "0", "ko"].includes(normalized)) {
+        return "no";
+      }
+      return "no";
+    }
+    if (value === true) return "yes";
+    if (value === false) return "no";
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) return "no";
+      return value > 0 ? "yes" : "no";
+    }
+    return value ? "yes" : "no";
+  }
+
+  function normalizeSkippedFlag(value) {
+    if (value === true) return true;
+    if (value === false || value == null) return false;
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) return false;
+      return value !== 0;
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (!normalized) return false;
+      return ["1", "true", "yes", "y", "on", "skip", "passed"].includes(normalized);
+    }
+    return false;
+  }
+
+  function normalizeAnswers(answers) {
+    if (!answers || typeof answers !== "object") {
+      return {};
+    }
+    const entries = answers instanceof Map ? Array.from(answers.entries()) : Object.entries(answers);
+    if (!entries.length) {
+      return {};
+    }
+    const normalized = {};
+    entries.forEach(([rawKey, rawValue]) => {
+      const key = String(rawKey ?? "").trim();
+      if (!key) {
+        return;
+      }
+      let entry = rawValue;
+      if (entry == null) {
+        entry = { value: "no", skipped: false };
+      }
+      if (typeof entry !== "object" || Array.isArray(entry)) {
+        entry = { value: entry };
+      }
+      const normalizedEntry = {
+        value: normalizeAnswerValue(entry.value),
+        skipped: normalizeSkippedFlag(entry.skipped),
+      };
+      normalized[key] = normalizedEntry;
+    });
+    return normalized;
+  }
+
+  function selectedIdsFromAnswers(answers) {
+    if (!answers || typeof answers !== "object") {
+      return [];
+    }
+    return Object.entries(answers)
+      .filter(([, entry]) => {
+        if (!entry || typeof entry !== "object") return false;
+        const value = String(entry.value ?? "").toLowerCase();
+        const isPositive = value === "yes" || value === "maybe";
+        return isPositive && !normalizeSkippedFlag(entry.skipped);
+      })
+      .map(([key]) => key);
+  }
+
+  function answersToMap(answers) {
+    const map = new Map();
+    if (!answers || typeof answers !== "object") {
+      return map;
+    }
+    Object.entries(answers).forEach(([key, entry]) => {
+      const id = String(key ?? "").trim();
+      if (!id) return;
+      if (!entry || typeof entry !== "object") {
+        map.set(id, { value: normalizeAnswerValue(entry), skipped: false });
+        return;
+      }
+      map.set(id, {
+        value: normalizeAnswerValue(entry.value),
+        skipped: normalizeSkippedFlag(entry.skipped),
+      });
+    });
+    return map;
+  }
+
   function fallbackSelectedIds(consigneId, data = {}, { useLegacyIds = true } = {}) {
     const normalizedConsigneId = normalizeConsigneId(consigneId);
     if (!normalizedConsigneId) {
@@ -275,7 +378,14 @@
   }
 
   function normalizePayload(payload = {}) {
-    const selectedIds = normalizeSelectedIds(payload.selectedIds || payload.checked);
+    const normalizedAnswers = normalizeAnswers(payload.answers || payload.answerMap);
+    let selectedIds = normalizeSelectedIds(payload.selectedIds || payload.checked);
+    if (normalizedAnswers && Object.keys(normalizedAnswers).length) {
+      const derived = selectedIdsFromAnswers(normalizedAnswers);
+      if (derived.length) {
+        selectedIds = normalizeSelectedIds([...selectedIds, ...derived]);
+      }
+    }
     const optionsHash = isNonEmptyString(payload.optionsHash)
       ? payload.optionsHash
       : payload.optionsHash == null
@@ -297,6 +407,7 @@
       optionsHash,
       ts: tsValue,
       dateKey,
+      answers: normalizedAnswers,
     };
   }
 
@@ -350,6 +461,7 @@
             selectedIds: finalPayload.selectedIds,
             checked: finalPayload.selectedIds,
             optionsHash: finalPayload.optionsHash || null,
+            answers: finalPayload.answers || {},
             updatedAt: timestamp,
             ts: finalPayload.ts,
             dateKey: finalPayload.dateKey,
@@ -397,6 +509,7 @@
             optionsHash: data.optionsHash,
             ts: data.updatedAt ?? data.ts,
             dateKey: data.dateKey || data.dayKey || todayKey,
+            answers: data.answers,
           });
           cacheSelection(uid, consigneId, normalized);
           return normalized;
@@ -430,6 +543,7 @@
             optionsHash: data.optionsHash,
             ts: data.updatedAt || data.ts || data.createdAt,
             dateKey: data.dayKey || data.dateKey || todayKey,
+            answers: data.answers,
           });
           cacheSelection(uid, consigneId, normalized);
           return normalized;
@@ -577,9 +691,39 @@
     }
     return normalizeSelectedIds(
       entries
-        .filter((entry) => entry && entry.input && entry.input.checked)
+        .filter((entry) => {
+          if (!entry || !entry.input || !entry.input.checked) {
+            return false;
+          }
+          const skipFlag =
+            (entry.input.dataset && entry.input.dataset.checklistSkip === "1") ||
+            (entry.host && entry.host.dataset && entry.host.dataset.checklistSkipped === "1");
+          return !skipFlag;
+        })
         .map((entry) => entry.itemId)
     );
+  }
+
+  function buildAnswersFromEntries(entries) {
+    if (!Array.isArray(entries) || !entries.length) {
+      return {};
+    }
+    const answers = {};
+    entries.forEach((entry) => {
+      if (!entry || !entry.input) {
+        return;
+      }
+      const id = String(entry.itemId ?? "").trim();
+      if (!id) {
+        return;
+      }
+      const skipFlag =
+        (entry.input.dataset && entry.input.dataset.checklistSkip === "1") ||
+        (entry.host && entry.host.dataset && entry.host.dataset.checklistSkipped === "1");
+      const value = skipFlag || Boolean(entry.input.checked) ? "yes" : "no";
+      answers[id] = { value: normalizeAnswerValue(value), skipped: skipFlag };
+    });
+    return answers;
   }
 
   function applySelection(root, payload, options = {}) {
@@ -587,33 +731,90 @@
     const selectedIds = normalizeSelectedIds(payload.selectedIds);
     const consigneId = normalizeConsigneId(options.consigneId || root.getAttribute("data-consigne-id") || root.dataset?.consigneId);
     const selectedSet = new Set(selectedIds.map((value) => String(value)));
+    const answersMap = answersToMap(payload.answers);
     const entries = collectChecklistEntries(root, consigneId);
     if (!entries.length) {
       return false;
     }
     let anyChange = false;
     entries.forEach(({ input, host, itemId, legacyId }) => {
-      const shouldCheck =
-        selectedSet.has(String(itemId)) || (legacyId ? selectedSet.has(String(legacyId)) : false);
-      if (input.checked !== shouldCheck) {
-        input.checked = shouldCheck;
-        anyChange = true;
+      if (!input) {
+        return;
       }
-      if (host) {
-        host.setAttribute("data-validated", shouldCheck ? "true" : "false");
+      const primaryId = String(itemId ?? "");
+      const legacyKey = legacyId ? String(legacyId) : "";
+      const answer =
+        (primaryId && answersMap.get(primaryId)) || (legacyKey && answersMap.get(legacyKey)) || null;
+      let shouldCheck =
+        selectedSet.has(primaryId) || (legacyKey ? selectedSet.has(legacyKey) : false);
+      let shouldSkip = false;
+      if (answer) {
+        shouldSkip = Boolean(answer.skipped);
+        if (answer.value === "yes" || answer.value === "maybe") {
+          shouldCheck = true;
+        } else if (answer.value === "no") {
+          shouldCheck = false;
+        }
+      }
+      if (shouldSkip) {
+        if (input.dataset) {
+          input.dataset.checklistSkip = "1";
+        }
+        input.setAttribute("data-checklist-skip", "1");
+        if (!input.checked) {
+          input.checked = true;
+          anyChange = true;
+        }
+        if (host) {
+          if (host.dataset) {
+            host.dataset.checklistSkipped = "1";
+          }
+          host.setAttribute("data-checklist-skipped", "1");
+          if (host.classList && typeof host.classList.add === "function") {
+            host.classList.add("checklist-item--skipped");
+          }
+          host.setAttribute("data-validated", "skip");
+        }
+      } else {
+        if (input.dataset) {
+          delete input.dataset.checklistSkip;
+        }
+        input.removeAttribute("data-checklist-skip");
+        if (input.checked !== shouldCheck) {
+          input.checked = shouldCheck;
+          anyChange = true;
+        }
+        if (host) {
+          if (host.dataset) {
+            delete host.dataset.checklistSkipped;
+          }
+          host.removeAttribute("data-checklist-skipped");
+          if (host.classList && typeof host.classList.remove === "function") {
+            host.classList.remove("checklist-item--skipped");
+          }
+          host.setAttribute("data-validated", shouldCheck ? "true" : "false");
+        }
       }
     });
     const hidden = root.querySelector("[data-checklist-state]");
     if (hidden) {
-      const payload = {
-        items: entries.map(({ input }) => Boolean(input.checked)),
-        skipped: entries.map(({ input }) => (input.dataset?.checklistSkip === "1" ? true : false)),
+      const payloadState = {
+        items: entries.map(({ input }) => Boolean(input && input.checked)),
+        skipped: entries.map(({ input, host }) => {
+          const skipDataset = input?.dataset?.checklistSkip === "1";
+          const skipHost = host && host.dataset && host.dataset.checklistSkipped === "1";
+          return skipDataset || skipHost;
+        }),
+        answers: buildAnswersFromEntries(entries),
       };
-      if (Array.isArray(payload.skipped) && payload.skipped.every((value) => value === false)) {
-        delete payload.skipped;
+      if (Array.isArray(payloadState.skipped) && payloadState.skipped.every((value) => value === false)) {
+        delete payloadState.skipped;
+      }
+      if (!payloadState.answers || !Object.keys(payloadState.answers).length) {
+        delete payloadState.answers;
       }
       try {
-        hidden.value = JSON.stringify(payload);
+        hidden.value = JSON.stringify(payloadState);
       } catch (error) {
         console.warn("[checklist-state] hidden:update", error);
       }
@@ -655,6 +856,7 @@
       optionsHash,
       dateKey: options.dateKey || currentParisDayKey(),
       ts: Date.now(),
+      answers: buildAnswersFromEntries(entries),
     };
     const { db, uid } = context;
     if (!uid) {
