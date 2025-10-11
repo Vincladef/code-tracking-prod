@@ -326,24 +326,71 @@ function normalizeParentId(value) {
   return trimmed ? String(trimmed) : null;
 }
 
-function normalizeChecklistItems(items) {
-  if (!Array.isArray(items)) return [];
-  const seen = new Set();
-  const result = [];
-  items.forEach((raw) => {
-    if (typeof raw !== "string") return;
+let checklistIdCounter = 0;
+
+function generateChecklistItemId() {
+  if (typeof crypto !== "undefined" && crypto && typeof crypto.randomUUID === "function") {
+    try {
+      return crypto.randomUUID();
+    } catch (error) {
+      // ignore and fall back to manual generation
+    }
+  }
+  checklistIdCounter += 1;
+  const nowPart = Date.now().toString(36);
+  const counterPart = checklistIdCounter.toString(36);
+  const randomPart = Math.random().toString(36).slice(2, 8);
+  return `chk_${nowPart}_${counterPart}_${randomPart}`;
+}
+
+function normalizeChecklistItemPayload(items, ids) {
+  const normalizedItems = [];
+  const normalizedIds = [];
+  const seenLabels = new Set();
+  const seenIds = new Set();
+  const sourceItems = Array.isArray(items) ? items : [];
+  const sourceIds = Array.isArray(ids) ? ids : [];
+  sourceItems.forEach((raw, index) => {
+    if (typeof raw !== "string") {
+      return;
+    }
     const trimmed = raw.trim();
-    if (!trimmed) return;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    result.push(trimmed);
+    if (!trimmed) {
+      return;
+    }
+    const labelKey = trimmed.toLowerCase();
+    if (seenLabels.has(labelKey)) {
+      return;
+    }
+    seenLabels.add(labelKey);
+    normalizedItems.push(trimmed);
+    const explicitId = typeof sourceIds[index] === "string" ? sourceIds[index].trim() : "";
+    let resolvedId = explicitId && !seenIds.has(explicitId) ? explicitId : "";
+    if (!resolvedId) {
+      do {
+        resolvedId = generateChecklistItemId();
+      } while (seenIds.has(resolvedId));
+    }
+    seenIds.add(resolvedId);
+    normalizedIds.push(resolvedId);
   });
-  return result;
+  return { items: normalizedItems, ids: normalizedIds };
+}
+
+function normalizeChecklistItems(items) {
+  return normalizeChecklistItemPayload(items).items;
+}
+
+function normalizeChecklistItemIds(ids, items) {
+  return normalizeChecklistItemPayload(items, ids).ids;
 }
 
 function hydrateConsigne(doc) {
   const data = doc.data();
+  const normalizedChecklist = normalizeChecklistItemPayload(
+    data.checklistItems,
+    data.checklistItemIds
+  );
   return {
     id: doc.id,
     ...data,
@@ -351,7 +398,8 @@ function hydrateConsigne(doc) {
     days: normalizeDays(data.days),
     srEnabled: data.srEnabled !== false,
     parentId: normalizeParentId(data.parentId),
-    checklistItems: normalizeChecklistItems(data.checklistItems),
+    checklistItems: normalizedChecklist.items,
+    checklistItemIds: normalizedChecklist.ids,
     ephemeral: data.ephemeral === true,
     ephemeralDurationDays: normalizePositiveInteger(data.ephemeralDurationDays),
     ephemeralDurationIterations: normalizePositiveInteger(data.ephemeralDurationIterations),
@@ -1189,13 +1237,18 @@ async function listChildConsignes(db, uid, parentId) {
 }
 
 async function addConsigne(db, uid, payload) {
+  const normalizedChecklist = normalizeChecklistItemPayload(
+    payload.checklistItems,
+    payload.checklistItemIds
+  );
   const ref = await addDoc(col(db, uid, "consignes"), {
     ...payload,
     srEnabled: payload.srEnabled !== false,
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
     parentId: normalizeParentId(payload.parentId),
-    checklistItems: normalizeChecklistItems(payload.checklistItems),
+    checklistItems: normalizedChecklist.items,
+    checklistItemIds: normalizedChecklist.ids,
     ephemeral: payload.ephemeral === true,
     ephemeralDurationDays: normalizePositiveInteger(payload.ephemeralDurationDays),
     ephemeralDurationIterations: normalizePositiveInteger(payload.ephemeralDurationIterations),
@@ -1346,13 +1399,18 @@ async function logConsigneHistoryEntry(db, uid, consigneId, entryOptions = {}) {
 
 async function updateConsigne(db, uid, id, payload, options = {}) {
   const ref = docIn(db, uid, "consignes", id);
+  const normalizedChecklist = normalizeChecklistItemPayload(
+    payload.checklistItems,
+    payload.checklistItemIds
+  );
   const normalizedPayload = {
     ...payload,
     srEnabled: payload.srEnabled !== false,
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
     parentId: normalizeParentId(payload.parentId),
-    checklistItems: normalizeChecklistItems(payload.checklistItems),
+    checklistItems: normalizedChecklist.items,
+    checklistItemIds: normalizedChecklist.ids,
     ephemeral: payload.ephemeral === true,
     ephemeralDurationDays: normalizePositiveInteger(payload.ephemeralDurationDays),
     ephemeralDurationIterations: normalizePositiveInteger(payload.ephemeralDurationIterations),
@@ -2580,6 +2638,9 @@ Object.assign(Schema, {
   fetchHistory,
   fetchResponsesForConsigne,
   fetchDailyResponses,
+  generateChecklistItemId,
+  normalizeChecklistItems,
+  normalizeChecklistItemIds,
   valueToNumericPoint,
   listConsignesByCategory,
   loadConsigneHistory,

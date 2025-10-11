@@ -658,6 +658,29 @@ function sanitizeChecklistItems(consigne) {
     .filter((item) => item.length > 0);
 }
 
+function generateClientChecklistItemId() {
+  if (typeof Schema !== "undefined" && Schema && typeof Schema.generateChecklistItemId === "function") {
+    try {
+      const generated = Schema.generateChecklistItemId();
+      if (generated) {
+        return String(generated);
+      }
+    } catch (error) {
+      modesLogger?.warn?.("checklist.id.generate", error);
+    }
+  }
+  if (typeof crypto !== "undefined" && crypto && typeof crypto.randomUUID === "function") {
+    try {
+      return crypto.randomUUID();
+    } catch (error) {
+      // ignore and fall back
+    }
+  }
+  const nowPart = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).slice(2, 10);
+  return `chk_${nowPart}_${randomPart}`;
+}
+
 function slugifyChecklistLabel(label) {
   if (typeof label !== "string") {
     return "";
@@ -711,7 +734,16 @@ function computeChecklistOptionsHash(consigne) {
   return fallbackChecklistOptionsHash(items);
 }
 
-function resolveChecklistItemId(consigne, index, label) {
+function resolveChecklistItemId(consigne, index, label, stableIds = null) {
+  const idsSource = Array.isArray(stableIds)
+    ? stableIds
+    : Array.isArray(consigne?.checklistItemIds)
+    ? consigne.checklistItemIds
+    : [];
+  const explicitId = typeof idsSource[index] === "string" ? idsSource[index].trim() : "";
+  if (explicitId) {
+    return explicitId;
+  }
   const base =
     consigne?.id ??
     consigne?.slug ??
@@ -735,12 +767,16 @@ function collectChecklistSelectedIds(consigne, container, value) {
   if (container instanceof Element) {
     const items = Array.from(container.querySelectorAll("[data-checklist-item]"));
     if (items.length) {
+      const stableIds = Array.isArray(consigne?.checklistItemIds)
+        ? consigne.checklistItemIds
+        : [];
       items.forEach((item, index) => {
         const input = item.querySelector('[data-checklist-input], input[type="checkbox"]');
         const fallbackId = resolveChecklistItemId(
           consigne,
           index,
-          item.getAttribute("data-checklist-label") || input?.getAttribute?.("data-label") || ""
+          item.getAttribute("data-checklist-label") || input?.getAttribute?.("data-label") || "",
+          stableIds
         );
         const explicitKey =
           input?.getAttribute?.("data-key") ||
@@ -767,11 +803,12 @@ function collectChecklistSelectedIds(consigne, container, value) {
     }
   }
   const sanitizedItems = sanitizeChecklistItems(consigne);
+  const stableIds = Array.isArray(consigne?.checklistItemIds) ? consigne.checklistItemIds : [];
   sanitizedItems.forEach((_, index) => {
     const checked = Boolean(states[index]);
     const isSkipped = Boolean(domSkipped[index] ?? fallbackSkipped[index]);
     if (checked && !isSkipped) {
-      selected.add(resolveChecklistItemId(consigne, index, sanitizedItems[index]));
+      selected.add(resolveChecklistItemId(consigne, index, sanitizedItems[index], stableIds));
     }
   });
   return Array.from(selected);
@@ -4648,12 +4685,15 @@ function inputForType(consigne, initialValue = null) {
         ? `consigne:${String(consigne.id)}:checklist`
         : null;
     const autosaveAttr = autosaveFieldName ? ` data-autosave-field="${escapeHtml(String(autosaveFieldName))}"` : "";
+    const stableItemIds = Array.isArray(consigne?.checklistItemIds)
+      ? consigne.checklistItemIds
+      : [];
     const checkboxes = items
       .map((label, index) => {
         const checked = normalizedValue[index];
         const skipped = normalizedSkipped[index];
         const trimmedLabel = typeof label === "string" ? label.trim() : "";
-        const itemId = resolveChecklistItemId(consigne, index, trimmedLabel);
+        const itemId = resolveChecklistItemId(consigne, index, trimmedLabel, stableItemIds);
         const legacyBase =
           consigne?.id ??
           consigne?.slug ??
@@ -5752,12 +5792,20 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     empty.textContent = "Aucun élément pour l'instant.";
     checklistList.appendChild(empty);
   };
-  const addChecklistRow = (initialText = "") => {
+  const addChecklistRow = (initialText = "", initialId = "") => {
     if (!checklistList) return null;
     const row = document.createElement('div');
     row.className = 'flex items-center gap-2';
     row.dataset.checklistEditorRow = '';
     row.draggable = true;
+    const idInput = document.createElement('input');
+    idInput.type = 'hidden';
+    idInput.name = 'checklist-item-id';
+    const resolvedId = typeof initialId === 'string' && initialId.trim().length
+      ? initialId.trim()
+      : generateClientChecklistItemId();
+    idInput.value = resolvedId;
+    row.dataset.checklistItemId = resolvedId;
     const input = document.createElement('input');
     input.type = 'text';
     input.name = 'checklist-item';
@@ -5773,7 +5821,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       row.remove();
       renderChecklistEmptyState();
     });
-    row.append(input, removeBtn);
+    row.append(idInput, input, removeBtn);
     checklistList.appendChild(row);
     renderChecklistEmptyState();
     return row;
@@ -5837,8 +5885,11 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
   const initialChecklistItems = Array.isArray(consigne?.checklistItems)
     ? consigne.checklistItems.filter((item) => typeof item === 'string' && item.trim().length > 0)
     : [];
+  const initialChecklistIds = Array.isArray(consigne?.checklistItemIds)
+    ? consigne.checklistItemIds
+    : [];
   if (initialChecklistItems.length) {
-    initialChecklistItems.forEach((item) => addChecklistRow(item));
+    initialChecklistItems.forEach((item, index) => addChecklistRow(item, initialChecklistIds[index] || ''));
   }
   const ensureChecklistHasRow = () => {
     if (!checklistMounted || !checklistList) return;
@@ -5968,12 +6019,20 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         emptyState.textContent = "Aucun élément pour l'instant.";
         subChecklistList.appendChild(emptyState);
       };
-      const addSubChecklistRow = (initialText = "") => {
+      const addSubChecklistRow = (initialText = "", initialId = "") => {
         if (!subChecklistList) return null;
         const itemRow = document.createElement('div');
         itemRow.className = 'flex items-center gap-2';
         itemRow.dataset.subChecklistRow = '';
         itemRow.draggable = true;
+        const idInput = document.createElement('input');
+        idInput.type = 'hidden';
+        idInput.name = 'sub-checklist-item-id';
+        const resolvedId = typeof initialId === 'string' && initialId.trim().length
+          ? initialId.trim()
+          : generateClientChecklistItemId();
+        idInput.value = resolvedId;
+        itemRow.dataset.subChecklistItemId = resolvedId;
         const input = document.createElement('input');
         input.type = 'text';
         input.name = 'sub-checklist-item';
@@ -5989,7 +6048,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           itemRow.remove();
           renderSubChecklistEmptyState();
         });
-        itemRow.append(input, removeBtn);
+        itemRow.append(idInput, input, removeBtn);
         subChecklistList.appendChild(itemRow);
         renderSubChecklistEmptyState();
         return itemRow;
@@ -6055,8 +6114,13 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       const initialSubChecklistItems = Array.isArray(item?.checklistItems)
         ? item.checklistItems.filter((value) => typeof value === 'string' && value.trim().length > 0)
         : [];
+      const initialSubChecklistIds = Array.isArray(item?.checklistItemIds)
+        ? item.checklistItemIds
+        : [];
       if (initialSubChecklistItems.length) {
-        initialSubChecklistItems.forEach((value) => addSubChecklistRow(value));
+        initialSubChecklistItems.forEach((value, index) =>
+          addSubChecklistRow(value, initialSubChecklistIds[index] || '')
+        );
       }
       setupSubChecklistDragAndDrop();
       const syncSubChecklistVisibility = () => {
@@ -6186,8 +6250,11 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         parentId: consigne?.parentId || null,
       };
       if (payload.type === "checklist") {
-        const itemInputs = Array.from(m.querySelectorAll('[name="checklist-item"]'));
-        const items = itemInputs.map((input) => input.value.trim());
+        const itemRows = Array.from(m.querySelectorAll('[data-checklist-editor-row]'));
+        const items = itemRows.map((row) => {
+          const input = row.querySelector('input[name="checklist-item"]');
+          return input ? input.value.trim() : "";
+        });
         const hasAtLeastOne = items.some((text) => text.length > 0);
         if (!hasAtLeastOne) {
           alert("Ajoute au moins un élément à la checklist.");
@@ -6198,9 +6265,24 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           alert("Renseigne chaque élément de checklist ou supprime ceux qui sont vides.");
           return;
         }
+        const itemIds = itemRows.map((row) => {
+          const hidden = row.querySelector('input[name="checklist-item-id"]');
+          let idValue = hidden?.value && typeof hidden.value === 'string' ? hidden.value.trim() : '';
+          if (!idValue && hidden) {
+            idValue = generateClientChecklistItemId();
+            hidden.value = idValue;
+          }
+          if (!idValue) {
+            idValue = generateClientChecklistItemId();
+          }
+          row.dataset.checklistItemId = idValue;
+          return idValue;
+        });
         payload.checklistItems = items;
+        payload.checklistItemIds = itemIds;
       } else {
         payload.checklistItems = [];
+        payload.checklistItemIds = [];
       }
       if (mode === "daily") {
         const isAll = m.querySelector("#daily-all")?.checked;
@@ -6251,6 +6333,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         srEnabled: payload.srEnabled,
         days: Array.isArray(payload.days) ? [...payload.days] : payload.days,
         checklistItems: Array.isArray(payload.checklistItems) ? [...payload.checklistItems] : [],
+        checklistItemIds: Array.isArray(payload.checklistItemIds) ? [...payload.checklistItemIds] : [],
         ephemeral: payload.ephemeral,
         ephemeralDurationDays: payload.ephemeralDurationDays,
         ephemeralDurationIterations: payload.ephemeralDurationIterations,
@@ -6323,13 +6406,30 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
                 text: textValue,
                 type: typeValue,
                 checklistItems: [],
+                checklistItemIds: [],
               };
               if (mode === "daily") {
                 childPayload.days = Array.isArray(childDays) ? [...childDays] : [];
               }
               if (typeValue === 'checklist') {
-                const checklistInputs = Array.from(row.querySelectorAll('input[name="sub-checklist-item"]'));
-                childPayload.checklistItems = checklistInputs.map((input) => input.value.trim());
+                const checklistRows = Array.from(row.querySelectorAll('[data-sub-checklist-row]'));
+                childPayload.checklistItems = checklistRows.map((subRow) => {
+                  const input = subRow.querySelector('input[name="sub-checklist-item"]');
+                  return input ? input.value.trim() : '';
+                });
+                childPayload.checklistItemIds = checklistRows.map((subRow) => {
+                  const hidden = subRow.querySelector('input[name="sub-checklist-item-id"]');
+                  let idValue = hidden?.value && typeof hidden.value === 'string' ? hidden.value.trim() : '';
+                  if (!idValue && hidden) {
+                    idValue = generateClientChecklistItemId();
+                    hidden.value = idValue;
+                  }
+                  if (!idValue) {
+                    idValue = generateClientChecklistItemId();
+                  }
+                  subRow.dataset.subChecklistItemId = idValue;
+                  return idValue;
+                });
               }
               if (childId) {
                 updates.push(
