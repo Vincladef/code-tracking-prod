@@ -405,6 +405,104 @@
       return document.querySelector(`[data-checklist-item][data-item-id="${escapedItem}"]`);
     };
 
+    const CHECKLIST_SKIP_DATA_KEY = "checklistSkip";
+    const CHECKLIST_PREV_CHECKED_KEY = "checklistPrevChecked";
+
+    const storePreviousCheckedState = (input) => {
+      if (!input) {
+        return "0";
+      }
+      let previous = null;
+      if (input.dataset && Object.prototype.hasOwnProperty.call(input.dataset, CHECKLIST_PREV_CHECKED_KEY)) {
+        previous = input.dataset[CHECKLIST_PREV_CHECKED_KEY];
+      }
+      if (previous == null && input.hasAttribute("data-checklist-prev-checked")) {
+        previous = input.getAttribute("data-checklist-prev-checked");
+      }
+      if (previous == null) {
+        previous = input.checked ? "1" : "0";
+      }
+      if (input.dataset) {
+        input.dataset[CHECKLIST_PREV_CHECKED_KEY] = previous;
+      }
+      input.setAttribute("data-checklist-prev-checked", previous);
+      return previous;
+    };
+
+    const readPreviousCheckedState = (input) => {
+      if (!input) {
+        return null;
+      }
+      let previous = null;
+      if (input.dataset && Object.prototype.hasOwnProperty.call(input.dataset, CHECKLIST_PREV_CHECKED_KEY)) {
+        previous = input.dataset[CHECKLIST_PREV_CHECKED_KEY];
+        delete input.dataset[CHECKLIST_PREV_CHECKED_KEY];
+      }
+      if (previous == null && input.hasAttribute("data-checklist-prev-checked")) {
+        previous = input.getAttribute("data-checklist-prev-checked");
+      }
+      input.removeAttribute("data-checklist-prev-checked");
+      return previous;
+    };
+
+    const applySkipState = (input, host, skip, options = {}) => {
+      if (!input) {
+        return;
+      }
+      if (skip) {
+        storePreviousCheckedState(input);
+        if ("indeterminate" in input) {
+          input.indeterminate = true;
+        }
+        input.checked = false;
+        if (input.dataset) {
+          input.dataset[CHECKLIST_SKIP_DATA_KEY] = "1";
+        }
+        input.setAttribute("data-checklist-skip", "1");
+        if (host) {
+          if (host.dataset) {
+            host.dataset.checklistSkipped = "1";
+          }
+          host.setAttribute("data-checklist-skipped", "1");
+          if (host.classList && typeof host.classList.add === "function") {
+            host.classList.add("checklist-item--skipped");
+          }
+          host.setAttribute("data-validated", "skip");
+        }
+        return;
+      }
+
+      if ("indeterminate" in input) {
+        input.indeterminate = false;
+      }
+      if (input.dataset) {
+        delete input.dataset[CHECKLIST_SKIP_DATA_KEY];
+      }
+      input.removeAttribute("data-checklist-skip");
+      let nextChecked = readPreviousCheckedState(input);
+      if (nextChecked == null && Object.prototype.hasOwnProperty.call(options, "fallbackChecked")) {
+        nextChecked = options.fallbackChecked ? "1" : "0";
+        if (input.dataset) {
+          input.dataset[CHECKLIST_PREV_CHECKED_KEY] = nextChecked;
+        }
+        input.setAttribute("data-checklist-prev-checked", nextChecked);
+      }
+      if (nextChecked != null) {
+        const normalized = nextChecked === "1" || nextChecked === "true";
+        input.checked = normalized;
+      }
+      if (host) {
+        if (host.dataset) {
+          delete host.dataset.checklistSkipped;
+        }
+        host.removeAttribute("data-checklist-skipped");
+        if (host.classList && typeof host.classList.remove === "function") {
+          host.classList.remove("checklist-item--skipped");
+        }
+        host.setAttribute("data-validated", input.checked ? "true" : "false");
+      }
+    };
+
     document.addEventListener("click", (event) => {
       const target = event?.target;
       if (!(target instanceof Element)) {
@@ -428,34 +526,7 @@
         (input.dataset && input.dataset.checklistSkip === "1") ||
         (host.dataset && host.dataset.checklistSkipped === "1");
       const nextSkipped = !wasSkipped;
-      if (nextSkipped) {
-        if (input.dataset) {
-          input.dataset.checklistSkip = "1";
-        }
-        input.setAttribute("data-checklist-skip", "1");
-        input.checked = true;
-        if (host.dataset) {
-          host.dataset.checklistSkipped = "1";
-        }
-        host.setAttribute("data-checklist-skipped", "1");
-        if (host.classList && typeof host.classList.add === "function") {
-          host.classList.add("checklist-item--skipped");
-        }
-        host.setAttribute("data-validated", "skip");
-      } else {
-        if (input.dataset) {
-          delete input.dataset.checklistSkip;
-        }
-        input.removeAttribute("data-checklist-skip");
-        if (host.dataset) {
-          delete host.dataset.checklistSkipped;
-        }
-        host.removeAttribute("data-checklist-skipped");
-        if (host.classList && typeof host.classList.remove === "function") {
-          host.classList.remove("checklist-item--skipped");
-        }
-        host.setAttribute("data-validated", input.checked ? "true" : "false");
-      }
+      applySkipState(input, host, nextSkipped);
       const changeEvent = new Event("change", { bubbles: true });
       input.dispatchEvent(changeEvent);
     });
@@ -479,34 +550,9 @@
         (target.dataset && target.dataset.checklistSkip === "1") ||
         (item.dataset && item.dataset.checklistSkipped === "1");
       if (skipped) {
-        if (item.dataset) {
-          item.dataset.checklistSkipped = "1";
-        }
-        item.setAttribute("data-checklist-skipped", "1");
-        if (item.classList && typeof item.classList.add === "function") {
-          item.classList.add("checklist-item--skipped");
-        }
-        if (target.dataset) {
-          target.dataset.checklistSkip = "1";
-        }
-        target.setAttribute("data-checklist-skip", "1");
-        if (!target.checked) {
-          target.checked = true;
-        }
-        item.setAttribute("data-validated", "skip");
+        applySkipState(target, item, true);
       } else {
-        if (item.dataset) {
-          delete item.dataset.checklistSkipped;
-        }
-        item.removeAttribute("data-checklist-skipped");
-        if (item.classList && typeof item.classList.remove === "function") {
-          item.classList.remove("checklist-item--skipped");
-        }
-        if (target.dataset) {
-          delete target.dataset.checklistSkip;
-        }
-        target.removeAttribute("data-checklist-skip");
-        item.setAttribute("data-validated", target.checked ? "true" : "false");
+        applySkipState(target, item, false);
       }
       updateHiddenState(root);
       const persistFn = window.ChecklistState?.persistRoot;
@@ -580,18 +626,12 @@
         }
         const checkbox = node.querySelector?.("[data-checklist-input]") || node.querySelector?.('input[type="checkbox"]');
         if (checkbox instanceof HTMLInputElement) {
-          if (isSkipped) {
-            if (checkbox.dataset) {
-              checkbox.dataset.checklistSkip = "1";
-            }
-            checkbox.setAttribute("data-checklist-skip", "1");
-            checkbox.checked = true;
-          } else {
-            if (checkbox.dataset) {
-              delete checkbox.dataset.checklistSkip;
-            }
-            checkbox.removeAttribute("data-checklist-skip");
+          applySkipState(checkbox, node, isSkipped, {
+            fallbackChecked: Boolean(detail.checked),
+          });
+          if (!isSkipped) {
             checkbox.checked = Boolean(detail.checked);
+            node.setAttribute("data-validated", checkbox.checked ? "true" : "false");
           }
         }
         node.classList.remove("saved-burst");
@@ -652,16 +692,12 @@
         }
         const checkbox = node.querySelector?.("[data-checklist-input]") || node.querySelector?.('input[type="checkbox"]');
         if (checkbox instanceof HTMLInputElement) {
-          if (isSkipped) {
-            if (checkbox.dataset) {
-              checkbox.dataset.checklistSkip = "1";
-            }
-            checkbox.setAttribute("data-checklist-skip", "1");
-          } else {
-            if (checkbox.dataset) {
-              delete checkbox.dataset.checklistSkip;
-            }
-            checkbox.removeAttribute("data-checklist-skip");
+          applySkipState(checkbox, node, isSkipped, {
+            fallbackChecked: Boolean(detail.checked),
+          });
+          if (!isSkipped) {
+            checkbox.checked = Boolean(detail.checked);
+            node.setAttribute("data-validated", checkbox.checked ? "true" : "false");
           }
         }
       }
