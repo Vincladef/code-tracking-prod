@@ -4349,10 +4349,11 @@ function inputForType(consigne, initialValue = null) {
                 delete input.dataset[SKIP_DATA_KEY];
               }
               input.removeAttribute('data-checklist-skip');
-              if (previousChecked != null) {
-                const wasChecked = previousChecked === '1' || previousChecked === 'true';
-                input.checked = Boolean(wasChecked);
-              }
+              const shouldCheck =
+                previousChecked != null
+                  ? previousChecked === '1' || previousChecked === 'true'
+                  : Boolean(input.defaultChecked);
+              input.checked = Boolean(shouldCheck);
               if (host) {
                 host.classList.remove('checklist-item--skipped');
                 if (host.dataset) {
