@@ -902,6 +902,12 @@
       }
     }
     .consigne-row--updated {
+      --consigne-status-bg:rgba(62,166,235,.18);
+      --consigne-status-border:rgba(62,166,235,.35);
+      --consigne-status-text:#1d4ed8;
+      --consigne-status-accent:#1d4ed8;
+      --consigne-status-color:#3ea6eb;
+      --consigne-status-dot-shadow:rgba(62,166,235,.28);
       animation:consigne-row-updated-pulse .9s ease-out;
     }
     .consigne-row--validated {
@@ -1592,7 +1598,7 @@
     .practice-dashboard__history-value li{ margin:.2rem 0; }
     .practice-dashboard__history-value input[type="checkbox"]{ pointer-events:none; margin-right:.35rem; }
     .practice-dashboard__history-note{ font-size:.85rem; color:#475569; line-height:1.4; word-break:break-word; }
-    .practice-dashboard__history-date{ display:flex; flex-direction:column; align-items:flex-end; gap:.25rem; font-size:.78rem; color:#64748b; white-space:nowrap; }
+    .practice-dashboard__history-date{ display:flex; flex-direction:column; align-items:flex-end; gap:.25rem; font-size:.78rem; color:#64748b; text-align:right; white-space:normal; line-height:1.25; overflow-wrap:break-word; }
     .practice-dashboard__history-date-main{ font-weight:600; color:#0f172a; }
     .practice-dashboard__history-date-sub{ font-size:.75rem; color:#94a3b8; }
     .practice-dashboard__history-meta-row{ font-size:.75rem; color:#64748b; }
@@ -1634,6 +1640,15 @@
     .practice-editor__input:focus-visible,
     .practice-editor__select:focus-visible,
     .consigne-editor__textarea:focus-visible{ outline:3px solid var(--accent-200); outline-offset:1px; border-color:var(--accent-400); }
+    .practice-editor__checklist{ display:flex; flex-direction:column; gap:.5rem; padding:.25rem 0; }
+    .practice-editor__checklist-option{ display:flex; align-items:flex-start; gap:.55rem; border:1px solid #E2E8F0; border-radius:.75rem; background:#F8FAFC; padding:.5rem .65rem; font-size:.9rem; color:#1f2937; }
+    .practice-editor__checklist-option input[type="checkbox"]{ width:1rem; height:1rem; margin-top:.15rem; }
+    .practice-editor__checklist-option span{ flex:1 1 auto; }
+    .practice-editor__checklist-option.is-checked{ border-color:#3b82f6; background:rgba(59,130,246,0.12); color:#1d4ed8; }
+    .practice-editor__checklist-option.is-checked span{ color:inherit; }
+    .practice-editor__checklist-option.is-checked input[type="checkbox"]{ accent-color:#2563eb; }
+    .practice-editor__checklist-option--archived{ opacity:.7; font-style:italic; }
+    .practice-editor__checklist-empty{ font-size:.85rem; color:#64748b; margin:0; }
     .consigne-rich-text{ display:flex; flex-direction:column; gap:.5rem; }
     .consigne-rich-text__toolbar{ display:flex; flex-wrap:wrap; gap:.35rem; }
     .consigne-rich-text__toolbar .btn{ padding:.3rem .6rem; font-size:.75rem; line-height:1.1; }

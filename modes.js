@@ -1048,6 +1048,8 @@ function numericPoint(type, value) {
 
 function formatConsigneValue(type, value, options = {}) {
   const wantsHtml = options.mode === "html";
+  const consigne = options.consigne || null;
+  const providedChecklist = Array.isArray(options.checklistItems) ? options.checklistItems : null;
   if (type === "info") return "";
   if (value && typeof value === "object" && value.skipped === true) {
     const label = "Passée";
@@ -1648,7 +1650,9 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
 
     function mergeEntry(entryMap, key, payload) {
       const current = entryMap.get(key) || { date: key, value: "", note: "", createdAt: null };
-      if (payload.value !== undefined) current.value = payload.value;
+      if (payload.value !== undefined) {
+        current.value = mergeChecklistValues(current.value, payload.value);
+      }
       if (payload.note !== undefined) current.note = payload.note;
       if (payload.createdAt instanceof Date) {
         if (!current.createdAt || payload.createdAt > current.createdAt) {
@@ -1658,15 +1662,162 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       entryMap.set(key, current);
     }
 
+    function normalizeChecklistFlag(value) {
+      if (typeof value === "boolean") return value;
+      if (typeof value === "number") return value !== 0;
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (!normalized) return false;
+        if (["1", "true", "vrai", "oui", "yes", "ok", "done", "fait"].includes(normalized)) return true;
+        if (["0", "false", "faux", "non", "no", "off"].includes(normalized)) return false;
+        const numeric = Number(normalized);
+        if (!Number.isNaN(numeric)) {
+          return numeric !== 0;
+        }
+        return false;
+      }
+      return Boolean(value);
+    }
+
+    function parseJsonCandidate(raw) {
+      if (typeof raw !== "string") return null;
+      const trimmed = raw.trim();
+      if (!trimmed) return null;
+      try {
+        return JSON.parse(trimmed);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function coerceChecklistLabels(source) {
+      if (!source) return null;
+      if (Array.isArray(source)) {
+        return source.map((item) => (item == null ? "" : String(item)));
+      }
+      const parsed = parseJsonCandidate(source);
+      if (parsed) {
+        return coerceChecklistLabels(parsed);
+      }
+      if (typeof source === "string") {
+        const parts = source
+          .split(/[\n;,]+/)
+          .map((part) => part.trim())
+          .filter(Boolean);
+        if (parts.length) return parts;
+      }
+      return null;
+    }
+
+    function coerceChecklistStructure(input) {
+      if (input == null) return null;
+      if (Array.isArray(input)) {
+        return { items: input.map((item) => normalizeChecklistFlag(item)) };
+      }
+      if (typeof input === "string") {
+        const parsed = parseJsonCandidate(input);
+        if (parsed != null) {
+          return coerceChecklistStructure(parsed);
+        }
+        return null;
+      }
+      if (typeof input === "object") {
+        if (Array.isArray(input.items) || Array.isArray(input.values) || Array.isArray(input.checked) || Array.isArray(input.answers)) {
+          const rawItems = input.items || input.values || input.checked || input.answers || [];
+          const normalizedItems = rawItems.map((item) => normalizeChecklistFlag(item));
+          const labels = coerceChecklistLabels(input.labels || input.itemsLabels || input.titles || null);
+          const structure = { items: normalizedItems };
+          if (labels && labels.length) {
+            structure.labels = labels;
+          }
+          return structure;
+        }
+        if (typeof input.value === "string" || Array.isArray(input.value) || typeof input.value === "object") {
+          return coerceChecklistStructure(input.value);
+        }
+      }
+      return null;
+    }
+
+    function mergeChecklistValues(currentValue, nextValue) {
+      const currentIsChecklist = currentValue && typeof currentValue === "object" && Array.isArray(currentValue.items);
+      const nextIsChecklist = nextValue && typeof nextValue === "object" && Array.isArray(nextValue.items);
+      if (!currentIsChecklist && !nextIsChecklist) {
+        return nextValue;
+      }
+      if (!currentIsChecklist) {
+        return nextIsChecklist
+          ? {
+              ...nextValue,
+              items: nextValue.items.slice(),
+              ...(Array.isArray(nextValue.labels) ? { labels: nextValue.labels.slice() } : {}),
+            }
+          : nextValue;
+      }
+      if (!nextIsChecklist) {
+        return currentValue;
+      }
+      const nextItems = Array.isArray(nextValue.items) ? nextValue.items : [];
+      const currentItems = Array.isArray(currentValue.items) ? currentValue.items : [];
+      const mergedItems = nextItems.length ? nextItems : currentItems;
+      const currentLabels = Array.isArray(currentValue.labels) ? currentValue.labels : [];
+      const nextLabels = Array.isArray(nextValue.labels) ? nextValue.labels : [];
+      const mergedLabels = nextLabels.length ? nextLabels : currentLabels;
+      const merged = {
+        ...currentValue,
+        ...nextValue,
+        items: mergedItems.slice(),
+      };
+      if (mergedLabels.length) {
+        merged.labels = mergedLabels.slice();
+      } else if (merged.labels) {
+        delete merged.labels;
+      }
+      return merged;
+    }
+
     function parseHistoryEntry(entry) {
+      const baseValue =
+        entry.v ??
+        entry.value ??
+        entry.answer ??
+        entry.val ??
+        entry.score ??
+        "";
+      const baseStructure = coerceChecklistStructure(baseValue);
+      const supplementalStructure =
+        baseStructure ??
+        coerceChecklistStructure(entry.items) ??
+        coerceChecklistStructure(entry.values) ??
+        coerceChecklistStructure(entry.answers) ??
+        coerceChecklistStructure(entry.checked) ??
+        coerceChecklistStructure(entry.checklist) ??
+        null;
+      let normalizedValue = supplementalStructure || baseStructure || baseValue;
+      if (supplementalStructure && !baseStructure && typeof baseValue === "string" && baseValue) {
+        normalizedValue = supplementalStructure;
+      }
+      if (normalizedValue && typeof normalizedValue === "object" && Array.isArray(normalizedValue.items)) {
+        const labelCandidates = [
+          normalizedValue.labels,
+          entry.labels,
+          entry.itemsLabels,
+          entry.checklistLabels,
+          entry.labelsList,
+        ];
+        for (const candidate of labelCandidates) {
+          const parsedLabels = coerceChecklistLabels(candidate);
+          if (parsedLabels && parsedLabels.length) {
+            normalizedValue.labels = parsedLabels;
+            break;
+          }
+        }
+        if (!normalizedValue.items.length) {
+          normalizedValue = baseValue;
+        }
+      }
       return {
-        value:
-          entry.v ??
-          entry.value ??
-          entry.answer ??
-          entry.val ??
-          entry.score ??
-          "",
+        value: normalizedValue,
         note:
           entry.comment ??
           entry.note ??
@@ -1946,8 +2097,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           : "Aucune donnée disponible pour le moment.";
 
       const name = consigne.text || consigne.titre || consigne.name || consigne.id;
-      const lastFormattedText = formatConsigneValue(consigne.type, lastValue);
-      const lastFormattedHtml = formatConsigneValue(consigne.type, lastValue, { mode: "html" });
+      const lastFormattedText = formatConsigneValue(consigne.type, lastValue, { consigne });
+      const lastFormattedHtml = formatConsigneValue(consigne.type, lastValue, { mode: "html", consigne });
       const stat = {
         id: consigne.id,
         name,
@@ -2122,8 +2273,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               const statusLabel = statusLabels[statusKind] || "Valeur";
               const dateLabel = meta?.fullLabel || meta?.label || entry.date;
               const relativeLabel = formatRelativeDate(meta?.dateObj || entry.date);
-              const valueText = formatConsigneValue(stat.type, entry.value);
-              const valueHtml = formatConsigneValue(stat.type, entry.value, { mode: "html" });
+              const valueText = formatConsigneValue(stat.type, entry.value, { consigne: stat.consigne });
+              const valueHtml = formatConsigneValue(stat.type, entry.value, { mode: "html", consigne: stat.consigne });
               const normalizedValue = valueText == null ? "" : String(valueText).trim();
               const hasValue = normalizedValue && normalizedValue !== "—";
               const fallbackValue = stat.type === "info" ? "" : "—";
@@ -2293,8 +2444,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       stat.lastDateFull = lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais";
       stat.lastRelative = formatRelativeDate(lastDateObj || lastDateIso);
       stat.lastValue = lastValue;
-      stat.lastFormatted = formatConsigneValue(stat.type, lastValue);
-      stat.lastFormattedHtml = formatConsigneValue(stat.type, lastValue, { mode: "html" });
+      stat.lastFormatted = formatConsigneValue(stat.type, lastValue, { consigne: stat.consigne });
+      stat.lastFormattedHtml = formatConsigneValue(stat.type, lastValue, { mode: "html", consigne: stat.consigne });
       stat.lastCommentRaw = lastEntry?.note ?? "";
       stat.commentDisplay = truncateText(stat.lastCommentRaw, 180);
       stat.statusKind = dotColor(stat.type, lastValue);
@@ -4982,7 +5133,14 @@ function collectAnswers(form, consignes, options = {}) {
     } else if (consigne.type === "checklist") {
       const optionsHash = computeChecklistOptionsHash(consigne);
       const hidden = form.querySelector(`[name="checklist:${consigne.id}"]`);
+      const container = form.querySelector(
+        `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+      );
+      let parsedValues = null;
+      let parsedHasSelection = false;
+      let parsedIsDirty = false;
       if (hidden) {
+        parsedIsDirty = hidden.dataset?.dirty === "1";
         try {
           const parsed = JSON.parse(hidden.value || "[]");
           const normalizedValue = buildChecklistValue(consigne, parsed);
@@ -6235,7 +6393,7 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
     const formattedValue = (() => {
       if (isNoteStatus) {
         if (textualNote) return textualNote;
-        const fallback = formatConsigneValue(consigne.type, valueForStatus);
+        const fallback = formatConsigneValue(consigne.type, valueForStatus, { consigne });
         if (fallback === null || fallback === undefined || fallback === "" || fallback === "—") {
           return skipFlag ? "Passée" : "Réponse enregistrée";
         }
@@ -6243,7 +6401,7 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
       }
       if (consigne.type === "info") return INFO_RESPONSE_LABEL;
       if (!hasValue) return "Sans donnée";
-      const result = formatConsigneValue(consigne.type, valueForStatus);
+      const result = formatConsigneValue(consigne.type, valueForStatus, { consigne });
       if (result === null || result === undefined || result === "" || result === "—") {
         return skipFlag ? "Passée" : "Réponse enregistrée";
       }
@@ -6308,11 +6466,10 @@ function readConsigneCurrentValue(consigne, scope) {
   }
   if (type === "checklist") {
     const hidden = scope.querySelector(`[name="checklist:${id}"]`);
+    let parsedValues = null;
+    let isDirty = false;
     if (hidden) {
-      const isDirty = hidden.dataset && hidden.dataset.dirty === "1";
-      if (!isDirty) {
-        return null;
-      }
+      isDirty = hidden.dataset?.dirty === "1";
       try {
         const parsed = JSON.parse(hidden.value || "[]");
         return buildChecklistValue(consigne, parsed);
