@@ -405,6 +405,61 @@
       return document.querySelector(`[data-checklist-item][data-item-id="${escapedItem}"]`);
     };
 
+    document.addEventListener("click", (event) => {
+      const target = event?.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const button = target.closest("[data-checklist-skip-btn]");
+      if (!button) {
+        return;
+      }
+      const host = button.closest("[data-checklist-item]");
+      const root = button.closest("[data-checklist-root]");
+      if (!host || !root) {
+        return;
+      }
+      const input = host.querySelector("[data-checklist-input]");
+      if (!input) {
+        return;
+      }
+      event.preventDefault();
+      const wasSkipped =
+        (input.dataset && input.dataset.checklistSkip === "1") ||
+        (host.dataset && host.dataset.checklistSkipped === "1");
+      const nextSkipped = !wasSkipped;
+      if (nextSkipped) {
+        if (input.dataset) {
+          input.dataset.checklistSkip = "1";
+        }
+        input.setAttribute("data-checklist-skip", "1");
+        input.checked = true;
+        if (host.dataset) {
+          host.dataset.checklistSkipped = "1";
+        }
+        host.setAttribute("data-checklist-skipped", "1");
+        if (host.classList && typeof host.classList.add === "function") {
+          host.classList.add("checklist-item--skipped");
+        }
+        host.setAttribute("data-validated", "skip");
+      } else {
+        if (input.dataset) {
+          delete input.dataset.checklistSkip;
+        }
+        input.removeAttribute("data-checklist-skip");
+        if (host.dataset) {
+          delete host.dataset.checklistSkipped;
+        }
+        host.removeAttribute("data-checklist-skipped");
+        if (host.classList && typeof host.classList.remove === "function") {
+          host.classList.remove("checklist-item--skipped");
+        }
+        host.setAttribute("data-validated", input.checked ? "true" : "false");
+      }
+      const changeEvent = new Event("change", { bubbles: true });
+      input.dispatchEvent(changeEvent);
+    });
+
     document.addEventListener("change", async (event) => {
       const target = event?.target;
       if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
