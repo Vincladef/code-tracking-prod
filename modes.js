@@ -1177,6 +1177,251 @@ function showToast(msg){
   setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; setTimeout(()=>el.remove(), 250); }, 1200);
 }
 
+const CONSIGNE_PRIORITY_OPTIONS = [
+  { value: 1, tone: "high", label: "Priorité haute" },
+  { value: 2, tone: "medium", label: "Priorité moyenne" },
+  { value: 3, tone: "low", label: "Priorité basse" },
+];
+
+let openConsignePriorityMenuState = null;
+let consignePriorityMenuListenersBound = false;
+
+function removeConsignePriorityMenuListeners() {
+  if (!consignePriorityMenuListenersBound) return;
+  document.removeEventListener("click", onDocumentClickConsignePriorityMenu, true);
+  document.removeEventListener("keydown", onDocumentKeydownConsignePriorityMenu, true);
+  consignePriorityMenuListenersBound = false;
+}
+
+function ensureConsignePriorityMenuListeners() {
+  if (consignePriorityMenuListenersBound) return;
+  document.addEventListener("click", onDocumentClickConsignePriorityMenu, true);
+  document.addEventListener("keydown", onDocumentKeydownConsignePriorityMenu, true);
+  consignePriorityMenuListenersBound = true;
+}
+
+function closeConsignePriorityMenu(state = openConsignePriorityMenuState, { focusTrigger = false } = {}) {
+  if (!state) return;
+  const { trigger, menu } = state;
+  if (menu) {
+    menu.hidden = true;
+    menu.setAttribute("aria-hidden", "true");
+  }
+  if (trigger) {
+    trigger.setAttribute("aria-expanded", "false");
+    if (focusTrigger) {
+      try {
+        trigger.focus({ preventScroll: true });
+      } catch (err) {
+        trigger.focus();
+      }
+    }
+  }
+  if (openConsignePriorityMenuState && menu && openConsignePriorityMenuState.menu === menu) {
+    openConsignePriorityMenuState = null;
+    removeConsignePriorityMenuListeners();
+  }
+}
+
+function openConsignePriorityMenu(state) {
+  if (!state) return;
+  const { trigger, menu } = state;
+  if (!menu || !trigger) return;
+  if (openConsignePriorityMenuState && openConsignePriorityMenuState.menu !== menu) {
+    closeConsignePriorityMenu(openConsignePriorityMenuState);
+  }
+  menu.hidden = false;
+  menu.setAttribute("aria-hidden", "false");
+  if (!menu.hasAttribute("tabindex")) {
+    menu.setAttribute("tabindex", "-1");
+  }
+  trigger.setAttribute("aria-expanded", "true");
+  openConsignePriorityMenuState = state;
+  ensureConsignePriorityMenuListeners();
+  try {
+    menu.focus({ preventScroll: true });
+  } catch (err) {
+    try {
+      menu.focus();
+    } catch (focusErr) {
+      // ignore
+    }
+  }
+}
+
+function onDocumentClickConsignePriorityMenu(event) {
+  if (!openConsignePriorityMenuState) return;
+  const { trigger, menu } = openConsignePriorityMenuState;
+  if (menu && menu.contains(event.target)) return;
+  if (trigger && trigger.contains(event.target)) return;
+  closeConsignePriorityMenu();
+}
+
+function onDocumentKeydownConsignePriorityMenu(event) {
+  if (!openConsignePriorityMenuState) return;
+  if (event.key === "Escape" || event.key === "Esc") {
+    closeConsignePriorityMenu(undefined, { focusTrigger: true });
+    event.stopPropagation();
+  }
+}
+
+function normalizeConsignePriorityValue(value) {
+  const num = Number(value);
+  if (Number.isFinite(num) && num >= 1 && num <= 3) {
+    return num;
+  }
+  return 2;
+}
+
+function updateConsignePriorityMenuSelection(menu, priority) {
+  if (!menu) return;
+  const normalized = normalizeConsignePriorityValue(priority);
+  const buttons = Array.from(menu.querySelectorAll("[data-priority-option]"));
+  buttons.forEach((btn) => {
+    const optionValue = normalizeConsignePriorityValue(btn?.dataset?.priorityOption);
+    const isSelected = optionValue === normalized;
+    btn.setAttribute("aria-checked", isSelected ? "true" : "false");
+    if (isSelected) {
+      btn.dataset.selected = "1";
+    } else {
+      delete btn.dataset.selected;
+    }
+  });
+}
+
+function updateConsignePriorityTrigger(trigger, priority) {
+  if (!trigger) return;
+  const tone = priorityTone(priority);
+  trigger.dataset.priorityTone = tone;
+  const label = priorityLabelFromTone(tone) || "";
+  const capitalized = label ? `${label.charAt(0).toUpperCase()}${label.slice(1)}` : "";
+  const title = capitalized
+    ? `Changer la priorité (actuelle : ${capitalized})`
+    : "Changer la priorité";
+  trigger.setAttribute("aria-label", title);
+  trigger.title = title;
+}
+
+function applyPriorityToneToConsigneRow(row, priority) {
+  if (!row) return;
+  const tone = priorityTone(priority);
+  row.classList.remove("priority-surface-high", "priority-surface-medium", "priority-surface-low");
+  row.classList.add("priority-surface", `priority-surface-${tone}`);
+  row.dataset.priorityTone = tone;
+  const statusHolder = row.querySelector("[data-status]");
+  if (statusHolder) {
+    statusHolder.dataset.priorityTone = tone;
+  }
+  const dot = row.querySelector("[data-status-dot]");
+  if (dot) {
+    dot.dataset.priorityTone = tone;
+  }
+  const srPriority = row.querySelector("[data-priority]");
+  if (srPriority) {
+    srPriority.dataset.priority = tone;
+    const label = priorityLabelFromTone(tone) || "";
+    srPriority.textContent = `Priorité ${label}`;
+  }
+  const trigger = row.querySelector("[data-priority-trigger]");
+  updateConsignePriorityTrigger(trigger, priority);
+}
+
+function setupConsignePriorityMenu(row, consigne, ctx) {
+  if (!(row instanceof HTMLElement)) return;
+  const trigger = row.querySelector("[data-priority-trigger]");
+  const menu = row.querySelector("[data-priority-menu]");
+  if (!trigger || !menu) return;
+  const currentPriority = normalizeConsignePriorityValue(consigne?.priority);
+  applyPriorityToneToConsigneRow(row, currentPriority);
+  updateConsignePriorityMenuSelection(menu, currentPriority);
+  if (trigger.dataset.priorityMenuReady === "1") {
+    return;
+  }
+  trigger.dataset.priorityMenuReady = "1";
+  menu.innerHTML = CONSIGNE_PRIORITY_OPTIONS.map((option) => `
+    <button type="button"
+            class="consigne-row__priority-option"
+            data-priority-option="${option.value}"
+            data-priority-tone="${option.tone}"
+            role="menuitemradio"
+            aria-checked="${option.value === currentPriority ? "true" : "false"}">
+      ${option.label}
+    </button>
+  `).join("");
+  menu.hidden = true;
+  menu.setAttribute("aria-hidden", "true");
+  menu.setAttribute("role", "menu");
+  if (!menu.hasAttribute("tabindex")) {
+    menu.setAttribute("tabindex", "-1");
+  }
+  const optionButtons = Array.from(menu.querySelectorAll("[data-priority-option]"));
+  updateConsignePriorityMenuSelection(menu, currentPriority);
+  let isUpdating = false;
+  trigger.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isUpdating) return;
+    const isOpen = openConsignePriorityMenuState
+      && openConsignePriorityMenuState.menu === menu
+      && !menu.hidden;
+    if (isOpen) {
+      closeConsignePriorityMenu(openConsignePriorityMenuState);
+    } else {
+      openConsignePriorityMenu({ trigger, menu });
+    }
+  });
+  trigger.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" || event.key === "Esc") {
+      closeConsignePriorityMenu({ trigger, menu }, { focusTrigger: true });
+      event.stopPropagation();
+    }
+  });
+  menu.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" || event.key === "Esc") {
+      closeConsignePriorityMenu({ trigger, menu }, { focusTrigger: true });
+      event.stopPropagation();
+    }
+  });
+  menu.addEventListener("click", async (event) => {
+    const option = event.target.closest("[data-priority-option]");
+    if (!option) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (isUpdating) return;
+    const nextPriority = normalizeConsignePriorityValue(option.dataset.priorityOption);
+    const current = normalizeConsignePriorityValue(consigne?.priority);
+    if (nextPriority === current) {
+      closeConsignePriorityMenu({ trigger, menu });
+      return;
+    }
+    if (!ctx?.db || !ctx?.user?.uid || !consigne?.id) {
+      closeConsignePriorityMenu({ trigger, menu });
+      return;
+    }
+    isUpdating = true;
+    optionButtons.forEach((btn) => {
+      btn.disabled = true;
+    });
+    trigger.setAttribute("aria-busy", "true");
+    try {
+      await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, { priority: nextPriority });
+      consigne.priority = nextPriority;
+      applyPriorityToneToConsigneRow(row, nextPriority);
+      updateConsignePriorityMenuSelection(menu, nextPriority);
+    } catch (error) {
+      console.error(error);
+      showToast("Impossible de mettre à jour la priorité.");
+    } finally {
+      isUpdating = false;
+      optionButtons.forEach((btn) => {
+        btn.disabled = false;
+      });
+      trigger.removeAttribute("aria-busy");
+      closeConsignePriorityMenu({ trigger, menu });
+    }
+  });
+}
+
 function summaryScopeLabel(scope) {
   const normalized = String(scope || "").toLowerCase();
   if (normalized === "monthly") return "Bilan mensuel";
@@ -9447,14 +9692,22 @@ async function renderPractice(ctx, root, _opts = {}) {
               ${prioChip(Number(c.priority) || 2)}
             </button>
           </div>
-          <div class="consigne-row__meta">
-            <span class="consigne-row__status" data-status="na">
+        <div class="consigne-row__meta">
+          <span class="consigne-row__status" data-status="na">
+            <button type="button"
+                    class="consigne-row__dot-button"
+                    data-priority-trigger
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    title="Changer la priorité">
               <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
-              <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
-              <span class="sr-only" data-status-live aria-live="polite"></span>
-            </span>
-            ${consigneActions()}
-          </div>
+            </button>
+            <div class="consigne-row__priority-menu" data-priority-menu hidden></div>
+            <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
+            <span class="sr-only" data-status-live aria-live="polite"></span>
+          </span>
+          ${consigneActions()}
+        </div>
         </div>
         <div data-consigne-input-holder hidden></div>
       `;
@@ -9466,6 +9719,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (statusDot) {
         statusDot.dataset.priorityTone = tone;
       }
+      setupConsignePriorityMenu(row, c, ctx);
       const holder = row.querySelector("[data-consigne-input-holder]");
       if (holder) {
         holder.innerHTML = inputForType(c);
@@ -10635,7 +10889,15 @@ async function renderDaily(ctx, root, opts = {}) {
         </div>
         <div class="consigne-row__meta">
           <span class="consigne-row__status" data-status="na">
-            <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+            <button type="button"
+                    class="consigne-row__dot-button"
+                    data-priority-trigger
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    title="Changer la priorité">
+              <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+            </button>
+            <div class="consigne-row__priority-menu" data-priority-menu hidden></div>
             <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
             <span class="sr-only" data-status-live aria-live="polite"></span>
           </span>
@@ -10652,6 +10914,7 @@ async function renderDaily(ctx, root, opts = {}) {
     if (statusDot) {
       statusDot.dataset.priorityTone = tone;
     }
+    setupConsignePriorityMenu(row, item, ctx);
     const holder = row.querySelector("[data-consigne-input-holder]");
     if (holder) {
       holder.innerHTML = inputForType(item, previous?.value ?? null);
