@@ -7184,6 +7184,81 @@ function findConsigneInputFields(row, consigne) {
   return Array.from(holder.querySelectorAll(`[name$=":${consigne.id}"]`));
 }
 
+function parseConsigneSkipValue(input) {
+  if (input === true) return true;
+  if (input === false || input == null) return false;
+  if (typeof input === "number") {
+    if (!Number.isFinite(input)) return false;
+    return input !== 0;
+  }
+  if (typeof input === "string") {
+    const normalized = input.trim().toLowerCase();
+    if (!normalized) return false;
+    return ["1", "true", "yes", "y", "on", "skip", "passed"].includes(normalized);
+  }
+  return false;
+}
+
+function applyConsigneSkipState(row, consigne, shouldSkip, { updateUI = true } = {}) {
+  if (!row || !consigne) return;
+  if (shouldSkip) {
+    row.dataset.skipAnswered = "1";
+    clearConsigneSummaryMetadata(row);
+  } else {
+    delete row.dataset.skipAnswered;
+  }
+  if (!updateUI) {
+    return;
+  }
+  const valueForStatus = shouldSkip ? { skipped: true } : readConsigneCurrentValue(consigne, row);
+  updateConsigneStatusUI(row, consigne, valueForStatus);
+}
+
+function ensureConsigneSkipField(row, consigne) {
+  if (!row || !consigne) return null;
+  const holder = row.querySelector("[data-consigne-input-holder]");
+  if (!holder) return null;
+  let input = holder.querySelector("[data-consigne-skip-input]");
+  if (!input) {
+    input = document.createElement("input");
+    input.type = "hidden";
+    input.setAttribute("data-consigne-skip-input", "");
+    const id = consigne?.id;
+    if (id != null) {
+      const stringId = String(id);
+      input.name = `skip:${stringId}`;
+      input.setAttribute("data-autosave-field", `consigne:${stringId}:skip`);
+    } else {
+      input.name = "skip";
+    }
+    holder.appendChild(input);
+  }
+  if (!input.dataset.skipHandlerAttached) {
+    const sync = () => {
+      const shouldSkip = parseConsigneSkipValue(input.value);
+      applyConsigneSkipState(row, consigne, shouldSkip, { updateUI: true });
+    };
+    input.addEventListener("input", sync);
+    input.addEventListener("change", sync);
+    input.dataset.skipHandlerAttached = "1";
+  }
+  return input;
+}
+
+function setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents = true, updateUI = true } = {}) {
+  if (!row || !consigne) return;
+  const input = ensureConsigneSkipField(row, consigne);
+  applyConsigneSkipState(row, consigne, shouldSkip, { updateUI });
+  if (!input) return;
+  const nextValue = shouldSkip ? "1" : "";
+  if (input.value === nextValue) return;
+  input.value = nextValue;
+  if (emitInputEvents) {
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+}
+
 function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
   const row = document.createElement("div");
   row.className = "consigne-row consigne-row--child consigne-row--virtual";
@@ -7210,12 +7285,16 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
   row.appendChild(holder);
   enhanceRangeMeters(row);
   initializeChecklistScope(row, { consigneId: consigne?.id ?? null });
+  ensureConsigneSkipField(row, consigne);
   return row;
 }
 
 function setConsigneRowValue(row, consigne, value) {
-  if (row) {
-    delete row.dataset.skipAnswered;
+  const skipLikeValue = value && typeof value === "object" && value.skipped === true;
+  ensureConsigneSkipField(row, consigne);
+  if (skipLikeValue) {
+    setConsigneSkipState(row, consigne, true, { updateUI: true });
+    return;
   }
   if (consigne?.type === "long") {
     const editor = row?.querySelector(
@@ -7241,6 +7320,7 @@ function setConsigneRowValue(row, consigne, value) {
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
     }
     updateConsigneStatusUI(row, consigne, normalized);
+    setConsigneSkipState(row, consigne, false, { updateUI: false });
     return;
   }
   if (consigne?.type === "checklist") {
@@ -7299,11 +7379,13 @@ function setConsigneRowValue(row, consigne, value) {
       delete container.dataset.checklistDirty;
     }
     updateConsigneStatusUI(row, consigne, normalizedValue);
+    setConsigneSkipState(row, consigne, false, { updateUI: false });
     return;
   }
   const fields = findConsigneInputFields(row, consigne);
   if (!fields.length) {
     updateConsigneStatusUI(row, consigne, value);
+    setConsigneSkipState(row, consigne, false, { updateUI: false });
     return;
   }
   const normalizedValue = value === null || value === undefined ? "" : value;
@@ -7325,6 +7407,7 @@ function setConsigneRowValue(row, consigne, value) {
     field.dispatchEvent(new Event("input", { bubbles: true }));
     field.dispatchEvent(new Event("change", { bubbles: true }));
   });
+  setConsigneSkipState(row, consigne, false, { updateUI: false });
 }
 
 function attachConsigneEditor(row, consigne, options = {}) {
@@ -8017,10 +8100,8 @@ function attachConsigneEditor(row, consigne, options = {}) {
     if (skipBtn) {
       skipBtn.addEventListener("click", (event) => {
         event.preventDefault();
-        row.dataset.skipAnswered = "1";
-        clearConsigneSummaryMetadata(row);
+        setConsigneSkipState(row, consigne, true);
         updateParentChildAnsweredFlag();
-        updateConsigneStatusUI(row, consigne, { skipped: true });
         syncParentAnswered();
         updateSummaryControlState();
         if (typeof options.onSkip === "function") {
@@ -10162,6 +10243,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         holder.innerHTML = inputForType(c);
         enhanceRangeMeters(holder);
         initializeChecklistScope(holder, { consigneId: c?.id ?? null });
+        ensureConsigneSkipField(row, c);
       }
       const bH = row.querySelector(".js-histo");
       const bE = row.querySelector(".js-edit");
@@ -11473,6 +11555,7 @@ async function renderDaily(ctx, root, opts = {}) {
       holder.innerHTML = inputForType(item, previous?.value ?? null);
       enhanceRangeMeters(holder);
       initializeChecklistScope(holder, { consigneId: item?.id ?? null });
+      ensureConsigneSkipField(row, item);
     }
     const previousSummary = normalizeSummaryMetadataInput(previous);
     if (previousSummary) {
