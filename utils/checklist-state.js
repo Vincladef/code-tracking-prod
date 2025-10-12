@@ -337,9 +337,11 @@
       const skipValue = Object.prototype.hasOwnProperty.call(entry, "skipped")
         ? entry.skipped
         : entry.skiped;
+      const isSkipped = normalizeSkippedFlag(skipValue);
+      // Si skipped, la valeur est toujours 'no' (jamais cochée)
       const normalizedEntry = {
-        value: normalizeAnswerValue(entry.value),
-        skipped: normalizeSkippedFlag(skipValue),
+        value: isSkipped ? "no" : normalizeAnswerValue(entry.value),
+        skipped: isSkipped,
       };
       normalized[key] = normalizedEntry;
     });
@@ -379,12 +381,24 @@
     if (!answers || typeof answers !== "object") {
       return [];
     }
-    return Object.entries(answers)
-      .filter(([, entry]) => {
+    // Toujours normaliser les réponses avant de compter
+    const normalized = normalizeAnswers(answers);
+    return Object.entries(normalized)
+      .filter(([key, entry]) => {
         if (!entry || typeof entry !== "object") return false;
+        if (normalizeSkippedFlag(entry.skipped)) {
+          // Alerte si jamais un item skipped a value 'yes' (devrait être impossible)
+          const value = String(entry.value ?? "").toLowerCase();
+          if (value === "yes" || value === "maybe") {
+            if (typeof window !== "undefined" && window.console) {
+              window.console.warn("[checklist-state] ALERTE: item skipped mais value 'yes'!", { key, entry });
+            }
+          }
+          return false;
+        }
         const value = String(entry.value ?? "").toLowerCase();
         const isPositive = value === "yes" || value === "maybe";
-        return isPositive && !normalizeSkippedFlag(entry.skipped);
+        return isPositive;
       })
       .map(([key]) => key);
   }
@@ -486,9 +500,8 @@
     }
     if (hasAnswerEntries(normalizedAnswers)) {
       const derived = selectedIdsFromAnswers(normalizedAnswers);
-      if (derived.length) {
-        selectedIds = normalizeSelectedIds([...selectedIds, ...derived]);
-      }
+      // On privilégie toujours les réponses: elles définissent la vérité
+      selectedIds = normalizeSelectedIds(derived);
     }
     const rawSkippedIds = Array.isArray(payload.skippedIds)
       ? payload.skippedIds
@@ -510,6 +523,10 @@
           normalizedAnswers[key] = { value: "yes", skipped: true };
         }
       });
+    }
+    // Sécurité finale: si on a des réponses, recalculer selectedIds uniquement à partir d'elles
+    if (hasAnswerEntries(normalizedAnswers)) {
+      selectedIds = selectedIdsFromAnswers(normalizedAnswers);
     }
     const optionsHash = isNonEmptyString(payload.optionsHash)
       ? payload.optionsHash
@@ -575,6 +592,13 @@
       ...normalized,
       dateKey: normalizeDateKey(normalized.dateKey),
     };
+    debugLog("saveSelection", {
+      consigneId: finalPayload.consigneId,
+      dateKey: finalPayload.dateKey,
+      selected: Array.isArray(finalPayload.selectedIds) ? finalPayload.selectedIds.length : 0,
+      skipped: Array.isArray(finalPayload.skippedIds) ? finalPayload.skippedIds.length : 0,
+      hasAnswers: Boolean(finalPayload.answers && Object.keys(finalPayload.answers).length),
+    });
     if (!uid || !consigneId) return finalPayload;
     cacheSelection(uid, consigneId, finalPayload);
     const timestamp = Date.now();
@@ -1094,7 +1118,7 @@
       if (!shouldSkip && (skippedSet.has(primaryId) || (legacyKey && skippedSet.has(legacyKey)))) {
         shouldSkip = true;
       }
-      // On restaure la case cochée uniquement si non skipped
+      // Si skipped, la case doit TOUJOURS être décochée
       let shouldCheck = false;
       if (!shouldSkip) {
         if (answer) {
@@ -1110,7 +1134,10 @@
       const { checkedChanged, skipChanged } = applySkipState(input, host, shouldSkip, {
         fallbackChecked: shouldCheck,
       });
-      if (!shouldSkip && input.checked !== shouldCheck) {
+      // Force décochage si skipped
+      if (shouldSkip && input.checked) {
+        input.checked = false;
+      } else if (!shouldSkip && input.checked !== shouldCheck) {
         input.checked = shouldCheck;
       }
       if (host && !shouldSkip) {
@@ -1399,6 +1426,57 @@
       if (!entry || entry.type !== "checklist") return;
       const consigneId = normalizeConsigneId(entry.consigneId || entry.consigne_id || entry.consigneID);
       if (!consigneId) return;
+      // Génère entries à partir de la structure de la réponse (entry)
+      let entriesArr = [];
+      // Prépare un Set d'IDs skipped à partir de différentes sources possibles
+      const skippedIdsSet = new Set(
+        normalizeSelectedIds(
+          (Array.isArray(entry.skippedIds) && entry.skippedIds) ||
+            (Array.isArray(entry.skipped_ids) && entry.skipped_ids) ||
+            []
+        ).map((id) => String(id))
+      );
+      const normalizedAnswers = entry.answers && typeof entry.answers === "object" ? normalizeAnswers(entry.answers) : {};
+      // Ajoute les IDs marqués skipped dans answers
+      if (normalizedAnswers && typeof normalizedAnswers === "object") {
+        Object.entries(normalizedAnswers).forEach(([id, ans]) => {
+          if (ans && normalizeSkippedFlag(ans.skipped)) {
+            const key = String(id || "");
+            if (key) skippedIdsSet.add(key);
+          }
+        });
+      }
+      if (Array.isArray(entry.entries)) {
+        entriesArr = entry.entries;
+      } else if (entry.value && typeof entry.value === "object" && Array.isArray(entry.value.items)) {
+        // Structure type { value: { items: [...], skipped?: [...], ids?: [...] } }
+        const rawItems = entry.value.items;
+        const rawIds = Array.isArray(entry.value.ids) ? entry.value.ids : [];
+        const rawSkipped = Array.isArray(entry.value.skipped) ? entry.value.skipped : [];
+        entriesArr = rawItems.map((checked, idx) => {
+          const id = rawIds[idx] ? String(rawIds[idx]) : `${consigneId}:${idx}`;
+          const skipFromValue = Boolean(rawSkipped[idx]);
+          const skipActive = skippedIdsSet.has(id) || skipFromValue || (Array.isArray(entry.skipped) && entry.skipped[idx] === true);
+          return {
+            input: { checked: !!checked, dataset: skipActive ? { checklistSkip: "1" } : {} },
+            host: { dataset: skipActive ? { checklistSkipped: "1" } : {} },
+            itemId: id,
+            legacyId: id,
+          };
+        });
+      } else if (Array.isArray(entry.selectedIds)) {
+        entriesArr = entry.selectedIds.map((rawId) => {
+          const id = String(rawId);
+          const ans = normalizedAnswers && normalizedAnswers[id];
+          const skipActive = skippedIdsSet.has(id) || (ans && normalizeSkippedFlag(ans.skipped));
+          return {
+            input: { checked: true, dataset: skipActive ? { checklistSkip: "1" } : {} },
+            host: { dataset: skipActive ? { checklistSkipped: "1" } : {} },
+            itemId: id,
+            legacyId: id,
+          };
+        });
+      }
       // On recalcule selectedIds à partir des entrées pour exclure les skipped
       let selectedIds = readSelectedIdsFromEntries(entriesArr);
       if (!selectedIds.length) {
@@ -1406,29 +1484,6 @@
         if (fallbackIds.length) {
           selectedIds = fallbackIds;
         }
-      }
-      // Génère entries à partir de la structure de la réponse (entry)
-      let entriesArr = [];
-      if (Array.isArray(entry.entries)) {
-        entriesArr = entry.entries;
-      } else if (entry.value && typeof entry.value === "object" && Array.isArray(entry.value.items)) {
-        // Structure type { value: { items: [...] } }
-        entriesArr = entry.value.items.map((checked, idx) => {
-          const id = entry.value.ids && entry.value.ids[idx] ? entry.value.ids[idx] : `${consigneId}:${idx}`;
-          return {
-            input: { checked: !!checked, dataset: {} },
-            host: { dataset: {} },
-            itemId: id,
-            legacyId: id,
-          };
-        });
-      } else if (Array.isArray(entry.selectedIds)) {
-        entriesArr = entry.selectedIds.map((id) => ({
-          input: { checked: true, dataset: {} },
-          host: { dataset: {} },
-          itemId: id,
-          legacyId: id,
-        }));
       }
       const optionsHash = entry.optionsHash || entry.options_hash || null;
       const answers = buildAnswersFromEntries(entriesArr);
@@ -1447,6 +1502,13 @@
           return legacy || null;
         })
         .filter(Boolean);
+      debugLog("persistResponses:build", {
+        consigneId,
+        from: Array.isArray(entry.value?.items) ? "value.items" : Array.isArray(entry.selectedIds) ? "selectedIds" : "unknown",
+        selected: selectedIds.length,
+        skipped: skippedIds.length,
+        answers: Object.keys(answers || {}).length,
+      });
       const payload = {
         selectedIds,
         optionsHash,

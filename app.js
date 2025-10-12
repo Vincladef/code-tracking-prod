@@ -1,3 +1,31 @@
+  // Empêche la coche sur une checklist utilisateur si skipped
+  if (typeof window !== "undefined" && typeof document !== "undefined") {
+    document.addEventListener("click", function(e) {
+      const target = e.target;
+      if (target && target.type === "checkbox" && target.closest) {
+        // On cible uniquement les checklists utilisateur (hors éditeur riche)
+        const root = target.closest('[data-checklist-root]');
+        if (root && !target.closest('.rt-editor')) {
+          const item = target.closest('.checklist-item, [data-checklist-item]');
+          if (item && (item.classList.contains('checklist-item--skipped') || item.getAttribute('data-checklist-skipped') === '1' || target.getAttribute('data-checklist-skip') === '1')) {
+            e.preventDefault();
+            e.stopPropagation();
+            // Message utilisateur (optionnel)
+            if (!item.querySelector('.skip-warning')) {
+              const msg = document.createElement('span');
+              msg.textContent = 'Cet élément est ignoré. Retirez le mode "ignorer" pour pouvoir cocher.';
+              msg.className = 'skip-warning';
+              msg.style.color = '#d9534f';
+              msg.style.fontSize = '0.9em';
+              msg.style.marginLeft = '8px';
+              item.appendChild(msg);
+              setTimeout(() => { msg.remove(); }, 2500);
+            }
+          }
+        }
+      }
+    }, true);
+  }
 // app.js — bootstrapping, routing, context, nav
 /* global Schema, Modes, Goals */
 (() => {
@@ -409,7 +437,12 @@
           const skipFlag =
             (input.dataset && input.dataset.checklistSkip === "1") ||
             (host && host.dataset && host.dataset.checklistSkipped === "1");
-          const value = skipFlag || Boolean(input.checked) ? "yes" : "no";
+          let value;
+          if (skipFlag) {
+            value = "no";
+          } else {
+            value = Boolean(input.checked) ? "yes" : "no";
+          }
           answers[itemId] = { value, skipped: skipFlag };
         });
         if (Object.keys(answers).length) {
@@ -1351,8 +1384,8 @@
       name: BASE_TITLE,
       short_name: BASE_SHORT_APP_NAME,
       description: "Suivi quotidien des habitudes et de la pratique.",
-      start_url: "./",
-      scope: "./",
+      start_url: "/",
+      scope: "/",
       display: "standalone",
       background_color: "#f6f7fb",
       theme_color: "#3ea6eb",
