@@ -437,6 +437,8 @@ function hydrateConsigne(doc) {
     priority: normalizePriority(data.priority),
     days: normalizeDays(data.days),
     srEnabled: data.srEnabled !== false,
+    weeklySummaryEnabled: data.weeklySummaryEnabled !== false,
+    monthlySummaryEnabled: data.monthlySummaryEnabled !== false,
     parentId: normalizeParentId(data.parentId),
     checklistItems: normalizedChecklist.items,
     checklistItemIds: normalizedChecklist.ids,
@@ -1284,6 +1286,8 @@ async function addConsigne(db, uid, payload) {
   const ref = await addDoc(col(db, uid, "consignes"), {
     ...payload,
     srEnabled: payload.srEnabled !== false,
+    weeklySummaryEnabled: payload.weeklySummaryEnabled !== false,
+    monthlySummaryEnabled: payload.monthlySummaryEnabled !== false,
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
     parentId: normalizeParentId(payload.parentId),
@@ -1446,6 +1450,8 @@ async function updateConsigne(db, uid, id, payload, options = {}) {
   const normalizedPayload = {
     ...payload,
     srEnabled: payload.srEnabled !== false,
+    weeklySummaryEnabled: payload.weeklySummaryEnabled !== false,
+    monthlySummaryEnabled: payload.monthlySummaryEnabled !== false,
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
     parentId: normalizeParentId(payload.parentId),

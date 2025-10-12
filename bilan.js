@@ -78,6 +78,22 @@
     return ((rounded % 7) + 7) % 7;
   }
 
+  function consigneVisibleInSummary(consigne, period) {
+    const scope = String(period?.scope || "").toLowerCase();
+    const weeklyEnabled = consigne?.weeklySummaryEnabled !== false;
+    const monthlyEnabled = consigne?.monthlySummaryEnabled !== false;
+    if (scope === "week" || scope === "weekly") {
+      return weeklyEnabled;
+    }
+    if (scope === "month" || scope === "monthly") {
+      return monthlyEnabled;
+    }
+    if (scope === "year" || scope === "yearly") {
+      return weeklyEnabled || monthlyEnabled;
+    }
+    return true;
+  }
+
   function computePeriodFromEntry(entry) {
     if (!entry) return null;
     const type = entry.type;
@@ -149,11 +165,12 @@
     return null;
   }
 
-  function normalizeConsignes(consignes, family) {
+  function normalizeConsignes(consignes, family, period) {
     if (!Array.isArray(consignes) || !consignes.length) return [];
     return consignes
       .map((consigne) => {
         if (!consigne || !consigne.id) return null;
+        if (!consigneVisibleInSummary(consigne, period)) return null;
         const text = consigne.text || consigne.titre || consigne.name || consigne.id;
         return {
           ...consigne,
@@ -171,8 +188,8 @@
       return null;
     }
     const normalized = {
-      daily: normalizeConsignes(sections.daily || [], "daily"),
-      practice: normalizeConsignes(sections.practice || [], "practice"),
+      daily: normalizeConsignes(sections.daily || [], "daily", period),
+      practice: normalizeConsignes(sections.practice || [], "practice", period),
       objective: [],
     };
     if (Array.isArray(sections.objective) && sections.objective.length) {
@@ -466,8 +483,8 @@
       bilanLogger?.warn?.("bilan.objectives.normalize", error);
       return [];
     });
-    const normalizedDaily = normalizeConsignes(daily, "daily");
-    const normalizedPractice = normalizeConsignes(practice, "practice");
+    const normalizedDaily = normalizeConsignes(daily, "daily", period);
+    const normalizedPractice = normalizeConsignes(practice, "practice", period);
     return {
       daily: normalizedDaily,
       practice: normalizedPractice,

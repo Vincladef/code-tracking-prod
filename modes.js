@@ -5784,7 +5784,11 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       : "";
   const durationValueAttr = durationInitialValue === "" ? "" : escapeHtml(String(durationInitialValue));
   const isEphemeral = consigne?.ephemeral === true;
-  const advancedOpenAttr = isEphemeral ? " open" : "";
+  const weeklySummaryEnabled = consigne?.weeklySummaryEnabled !== false;
+  const monthlySummaryEnabled = consigne?.monthlySummaryEnabled !== false;
+  const advancedOpenAttr = isEphemeral || !weeklySummaryEnabled || !monthlySummaryEnabled || currentObjId
+    ? " open"
+    : "";
   const ephemeralHiddenAttr = isEphemeral ? "" : " hidden";
   const durationLabel = mode === "daily" ? "Durée (jours)" : "Durée (itérations)";
   const durationHint =
@@ -5823,15 +5827,6 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
 
       ${catUI}
 
-      <div class="grid gap-1 objective-select">
-        <span class="text-sm text-[var(--muted)]">📌 Associer à un objectif</span>
-        <select id="objective-select" class="w-full objective-select__input">
-          <option value="">Aucun</option>
-          ${objectifsOptions}
-        </select>
-        <div class="objective-select__meta" data-objective-meta>${objectiveMetaInitial}</div>
-      </div>
-
       <label class="grid gap-1">
         <span class="text-sm text-[var(--muted)]">Priorité</span>
         <select name="priority" class="w-full">
@@ -5852,6 +5847,28 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           <span>Paramètres avancés</span>
         </summary>
         <div class="consigne-advanced__content">
+          <div class="grid gap-1 objective-select">
+            <span class="text-sm text-[var(--muted)]">📌 Associer à un objectif</span>
+            <select id="objective-select" class="w-full objective-select__input">
+              <option value="">Aucun</option>
+              ${objectifsOptions}
+            </select>
+            <div class="objective-select__meta" data-objective-meta>${objectiveMetaInitial}</div>
+          </div>
+
+          <div class="grid gap-2" data-summary-settings>
+            <span class="text-sm text-[var(--muted)]">Bilans</span>
+            <p class="consigne-advanced__hint">Choisis dans quels bilans cette consigne apparaît par défaut.</p>
+            <label class="inline-flex items-center gap-2">
+              <input type="checkbox" name="summaryWeekly" ${weeklySummaryEnabled ? "checked" : ""}>
+              <span>Inclure dans le bilan hebdomadaire</span>
+            </label>
+            <label class="inline-flex items-center gap-2">
+              <input type="checkbox" name="summaryMonthly" ${monthlySummaryEnabled ? "checked" : ""}>
+              <span>Inclure dans le bilan mensuel</span>
+            </label>
+          </div>
+
           <label class="inline-flex items-center gap-2">
             <input type="checkbox" name="ephemeral" ${isEphemeral ? "checked" : ""}>
             <span>Consigne éphémère</span>
@@ -6439,6 +6456,8 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         category: cat,
         priority: Number(fd.get("priority") || 2),
         srEnabled: fd.get("srEnabled") !== null,
+        weeklySummaryEnabled: fd.get("summaryWeekly") !== null,
+        monthlySummaryEnabled: fd.get("summaryMonthly") !== null,
         ephemeral: ephemeralEnabled,
         ephemeralDurationDays,
         ephemeralDurationIterations,
@@ -6535,6 +6554,8 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         ephemeralDurationIterations: payload.ephemeralDurationIterations,
         parentId: payload.parentId || null,
         objectiveId: selectedObjective || null,
+        weeklySummaryEnabled: payload.weeklySummaryEnabled,
+        monthlySummaryEnabled: payload.monthlySummaryEnabled,
       };
       if (subRows.length) {
         historySnapshot.childrenCount = subRows.length;
@@ -6542,6 +6563,8 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       const historyMetadata = {
         objectiveId: selectedObjective || null,
         hasChildren: subRows.length > 0,
+        weeklySummaryEnabled: payload.weeklySummaryEnabled,
+        monthlySummaryEnabled: payload.monthlySummaryEnabled,
       };
       let consigneId = consigne?.id || null;
       if (consigne) {
@@ -6581,6 +6604,8 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
             category: payload.category,
             priority: payload.priority,
             srEnabled: payload.srEnabled,
+            weeklySummaryEnabled: payload.weeklySummaryEnabled,
+            monthlySummaryEnabled: payload.monthlySummaryEnabled,
             ephemeral: payload.ephemeral,
             ephemeralDurationDays: payload.ephemeralDurationDays,
             ephemeralDurationIterations: payload.ephemeralDurationIterations,
