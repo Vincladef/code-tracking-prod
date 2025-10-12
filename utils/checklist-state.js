@@ -1399,14 +1399,6 @@
       if (!entry || entry.type !== "checklist") return;
       const consigneId = normalizeConsigneId(entry.consigneId || entry.consigne_id || entry.consigneID);
       if (!consigneId) return;
-      // On recalcule selectedIds à partir des entrées pour exclure les skipped
-      let selectedIds = readSelectedIdsFromEntries(entriesArr);
-      if (!selectedIds.length) {
-        const fallbackIds = fallbackSelectedIds(consigneId, entry);
-        if (fallbackIds.length) {
-          selectedIds = fallbackIds;
-        }
-      }
       // Génère entries à partir de la structure de la réponse (entry)
       let entriesArr = [];
       if (Array.isArray(entry.entries)) {
@@ -1429,6 +1421,14 @@
           itemId: id,
           legacyId: id,
         }));
+      }
+      // On recalcule selectedIds à partir des entrées pour exclure les skipped
+      let selectedIds = readSelectedIdsFromEntries(entriesArr);
+      if (!selectedIds.length) {
+        const fallbackIds = fallbackSelectedIds(consigneId, entry);
+        if (fallbackIds.length) {
+          selectedIds = fallbackIds;
+        }
       }
       const optionsHash = entry.optionsHash || entry.options_hash || null;
       const answers = buildAnswersFromEntries(entriesArr);
