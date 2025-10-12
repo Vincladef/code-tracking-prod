@@ -381,7 +381,9 @@
     if (!answers || typeof answers !== "object") {
       return [];
     }
-    return Object.entries(answers)
+    // Toujours normaliser les réponses avant de compter
+    const normalized = normalizeAnswers(answers);
+    return Object.entries(normalized)
       .filter(([key, entry]) => {
         if (!entry || typeof entry !== "object") return false;
         if (normalizeSkippedFlag(entry.skipped)) {
