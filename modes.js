@@ -8354,7 +8354,20 @@ function hasValueForConsigne(consigne, value) {
 
 function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
   if (!row || !consigne) return;
+  const syncSkipStateFromValue = (value) => {
+    if (!row || !consigne) return;
+    const skipInValue = Boolean(value && typeof value === "object" && value.skipped === true);
+    const hasAnswer = consigne.type === "checklist"
+      ? hasChecklistResponse(consigne, row, value)
+      : hasValueForConsigne(consigne, value);
+    const shouldSkip = skipInValue && !hasAnswer;
+    const skipActive = row?.dataset?.skipAnswered === "1";
+    if (shouldSkip !== skipActive) {
+      setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents: false, updateUI: false });
+    }
+  };
   const mapValueForStatus = (value) => {
+    syncSkipStateFromValue(value);
     if (row?.dataset?.skipAnswered === "1") {
       if (hasValueForConsigne(consigne, value)) {
         delete row.dataset.skipAnswered;
