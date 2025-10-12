@@ -7829,20 +7829,23 @@ function hasChecklistResponse(consigne, row, value) {
   if (value && typeof value === "object" && value.__hasAnswer === true) {
     return true;
   }
-  const states = readChecklistStates(value);
-  if (states.length > 0) {
+  if (checklistHasSelection(value)) {
+    return true;
+  }
+  const skippedStates = readChecklistSkipped(value);
+  if (skippedStates.some(Boolean)) {
     return true;
   }
   if (row instanceof HTMLElement) {
-    const hidden = row.querySelector(`[name="checklist:${consigne.id}"]`);
-    if (hidden && hidden.dataset.dirty === "1") {
-      return true;
-    }
     const container = row.querySelector(
       `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
     );
-    if (container && container.dataset.checklistDirty === "1") {
-      return true;
+    if (container) {
+      const domState = readChecklistDomState(container);
+      const hasSelected = domState.items.some((checked, index) => checked && !domState.skipped[index]);
+      if (hasSelected || domState.skipped.some(Boolean)) {
+        return true;
+      }
     }
   }
   return false;
@@ -7857,8 +7860,10 @@ function hasValueForConsigne(consigne, value) {
     return typeof value === "string" && value.trim().length > 0;
   }
   if (type === "checklist") {
-    const states = readChecklistStates(value);
-    return states.length > 0;
+    if (checklistHasSelection(value)) {
+      return true;
+    }
+    return readChecklistSkipped(value).some(Boolean);
   }
   if (type === "num") {
     if (value === null || value === undefined || value === "") return false;
