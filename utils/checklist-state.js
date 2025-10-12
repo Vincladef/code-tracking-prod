@@ -39,17 +39,50 @@
     db: null,
     uid: null,
   };
-  const ENABLE_DEBUG_LOGS = true;
+  // Verbosité par défaut des logs (peut être outrepassée via __CHECKLIST_STATE_DEBUG__, localStorage ou URL)
+  const ENABLE_DEBUG_LOGS = false;
   const stateLogger =
     typeof GLOBAL.Schema === "object" && GLOBAL.Schema && typeof GLOBAL.Schema.D === "object"
       ? GLOBAL.Schema.D
       : null;
   function debugLog(event, payload, level = "info") {
-    const globalFlag =
+    // Ordre de priorité des flags:
+    // 1) window.__CHECKLIST_STATE_DEBUG__ = true/false
+    // 2) localStorage.DEBUG_CHECKLISTS = "1" | "true" | "yes"
+    // 3) ?checklistDebug=1 (dans l'URL)
+    // 4) ENABLE_DEBUG_LOGS (par défaut)
+    const explicitFlag =
       typeof GLOBAL.__CHECKLIST_STATE_DEBUG__ === "boolean"
         ? GLOBAL.__CHECKLIST_STATE_DEBUG__
         : null;
-    const shouldLog = globalFlag === null ? ENABLE_DEBUG_LOGS : globalFlag;
+    let shouldLog = explicitFlag;
+    if (shouldLog === null) {
+      try {
+        const storage = safeLocalStorage();
+        if (storage) {
+          const raw = storage.getItem("DEBUG_CHECKLISTS");
+          if (raw != null) {
+            const v = String(raw).trim().toLowerCase();
+            shouldLog = v === "1" || v === "true" || v === "yes";
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    if (shouldLog === null && typeof GLOBAL.location !== "undefined") {
+      try {
+        const search = String(GLOBAL.location.search || "");
+        if (/[?&]checklistDebug=(1|true|yes)\b/i.test(search)) {
+          shouldLog = true;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    if (shouldLog === null) {
+      shouldLog = ENABLE_DEBUG_LOGS;
+    }
     if (!shouldLog) {
       return;
     }
