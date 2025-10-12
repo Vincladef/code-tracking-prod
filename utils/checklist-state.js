@@ -1402,53 +1402,30 @@
         }
       }
       const optionsHash = entry.optionsHash || entry.options_hash || null;
-      const dateKey =
-        entry.dateKey || entry.dayKey || entry.date_key || entry.day_key || entry.date || null;
-      const ts = entry.updatedAt || entry.ts;
-      const rawChecklistValue =
-        entry.value || entry.normalizedValue || entry.answers || entry.checklistValue || null;
-      let answers = entry.answers || null;
-      if (!answers && rawChecklistValue && typeof rawChecklistValue === "object") {
-        answers = rawChecklistValue.answers || rawChecklistValue.answerMap || null;
-      }
-      let skippedIds = normalizeSelectedIds(entry.skippedIds || entry.skipped_ids);
-      if (!skippedIds.length) {
-        const normalizedAnswers = normalizeAnswers(answers);
-        if (hasAnswerEntries(normalizedAnswers)) {
-          for (const [answerId, answerEntry] of Object.entries(normalizedAnswers)) {
-            if (normalizeSkippedFlag(answerEntry.skipped)) {
-              skippedIds.push(answerId);
-            }
+      const answers = buildAnswersFromEntries(entries);
+      const skippedIds = entries
+        .map(({ input, host, itemId, legacyId }) => {
+          const skipActive =
+            (input?.dataset?.checklistSkip === "1") || (host?.dataset?.checklistSkipped === "1");
+          if (!skipActive) {
+            return null;
           }
-        } else if (
-          rawChecklistValue &&
-          typeof rawChecklistValue === "object" &&
-          Array.isArray(rawChecklistValue.skipped)
-        ) {
-          const stableIds = Array.isArray(entry.checklistItemIds) ? entry.checklistItemIds : [];
-          rawChecklistValue.skipped.forEach((flag, index) => {
-            if (!normalizeSkippedFlag(flag)) {
-              return;
-            }
-            const stableId = stableIds[index];
-            if (stableId) {
-              skippedIds.push(String(stableId));
-            }
-          });
-        }
-      }
-      skippedIds = normalizeSelectedIds(skippedIds);
+          const id = String(itemId ?? "").trim();
+          if (id) {
+            return id;
+          }
+          const legacy = String(legacyId ?? "").trim();
+          return legacy || null;
+        })
+        .filter(Boolean);
       const payload = {
-        checklistValue: rawChecklistValue || {},
         selectedIds,
-        answers,
         optionsHash,
-        dateKey,
-        ts,
+        dateKey: entry.dateKey || entry.dayKey || currentParisDayKey(),
+        ts: entry.updatedAt || entry.ts || Date.now(),
+        answers,
+        skippedIds,
       };
-      if (skippedIds.length) {
-        payload.skippedIds = skippedIds;
-      }
       tasks.push(saveSelection(db, uid, consigneId, payload));
     });
     if (tasks.length) {
