@@ -218,6 +218,38 @@
 
 (function () {
   const GLOBAL = typeof window !== "undefined" ? window : globalThis;
+  const checklistLogger =
+    typeof GLOBAL.Schema === "object" && GLOBAL.Schema && typeof GLOBAL.Schema.D === "object"
+      ? GLOBAL.Schema.D
+      : null;
+
+  function logChecklistEvent(event, payload, level = "info") {
+    const label = `checklist.${event}`;
+    const loggerMethod =
+      checklistLogger && typeof checklistLogger[level] === "function"
+        ? checklistLogger[level].bind(checklistLogger)
+        : null;
+    const fallback =
+      level === "warn"
+        ? console.warn
+        : level === "error"
+        ? console.error
+        : console.info;
+    if (loggerMethod) {
+      if (payload === undefined) {
+        loggerMethod(label);
+      } else {
+        loggerMethod(label, payload);
+      }
+      return;
+    }
+    if (payload === undefined) {
+      fallback.call(console, `[checklist] ${event}`);
+    } else {
+      fallback.call(console, `[checklist] ${event}`, payload);
+    }
+  }
+
   const DEFAULT_TIMEZONE = "Europe/Paris";
 
   function todayKey(date = new Date()) {
@@ -284,11 +316,16 @@
         .doc(consigneId);
       const snap = await ref.get();
       if (!snap || !snap.exists) {
+        logChecklistEvent("persist.load.empty", { consigneId, dateKey });
         return null;
       }
-      return snap.data() || null;
+      const data = snap.data() || null;
+      const selected = Array.isArray(data?.selectedIds) ? data.selectedIds.length : 0;
+      logChecklistEvent("persist.load.fallback", { consigneId, dateKey, selected });
+      return data;
     } catch (error) {
       console.warn("[checklist-fix] loadAnswer", error);
+      logChecklistEvent("persist.load.error", { consigneId, dateKey, message: error?.message || String(error) }, "warn");
       return null;
     }
   }
@@ -319,9 +356,11 @@
         .collection("consignes")
         .doc(consigneId);
       await ref.set(data, { merge: true });
+      logChecklistEvent("persist.fallback", { consigneId, dateKey, selected: selected.length });
       return data;
     } catch (error) {
       console.warn("[checklist-fix] saveAnswer", error);
+      logChecklistEvent("persist.fallback.error", { consigneId, dateKey, message: error?.message || String(error) }, "warn");
       return null;
     }
   }
@@ -548,6 +587,19 @@
     const dateKey = options.dateKey || todayKey();
     const manager = GLOBAL.ChecklistState || null;
     const db = options.db || GLOBAL.AppCtx?.db || null;
+    const log = (event, extra = {}, level = "info") => {
+      const baseDetails =
+        extra && typeof extra === "object"
+          ? { consigneId: consigneId || null, ...extra }
+          : { consigneId: consigneId || null, value: extra };
+      logChecklistEvent(event, baseDetails, level);
+    };
+
+    log("hydrate.start", {
+      hasRoot: Boolean(root),
+      hasUid: Boolean(uid),
+      hasManager: Boolean(manager),
+    });
 
     const hiddenInput = root.querySelector("[data-checklist-state]");
 
@@ -616,6 +668,13 @@
             }
           }
         });
+        const checkedCount = inputs.reduce((count, input) => (input.checked ? count + 1 : count), 0);
+        const skippedCount = inputs.reduce(
+          (count, input) =>
+            input instanceof HTMLInputElement && input.dataset?.[SKIP_DATA_KEY] === "1" ? count + 1 : count,
+          0
+        );
+        log("hydrate.hidden", { checked: checkedCount, skipped: skippedCount });
       };
       const handler = () => {
         applyHiddenState();
@@ -623,6 +682,7 @@
       hiddenInput.addEventListener("input", handler);
       hiddenInput.addEventListener("change", handler);
       hiddenInput.__checklistHiddenListener = handler;
+      applyHiddenState();
     }
 
     if (!root.__hydrateChecklistBound) {
@@ -644,23 +704,51 @@
             host.setAttribute("data-validated", target.checked ? "true" : "false");
           }
           const selectedKeys = collectSelectedKeys(root, itemKeyAttr);
+          const selectedCount = selectedKeys.length;
+          log("change", { selected: selectedCount });
           const effectiveUid = resolveUid(uid);
           if (manager && typeof manager.persistRoot === "function") {
             try {
-              manager.persistRoot(root, { consigneId, dateKey, uid: effectiveUid, db });
+              const result = manager.persistRoot(root, { consigneId, dateKey, uid: effectiveUid, db });
+              Promise.resolve(result)
+                .then((payload) => {
+                  const persisted = Array.isArray(payload?.selectedIds) ? payload.selectedIds.length : null;
+                  log("persist.manager", { selected: selectedCount, persisted });
+                })
+                .catch((error) => {
+                  console.warn("[checklist-fix] persistRoot", error);
+                  log(
+                    "persist.manager.error",
+                    { selected: selectedCount, message: error?.message || String(error) },
+                    "warn"
+                  );
+                });
             } catch (error) {
               console.warn("[checklist-fix] persistRoot", error);
+              log(
+                "persist.manager.error",
+                { selected: selectedCount, message: error?.message || String(error) },
+                "warn"
+              );
             }
             return;
           }
           if (!effectiveUid || !consigneId) {
             return;
           }
-          fallbackSaveAnswer(effectiveUid, consigneId, dateKey, {
-            type: "checklist",
-            selected: selectedKeys,
-            selectedIds: selectedKeys,
-            updatedAt: Date.now(),
+          Promise.resolve(
+            fallbackSaveAnswer(effectiveUid, consigneId, dateKey, {
+              type: "checklist",
+              selected: selectedKeys,
+              selectedIds: selectedKeys,
+              updatedAt: Date.now(),
+            })
+          ).catch((error) => {
+            log(
+              "persist.fallback.error",
+              { selected: selectedCount, message: error?.message || String(error) },
+              "warn"
+            );
           });
         },
         { passive: true }
@@ -678,15 +766,33 @@
         return null;
       }
       let saved = null;
+      const selectedCount = (value) => {
+        if (!value) return 0;
+        if (Array.isArray(value.selectedIds)) return value.selectedIds.length;
+        if (Array.isArray(value.selected)) return value.selected.length;
+        if (Array.isArray(value.checked)) return value.checked.length;
+        return 0;
+      };
       if (manager && typeof manager.loadSelection === "function" && db) {
         try {
           saved = await manager.loadSelection(db, effectiveUid, consigneId);
+          if (saved) {
+            log("hydrate.manager", { dateKey: saved.dateKey || null, selected: selectedCount(saved) });
+          } else {
+            log("hydrate.manager.empty");
+          }
         } catch (error) {
           console.warn("[checklist-fix] loadSelection", error);
+          log("hydrate.manager.error", { message: error?.message || String(error) }, "warn");
         }
       }
       if (!saved) {
         saved = await fallbackLoadAnswer(effectiveUid, consigneId, dateKey);
+        if (saved) {
+          log("hydrate.fallback", { dateKey: saved.dateKey || null, selected: selectedCount(saved) });
+        } else {
+          log("hydrate.fallback.empty", { dateKey });
+        }
       }
       let appliedWithManager = false;
       if (saved && manager && typeof manager.applySelection === "function") {
@@ -700,8 +806,10 @@
             optionsHash,
           });
           appliedWithManager = true;
+          log("hydrate.apply.manager", { selected: selectedCount(saved) });
         } catch (error) {
           console.warn("[checklist-fix] applySelection", error);
+          log("hydrate.apply.error", { message: error?.message || String(error) }, "warn");
         }
       }
       if (!appliedWithManager) {
@@ -711,16 +819,19 @@
           ? saved.selected
           : [];
         applySelectedKeys(root, itemKeyAttr, selected);
+        log("hydrate.apply.dom", { selected: selected.length });
       }
       return saved;
     })()
       .catch((error) => {
         console.warn("[checklist-fix] hydrate", error);
+        log("hydrate.error", { message: error?.message || String(error) }, "warn");
         return null;
       })
       .finally(() => {
         root.__hydrateChecklistPromise = null;
         root.__hydrateChecklistHydrated = true;
+        log("hydrate.done", { hydrated: true });
       });
 
     root.__hydrateChecklistPromise = promise;

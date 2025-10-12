@@ -40,7 +40,11 @@
     uid: null,
   };
   const ENABLE_DEBUG_LOGS = true;
-  function debugLog(event, payload) {
+  const stateLogger =
+    typeof GLOBAL.Schema === "object" && GLOBAL.Schema && typeof GLOBAL.Schema.D === "object"
+      ? GLOBAL.Schema.D
+      : null;
+  function debugLog(event, payload, level = "info") {
     const globalFlag =
       typeof GLOBAL.__CHECKLIST_STATE_DEBUG__ === "boolean"
         ? GLOBAL.__CHECKLIST_STATE_DEBUG__
@@ -49,11 +53,30 @@
     if (!shouldLog) {
       return;
     }
-    if (payload === undefined) {
-      console.debug(`[checklist-state] ${event}`);
+    const label = `checklist.state.${event}`;
+    const loggerMethod =
+      stateLogger && typeof stateLogger[level] === "function"
+        ? stateLogger[level].bind(stateLogger)
+        : null;
+    const fallback =
+      level === "warn"
+        ? console.warn
+        : level === "error"
+        ? console.error
+        : console.info;
+    if (loggerMethod) {
+      if (payload === undefined) {
+        loggerMethod(label);
+      } else {
+        loggerMethod(label, payload);
+      }
       return;
     }
-    console.debug(`[checklist-state] ${event}`, payload);
+    if (payload === undefined) {
+      fallback.call(console, `[checklist-state] ${event}`);
+      return;
+    }
+    fallback.call(console, `[checklist-state] ${event}`, payload);
   }
   let observer = null;
   const processedRoots = new WeakSet();
