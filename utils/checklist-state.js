@@ -1311,7 +1311,8 @@
       const pageKeyFromCtx = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
         ? normalizeDateKey(window.AppCtx.dateIso)
         : null;
-      let saved = await loadSelection(db, uid, consigneId, { dateKey: pageKeyFromCtx || currentParisDayKey() });
+  const requestedKey = pageKeyFromCtx || currentParisDayKey();
+  let saved = await loadSelection(db, uid, consigneId, { dateKey: requestedKey });
       if (saved) {
         debugLog("hydrateRoot:loaded", {
           consigneId,
@@ -1320,10 +1321,15 @@
           hasAnswers: Boolean(saved.answers && Object.keys(saved.answers).length),
         });
       }
-      // Si aucune réponse pour la date courante, chercher la dernière réponse connue (hors date)
+      // Si aucune réponse pour la date courante: ne pas récupérer une autre date
+      // sur une vue quotidienne avec date explicite. On stoppe ici pour garder l'indépendance par jour.
       if (!saved) {
+        if (pageKeyFromCtx) {
+          debugLog("hydrateRoot:no-current-day", { consigneId, dateKey: requestedKey });
+          return;
+        }
+        // Sinon (pas de date explicite), fallback localStorage pour compat (ex. écran sans contexte de date)
         debugLog("hydrateRoot:no-current-day", { consigneId });
-        // Cherche dans l'historique localStorage toutes les dates pour ce consigneId
         const storage = safeLocalStorage();
         let lastPayload = null;
         if (storage) {
@@ -1333,25 +1339,24 @@
             if (key && key.startsWith(prefix)) {
               try {
                 const parsed = JSON.parse(storage.getItem(key));
-                if (parsed && (!lastPayload || (parsed.ts > lastPayload.ts))) {
+                if (parsed && (!lastPayload || parsed.ts > lastPayload.ts)) {
                   lastPayload = parsed;
                 }
               } catch (e) {}
             }
           }
         }
-        if (lastPayload) {
-          debugLog("hydrateRoot:local-fallback", {
-            consigneId,
-            dateKey: lastPayload.dateKey,
-            selected: Array.isArray(lastPayload.selectedIds) ? lastPayload.selectedIds.length : 0,
-            hasAnswers: Boolean(lastPayload.answers && Object.keys(lastPayload.answers).length),
-          });
-          saved = lastPayload;
-        } else {
+        if (!lastPayload) {
           debugLog("hydrateRoot:no-history", { consigneId });
           return;
         }
+        debugLog("hydrateRoot:local-fallback", {
+          consigneId,
+          dateKey: lastPayload.dateKey,
+          selected: Array.isArray(lastPayload.selectedIds) ? lastPayload.selectedIds.length : 0,
+          hasAnswers: Boolean(lastPayload.answers && Object.keys(lastPayload.answers).length),
+        });
+        saved = lastPayload;
       }
       const optionsHash = root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
       // On restaure l'état complet si disponible

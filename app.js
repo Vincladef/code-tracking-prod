@@ -3054,6 +3054,17 @@
         return renderAdmin(ctx.db);
       case "dashboard":
       case "daily":
+        // Propager la date de la page dans le contexte global pour les checklists
+        // afin que l'hydratation et la persistance soient scorées par jour (indépendance samedi/dimanche)
+        {
+          const pageDateIso = (qp.get("d") || "").trim();
+          ctx.dateIso = pageDateIso || null;
+          // AppCtx est une référence à ctx (assignée plus bas), une mutation suffit
+          // mais on s'assure de l'alignement au cas où
+          if (typeof window !== "undefined") {
+            window.AppCtx = ctx;
+          }
+        }
         return renderWithChecklistHydration(
           Modes.renderDaily(ctx, root, {
             day: qp.get("day"),
