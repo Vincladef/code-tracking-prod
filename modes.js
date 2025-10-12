@@ -4866,9 +4866,17 @@ function inputForType(consigne, initialValue = null) {
             return null;
           };
           const resolveHost = (input) => resolveClosest(input, '[data-checklist-item]');
-          const pageDateKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso)
-            ? String(window.AppCtx.dateIso)
-            : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
+          const pageDateKey = (() => {
+            const ctxKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso) ? String(window.AppCtx.dateIso) : null;
+            let hashKey = null;
+            try {
+              const hash = typeof window.location?.hash === 'string' ? window.location.hash : '';
+              const qp = new URLSearchParams((hash.split('?')[1] || ''));
+              const d = (qp.get('d') || '').trim();
+              hashKey = d || null;
+            } catch (_) {}
+            return hashKey || ctxKey || (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
+          })();
           const setSkipButtonState = (host, skip) => {
             if (!host || typeof host.querySelector !== 'function') return;
             const button = host.querySelector('[data-checklist-skip-btn]');

@@ -693,9 +693,16 @@
         // ou que la dateKey ne correspond pas au jour de la page, on ignore.
         try {
           const hiddenKey = parsed && typeof parsed === 'object' && parsed.dateKey ? String(parsed.dateKey) : null;
+          const hash = typeof GLOBAL.location?.hash === 'string' ? GLOBAL.location.hash : '';
+          let hashDate = null;
+          try {
+            const qp = new URLSearchParams((hash.split('?')[1] || ''));
+            hashDate = (qp.get('d') || '').trim() || null;
+          } catch (_) {}
           const pageKey = typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? GLOBAL.AppCtx.dateIso : null;
-          if (pageKey && (!hiddenKey || hiddenKey !== pageKey)) {
-            log("hydrate.hidden.skip-date-mismatch", { hiddenKey, pageKey });
+          const expectedKey = hashDate || pageKey || null;
+          if (expectedKey && (!hiddenKey || hiddenKey !== expectedKey)) {
+            log("hydrate.hidden.skip-date-mismatch", { hiddenKey, pageKey: expectedKey });
             return;
           }
         } catch (e) {
