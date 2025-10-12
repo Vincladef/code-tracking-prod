@@ -9076,8 +9076,20 @@ async function openHistory(ctx, consigne, options = {}) {
     return {
       isSummary: hasSummaryField || hasSummaryKeyword || Boolean(scope),
       scope,
-      isBilan: hasBilanMarker || hasWeeklyMarker || hasMonthlyMarker || hasYearlyMarker,
+      isBilan: hasBilanMarker,
     };
+  }
+
+  function firstNonEmptyString(...values) {
+    for (const value of values) {
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (trimmed) {
+          return trimmed;
+        }
+      }
+    }
+    return "";
   }
 
   const chartPoints = [];
@@ -9285,7 +9297,18 @@ async function openHistory(ctx, consigne, options = {}) {
       const numericValue = numericPoint(consigne.type, r.value);
       const note = r.note && String(r.note).trim();
       const summaryInfo = detectSummaryNote(r);
-      const summaryLabel = summaryInfo.isSummary
+      const rawSummaryLabel = summaryInfo.isSummary
+        ? firstNonEmptyString(
+            r.summaryLabel,
+            r.summary_label,
+            r.summary?.label,
+            r.summary?.title,
+            r.summaryTitle,
+            r.summary_title,
+            r.label
+          )
+        : "";
+      const defaultBilanLabel = summaryInfo.isBilan
         ? summaryInfo.scope === "monthly"
           ? "Bilan mensuel"
           : summaryInfo.scope === "weekly"
@@ -9294,26 +9317,30 @@ async function openHistory(ctx, consigne, options = {}) {
           ? "Bilan annuel"
           : "Bilan"
         : "";
-      const summaryNoteLabel = summaryInfo.isSummary
-        ? summaryInfo.scope === "monthly"
-          ? "Note de bilan mensuel"
-          : summaryInfo.scope === "weekly"
-          ? "Note de bilan hebdomadaire"
-          : summaryInfo.scope === "yearly"
-          ? "Note de bilan annuel"
-          : "Note de bilan"
+      const summaryLabel = rawSummaryLabel || defaultBilanLabel;
+      const summaryNoteLabel = summaryLabel
+        ? summaryInfo.isBilan
+          ? summaryInfo.scope === "monthly"
+            ? "Note de bilan mensuel"
+            : summaryInfo.scope === "weekly"
+            ? "Note de bilan hebdomadaire"
+            : summaryInfo.scope === "yearly"
+            ? "Note de bilan annuel"
+            : "Note de bilan"
+          : summaryLabel
         : "";
       const noteClasses = ["history-panel__note"];
       let noteDataAttrs = "";
       let noteBadgeMarkup = "";
-      if (note && summaryInfo.isSummary) {
-        noteClasses.push("history-panel__note--bilan");
-        const scopeLabel = summaryNoteLabel || "Note de bilan";
-        noteBadgeMarkup = `<span class="history-panel__note-badge">${escapeHtml(scopeLabel)}</span>`;
-        const scopeAttr = summaryInfo.scope
-          ? ` data-note-scope="${escapeHtml(summaryInfo.scope)}"`
-          : "";
-        noteDataAttrs = ` data-note-source="bilan"${scopeAttr}`;
+      if (note && summaryNoteLabel) {
+        if (summaryInfo.isBilan) {
+          noteClasses.push("history-panel__note--bilan");
+          const scopeAttr = summaryInfo.scope
+            ? ` data-note-scope="${escapeHtml(summaryInfo.scope)}"`
+            : "";
+          noteDataAttrs = ` data-note-source="bilan"${scopeAttr}`;
+        }
+        noteBadgeMarkup = `<span class="history-panel__note-badge">${escapeHtml(summaryNoteLabel)}</span>`;
       }
       const noteMarkup = note
         ? `<p class="${noteClasses.join(" ")}"${noteDataAttrs}>${noteBadgeMarkup}${noteBadgeMarkup ? " " : ""}<span class="history-panel__note-text">${escapeHtml(note)}</span></p>`
