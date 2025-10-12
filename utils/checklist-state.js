@@ -39,6 +39,7 @@
     db: null,
     uid: null,
   };
+    let observer = null;
 
   function parisDayKey(value) {
     const date = value instanceof Date ? value : new Date(value ?? Date.now());
