@@ -592,6 +592,13 @@
       ...normalized,
       dateKey: normalizeDateKey(normalized.dateKey),
     };
+    debugLog("saveSelection", {
+      consigneId: finalPayload.consigneId,
+      dateKey: finalPayload.dateKey,
+      selected: Array.isArray(finalPayload.selectedIds) ? finalPayload.selectedIds.length : 0,
+      skipped: Array.isArray(finalPayload.skippedIds) ? finalPayload.skippedIds.length : 0,
+      hasAnswers: Boolean(finalPayload.answers && Object.keys(finalPayload.answers).length),
+    });
     if (!uid || !consigneId) return finalPayload;
     cacheSelection(uid, consigneId, finalPayload);
     const timestamp = Date.now();
@@ -1442,10 +1449,14 @@
       if (Array.isArray(entry.entries)) {
         entriesArr = entry.entries;
       } else if (entry.value && typeof entry.value === "object" && Array.isArray(entry.value.items)) {
-        // Structure type { value: { items: [...] } }
-        entriesArr = entry.value.items.map((checked, idx) => {
-          const id = entry.value.ids && entry.value.ids[idx] ? String(entry.value.ids[idx]) : `${consigneId}:${idx}`;
-          const skipActive = skippedIdsSet.has(id) || (Array.isArray(entry.skipped) && entry.skipped[idx] === true);
+        // Structure type { value: { items: [...], skipped?: [...], ids?: [...] } }
+        const rawItems = entry.value.items;
+        const rawIds = Array.isArray(entry.value.ids) ? entry.value.ids : [];
+        const rawSkipped = Array.isArray(entry.value.skipped) ? entry.value.skipped : [];
+        entriesArr = rawItems.map((checked, idx) => {
+          const id = rawIds[idx] ? String(rawIds[idx]) : `${consigneId}:${idx}`;
+          const skipFromValue = Boolean(rawSkipped[idx]);
+          const skipActive = skippedIdsSet.has(id) || skipFromValue || (Array.isArray(entry.skipped) && entry.skipped[idx] === true);
           return {
             input: { checked: !!checked, dataset: skipActive ? { checklistSkip: "1" } : {} },
             host: { dataset: skipActive ? { checklistSkipped: "1" } : {} },
@@ -1491,6 +1502,13 @@
           return legacy || null;
         })
         .filter(Boolean);
+      debugLog("persistResponses:build", {
+        consigneId,
+        from: Array.isArray(entry.value?.items) ? "value.items" : Array.isArray(entry.selectedIds) ? "selectedIds" : "unknown",
+        selected: selectedIds.length,
+        skipped: skippedIds.length,
+        answers: Object.keys(answers || {}).length,
+      });
       const payload = {
         selectedIds,
         optionsHash,
