@@ -1063,9 +1063,9 @@
       selectedIds: payload.selectedIds,
     });
     if (!root || !payload) return false;
-    const selectedIds = normalizeSelectedIds(payload.selectedIds);
-    const consigneId = normalizeConsigneId(options.consigneId || root.getAttribute("data-consigne-id") || root.dataset?.consigneId);
-    const selectedSet = new Set(selectedIds.map((value) => String(value)));
+  const selectedIds = normalizeSelectedIds(payload.selectedIds);
+  // consigneId déjà déclaré ci-dessus
+  const selectedSet = new Set(selectedIds.map((value) => String(value)));
     const answersMap = answersToMap(payload.answers);
     const skippedSet = new Set(
       normalizeSelectedIds(payload.skippedIds).map((value) => String(value))
