@@ -382,10 +382,18 @@
       return [];
     }
     return Object.entries(answers)
-      .filter(([, entry]) => {
+      .filter(([key, entry]) => {
         if (!entry || typeof entry !== "object") return false;
-        // Si skipped, ne jamais compter comme sélectionné
-        if (normalizeSkippedFlag(entry.skipped)) return false;
+        if (normalizeSkippedFlag(entry.skipped)) {
+          // Alerte si jamais un item skipped a value 'yes' (devrait être impossible)
+          const value = String(entry.value ?? "").toLowerCase();
+          if (value === "yes" || value === "maybe") {
+            if (typeof window !== "undefined" && window.console) {
+              window.console.warn("[checklist-state] ALERTE: item skipped mais value 'yes'!", { key, entry });
+            }
+          }
+          return false;
+        }
         const value = String(entry.value ?? "").toLowerCase();
         const isPositive = value === "yes" || value === "maybe";
         return isPositive;
