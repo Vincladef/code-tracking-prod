@@ -36,74 +36,9 @@
   const HINT_WARNING_CLASS = "preselect-hint--warning";
 
   const context = {
-    try {
-      let saved = await loadSelection(db, uid, consigneId);
-      // Si aucune réponse pour la date courante, chercher la dernière réponse connue (hors date)
-      if (!saved) {
-        // Cherche dans l'historique localStorage toutes les dates pour ce consigneId
-        const storage = safeLocalStorage();
-        let lastPayload = null;
-        if (storage) {
-          const prefix = `${STORAGE_PREFIX}:${uid}:${consigneId}:`;
-          for (let i = 0; i < storage.length; i++) {
-            const key = storage.key(i);
-            if (key && key.startsWith(prefix)) {
-              try {
-                const parsed = JSON.parse(storage.getItem(key));
-                if (parsed && (!lastPayload || (parsed.ts > lastPayload.ts))) {
-                  lastPayload = parsed;
-                }
-              } catch {}
-            }
-          }
-        }
-        if (lastPayload) {
-          saved = lastPayload;
-        } else {
-          return;
-        }
-      }
-      const optionsHash = root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
-      // On restaure l'état complet si disponible
-      let checklistValue = saved.checklistValue || saved.value || null;
-      if (checklistValue && typeof checklistValue === "string") {
-        try {
-          checklistValue = JSON.parse(checklistValue);
-        } catch (e) {}
-      }
-      if (checklistValue && typeof checklistValue === "object") {
-        // On injecte dans le champ caché pour que le DOM se synchronise
-        const hidden = root.querySelector('input[type="hidden"][data-checklist-state]');
-        if (hidden) {
-          hidden.value = JSON.stringify(checklistValue);
-        }
-        applySelection(root, checklistValue, { consigneId, optionsHash });
-      } else {
-        applySelection(root, saved, { consigneId, optionsHash });
-      }
-    } catch (error) {
-      console.warn("[checklist-state] hydrate", error);
-    }
-    }
-    if (value && typeof value.toDate === "function") {
-      try {
-        const date = value.toDate();
-        if (date instanceof Date && !Number.isNaN(date.getTime())) {
-          return date.getTime();
-        }
-      } catch (error) {
-        console.warn("[checklist-state] toMillis:toDate", error);
-      }
-    }
-    if (typeof value === "string" && value.trim()) {
-      const parsed = new Date(value.trim());
-      const parsedTime = parsed.getTime();
-      if (!Number.isNaN(parsedTime)) {
-        return parsedTime;
-      }
-    }
-    return fallback;
-  }
+    db: null,
+    uid: null,
+  };
 
   function parisDayKey(value) {
     const date = value instanceof Date ? value : new Date(value ?? Date.now());
