@@ -5106,7 +5106,6 @@ function inputForType(consigne, initialValue = null) {
           if (typeof hydrate === 'function') {
             Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key' }))
               .then(() => {
-                hydratePayload();
                 ensureItemIds();
                 sync();
               })
