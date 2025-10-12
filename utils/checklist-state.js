@@ -1375,16 +1375,45 @@
       if (!answers && rawChecklistValue && typeof rawChecklistValue === "object") {
         answers = rawChecklistValue.answers || rawChecklistValue.answerMap || null;
       }
-      tasks.push(
-        saveSelection(db, uid, consigneId, {
-          checklistValue: rawChecklistValue || {},
-          selectedIds,
-          answers,
-          optionsHash,
-          dateKey,
-          ts,
-        })
-      );
+      let skippedIds = normalizeSelectedIds(entry.skippedIds || entry.skipped_ids);
+      if (!skippedIds.length) {
+        const normalizedAnswers = normalizeAnswers(answers);
+        if (hasAnswerEntries(normalizedAnswers)) {
+          for (const [answerId, answerEntry] of Object.entries(normalizedAnswers)) {
+            if (normalizeSkippedFlag(answerEntry.skipped)) {
+              skippedIds.push(answerId);
+            }
+          }
+        } else if (
+          rawChecklistValue &&
+          typeof rawChecklistValue === "object" &&
+          Array.isArray(rawChecklistValue.skipped)
+        ) {
+          const stableIds = Array.isArray(entry.checklistItemIds) ? entry.checklistItemIds : [];
+          rawChecklistValue.skipped.forEach((flag, index) => {
+            if (!normalizeSkippedFlag(flag)) {
+              return;
+            }
+            const stableId = stableIds[index];
+            if (stableId) {
+              skippedIds.push(String(stableId));
+            }
+          });
+        }
+      }
+      skippedIds = normalizeSelectedIds(skippedIds);
+      const payload = {
+        checklistValue: rawChecklistValue || {},
+        selectedIds,
+        answers,
+        optionsHash,
+        dateKey,
+        ts,
+      };
+      if (skippedIds.length) {
+        payload.skippedIds = skippedIds;
+      }
+      tasks.push(saveSelection(db, uid, consigneId, payload));
     });
     if (tasks.length) {
       await Promise.all(tasks);
