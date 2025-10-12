@@ -94,6 +94,44 @@
     }
   }
 
+  function ensureChecklistHydration(scope) {
+    const manager = window.ChecklistState;
+    if (!manager) return;
+    const hydrate = manager.hydrateExistingRoots || manager.hydrateRoots;
+    if (typeof hydrate !== "function") return;
+
+    const run = () => {
+      try {
+        hydrate.call(manager, scope || document);
+      } catch (error) {
+        console.warn("[app] checklist:hydrate", error);
+      }
+    };
+
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(run);
+    } else {
+      setTimeout(run, 0);
+    }
+  }
+
+  function renderWithChecklistHydration(result, scope) {
+    if (result && typeof result.then === "function") {
+      return result
+        .then((value) => {
+          ensureChecklistHydration(scope);
+          return value;
+        })
+        .catch((error) => {
+          ensureChecklistHydration(scope);
+          throw error;
+        });
+    }
+
+    ensureChecklistHydration(scope);
+    return result;
+  }
+
   function ensureRichTextModalCheckboxBehavior() {
     if (typeof document === "undefined") return;
 
@@ -2962,17 +3000,23 @@
         return renderAdmin(ctx.db);
       case "dashboard":
       case "daily":
-        return Modes.renderDaily(ctx, root, {
-          day: qp.get("day"),
-          dateIso: qp.get("d"),
-          view: qp.get("view"),
-        });
+        return renderWithChecklistHydration(
+          Modes.renderDaily(ctx, root, {
+            day: qp.get("day"),
+            dateIso: qp.get("d"),
+            view: qp.get("view"),
+          }),
+          root
+        );
       case "practice":
-        return Modes.renderPractice(ctx, root, { newSession: qp.get("new") === "1" });
+        return renderWithChecklistHydration(
+          Modes.renderPractice(ctx, root, { newSession: qp.get("new") === "1" }),
+          root
+        );
       case "history":
-        return Modes.renderHistory(ctx, root);
+        return renderWithChecklistHydration(Modes.renderHistory(ctx, root), root);
       case "goals":
-        return Goals.renderGoals(ctx, root);
+        return renderWithChecklistHydration(Goals.renderGoals(ctx, root), root);
       default:
         root.innerHTML = "<div class='card'>Page inconnue.</div>";
     }
