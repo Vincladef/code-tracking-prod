@@ -1399,7 +1399,8 @@
       if (!entry || entry.type !== "checklist") return;
       const consigneId = normalizeConsigneId(entry.consigneId || entry.consigne_id || entry.consigneID);
       if (!consigneId) return;
-      let selectedIds = normalizeSelectedIds(entry.selectedIds || entry.selected_ids);
+      // On recalcule selectedIds à partir des entrées pour exclure les skipped
+      let selectedIds = readSelectedIdsFromEntries(entriesArr);
       if (!selectedIds.length) {
         const fallbackIds = fallbackSelectedIds(consigneId, entry);
         if (fallbackIds.length) {
