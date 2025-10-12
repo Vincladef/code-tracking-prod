@@ -40,6 +40,43 @@
     uid: null,
   };
     let observer = null;
+  function toMillis(value, fallback = Date.now()) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (value instanceof Date) {
+      const time = value.getTime();
+      return Number.isNaN(time) ? fallback : time;
+    }
+    if (value && typeof value.toMillis === "function") {
+      try {
+        const millis = value.toMillis();
+        if (typeof millis === "number" && Number.isFinite(millis)) {
+          return millis;
+        }
+      } catch (error) {
+        console.warn("[checklist-state] toMillis:toMillis", error);
+      }
+    }
+    if (value && typeof value.toDate === "function") {
+      try {
+        const date = value.toDate();
+        if (date instanceof Date && !Number.isNaN(date.getTime())) {
+          return date.getTime();
+        }
+      } catch (error) {
+        console.warn("[checklist-state] toMillis:toDate", error);
+      }
+    }
+    if (typeof value === "string" && value.trim()) {
+      const parsed = new Date(value.trim());
+      const parsedTime = parsed.getTime();
+      if (!Number.isNaN(parsedTime)) {
+        return parsedTime;
+      }
+    }
+    return fallback;
+  }
 
   function parisDayKey(value) {
     const date = value instanceof Date ? value : new Date(value ?? Date.now());
