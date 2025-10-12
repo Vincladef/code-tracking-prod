@@ -340,10 +340,24 @@
       : Array.isArray(payload.selected)
       ? payload.selected
       : [];
+    const skippedRaw = Array.isArray(payload.skippedIds)
+      ? payload.skippedIds
+      : Array.isArray(payload.skipped)
+      ? payload.skipped
+      : [];
+    const skipped = [];
+    skippedRaw.forEach((value) => {
+      const str = String(value ?? "").trim();
+      if (!str || skipped.includes(str)) {
+        return;
+      }
+      skipped.push(str);
+    });
     const data = {
       type: "checklist",
       selectedIds: selected,
       checked: selected,
+      skippedIds: skipped,
       updatedAt: payload.updatedAt || Date.now(),
       dateKey,
     };
@@ -356,7 +370,12 @@
         .collection("consignes")
         .doc(consigneId);
       await ref.set(data, { merge: true });
-      logChecklistEvent("persist.fallback", { consigneId, dateKey, selected: selected.length });
+      logChecklistEvent("persist.fallback", {
+        consigneId,
+        dateKey,
+        selected: selected.length,
+        skipped: skipped.length,
+      });
       return data;
     } catch (error) {
       console.warn("[checklist-fix] saveAnswer", error);
@@ -499,6 +518,28 @@
         const legacy = resolveLegacyKey(input, host, { consigneId, index });
         applyKeyAttributes(input, host, itemKeyAttr, key, legacy);
         if (!input.checked) {
+          return null;
+        }
+        return key ? String(key) : null;
+      })
+      .filter(Boolean);
+  }
+
+  function collectSkippedKeys(root, itemKeyAttr) {
+    if (!(root instanceof Element)) {
+      return [];
+    }
+    const consigneId = resolveConsigneId(root);
+    const inputs = collectInputs(root);
+    return inputs
+      .map((input, index) => {
+        const host = input.closest("[data-checklist-item]");
+        const key = resolveInputKey(input, host, { itemKeyAttr, consigneId, index });
+        const legacy = resolveLegacyKey(input, host, { consigneId, index });
+        applyKeyAttributes(input, host, itemKeyAttr, key, legacy);
+        const skipDataset = input.dataset?.[SKIP_DATA_KEY] === "1";
+        const skipHost = host?.dataset?.checklistSkipped === "1";
+        if (!skipDataset && !skipHost) {
           return null;
         }
         return key ? String(key) : null;
@@ -704,8 +745,10 @@
             host.setAttribute("data-validated", target.checked ? "true" : "false");
           }
           const selectedKeys = collectSelectedKeys(root, itemKeyAttr);
+          const skippedKeys = collectSkippedKeys(root, itemKeyAttr);
           const selectedCount = selectedKeys.length;
-          log("change", { selected: selectedCount });
+          const skippedCount = skippedKeys.length;
+          log("change", { selected: selectedCount, skipped: skippedCount });
           const effectiveUid = resolveUid(uid);
           if (manager && typeof manager.persistRoot === "function") {
             try {
@@ -713,13 +756,23 @@
               Promise.resolve(result)
                 .then((payload) => {
                   const persisted = Array.isArray(payload?.selectedIds) ? payload.selectedIds.length : null;
-                  log("persist.manager", { selected: selectedCount, persisted });
+                  const persistedSkipped = Array.isArray(payload?.skippedIds) ? payload.skippedIds.length : null;
+                  log("persist.manager", {
+                    selected: selectedCount,
+                    skipped: skippedCount,
+                    persisted,
+                    persistedSkipped,
+                  });
                 })
                 .catch((error) => {
                   console.warn("[checklist-fix] persistRoot", error);
                   log(
                     "persist.manager.error",
-                    { selected: selectedCount, message: error?.message || String(error) },
+                    {
+                      selected: selectedCount,
+                      skipped: skippedCount,
+                      message: error?.message || String(error),
+                    },
                     "warn"
                   );
                 });
@@ -727,7 +780,11 @@
               console.warn("[checklist-fix] persistRoot", error);
               log(
                 "persist.manager.error",
-                { selected: selectedCount, message: error?.message || String(error) },
+                {
+                  selected: selectedCount,
+                  skipped: skippedCount,
+                  message: error?.message || String(error),
+                },
                 "warn"
               );
             }
@@ -741,12 +798,18 @@
               type: "checklist",
               selected: selectedKeys,
               selectedIds: selectedKeys,
+              skipped: skippedKeys,
+              skippedIds: skippedKeys,
               updatedAt: Date.now(),
             })
           ).catch((error) => {
             log(
               "persist.fallback.error",
-              { selected: selectedCount, message: error?.message || String(error) },
+              {
+                selected: selectedCount,
+                skipped: skippedCount,
+                message: error?.message || String(error),
+              },
               "warn"
             );
           });
