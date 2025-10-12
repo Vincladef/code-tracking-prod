@@ -2958,7 +2958,11 @@
         return renderAdmin(ctx.db);
       case "dashboard":
       case "daily":
-        return Modes.renderDaily(ctx, root, { day: qp.get("day"), dateIso: qp.get("d") });
+        return Modes.renderDaily(ctx, root, {
+          day: qp.get("day"),
+          dateIso: qp.get("d"),
+          view: qp.get("view"),
+        });
       case "practice":
         return Modes.renderPractice(ctx, root, { newSession: qp.get("new") === "1" });
       case "history":
