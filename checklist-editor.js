@@ -388,6 +388,29 @@
   }
 
   window.setupChecklistEditor = function (editor, insertBtn) {
+    // Empêche la coche si skipped
+    editor.addEventListener("click", function(e) {
+      const target = e.target;
+      if (target && target.type === "checkbox" && target.closest) {
+        // Cherche si l'item est skipped (par attribut ou classe)
+        const item = target.closest('.checklist-item, [data-checklist-item]');
+        if (item && (item.classList.contains('checklist-item--skipped') || item.getAttribute('data-checklist-skipped') === '1' || target.getAttribute('data-checklist-skip') === '1')) {
+          e.preventDefault();
+          e.stopPropagation();
+          // Optionnel : message utilisateur
+          if (!item.querySelector('.skip-warning')) {
+            const msg = document.createElement('span');
+            msg.textContent = 'Cet élément est ignoré. Retirez le mode "ignorer" pour pouvoir cocher.';
+            msg.className = 'skip-warning';
+            msg.style.color = '#d9534f';
+            msg.style.fontSize = '0.9em';
+            msg.style.marginLeft = '8px';
+            item.appendChild(msg);
+            setTimeout(() => { msg.remove(); }, 2500);
+          }
+        }
+      }
+    }, true);
     if (!editor || editor.__cbInstalled) return;
     editor.__cbInstalled = true;
 

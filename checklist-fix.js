@@ -547,13 +547,14 @@
       .filter(Boolean);
   }
 
-  function applySelectedKeys(root, itemKeyAttr, selectedKeys = []) {
+  function applySelectedKeys(root, itemKeyAttr, selectedKeys = [], skippedKeys = []) {
     if (!(root instanceof Element)) {
       return;
     }
     const consigneId = resolveConsigneId(root);
     const inputs = collectInputs(root);
     const keySet = new Set(selectedKeys.map((value) => String(value)));
+    const skippedSet = new Set(skippedKeys.map((value) => String(value)));
     inputs.forEach((input, index) => {
       if (!(input instanceof HTMLInputElement)) {
         return;
@@ -562,12 +563,47 @@
       const key = resolveInputKey(input, host, { itemKeyAttr, consigneId, index });
       const legacyKey = resolveLegacyKey(input, host, { consigneId, index });
       applyKeyAttributes(input, host, itemKeyAttr, key, legacyKey);
-      const shouldCheck = keySet.has(String(key)) || keySet.has(String(legacyKey));
-      if (input.checked !== shouldCheck) {
-        input.checked = shouldCheck;
-      }
-      if (host) {
-        host.setAttribute("data-validated", shouldCheck ? "true" : "false");
+      const isSkipped = skippedSet.has(String(key)) || skippedSet.has(String(legacyKey));
+      const shouldCheck = !isSkipped && (keySet.has(String(key)) || keySet.has(String(legacyKey)));
+      if (isSkipped) {
+        const prev = input.checked ? "1" : "0";
+        input.checked = false;
+        input.setAttribute("data-checklist-prev-checked", prev);
+        input.setAttribute("data-checklist-skip", "1");
+        if (input.dataset) {
+          input.dataset[PREV_CHECKED_KEY] = prev;
+          input.dataset[SKIP_DATA_KEY] = "1";
+        }
+        if (host) {
+          if (host.dataset) {
+            host.dataset.checklistSkipped = "1";
+          }
+          host.setAttribute("data-checklist-skipped", "1");
+          if (host.classList && typeof host.classList.add === "function") {
+            host.classList.add("checklist-item--skipped");
+          }
+          host.setAttribute("data-validated", "skip");
+        }
+      } else {
+        if (input.checked !== shouldCheck) {
+          input.checked = shouldCheck;
+        }
+        input.removeAttribute("data-checklist-prev-checked");
+        input.removeAttribute("data-checklist-skip");
+        if (input.dataset) {
+          delete input.dataset[PREV_CHECKED_KEY];
+          delete input.dataset[SKIP_DATA_KEY];
+        }
+        if (host) {
+          if (host.dataset) {
+            delete host.dataset.checklistSkipped;
+          }
+          host.removeAttribute("data-checklist-skipped");
+          if (host.classList && typeof host.classList.remove === "function") {
+            host.classList.remove("checklist-item--skipped");
+          }
+          host.setAttribute("data-validated", shouldCheck ? "true" : "false");
+        }
       }
     });
     const hidden = root.querySelector("[data-checklist-state]");
@@ -674,6 +710,8 @@
           input.checked = shouldCheck;
           if (shouldSkip) {
             const prev = shouldCheck ? "1" : "0";
+            // Un item skippé ne doit jamais être coché
+            input.checked = false;
             input.setAttribute("data-checklist-prev-checked", prev);
             input.setAttribute("data-checklist-skip", "1");
             if (input.dataset) {
@@ -849,25 +887,18 @@
           log("hydrate.manager.error", { message: error?.message || String(error) }, "warn");
         }
       }
-      if (!saved) {
-        saved = await fallbackLoadAnswer(effectiveUid, consigneId, dateKey);
-        if (saved) {
-          log("hydrate.fallback", { dateKey: saved.dateKey || null, selected: selectedCount(saved) });
-        } else {
-          log("hydrate.fallback.empty", { dateKey });
-        }
+        if (!saved) {
+          saved = await fallbackLoadAnswer(effectiveUid, consigneId, dateKey);
+          if (saved) {
+            log("hydrate.fallback", { dateKey: saved.dateKey || null, selected: selectedCount(saved) });
+          } else {
+            log("hydrate.fallback.empty", { dateKey });
+          }
       }
       let appliedWithManager = false;
       if (saved && manager && typeof manager.applySelection === "function") {
         try {
-          const optionsHash =
-            root.getAttribute("data-checklist-options-hash") ||
-            root.dataset?.checklistOptionsHash ||
-            null;
-          manager.applySelection(root, saved, {
-            consigneId,
-            optionsHash,
-          });
+          manager.applySelection(root, saved, { consigneId, dateKey, uid: effectiveUid, db });
           appliedWithManager = true;
           log("hydrate.apply.manager", { selected: selectedCount(saved) });
         } catch (error) {
@@ -875,14 +906,19 @@
           log("hydrate.apply.error", { message: error?.message || String(error) }, "warn");
         }
       }
-      if (!appliedWithManager) {
-        const selected = Array.isArray(saved?.selectedIds)
-          ? saved.selectedIds
-          : Array.isArray(saved?.selected)
-          ? saved.selected
-          : [];
-        applySelectedKeys(root, itemKeyAttr, selected);
-        log("hydrate.apply.dom", { selected: selected.length });
+        if (saved && !appliedWithManager) {
+          const selected = Array.isArray(saved?.selectedIds)
+            ? saved.selectedIds
+            : Array.isArray(saved?.selected)
+            ? saved.selected
+            : [];
+          const skipped = Array.isArray(saved?.skippedIds)
+            ? saved.skippedIds
+            : Array.isArray(saved?.skipped)
+            ? saved.skipped
+            : [];
+          applySelectedKeys(root, itemKeyAttr, selected, skipped);
+          log("hydrate.apply.dom", { selected: selected.length, skipped: skipped.length });
       }
       return saved;
     })()
