@@ -530,6 +530,9 @@
     return null;
   }
 
+  const SKIP_DATA_KEY = "checklistSkip";
+  const PREV_CHECKED_KEY = "checklistPrevChecked";
+
   async function hydrateChecklist(options = {}) {
     const root = options.container instanceof Element ? options.container : null;
     if (!root) {
@@ -545,6 +548,82 @@
     const dateKey = options.dateKey || todayKey();
     const manager = GLOBAL.ChecklistState || null;
     const db = options.db || GLOBAL.AppCtx?.db || null;
+
+    const hiddenInput = root.querySelector("[data-checklist-state]");
+
+    if (hiddenInput && !hiddenInput.__checklistHiddenListener) {
+      const applyHiddenState = () => {
+        let parsed = null;
+        try {
+          parsed = hiddenInput.value ? JSON.parse(hiddenInput.value) : null;
+        } catch (error) {
+          console.warn("[checklist-fix] hidden:parse", error);
+          return;
+        }
+        const payload = Array.isArray(parsed)
+          ? { items: parsed.map((value) => value === true), skipped: [] }
+          : {
+              items: Array.isArray(parsed?.items)
+                ? parsed.items.map((value) => value === true)
+                : [],
+              skipped: Array.isArray(parsed?.skipped)
+                ? parsed.skipped.map((value) => value === true)
+                : [],
+            };
+        const inputs = collectInputs(root);
+        inputs.forEach((input, index) => {
+          if (!(input instanceof HTMLInputElement)) {
+            return;
+          }
+          const host = input.closest("[data-checklist-item]");
+          const shouldCheck = Boolean(payload.items[index]);
+          const shouldSkip = Boolean(payload.skipped[index]);
+          input.checked = shouldCheck;
+          if (shouldSkip) {
+            const prev = shouldCheck ? "1" : "0";
+            input.setAttribute("data-checklist-prev-checked", prev);
+            input.setAttribute("data-checklist-skip", "1");
+            if (input.dataset) {
+              input.dataset[PREV_CHECKED_KEY] = prev;
+              input.dataset[SKIP_DATA_KEY] = "1";
+            }
+            if (host) {
+              if (host.dataset) {
+                host.dataset.checklistSkipped = "1";
+              }
+              host.setAttribute("data-checklist-skipped", "1");
+              if (host.classList && typeof host.classList.add === "function") {
+                host.classList.add("checklist-item--skipped");
+              }
+              host.setAttribute("data-validated", "skip");
+            }
+          } else {
+            input.removeAttribute("data-checklist-prev-checked");
+            input.removeAttribute("data-checklist-skip");
+            if (input.dataset) {
+              delete input.dataset[PREV_CHECKED_KEY];
+              delete input.dataset[SKIP_DATA_KEY];
+            }
+            if (host) {
+              if (host.dataset) {
+                delete host.dataset.checklistSkipped;
+              }
+              host.removeAttribute("data-checklist-skipped");
+              if (host.classList && typeof host.classList.remove === "function") {
+                host.classList.remove("checklist-item--skipped");
+              }
+              host.setAttribute("data-validated", shouldCheck ? "true" : "false");
+            }
+          }
+        });
+      };
+      const handler = () => {
+        applyHiddenState();
+      };
+      hiddenInput.addEventListener("input", handler);
+      hiddenInput.addEventListener("change", handler);
+      hiddenInput.__checklistHiddenListener = handler;
+    }
 
     if (!root.__hydrateChecklistBound) {
       root.addEventListener(

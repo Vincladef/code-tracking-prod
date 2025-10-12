@@ -342,6 +342,25 @@ function buildChecklistDom(document) {
   const items = Array.isArray(payload.items) ? payload.items : payload;
   assert.strictEqual(items[0], false, "Hydration should leave untouched items unchecked before edits");
 
+  const {
+    root: hiddenRoot,
+    inputA: hiddenInputA,
+    hidden: hiddenField,
+  } = buildChecklistDom(global.document);
+  global.document.body.appendChild(hiddenRoot);
+  await global.window.hydrateChecklist({
+    container: hiddenRoot,
+    consigneId: "consigne-1",
+    itemKeyAttr: "data-key",
+  });
+  hiddenField.value = JSON.stringify({ items: [true, false], skipped: [false, false] });
+  hiddenField.dispatchEvent(new MockEvent("input"));
+  assert.strictEqual(
+    hiddenInputA.checked,
+    true,
+    "Hidden state changes should hydrate checkboxes"
+  );
+
   // Second scenario: ensure answers map hydrates when no selectedIds are present.
   require("../utils/checklist-state.js");
   const manager = global.window.ChecklistState;
