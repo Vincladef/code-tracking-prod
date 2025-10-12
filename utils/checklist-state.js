@@ -384,9 +384,11 @@
     return Object.entries(answers)
       .filter(([, entry]) => {
         if (!entry || typeof entry !== "object") return false;
+        // Si skipped, ne jamais compter comme sélectionné
+        if (normalizeSkippedFlag(entry.skipped)) return false;
         const value = String(entry.value ?? "").toLowerCase();
         const isPositive = value === "yes" || value === "maybe";
-        return isPositive && !normalizeSkippedFlag(entry.skipped);
+        return isPositive;
       })
       .map(([key]) => key);
   }
