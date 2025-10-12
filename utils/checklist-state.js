@@ -1402,12 +1402,12 @@
         }
       }
       // Génère entries à partir de la structure de la réponse (entry)
-      let entries = [];
+      let entriesArr = [];
       if (Array.isArray(entry.entries)) {
-        entries = entry.entries;
+        entriesArr = entry.entries;
       } else if (entry.value && typeof entry.value === "object" && Array.isArray(entry.value.items)) {
         // Structure type { value: { items: [...] } }
-        entries = entry.value.items.map((checked, idx) => {
+        entriesArr = entry.value.items.map((checked, idx) => {
           const id = entry.value.ids && entry.value.ids[idx] ? entry.value.ids[idx] : `${consigneId}:${idx}`;
           return {
             input: { checked: !!checked, dataset: {} },
@@ -1417,7 +1417,7 @@
           };
         });
       } else if (Array.isArray(entry.selectedIds)) {
-        entries = entry.selectedIds.map((id) => ({
+        entriesArr = entry.selectedIds.map((id) => ({
           input: { checked: true, dataset: {} },
           host: { dataset: {} },
           itemId: id,
@@ -1425,8 +1425,8 @@
         }));
       }
       const optionsHash = entry.optionsHash || entry.options_hash || null;
-      const answers = buildAnswersFromEntries(entries);
-      const skippedIds = entries
+      const answers = buildAnswersFromEntries(entriesArr);
+      const skippedIds = entriesArr
         .map(({ input, host, itemId, legacyId }) => {
           const skipActive =
             (input?.dataset?.checklistSkip === "1") || (host?.dataset?.checklistSkipped === "1");
