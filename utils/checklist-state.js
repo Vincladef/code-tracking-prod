@@ -1056,9 +1056,10 @@
         if (hidden) {
           hidden.value = JSON.stringify(checklistValue);
         }
-        // On force la restauration de l'état complet (coché/skippé)
+        // DEBUG : log la valeur restaurée
+        console.debug('[checklist-state] hydrateRoot: checklistValue', checklistValue);
+        // On force la restauration de l'état answers pour chaque item
         if (checklistValue.answers && typeof checklistValue.answers === "object") {
-          // On applique l'état answer/skipped à chaque item
           const items = root.querySelectorAll('[data-checklist-item]');
           items.forEach((item) => {
             const input = item.querySelector('[data-checklist-input], input[type="checkbox"]');
@@ -1075,6 +1076,12 @@
                 item.removeAttribute('data-checklist-skipped');
                 item.classList.remove('checklist-item--skipped');
               }
+            } else {
+              // Si pas de réponse, décocher et retirer le skip
+              if (input) input.checked = false;
+              item.removeAttribute('data-checklist-skipped');
+              item.classList.remove('checklist-item--skipped');
+              if (input) input.removeAttribute('data-checklist-skip');
             }
           });
         }
