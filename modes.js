@@ -1051,6 +1051,34 @@ function buildChecklistValue(consigne, rawValue, fallbackValue = null) {
   if (Array.isArray(result.skipped) && result.skipped.every((value) => value === false)) {
     delete result.skipped;
   }
+  const resolvedAnswers = (() => {
+    if (rawValue && typeof rawValue === "object") {
+      return rawValue.answers || rawValue.answerMap || null;
+    }
+    if (fallbackValue && typeof fallbackValue === "object") {
+      return fallbackValue.answers || fallbackValue.answerMap || null;
+    }
+    return null;
+  })();
+  if (resolvedAnswers && typeof resolvedAnswers === "object") {
+    if (resolvedAnswers instanceof Map) {
+      result.answers = Object.fromEntries(resolvedAnswers.entries());
+    } else {
+      result.answers = { ...resolvedAnswers };
+    }
+  }
+  const resolvedSelectedIds = (() => {
+    if (rawValue && typeof rawValue === "object" && Array.isArray(rawValue.selectedIds)) {
+      return rawValue.selectedIds;
+    }
+    if (fallbackValue && typeof fallbackValue === "object" && Array.isArray(fallbackValue.selectedIds)) {
+      return fallbackValue.selectedIds;
+    }
+    return null;
+  })();
+  if (Array.isArray(resolvedSelectedIds) && resolvedSelectedIds.length) {
+    result.selectedIds = resolvedSelectedIds.map((value) => String(value));
+  }
   return result;
 }
 

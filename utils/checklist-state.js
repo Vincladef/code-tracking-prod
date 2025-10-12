@@ -343,6 +343,35 @@
     return normalized;
   }
 
+  function hasAnswerEntries(map) {
+    return map && typeof map === "object" && Object.keys(map).length > 0;
+  }
+
+  function parseChecklistValue(raw) {
+    if (!raw) {
+      return null;
+    }
+    if (raw instanceof Map) {
+      return Object.fromEntries(raw.entries());
+    }
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") {
+          return null;
+        }
+        return parsed;
+      } catch (error) {
+        console.warn("[checklist-state] checklistValue:parse", error);
+        return null;
+      }
+    }
+    if (typeof raw !== "object") {
+      return null;
+    }
+    return raw;
+  }
+
   function selectedIdsFromAnswers(answers) {
     if (!answers || typeof answers !== "object") {
       return [];
@@ -424,9 +453,35 @@
   }
 
   function normalizePayload(payload = {}) {
-    const normalizedAnswers = normalizeAnswers(payload.answers || payload.answerMap);
+    const normalizedConsigneId = normalizeConsigneId(payload.consigneId);
+    const rawChecklistValue =
+      parseChecklistValue(payload.checklistValue) ||
+      parseChecklistValue(payload.value) ||
+      parseChecklistValue(payload.normalizedValue);
+    const normalizedFromChecklist = normalizeAnswers(
+      rawChecklistValue && typeof rawChecklistValue === "object"
+        ? rawChecklistValue.answers || rawChecklistValue.answerMap
+        : null
+    );
+    let normalizedAnswers = normalizeAnswers(payload.answers || payload.answerMap);
+    if (hasAnswerEntries(normalizedFromChecklist)) {
+      if (hasAnswerEntries(normalizedAnswers)) {
+        normalizedAnswers = { ...normalizedFromChecklist, ...normalizedAnswers };
+      } else {
+        normalizedAnswers = normalizedFromChecklist;
+      }
+    }
     let selectedIds = normalizeSelectedIds(payload.selectedIds || payload.checked);
-    if (normalizedAnswers && Object.keys(normalizedAnswers).length) {
+    if (rawChecklistValue && Array.isArray(rawChecklistValue.selectedIds) && rawChecklistValue.selectedIds.length) {
+      selectedIds = normalizeSelectedIds([...selectedIds, ...rawChecklistValue.selectedIds]);
+    }
+    if (!selectedIds.length && rawChecklistValue) {
+      const inferred = fallbackSelectedIds(normalizedConsigneId, { value: rawChecklistValue });
+      if (inferred.length) {
+        selectedIds = normalizeSelectedIds([...selectedIds, ...inferred]);
+      }
+    }
+    if (hasAnswerEntries(normalizedAnswers)) {
       const derived = selectedIdsFromAnswers(normalizedAnswers);
       if (derived.length) {
         selectedIds = normalizeSelectedIds([...selectedIds, ...derived]);
@@ -448,7 +503,7 @@
     const dateKey = normalizeDateKey(rawDateKey || tsValue);
     return {
       type: "checklist",
-      consigneId: normalizeConsigneId(payload.consigneId),
+      consigneId: normalizedConsigneId,
       selectedIds,
       optionsHash,
       ts: tsValue,
@@ -1252,14 +1307,28 @@
       if (!entry || entry.type !== "checklist") return;
       const consigneId = normalizeConsigneId(entry.consigneId || entry.consigne_id || entry.consigneID);
       if (!consigneId) return;
-      const selectedIds = normalizeSelectedIds(entry.selectedIds || entry.selected_ids);
+      let selectedIds = normalizeSelectedIds(entry.selectedIds || entry.selected_ids);
+      if (!selectedIds.length) {
+        const fallbackIds = fallbackSelectedIds(consigneId, entry);
+        if (fallbackIds.length) {
+          selectedIds = fallbackIds;
+        }
+      }
       const optionsHash = entry.optionsHash || entry.options_hash || null;
       const dateKey =
         entry.dateKey || entry.dayKey || entry.date_key || entry.day_key || entry.date || null;
       const ts = entry.updatedAt || entry.ts;
+      const rawChecklistValue =
+        entry.value || entry.normalizedValue || entry.answers || entry.checklistValue || null;
+      let answers = entry.answers || null;
+      if (!answers && rawChecklistValue && typeof rawChecklistValue === "object") {
+        answers = rawChecklistValue.answers || rawChecklistValue.answerMap || null;
+      }
       tasks.push(
         saveSelection(db, uid, consigneId, {
-            checklistValue: entry.value || entry.normalizedValue || entry.answers || {},
+          checklistValue: rawChecklistValue || {},
+          selectedIds,
+          answers,
           optionsHash,
           dateKey,
           ts,
