@@ -39,8 +39,24 @@
     db: null,
     uid: null,
   };
-    let observer = null;
-    const processedRoots = new WeakSet();
+  const ENABLE_DEBUG_LOGS = true;
+  function debugLog(event, payload) {
+    const globalFlag =
+      typeof GLOBAL.__CHECKLIST_STATE_DEBUG__ === "boolean"
+        ? GLOBAL.__CHECKLIST_STATE_DEBUG__
+        : null;
+    const shouldLog = globalFlag === null ? ENABLE_DEBUG_LOGS : globalFlag;
+    if (!shouldLog) {
+      return;
+    }
+    if (payload === undefined) {
+      console.debug(`[checklist-state] ${event}`);
+      return;
+    }
+    console.debug(`[checklist-state] ${event}`, payload);
+  }
+  let observer = null;
+  const processedRoots = new WeakSet();
   function toMillis(value, fallback = Date.now()) {
     if (typeof value === "number" && Number.isFinite(value)) {
       return value;
@@ -502,8 +518,15 @@
     const todayKey = currentParisDayKey();
     const cached = readCachedSelection(uid, consigneId, todayKey);
     if (cached) {
+      debugLog("loadSelection:cache-hit", {
+        consigneId,
+        dateKey: cached.dateKey,
+        selected: Array.isArray(cached.selectedIds) ? cached.selectedIds.length : 0,
+        hasAnswers: Boolean(cached.answers && Object.keys(cached.answers).length),
+      });
       return cached;
     }
+    debugLog("loadSelection:cache-miss", { consigneId, dateKey: todayKey });
     if (db && typeof doc === "function" && typeof getDoc === "function") {
       try {
         const ref = doc(db, "u", uid, "answers", todayKey, "consignes", consigneId);
@@ -519,6 +542,12 @@
             answers: data.answers,
           });
           cacheSelection(uid, consigneId, normalized);
+          debugLog("loadSelection:firestore-answer", {
+            consigneId,
+            dateKey: normalized.dateKey,
+            selected: normalized.selectedIds.length,
+            hasAnswers: Boolean(normalized.answers && Object.keys(normalized.answers).length),
+          });
           return normalized;
         }
       } catch (error) {
@@ -553,6 +582,12 @@
             answers: data.answers,
           });
           cacheSelection(uid, consigneId, normalized);
+          debugLog("loadSelection:responses", {
+            consigneId,
+            dateKey: normalized.dateKey,
+            selected: normalized.selectedIds.length,
+            hasAnswers: Boolean(normalized.answers && Object.keys(normalized.answers).length),
+          });
           return normalized;
         }
       } catch (error) {
@@ -594,6 +629,12 @@
         answers: data.answers,
       });
       cacheSelection(uid, consigneId, normalized);
+      debugLog("loadSelection:history", {
+        consigneId,
+        dateKey: normalized.dateKey,
+        selected: normalized.selectedIds.length,
+        hasAnswers: Boolean(normalized.answers && Object.keys(normalized.answers).length),
+      });
       return normalized;
     } catch (error) {
       console.warn("[checklist-state] firestore:load", error);
@@ -968,6 +1009,18 @@
       }
     }
     root.dataset.checklistHydrated = "1";
+    const selectedCount = entries.reduce((count, { input }) => (input && input.checked ? count + 1 : count), 0);
+    const skippedCount = entries.reduce(
+      (count, { input, host }) =>
+        (input?.dataset?.checklistSkip === "1" || host?.dataset?.checklistSkipped === "1") ? count + 1 : count,
+      0
+    );
+    debugLog("applySelection:done", {
+      consigneId,
+      selected: selectedCount,
+      skipped: skippedCount,
+      entries: entries.length,
+    });
     return anyChange;
   }
 
@@ -1016,9 +1069,22 @@
     const { db, uid } = context;
     if (!uid) return;
     try {
+      debugLog("hydrateRoot:start", {
+        consigneId,
+        hasHidden: Boolean(root.querySelector('[data-checklist-state]')),
+      });
       let saved = await loadSelection(db, uid, consigneId);
+      if (saved) {
+        debugLog("hydrateRoot:loaded", {
+          consigneId,
+          dateKey: saved.dateKey,
+          selected: Array.isArray(saved.selectedIds) ? saved.selectedIds.length : 0,
+          hasAnswers: Boolean(saved.answers && Object.keys(saved.answers).length),
+        });
+      }
       // Si aucune réponse pour la date courante, chercher la dernière réponse connue (hors date)
       if (!saved) {
+        debugLog("hydrateRoot:no-current-day", { consigneId });
         // Cherche dans l'historique localStorage toutes les dates pour ce consigneId
         const storage = safeLocalStorage();
         let lastPayload = null;
@@ -1037,8 +1103,15 @@
           }
         }
         if (lastPayload) {
+          debugLog("hydrateRoot:local-fallback", {
+            consigneId,
+            dateKey: lastPayload.dateKey,
+            selected: Array.isArray(lastPayload.selectedIds) ? lastPayload.selectedIds.length : 0,
+            hasAnswers: Boolean(lastPayload.answers && Object.keys(lastPayload.answers).length),
+          });
           saved = lastPayload;
         } else {
+          debugLog("hydrateRoot:no-history", { consigneId });
           return;
         }
       }
@@ -1056,8 +1129,12 @@
         if (hidden) {
           hidden.value = JSON.stringify(checklistValue);
         }
-        // DEBUG : log la valeur restaurée
-        console.debug('[checklist-state] hydrateRoot: checklistValue', checklistValue);
+        debugLog("hydrateRoot:checklist-value", {
+          consigneId,
+          dateKey: checklistValue.dateKey || saved.dateKey,
+          answers: checklistValue.answers ? Object.keys(checklistValue.answers).length : 0,
+          selected: Array.isArray(checklistValue.items) ? checklistValue.items.filter(Boolean).length : null,
+        });
         // On force la restauration de l'état answers pour chaque item
         if (checklistValue.answers && typeof checklistValue.answers === "object") {
           const items = root.querySelectorAll('[data-checklist-item]');
@@ -1087,8 +1164,15 @@
         }
         applySelection(root, checklistValue, { consigneId, optionsHash });
       } else {
+        debugLog("hydrateRoot:apply-selection", {
+          consigneId,
+          dateKey: saved.dateKey,
+          selected: Array.isArray(saved.selectedIds) ? saved.selectedIds.length : 0,
+          hasAnswers: Boolean(saved.answers && Object.keys(saved.answers).length),
+        });
         applySelection(root, saved, { consigneId, optionsHash });
       }
+      debugLog("hydrateRoot:done", { consigneId });
     } catch (error) {
       console.warn("[checklist-state] hydrate", error);
     }
@@ -1097,7 +1181,7 @@
   function hydrateExistingRoots(scope = GLOBAL.document) {
     if (!scope || !scope.querySelectorAll) return;
     const roots = scope.querySelectorAll("[data-checklist-root]");
-    console.debug('[checklist-state] hydrateExistingRoots called, found', roots.length, 'roots');
+    debugLog("hydrateExistingRoots", { count: roots.length });
     roots.forEach((root) => {
       processedRoots.delete(root);
       hydrateRoot(root);
