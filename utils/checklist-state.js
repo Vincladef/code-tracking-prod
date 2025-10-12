@@ -1096,7 +1096,9 @@
 
   function hydrateExistingRoots(scope = GLOBAL.document) {
     if (!scope || !scope.querySelectorAll) return;
-    scope.querySelectorAll("[data-checklist-root]").forEach((root) => {
+    const roots = scope.querySelectorAll("[data-checklist-root]");
+    console.debug('[checklist-state] hydrateExistingRoots called, found', roots.length, 'roots');
+    roots.forEach((root) => {
       processedRoots.delete(root);
       hydrateRoot(root);
     });
