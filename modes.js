@@ -8595,6 +8595,73 @@ function getRecentResponsesStore() {
   return null;
 }
 
+function parseHistoryDateInput(value) {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+  }
+  if (typeof value.toDate === "function") {
+    try {
+      const parsedViaTimestamp = value.toDate();
+      if (parsedViaTimestamp instanceof Date && !Number.isNaN(parsedViaTimestamp.getTime())) {
+        return parsedViaTimestamp;
+      }
+    } catch (error) {
+      modesLogger?.debug?.("ui.history.date.parse", error);
+    }
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const fromDayKey = modesParseDayKeyToDate(trimmed);
+    if (fromDayKey instanceof Date && !Number.isNaN(fromDayKey.getTime())) {
+      return fromDayKey;
+    }
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) {
+      const fromNumber = new Date(numeric);
+      if (!Number.isNaN(fromNumber.getTime())) {
+        return fromNumber;
+      }
+    }
+    const parsed = new Date(trimmed);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+function resolveHistoryEntryDate(row) {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+  const candidates = [
+    row.pageDate,
+    row.page_date,
+    row.pageDateIso,
+    row.page_date_iso,
+    row.pageDateISO,
+    row.dayKey,
+    row.day_key,
+    row.createdAt,
+    row.updatedAt,
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseHistoryDateInput(candidate);
+    if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
 function historyRowIdentity(row) {
   if (!row || typeof row !== "object") {
     return "";
@@ -8602,17 +8669,11 @@ function historyRowIdentity(row) {
   if (row.id) {
     return `id:${row.id}`;
   }
-  const rawDate = row.createdAt?.toDate?.() ?? row.createdAt ?? row.updatedAt ?? null;
+  const resolvedDate = resolveHistoryEntryDate(row);
+  const rawDate = resolvedDate || null;
   let iso = "";
-  if (rawDate instanceof Date) {
-    if (!Number.isNaN(rawDate.getTime())) {
-      iso = rawDate.toISOString();
-    }
-  } else if (typeof rawDate === "string" || typeof rawDate === "number") {
-    const parsed = new Date(rawDate);
-    if (!Number.isNaN(parsed.getTime())) {
-      iso = parsed.toISOString();
-    }
+  if (rawDate instanceof Date && !Number.isNaN(rawDate.getTime())) {
+    iso = rawDate.toISOString();
   }
   let valueKey = "";
   try {
@@ -8651,8 +8712,10 @@ function mergeRowsWithRecent(rows, consigneId) {
   });
   if (pending.length) {
     pending.sort((a, b) => {
-      const aTime = new Date(a.createdAt || 0).getTime();
-      const bTime = new Date(b.createdAt || 0).getTime();
+      const aDate = resolveHistoryEntryDate(a);
+      const bDate = resolveHistoryEntryDate(b);
+      const aTime = aDate instanceof Date ? aDate.getTime() : new Date(a?.createdAt || 0).getTime();
+      const bTime = bDate instanceof Date ? bDate.getTime() : new Date(b?.createdAt || 0).getTime();
       return bTime - aTime;
     });
     store.set(consigneId, pending.slice(0, 10));
@@ -8660,10 +8723,15 @@ function mergeRowsWithRecent(rows, consigneId) {
     store.delete(consigneId);
   }
   merged.sort((a, b) => {
-    const aRaw = a.createdAt?.toDate?.() ?? a.createdAt ?? a.updatedAt ?? null;
-    const bRaw = b.createdAt?.toDate?.() ?? b.createdAt ?? b.updatedAt ?? null;
-    const aTime = aRaw instanceof Date ? aRaw.getTime() : new Date(aRaw || 0).getTime();
-    const bTime = bRaw instanceof Date ? bRaw.getTime() : new Date(bRaw || 0).getTime();
+    const aDate = resolveHistoryEntryDate(a);
+    const bDate = resolveHistoryEntryDate(b);
+    const aTime = aDate instanceof Date ? aDate.getTime() : 0;
+    const bTime = bDate instanceof Date ? bDate.getTime() : 0;
+    if (aTime === bTime) {
+      const aFallback = new Date(a?.createdAt || 0).getTime();
+      const bFallback = new Date(b?.createdAt || 0).getTime();
+      return bFallback - aFallback;
+    }
     return bTime - aTime;
   });
   return merged;
@@ -8850,7 +8918,8 @@ async function openHistory(ctx, consigne, options = {}) {
     }
     const createdAtSource = row?.createdAt ?? row?.updatedAt ?? null;
     const createdAt = parseDateForDaily(createdAtSource);
-    const dayKey = resolveDayKey(row, createdAt);
+    const primaryDate = resolveHistoryEntryDate(row) || createdAt;
+    const dayKey = resolveDayKey(row, primaryDate);
     if (!dayKey) {
       return true;
     }
@@ -9197,13 +9266,14 @@ async function openHistory(ctx, consigne, options = {}) {
   const list = rows
     .map((r, index) => {
       const createdAtSource = r.createdAt?.toDate?.() ?? r.createdAt ?? r.updatedAt ?? null;
-      let createdAt = createdAtSource ? new Date(createdAtSource) : null;
-      if (createdAt && Number.isNaN(createdAt.getTime())) {
-        createdAt = null;
+      let recordedAt = createdAtSource ? new Date(createdAtSource) : null;
+      if (recordedAt && Number.isNaN(recordedAt.getTime())) {
+        recordedAt = null;
       }
-      const dayKey = resolveDayKey(r, createdAt);
+      const primaryDate = resolveHistoryEntryDate(r);
+      const dayKey = resolveDayKey(r, primaryDate || recordedAt);
       const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
-      const displayDate = dayDate || createdAt;
+      const displayDate = dayDate || primaryDate || recordedAt;
       const iso = displayDate && !Number.isNaN(displayDate.getTime()) ? displayDate.toISOString() : "";
       const dateText = displayDate && !Number.isNaN(displayDate.getTime())
         ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
@@ -9285,7 +9355,7 @@ async function openHistory(ctx, consigne, options = {}) {
           isSummary: Boolean(summaryInfo.isSummary),
           summaryScope: summaryInfo.scope || "",
           isBilan: Boolean(summaryInfo.isBilan),
-          recordedAt: createdAt instanceof Date && !Number.isNaN(createdAt?.getTime?.()) ? createdAt : null,
+          recordedAt: recordedAt instanceof Date && !Number.isNaN(recordedAt?.getTime?.()) ? recordedAt : null,
           dayKey: typeof dayKey === "string" ? dayKey : "",
         });
       }
@@ -9298,21 +9368,27 @@ async function openHistory(ctx, consigne, options = {}) {
       const summaryBadge = summaryLabel
         ? `<span class="history-panel__summary-badge">${escapeHtml(summaryLabel)}</span>`
         : "";
-      const summaryMarker = summaryLabel
-        ? `<span class="history-panel__summary-marker" title="${escapeHtml(summaryLabel)}" aria-hidden="true"></span>`
+      let markerTitle = "";
+      if (summaryInfo.isSummary && summaryLabel) {
+        markerTitle = summaryLabel;
+      } else if (summaryInfo.isBilan) {
+        markerTitle = summaryLabel || "Bilan";
+      }
+      const summaryMarker = summaryInfo.isBilan
+        ? `<span class="history-panel__summary-marker"${markerTitle ? ` title="${escapeHtml(markerTitle)}"` : ""} aria-hidden="true"></span>`
         : "";
       const valueClasses = ["history-panel__value"];
       if (summaryInfo.isSummary) {
         valueClasses.push("history-panel__value--summary");
       }
       let recordedMetaLabel = "";
-      if (dayDate && createdAt && !Number.isNaN(createdAt.getTime())) {
+      if (dayDate && recordedAt && !Number.isNaN(recordedAt.getTime())) {
         const sameDay =
-          createdAt.getFullYear() === dayDate.getFullYear() &&
-          createdAt.getMonth() === dayDate.getMonth() &&
-          createdAt.getDate() === dayDate.getDate();
+          recordedAt.getFullYear() === dayDate.getFullYear() &&
+          recordedAt.getMonth() === dayDate.getMonth() &&
+          recordedAt.getDate() === dayDate.getDate();
         if (!sameDay) {
-          recordedMetaLabel = formatDisplayDate(createdAt, { preferDayView: false });
+          recordedMetaLabel = formatDisplayDate(recordedAt, { preferDayView: false });
         }
       }
       const metaParts = [];
