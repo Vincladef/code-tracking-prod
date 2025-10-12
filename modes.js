@@ -2032,13 +2032,30 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         return null;
       }
       if (typeof input === "object") {
-        if (Array.isArray(input.items) || Array.isArray(input.values) || Array.isArray(input.checked) || Array.isArray(input.answers)) {
+        if (
+          Array.isArray(input.items) ||
+          Array.isArray(input.values) ||
+          Array.isArray(input.checked) ||
+          Array.isArray(input.answers)
+        ) {
           const rawItems = input.items || input.values || input.checked || input.answers || [];
+          const rawSkipped = Array.isArray(input.skipped)
+            ? input.skipped
+            : Array.isArray(input.skipStates)
+            ? input.skipStates
+            : null;
           const normalizedItems = rawItems.map((item) => normalizeChecklistFlag(item));
+          const normalizedStates = normalizeChecklistStateArrays(
+            { items: normalizedItems, skipped: Array.isArray(rawSkipped) ? rawSkipped : [] },
+            normalizedItems.length || undefined
+          );
           const labels = coerceChecklistLabels(input.labels || input.itemsLabels || input.titles || null);
-          const structure = { items: normalizedItems };
+          const structure = { items: normalizedStates.items };
           if (labels && labels.length) {
             structure.labels = labels;
+          }
+          if (Array.isArray(rawSkipped)) {
+            structure.skipped = normalizedStates.skipped;
           }
           return structure;
         }
@@ -2061,6 +2078,13 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               ...nextValue,
               items: nextValue.items.slice(),
               ...(Array.isArray(nextValue.labels) ? { labels: nextValue.labels.slice() } : {}),
+              ...(
+                Array.isArray(nextValue.skipped)
+                  ? { skipped: nextValue.skipped.slice() }
+                  : Array.isArray(nextValue.skipStates)
+                  ? { skipped: nextValue.skipStates.slice() }
+                  : {}
+              ),
             }
           : nextValue;
       }
@@ -2073,15 +2097,42 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const currentLabels = Array.isArray(currentValue.labels) ? currentValue.labels : [];
       const nextLabels = Array.isArray(nextValue.labels) ? nextValue.labels : [];
       const mergedLabels = nextLabels.length ? nextLabels : currentLabels;
+      const nextSkipRaw = Array.isArray(nextValue.skipped)
+        ? nextValue.skipped
+        : Array.isArray(nextValue.skipStates)
+        ? nextValue.skipStates
+        : [];
+      const currentSkipRaw = Array.isArray(currentValue.skipped)
+        ? currentValue.skipped
+        : Array.isArray(currentValue.skipStates)
+        ? currentValue.skipStates
+        : [];
+      const hasNextSkip = Array.isArray(nextValue.skipped) || Array.isArray(nextValue.skipStates);
+      const hasCurrentSkip = Array.isArray(currentValue.skipped) || Array.isArray(currentValue.skipStates);
+      const mergedSkipSource = hasNextSkip ? nextSkipRaw : currentSkipRaw;
+      const normalizedStates = normalizeChecklistStateArrays(
+        { items: mergedItems, skipped: mergedSkipSource },
+        mergedItems.length || undefined
+      );
       const merged = {
         ...currentValue,
         ...nextValue,
-        items: mergedItems.slice(),
+        items: normalizedStates.items.slice(),
       };
       if (mergedLabels.length) {
         merged.labels = mergedLabels.slice();
       } else if (merged.labels) {
         delete merged.labels;
+      }
+      const hasSkipValues = normalizedStates.skipped.some((value) => value === true);
+      if (hasNextSkip || hasCurrentSkip) {
+        if (hasSkipValues) {
+          merged.skipped = normalizedStates.skipped.slice();
+        } else if (merged.skipped) {
+          delete merged.skipped;
+        }
+      } else if (merged.skipped) {
+        delete merged.skipped;
       }
       return merged;
     }
