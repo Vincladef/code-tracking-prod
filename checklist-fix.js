@@ -326,18 +326,143 @@
     }
   }
 
+  function resolveConsigneId(root) {
+    if (!(root instanceof Element)) {
+      return "";
+    }
+    const attr = root.getAttribute("data-consigne-id");
+    if (attr && String(attr).trim()) {
+      return String(attr).trim();
+    }
+    if (root.dataset?.consigneId && String(root.dataset.consigneId).trim()) {
+      return String(root.dataset.consigneId).trim();
+    }
+    const owner = root.closest("[data-consigne-id]");
+    if (owner) {
+      const ownerAttr = owner.getAttribute("data-consigne-id");
+      if (ownerAttr && String(ownerAttr).trim()) {
+        return String(ownerAttr).trim();
+      }
+      if (owner.dataset?.consigneId && String(owner.dataset.consigneId).trim()) {
+        return String(owner.dataset.consigneId).trim();
+      }
+    }
+    return "";
+  }
+
+  function collectInputs(root) {
+    if (!(root instanceof Element)) {
+      return [];
+    }
+    const selector = '[data-checklist-input], input[type="checkbox"]';
+    return Array.from(root.querySelectorAll(selector)).filter((input) => input instanceof HTMLInputElement);
+  }
+
+  function applyKeyAttributes(input, host, itemKeyAttr, key, legacyKey) {
+    const safeKey = key != null ? String(key) : null;
+    const safeLegacy = legacyKey != null ? String(legacyKey) : null;
+    if (safeKey && itemKeyAttr) {
+      input.setAttribute(itemKeyAttr, safeKey);
+    }
+    if (safeKey) {
+      input.setAttribute("data-key", safeKey);
+      input.setAttribute("data-item-id", safeKey);
+      if (input.dataset) {
+        input.dataset.key = safeKey;
+        input.dataset.itemId = safeKey;
+      }
+    }
+    if (safeLegacy) {
+      input.setAttribute("data-legacy-key", safeLegacy);
+      if (input.dataset) {
+        input.dataset.legacyKey = safeLegacy;
+      }
+    }
+    if (host instanceof Element) {
+      if (safeKey) {
+        host.setAttribute("data-item-id", safeKey);
+        host.setAttribute("data-checklist-key", safeKey);
+        if (host.dataset) {
+          host.dataset.itemId = safeKey;
+          host.dataset.checklistKey = safeKey;
+        }
+      }
+      if (safeLegacy) {
+        host.setAttribute("data-checklist-legacy-key", safeLegacy);
+        if (host.dataset) {
+          host.dataset.checklistLegacyKey = safeLegacy;
+        }
+      }
+    }
+  }
+
+  function resolveInputKey(input, host, options = {}) {
+    const itemKeyAttr = options.itemKeyAttr || "data-key";
+    const consigneId = options.consigneId || "";
+    const index = Number.isFinite(options.index) ? Number(options.index) : null;
+    const keyCandidates = [];
+    const attrKey = itemKeyAttr ? input.getAttribute(itemKeyAttr) : null;
+    if (attrKey) keyCandidates.push(String(attrKey));
+    if (input.dataset?.key) keyCandidates.push(String(input.dataset.key));
+    const explicitChecklistKey = input.getAttribute("data-checklist-key") || input.dataset?.checklistKey;
+    if (explicitChecklistKey) keyCandidates.push(String(explicitChecklistKey));
+    const explicitItemId = input.getAttribute("data-item-id") || input.dataset?.itemId;
+    if (explicitItemId) keyCandidates.push(String(explicitItemId));
+    if (host instanceof Element) {
+      const hostKey = host.getAttribute("data-checklist-key") || host.dataset?.checklistKey;
+      if (hostKey) keyCandidates.push(String(hostKey));
+      const hostItem = host.getAttribute("data-item-id") || host.dataset?.itemId;
+      if (hostItem) keyCandidates.push(String(hostItem));
+    }
+    const resolved = keyCandidates.find((value) => String(value).trim().length > 0);
+    if (resolved && String(resolved).trim()) {
+      return String(resolved).trim();
+    }
+    if (index != null) {
+      const fallback = consigneId ? `${consigneId}:${index}` : String(index);
+      return fallback;
+    }
+    return consigneId ? `${consigneId}:${Date.now()}` : String(Date.now());
+  }
+
+  function resolveLegacyKey(input, host, options = {}) {
+    const consigneId = options.consigneId || "";
+    const index = Number.isFinite(options.index) ? Number(options.index) : null;
+    const candidates = [];
+    const attr = input.getAttribute("data-legacy-key");
+    if (attr) candidates.push(String(attr));
+    if (input.dataset?.legacyKey) candidates.push(String(input.dataset.legacyKey));
+    if (host instanceof Element) {
+      const hostLegacy = host.getAttribute("data-checklist-legacy-key") || host.dataset?.checklistLegacyKey;
+      if (hostLegacy) candidates.push(String(hostLegacy));
+    }
+    const resolved = candidates.find((value) => String(value).trim().length > 0);
+    if (resolved && String(resolved).trim()) {
+      return String(resolved).trim();
+    }
+    if (index != null) {
+      const fallback = consigneId ? `${consigneId}:${index}` : String(index);
+      return fallback;
+    }
+    return consigneId ? `${consigneId}:${Date.now()}` : String(Date.now());
+  }
+
   function collectSelectedKeys(root, itemKeyAttr) {
     if (!(root instanceof Element)) {
       return [];
     }
-    const selector = `input[type="checkbox"][${itemKeyAttr}]`;
-    return Array.from(root.querySelectorAll(selector))
-      .map((input) => {
-        if (!(input instanceof HTMLInputElement)) {
+    const consigneId = resolveConsigneId(root);
+    const inputs = collectInputs(root);
+    return inputs
+      .map((input, index) => {
+        const host = input.closest("[data-checklist-item]");
+        const key = resolveInputKey(input, host, { itemKeyAttr, consigneId, index });
+        const legacy = resolveLegacyKey(input, host, { consigneId, index });
+        applyKeyAttributes(input, host, itemKeyAttr, key, legacy);
+        if (!input.checked) {
           return null;
         }
-        const key = input.getAttribute(itemKeyAttr);
-        return input.checked && key ? String(key) : null;
+        return key ? String(key) : null;
       })
       .filter(Boolean);
   }
@@ -346,18 +471,18 @@
     if (!(root instanceof Element)) {
       return;
     }
-    const selector = `input[type="checkbox"][${itemKeyAttr}]`;
-    const inputs = Array.from(root.querySelectorAll(selector));
+    const consigneId = resolveConsigneId(root);
+    const inputs = collectInputs(root);
     const keySet = new Set(selectedKeys.map((value) => String(value)));
-    inputs.forEach((input) => {
+    inputs.forEach((input, index) => {
       if (!(input instanceof HTMLInputElement)) {
         return;
       }
-      const key = input.getAttribute(itemKeyAttr);
       const host = input.closest("[data-checklist-item]");
-      const legacyKey = input.getAttribute("data-legacy-key") || host?.getAttribute?.("data-checklist-legacy-key");
-      const shouldCheck =
-        (key && keySet.has(String(key))) || (legacyKey ? keySet.has(String(legacyKey)) : false);
+      const key = resolveInputKey(input, host, { itemKeyAttr, consigneId, index });
+      const legacyKey = resolveLegacyKey(input, host, { consigneId, index });
+      applyKeyAttributes(input, host, itemKeyAttr, key, legacyKey);
+      const shouldCheck = keySet.has(String(key)) || keySet.has(String(legacyKey));
       if (input.checked !== shouldCheck) {
         input.checked = shouldCheck;
       }
@@ -429,7 +554,10 @@
           if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
             return;
           }
-          if (!target.matches(`input[type="checkbox"][${itemKeyAttr}]`)) {
+          if (
+            !target.matches('[data-checklist-input]') &&
+            !(itemKeyAttr && target.hasAttribute(itemKeyAttr))
+          ) {
             return;
           }
           const host = target.closest("[data-checklist-item]");
@@ -481,12 +609,30 @@
       if (!saved) {
         saved = await fallbackLoadAnswer(effectiveUid, consigneId, dateKey);
       }
-      const selected = Array.isArray(saved?.selectedIds)
-        ? saved.selectedIds
-        : Array.isArray(saved?.selected)
-        ? saved.selected
-        : [];
-      applySelectedKeys(root, itemKeyAttr, selected);
+      let appliedWithManager = false;
+      if (saved && manager && typeof manager.applySelection === "function") {
+        try {
+          const optionsHash =
+            root.getAttribute("data-checklist-options-hash") ||
+            root.dataset?.checklistOptionsHash ||
+            null;
+          manager.applySelection(root, saved, {
+            consigneId,
+            optionsHash,
+          });
+          appliedWithManager = true;
+        } catch (error) {
+          console.warn("[checklist-fix] applySelection", error);
+        }
+      }
+      if (!appliedWithManager) {
+        const selected = Array.isArray(saved?.selectedIds)
+          ? saved.selectedIds
+          : Array.isArray(saved?.selected)
+          ? saved.selected
+          : [];
+        applySelectedKeys(root, itemKeyAttr, selected);
+      }
       return saved;
     })()
       .catch((error) => {

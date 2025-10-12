@@ -658,6 +658,29 @@ function sanitizeChecklistItems(consigne) {
     .filter((item) => item.length > 0);
 }
 
+function generateClientChecklistItemId() {
+  if (typeof Schema !== "undefined" && Schema && typeof Schema.generateChecklistItemId === "function") {
+    try {
+      const generated = Schema.generateChecklistItemId();
+      if (generated) {
+        return String(generated);
+      }
+    } catch (error) {
+      modesLogger?.warn?.("checklist.id.generate", error);
+    }
+  }
+  if (typeof crypto !== "undefined" && crypto && typeof crypto.randomUUID === "function") {
+    try {
+      return crypto.randomUUID();
+    } catch (error) {
+      // ignore and fall back
+    }
+  }
+  const nowPart = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).slice(2, 10);
+  return `chk_${nowPart}_${randomPart}`;
+}
+
 function slugifyChecklistLabel(label) {
   if (typeof label !== "string") {
     return "";
@@ -711,7 +734,16 @@ function computeChecklistOptionsHash(consigne) {
   return fallbackChecklistOptionsHash(items);
 }
 
-function resolveChecklistItemId(consigne, index, label) {
+function resolveChecklistItemId(consigne, index, label, stableIds = null) {
+  const idsSource = Array.isArray(stableIds)
+    ? stableIds
+    : Array.isArray(consigne?.checklistItemIds)
+    ? consigne.checklistItemIds
+    : [];
+  const explicitId = typeof idsSource[index] === "string" ? idsSource[index].trim() : "";
+  if (explicitId) {
+    return explicitId;
+  }
   const base =
     consigne?.id ??
     consigne?.slug ??
@@ -735,12 +767,16 @@ function collectChecklistSelectedIds(consigne, container, value) {
   if (container instanceof Element) {
     const items = Array.from(container.querySelectorAll("[data-checklist-item]"));
     if (items.length) {
+      const stableIds = Array.isArray(consigne?.checklistItemIds)
+        ? consigne.checklistItemIds
+        : [];
       items.forEach((item, index) => {
         const input = item.querySelector('[data-checklist-input], input[type="checkbox"]');
         const fallbackId = resolveChecklistItemId(
           consigne,
           index,
-          item.getAttribute("data-checklist-label") || input?.getAttribute?.("data-label") || ""
+          item.getAttribute("data-checklist-label") || input?.getAttribute?.("data-label") || "",
+          stableIds
         );
         const explicitKey =
           input?.getAttribute?.("data-key") ||
@@ -767,11 +803,12 @@ function collectChecklistSelectedIds(consigne, container, value) {
     }
   }
   const sanitizedItems = sanitizeChecklistItems(consigne);
+  const stableIds = Array.isArray(consigne?.checklistItemIds) ? consigne.checklistItemIds : [];
   sanitizedItems.forEach((_, index) => {
     const checked = Boolean(states[index]);
     const isSkipped = Boolean(domSkipped[index] ?? fallbackSkipped[index]);
     if (checked && !isSkipped) {
-      selected.add(resolveChecklistItemId(consigne, index, sanitizedItems[index]));
+      selected.add(resolveChecklistItemId(consigne, index, sanitizedItems[index], stableIds));
     }
   });
   return Array.from(selected);
@@ -1175,6 +1212,251 @@ function showToast(msg){
   document.body.appendChild(el);
   requestAnimationFrame(() => { el.style.opacity = "1"; el.style.transform = "translateY(0)"; });
   setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; setTimeout(()=>el.remove(), 250); }, 1200);
+}
+
+const CONSIGNE_PRIORITY_OPTIONS = [
+  { value: 1, tone: "high", label: "Priorité haute" },
+  { value: 2, tone: "medium", label: "Priorité moyenne" },
+  { value: 3, tone: "low", label: "Priorité basse" },
+];
+
+let openConsignePriorityMenuState = null;
+let consignePriorityMenuListenersBound = false;
+
+function removeConsignePriorityMenuListeners() {
+  if (!consignePriorityMenuListenersBound) return;
+  document.removeEventListener("click", onDocumentClickConsignePriorityMenu, true);
+  document.removeEventListener("keydown", onDocumentKeydownConsignePriorityMenu, true);
+  consignePriorityMenuListenersBound = false;
+}
+
+function ensureConsignePriorityMenuListeners() {
+  if (consignePriorityMenuListenersBound) return;
+  document.addEventListener("click", onDocumentClickConsignePriorityMenu, true);
+  document.addEventListener("keydown", onDocumentKeydownConsignePriorityMenu, true);
+  consignePriorityMenuListenersBound = true;
+}
+
+function closeConsignePriorityMenu(state = openConsignePriorityMenuState, { focusTrigger = false } = {}) {
+  if (!state) return;
+  const { trigger, menu } = state;
+  if (menu) {
+    menu.hidden = true;
+    menu.setAttribute("aria-hidden", "true");
+  }
+  if (trigger) {
+    trigger.setAttribute("aria-expanded", "false");
+    if (focusTrigger) {
+      try {
+        trigger.focus({ preventScroll: true });
+      } catch (err) {
+        trigger.focus();
+      }
+    }
+  }
+  if (openConsignePriorityMenuState && menu && openConsignePriorityMenuState.menu === menu) {
+    openConsignePriorityMenuState = null;
+    removeConsignePriorityMenuListeners();
+  }
+}
+
+function openConsignePriorityMenu(state) {
+  if (!state) return;
+  const { trigger, menu } = state;
+  if (!menu || !trigger) return;
+  if (openConsignePriorityMenuState && openConsignePriorityMenuState.menu !== menu) {
+    closeConsignePriorityMenu(openConsignePriorityMenuState);
+  }
+  menu.hidden = false;
+  menu.setAttribute("aria-hidden", "false");
+  if (!menu.hasAttribute("tabindex")) {
+    menu.setAttribute("tabindex", "-1");
+  }
+  trigger.setAttribute("aria-expanded", "true");
+  openConsignePriorityMenuState = state;
+  ensureConsignePriorityMenuListeners();
+  try {
+    menu.focus({ preventScroll: true });
+  } catch (err) {
+    try {
+      menu.focus();
+    } catch (focusErr) {
+      // ignore
+    }
+  }
+}
+
+function onDocumentClickConsignePriorityMenu(event) {
+  if (!openConsignePriorityMenuState) return;
+  const { trigger, menu } = openConsignePriorityMenuState;
+  if (menu && menu.contains(event.target)) return;
+  if (trigger && trigger.contains(event.target)) return;
+  closeConsignePriorityMenu();
+}
+
+function onDocumentKeydownConsignePriorityMenu(event) {
+  if (!openConsignePriorityMenuState) return;
+  if (event.key === "Escape" || event.key === "Esc") {
+    closeConsignePriorityMenu(undefined, { focusTrigger: true });
+    event.stopPropagation();
+  }
+}
+
+function normalizeConsignePriorityValue(value) {
+  const num = Number(value);
+  if (Number.isFinite(num) && num >= 1 && num <= 3) {
+    return num;
+  }
+  return 2;
+}
+
+function updateConsignePriorityMenuSelection(menu, priority) {
+  if (!menu) return;
+  const normalized = normalizeConsignePriorityValue(priority);
+  const buttons = Array.from(menu.querySelectorAll("[data-priority-option]"));
+  buttons.forEach((btn) => {
+    const optionValue = normalizeConsignePriorityValue(btn?.dataset?.priorityOption);
+    const isSelected = optionValue === normalized;
+    btn.setAttribute("aria-checked", isSelected ? "true" : "false");
+    if (isSelected) {
+      btn.dataset.selected = "1";
+    } else {
+      delete btn.dataset.selected;
+    }
+  });
+}
+
+function updateConsignePriorityTrigger(trigger, priority) {
+  if (!trigger) return;
+  const tone = priorityTone(priority);
+  trigger.dataset.priorityTone = tone;
+  const label = priorityLabelFromTone(tone) || "";
+  const capitalized = label ? `${label.charAt(0).toUpperCase()}${label.slice(1)}` : "";
+  const title = capitalized
+    ? `Changer la priorité (actuelle : ${capitalized})`
+    : "Changer la priorité";
+  trigger.setAttribute("aria-label", title);
+  trigger.title = title;
+}
+
+function applyPriorityToneToConsigneRow(row, priority) {
+  if (!row) return;
+  const tone = priorityTone(priority);
+  row.classList.remove("priority-surface-high", "priority-surface-medium", "priority-surface-low");
+  row.classList.add("priority-surface", `priority-surface-${tone}`);
+  row.dataset.priorityTone = tone;
+  const statusHolder = row.querySelector("[data-status]");
+  if (statusHolder) {
+    statusHolder.dataset.priorityTone = tone;
+  }
+  const dot = row.querySelector("[data-status-dot]");
+  if (dot) {
+    dot.dataset.priorityTone = tone;
+  }
+  const srPriority = row.querySelector("[data-priority]");
+  if (srPriority) {
+    srPriority.dataset.priority = tone;
+    const label = priorityLabelFromTone(tone) || "";
+    srPriority.textContent = `Priorité ${label}`;
+  }
+  const trigger = row.querySelector("[data-priority-trigger]");
+  updateConsignePriorityTrigger(trigger, priority);
+}
+
+function setupConsignePriorityMenu(row, consigne, ctx) {
+  if (!(row instanceof HTMLElement)) return;
+  const trigger = row.querySelector("[data-priority-trigger]");
+  const menu = row.querySelector("[data-priority-menu]");
+  if (!trigger || !menu) return;
+  const currentPriority = normalizeConsignePriorityValue(consigne?.priority);
+  applyPriorityToneToConsigneRow(row, currentPriority);
+  updateConsignePriorityMenuSelection(menu, currentPriority);
+  if (trigger.dataset.priorityMenuReady === "1") {
+    return;
+  }
+  trigger.dataset.priorityMenuReady = "1";
+  menu.innerHTML = CONSIGNE_PRIORITY_OPTIONS.map((option) => `
+    <button type="button"
+            class="consigne-row__priority-option"
+            data-priority-option="${option.value}"
+            data-priority-tone="${option.tone}"
+            role="menuitemradio"
+            aria-checked="${option.value === currentPriority ? "true" : "false"}">
+      ${option.label}
+    </button>
+  `).join("");
+  menu.hidden = true;
+  menu.setAttribute("aria-hidden", "true");
+  menu.setAttribute("role", "menu");
+  if (!menu.hasAttribute("tabindex")) {
+    menu.setAttribute("tabindex", "-1");
+  }
+  const optionButtons = Array.from(menu.querySelectorAll("[data-priority-option]"));
+  updateConsignePriorityMenuSelection(menu, currentPriority);
+  let isUpdating = false;
+  trigger.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isUpdating) return;
+    const isOpen = openConsignePriorityMenuState
+      && openConsignePriorityMenuState.menu === menu
+      && !menu.hidden;
+    if (isOpen) {
+      closeConsignePriorityMenu(openConsignePriorityMenuState);
+    } else {
+      openConsignePriorityMenu({ trigger, menu });
+    }
+  });
+  trigger.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" || event.key === "Esc") {
+      closeConsignePriorityMenu({ trigger, menu }, { focusTrigger: true });
+      event.stopPropagation();
+    }
+  });
+  menu.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" || event.key === "Esc") {
+      closeConsignePriorityMenu({ trigger, menu }, { focusTrigger: true });
+      event.stopPropagation();
+    }
+  });
+  menu.addEventListener("click", async (event) => {
+    const option = event.target.closest("[data-priority-option]");
+    if (!option) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (isUpdating) return;
+    const nextPriority = normalizeConsignePriorityValue(option.dataset.priorityOption);
+    const current = normalizeConsignePriorityValue(consigne?.priority);
+    if (nextPriority === current) {
+      closeConsignePriorityMenu({ trigger, menu });
+      return;
+    }
+    if (!ctx?.db || !ctx?.user?.uid || !consigne?.id) {
+      closeConsignePriorityMenu({ trigger, menu });
+      return;
+    }
+    isUpdating = true;
+    optionButtons.forEach((btn) => {
+      btn.disabled = true;
+    });
+    trigger.setAttribute("aria-busy", "true");
+    try {
+      await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, { priority: nextPriority });
+      consigne.priority = nextPriority;
+      applyPriorityToneToConsigneRow(row, nextPriority);
+      updateConsignePriorityMenuSelection(menu, nextPriority);
+    } catch (error) {
+      console.error(error);
+      showToast("Impossible de mettre à jour la priorité.");
+    } finally {
+      isUpdating = false;
+      optionButtons.forEach((btn) => {
+        btn.disabled = false;
+      });
+      trigger.removeAttribute("aria-busy");
+      closeConsignePriorityMenu({ trigger, menu });
+    }
+  });
 }
 
 function summaryScopeLabel(scope) {
@@ -4403,12 +4685,15 @@ function inputForType(consigne, initialValue = null) {
         ? `consigne:${String(consigne.id)}:checklist`
         : null;
     const autosaveAttr = autosaveFieldName ? ` data-autosave-field="${escapeHtml(String(autosaveFieldName))}"` : "";
+    const stableItemIds = Array.isArray(consigne?.checklistItemIds)
+      ? consigne.checklistItemIds
+      : [];
     const checkboxes = items
       .map((label, index) => {
         const checked = normalizedValue[index];
         const skipped = normalizedSkipped[index];
         const trimmedLabel = typeof label === "string" ? label.trim() : "";
-        const itemId = resolveChecklistItemId(consigne, index, trimmedLabel);
+        const itemId = resolveChecklistItemId(consigne, index, trimmedLabel, stableItemIds);
         const legacyBase =
           consigne?.id ??
           consigne?.slug ??
@@ -5507,12 +5792,20 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     empty.textContent = "Aucun élément pour l'instant.";
     checklistList.appendChild(empty);
   };
-  const addChecklistRow = (initialText = "") => {
+  const addChecklistRow = (initialText = "", initialId = "") => {
     if (!checklistList) return null;
     const row = document.createElement('div');
     row.className = 'flex items-center gap-2';
     row.dataset.checklistEditorRow = '';
     row.draggable = true;
+    const idInput = document.createElement('input');
+    idInput.type = 'hidden';
+    idInput.name = 'checklist-item-id';
+    const resolvedId = typeof initialId === 'string' && initialId.trim().length
+      ? initialId.trim()
+      : generateClientChecklistItemId();
+    idInput.value = resolvedId;
+    row.dataset.checklistItemId = resolvedId;
     const input = document.createElement('input');
     input.type = 'text';
     input.name = 'checklist-item';
@@ -5528,7 +5821,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       row.remove();
       renderChecklistEmptyState();
     });
-    row.append(input, removeBtn);
+    row.append(idInput, input, removeBtn);
     checklistList.appendChild(row);
     renderChecklistEmptyState();
     return row;
@@ -5592,8 +5885,11 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
   const initialChecklistItems = Array.isArray(consigne?.checklistItems)
     ? consigne.checklistItems.filter((item) => typeof item === 'string' && item.trim().length > 0)
     : [];
+  const initialChecklistIds = Array.isArray(consigne?.checklistItemIds)
+    ? consigne.checklistItemIds
+    : [];
   if (initialChecklistItems.length) {
-    initialChecklistItems.forEach((item) => addChecklistRow(item));
+    initialChecklistItems.forEach((item, index) => addChecklistRow(item, initialChecklistIds[index] || ''));
   }
   const ensureChecklistHasRow = () => {
     if (!checklistMounted || !checklistList) return;
@@ -5723,12 +6019,20 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         emptyState.textContent = "Aucun élément pour l'instant.";
         subChecklistList.appendChild(emptyState);
       };
-      const addSubChecklistRow = (initialText = "") => {
+      const addSubChecklistRow = (initialText = "", initialId = "") => {
         if (!subChecklistList) return null;
         const itemRow = document.createElement('div');
         itemRow.className = 'flex items-center gap-2';
         itemRow.dataset.subChecklistRow = '';
         itemRow.draggable = true;
+        const idInput = document.createElement('input');
+        idInput.type = 'hidden';
+        idInput.name = 'sub-checklist-item-id';
+        const resolvedId = typeof initialId === 'string' && initialId.trim().length
+          ? initialId.trim()
+          : generateClientChecklistItemId();
+        idInput.value = resolvedId;
+        itemRow.dataset.subChecklistItemId = resolvedId;
         const input = document.createElement('input');
         input.type = 'text';
         input.name = 'sub-checklist-item';
@@ -5744,7 +6048,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           itemRow.remove();
           renderSubChecklistEmptyState();
         });
-        itemRow.append(input, removeBtn);
+        itemRow.append(idInput, input, removeBtn);
         subChecklistList.appendChild(itemRow);
         renderSubChecklistEmptyState();
         return itemRow;
@@ -5810,8 +6114,13 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       const initialSubChecklistItems = Array.isArray(item?.checklistItems)
         ? item.checklistItems.filter((value) => typeof value === 'string' && value.trim().length > 0)
         : [];
+      const initialSubChecklistIds = Array.isArray(item?.checklistItemIds)
+        ? item.checklistItemIds
+        : [];
       if (initialSubChecklistItems.length) {
-        initialSubChecklistItems.forEach((value) => addSubChecklistRow(value));
+        initialSubChecklistItems.forEach((value, index) =>
+          addSubChecklistRow(value, initialSubChecklistIds[index] || '')
+        );
       }
       setupSubChecklistDragAndDrop();
       const syncSubChecklistVisibility = () => {
@@ -5941,8 +6250,11 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         parentId: consigne?.parentId || null,
       };
       if (payload.type === "checklist") {
-        const itemInputs = Array.from(m.querySelectorAll('[name="checklist-item"]'));
-        const items = itemInputs.map((input) => input.value.trim());
+        const itemRows = Array.from(m.querySelectorAll('[data-checklist-editor-row]'));
+        const items = itemRows.map((row) => {
+          const input = row.querySelector('input[name="checklist-item"]');
+          return input ? input.value.trim() : "";
+        });
         const hasAtLeastOne = items.some((text) => text.length > 0);
         if (!hasAtLeastOne) {
           alert("Ajoute au moins un élément à la checklist.");
@@ -5953,9 +6265,24 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           alert("Renseigne chaque élément de checklist ou supprime ceux qui sont vides.");
           return;
         }
+        const itemIds = itemRows.map((row) => {
+          const hidden = row.querySelector('input[name="checklist-item-id"]');
+          let idValue = hidden?.value && typeof hidden.value === 'string' ? hidden.value.trim() : '';
+          if (!idValue && hidden) {
+            idValue = generateClientChecklistItemId();
+            hidden.value = idValue;
+          }
+          if (!idValue) {
+            idValue = generateClientChecklistItemId();
+          }
+          row.dataset.checklistItemId = idValue;
+          return idValue;
+        });
         payload.checklistItems = items;
+        payload.checklistItemIds = itemIds;
       } else {
         payload.checklistItems = [];
+        payload.checklistItemIds = [];
       }
       if (mode === "daily") {
         const isAll = m.querySelector("#daily-all")?.checked;
@@ -6006,6 +6333,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         srEnabled: payload.srEnabled,
         days: Array.isArray(payload.days) ? [...payload.days] : payload.days,
         checklistItems: Array.isArray(payload.checklistItems) ? [...payload.checklistItems] : [],
+        checklistItemIds: Array.isArray(payload.checklistItemIds) ? [...payload.checklistItemIds] : [],
         ephemeral: payload.ephemeral,
         ephemeralDurationDays: payload.ephemeralDurationDays,
         ephemeralDurationIterations: payload.ephemeralDurationIterations,
@@ -6078,13 +6406,30 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
                 text: textValue,
                 type: typeValue,
                 checklistItems: [],
+                checklistItemIds: [],
               };
               if (mode === "daily") {
                 childPayload.days = Array.isArray(childDays) ? [...childDays] : [];
               }
               if (typeValue === 'checklist') {
-                const checklistInputs = Array.from(row.querySelectorAll('input[name="sub-checklist-item"]'));
-                childPayload.checklistItems = checklistInputs.map((input) => input.value.trim());
+                const checklistRows = Array.from(row.querySelectorAll('[data-sub-checklist-row]'));
+                childPayload.checklistItems = checklistRows.map((subRow) => {
+                  const input = subRow.querySelector('input[name="sub-checklist-item"]');
+                  return input ? input.value.trim() : '';
+                });
+                childPayload.checklistItemIds = checklistRows.map((subRow) => {
+                  const hidden = subRow.querySelector('input[name="sub-checklist-item-id"]');
+                  let idValue = hidden?.value && typeof hidden.value === 'string' ? hidden.value.trim() : '';
+                  if (!idValue && hidden) {
+                    idValue = generateClientChecklistItemId();
+                    hidden.value = idValue;
+                  }
+                  if (!idValue) {
+                    idValue = generateClientChecklistItemId();
+                  }
+                  subRow.dataset.subChecklistItemId = idValue;
+                  return idValue;
+                });
               }
               if (childId) {
                 updates.push(
@@ -6472,7 +6817,15 @@ function readConsigneCurrentValue(consigne, scope) {
       isDirty = hidden.dataset?.dirty === "1";
       try {
         const parsed = JSON.parse(hidden.value || "[]");
-        return buildChecklistValue(consigne, parsed);
+        const value = buildChecklistValue(consigne, parsed);
+        const items = Array.isArray(value?.items) ? value.items : [];
+        const skipped = Array.isArray(value?.skipped) ? value.skipped : [];
+        const hasMeaningfulState =
+          items.some(Boolean) || skipped.some(Boolean) || (value && value.__hasAnswer === true);
+        if (!isDirty && !hasMeaningfulState) {
+          return null;
+        }
+        return value;
       } catch (error) {
         console.warn("readConsigneCurrentValue:checklist", error);
       }
@@ -9447,14 +9800,22 @@ async function renderPractice(ctx, root, _opts = {}) {
               ${prioChip(Number(c.priority) || 2)}
             </button>
           </div>
-          <div class="consigne-row__meta">
-            <span class="consigne-row__status" data-status="na">
+        <div class="consigne-row__meta">
+          <span class="consigne-row__status" data-status="na">
+            <button type="button"
+                    class="consigne-row__dot-button"
+                    data-priority-trigger
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    title="Changer la priorité">
               <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
-              <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
-              <span class="sr-only" data-status-live aria-live="polite"></span>
-            </span>
-            ${consigneActions()}
-          </div>
+            </button>
+            <div class="consigne-row__priority-menu" data-priority-menu hidden></div>
+            <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
+            <span class="sr-only" data-status-live aria-live="polite"></span>
+          </span>
+          ${consigneActions()}
+        </div>
         </div>
         <div data-consigne-input-holder hidden></div>
       `;
@@ -9466,6 +9827,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (statusDot) {
         statusDot.dataset.priorityTone = tone;
       }
+      setupConsignePriorityMenu(row, c, ctx);
       const holder = row.querySelector("[data-consigne-input-holder]");
       if (holder) {
         holder.innerHTML = inputForType(c);
@@ -10635,7 +10997,15 @@ async function renderDaily(ctx, root, opts = {}) {
         </div>
         <div class="consigne-row__meta">
           <span class="consigne-row__status" data-status="na">
-            <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+            <button type="button"
+                    class="consigne-row__dot-button"
+                    data-priority-trigger
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    title="Changer la priorité">
+              <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+            </button>
+            <div class="consigne-row__priority-menu" data-priority-menu hidden></div>
             <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
             <span class="sr-only" data-status-live aria-live="polite"></span>
           </span>
@@ -10652,6 +11022,7 @@ async function renderDaily(ctx, root, opts = {}) {
     if (statusDot) {
       statusDot.dataset.priorityTone = tone;
     }
+    setupConsignePriorityMenu(row, item, ctx);
     const holder = row.querySelector("[data-consigne-input-holder]");
     if (holder) {
       holder.innerHTML = inputForType(item, previous?.value ?? null);

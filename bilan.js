@@ -423,6 +423,7 @@
           summaryMeta: { subtitle, description },
           priority: 2,
           checklistItems: [],
+          checklistItemIds: [],
           originalGoal: goal,
         };
       });
