@@ -82,6 +82,13 @@
     const scope = String(period?.scope || "").toLowerCase();
     const weeklyEnabled = consigne?.weeklySummaryEnabled !== false;
     const monthlyEnabled = consigne?.monthlySummaryEnabled !== false;
+    const summaryOnlyScope = String(consigne?.summaryOnlyScope || "").toLowerCase();
+    if (summaryOnlyScope === "weekly") {
+      return scope === "week" || scope === "weekly";
+    }
+    if (summaryOnlyScope === "monthly") {
+      return scope === "month" || scope === "monthly";
+    }
     if (scope === "week" || scope === "weekly") {
       return weeklyEnabled;
     }

@@ -5784,11 +5784,31 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       : "";
   const durationValueAttr = durationInitialValue === "" ? "" : escapeHtml(String(durationInitialValue));
   const isEphemeral = consigne?.ephemeral === true;
-  const weeklySummaryEnabled = consigne?.weeklySummaryEnabled !== false;
-  const monthlySummaryEnabled = consigne?.monthlySummaryEnabled !== false;
-  const advancedOpenAttr = isEphemeral || !weeklySummaryEnabled || !monthlySummaryEnabled || currentObjId
-    ? " open"
+  const rawSummaryOnlyScope = typeof consigne?.summaryOnlyScope === "string" ? consigne.summaryOnlyScope : "";
+  const normalizedSummaryOnlyScope = rawSummaryOnlyScope.trim().toLowerCase();
+  const summaryOnlyScope = normalizedSummaryOnlyScope === "weekly" || normalizedSummaryOnlyScope === "week"
+    ? "weekly"
+    : normalizedSummaryOnlyScope === "monthly" || normalizedSummaryOnlyScope === "month"
+    ? "monthly"
     : "";
+  let weeklySummaryEnabled = consigne?.weeklySummaryEnabled !== false;
+  let monthlySummaryEnabled = consigne?.monthlySummaryEnabled !== false;
+  if (summaryOnlyScope === "weekly") {
+    weeklySummaryEnabled = true;
+    monthlySummaryEnabled = false;
+  } else if (summaryOnlyScope === "monthly") {
+    weeklySummaryEnabled = false;
+    monthlySummaryEnabled = true;
+  }
+  const summaryVisibilityValue = summaryOnlyScope === "weekly"
+    ? "weekly"
+    : summaryOnlyScope === "monthly"
+    ? "monthly"
+    : "all";
+  const advancedOpenAttr =
+    isEphemeral || !weeklySummaryEnabled || !monthlySummaryEnabled || currentObjId || summaryVisibilityValue !== "all"
+      ? " open"
+      : "";
   const ephemeralHiddenAttr = isEphemeral ? "" : " hidden";
   const durationLabel = mode === "daily" ? "Durée (jours)" : "Durée (itérations)";
   const durationHint =
@@ -5867,6 +5887,21 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
               <input type="checkbox" name="summaryMonthly" ${monthlySummaryEnabled ? "checked" : ""}>
               <span>Inclure dans le bilan mensuel</span>
             </label>
+            <fieldset class="grid gap-1">
+              <span class="text-sm text-[var(--muted)]">Visibilité</span>
+              <label class="inline-flex items-center gap-2">
+                <input type="radio" name="summaryVisibility" value="all" ${summaryVisibilityValue === "all" ? "checked" : ""}>
+                <span>Journal et bilans</span>
+              </label>
+              <label class="inline-flex items-center gap-2">
+                <input type="radio" name="summaryVisibility" value="weekly" ${summaryVisibilityValue === "weekly" ? "checked" : ""}>
+                <span>Uniquement bilan hebdomadaire</span>
+              </label>
+              <label class="inline-flex items-center gap-2">
+                <input type="radio" name="summaryVisibility" value="monthly" ${summaryVisibilityValue === "monthly" ? "checked" : ""}>
+                <span>Uniquement bilan mensuel</span>
+              </label>
+            </fieldset>
           </div>
 
           <label class="inline-flex items-center gap-2">
@@ -5959,6 +5994,71 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         }
       }
     });
+  }
+  const summaryWeeklyCheckbox = m.querySelector('input[name="summaryWeekly"]');
+  const summaryMonthlyCheckbox = m.querySelector('input[name="summaryMonthly"]');
+  const summaryVisibilityRadios = Array.from(m.querySelectorAll('input[name="summaryVisibility"]'));
+  let currentSummaryVisibility = summaryVisibilityValue;
+  let savedAllSummaryState = {
+    weekly: summaryWeeklyCheckbox ? summaryWeeklyCheckbox.checked : false,
+    monthly: summaryMonthlyCheckbox ? summaryMonthlyCheckbox.checked : false,
+  };
+  const updateSavedAllState = () => {
+    if (currentSummaryVisibility !== "all") {
+      return;
+    }
+    savedAllSummaryState = {
+      weekly: summaryWeeklyCheckbox ? summaryWeeklyCheckbox.checked : savedAllSummaryState.weekly,
+      monthly: summaryMonthlyCheckbox ? summaryMonthlyCheckbox.checked : savedAllSummaryState.monthly,
+    };
+  };
+  const applyCheckboxState = (checkbox, { checked, disabled }) => {
+    if (!checkbox) return;
+    checkbox.checked = checked;
+    checkbox.disabled = disabled;
+    const label = checkbox.closest("label");
+    if (label) {
+      label.classList.toggle("opacity-60", disabled);
+    }
+  };
+  const syncSummaryVisibilityControls = () => {
+    const selected = summaryVisibilityRadios.find((radio) => radio.checked);
+    const nextVisibility = selected ? selected.value : "all";
+    if (nextVisibility !== "all" && currentSummaryVisibility === "all") {
+      savedAllSummaryState = {
+        weekly: summaryWeeklyCheckbox ? summaryWeeklyCheckbox.checked : savedAllSummaryState.weekly,
+        monthly: summaryMonthlyCheckbox ? summaryMonthlyCheckbox.checked : savedAllSummaryState.monthly,
+      };
+    }
+    currentSummaryVisibility = nextVisibility;
+    if (nextVisibility === "weekly") {
+      applyCheckboxState(summaryWeeklyCheckbox, { checked: true, disabled: true });
+      applyCheckboxState(summaryMonthlyCheckbox, { checked: false, disabled: true });
+    } else if (nextVisibility === "monthly") {
+      applyCheckboxState(summaryWeeklyCheckbox, { checked: false, disabled: true });
+      applyCheckboxState(summaryMonthlyCheckbox, { checked: true, disabled: true });
+    } else {
+      applyCheckboxState(summaryWeeklyCheckbox, { checked: savedAllSummaryState.weekly, disabled: false });
+      applyCheckboxState(summaryMonthlyCheckbox, { checked: savedAllSummaryState.monthly, disabled: false });
+    }
+  };
+  summaryVisibilityRadios.forEach((radio) => {
+    radio.addEventListener("change", () => {
+      syncSummaryVisibilityControls();
+    });
+  });
+  if (summaryWeeklyCheckbox) {
+    summaryWeeklyCheckbox.addEventListener("change", () => {
+      updateSavedAllState();
+    });
+  }
+  if (summaryMonthlyCheckbox) {
+    summaryMonthlyCheckbox.addEventListener("change", () => {
+      updateSavedAllState();
+    });
+  }
+  if (summaryVisibilityRadios.length) {
+    syncSummaryVisibilityControls();
   }
   const typeSelectEl = m.querySelector('select[name="type"]');
   const checklistAnchor = m.querySelector('[data-checklist-editor-anchor]');
@@ -6448,6 +6548,20 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         }
       }
 
+      const summaryVisibilityChoice = String(fd.get("summaryVisibility") || "all");
+      let weeklySummaryEnabled = fd.get("summaryWeekly") !== null;
+      let monthlySummaryEnabled = fd.get("summaryMonthly") !== null;
+      let summaryOnlyScopeValue = null;
+      if (summaryVisibilityChoice === "weekly") {
+        summaryOnlyScopeValue = "weekly";
+        weeklySummaryEnabled = true;
+        monthlySummaryEnabled = false;
+      } else if (summaryVisibilityChoice === "monthly") {
+        summaryOnlyScopeValue = "monthly";
+        weeklySummaryEnabled = false;
+        monthlySummaryEnabled = true;
+      }
+
       const payload = {
         ownerUid: ctx.user.uid,
         mode,
@@ -6456,8 +6570,9 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         category: cat,
         priority: Number(fd.get("priority") || 2),
         srEnabled: fd.get("srEnabled") !== null,
-        weeklySummaryEnabled: fd.get("summaryWeekly") !== null,
-        monthlySummaryEnabled: fd.get("summaryMonthly") !== null,
+        weeklySummaryEnabled,
+        monthlySummaryEnabled,
+        summaryOnlyScope: summaryOnlyScopeValue,
         ephemeral: ephemeralEnabled,
         ephemeralDurationDays,
         ephemeralDurationIterations,
@@ -6556,6 +6671,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         objectiveId: selectedObjective || null,
         weeklySummaryEnabled: payload.weeklySummaryEnabled,
         monthlySummaryEnabled: payload.monthlySummaryEnabled,
+        summaryOnlyScope: payload.summaryOnlyScope || null,
       };
       if (subRows.length) {
         historySnapshot.childrenCount = subRows.length;
@@ -6565,6 +6681,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         hasChildren: subRows.length > 0,
         weeklySummaryEnabled: payload.weeklySummaryEnabled,
         monthlySummaryEnabled: payload.monthlySummaryEnabled,
+        summaryOnlyScope: payload.summaryOnlyScope || null,
       };
       let consigneId = consigne?.id || null;
       if (consigne) {
@@ -6606,6 +6723,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
             srEnabled: payload.srEnabled,
             weeklySummaryEnabled: payload.weeklySummaryEnabled,
             monthlySummaryEnabled: payload.monthlySummaryEnabled,
+            summaryOnlyScope: payload.summaryOnlyScope,
             ephemeral: payload.ephemeral,
             ephemeralDurationDays: payload.ephemeralDurationDays,
             ephemeralDurationIterations: payload.ephemeralDurationIterations,
@@ -7257,6 +7375,19 @@ function setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents = tru
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
+}
+
+function normalizeConsigneValueForPersistence(consigne, row, value) {
+  if (!consigne || !row) {
+    return value;
+  }
+  if (row.dataset && row.dataset.skipAnswered === "1") {
+    if (value && typeof value === "object" && value.skipped === true) {
+      return value;
+    }
+    return { skipped: true };
+  }
+  return value;
 }
 
 function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
@@ -10121,7 +10252,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         return;
       }
       const { scope } = scopeChoice;
-      const practiceConsignes = orderSorted.slice();
+      const practiceConsignes = summaryConsignes.slice();
       openBilanModal(ctx, {
         scope,
         title: `${scopeChoice.label} — ${currentCat}`,
@@ -10136,18 +10267,23 @@ async function renderPractice(ctx, root, _opts = {}) {
   }
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "practice");
-  const consignes = all.filter((c) => (c.category || "") === currentCat);
-  modesLogger.info("screen.practice.consignes", consignes.length);
+  const categoryConsignes = all.filter((c) => (c.category || "") === currentCat);
+  const playableConsignes = categoryConsignes.filter((c) => !c.summaryOnlyScope);
+  modesLogger.info("screen.practice.consignes", playableConsignes.length);
 
-  const orderSorted = consignes.slice().sort((a, b) => {
-    const orderA = Number(a.order || 0);
-    const orderB = Number(b.order || 0);
-    if (orderA !== orderB) return orderA - orderB;
-    const prioA = Number(a.priority || 0);
-    const prioB = Number(b.priority || 0);
-    if (prioA !== prioB) return prioA - prioB;
-    return (a.text || a.titre || "").localeCompare(b.text || b.titre || "");
-  });
+  const sortConsignesForDisplay = (list) =>
+    list.slice().sort((a, b) => {
+      const orderA = Number(a.order || 0);
+      const orderB = Number(b.order || 0);
+      if (orderA !== orderB) return orderA - orderB;
+      const prioA = Number(a.priority || 0);
+      const prioB = Number(b.priority || 0);
+      if (prioA !== prioB) return prioA - prioB;
+      return (a.text || a.titre || "").localeCompare(b.text || b.titre || "");
+    });
+
+  const orderSorted = sortConsignesForDisplay(playableConsignes);
+  const summaryConsignes = sortConsignesForDisplay(categoryConsignes);
 
   const sessionIndex = await Schema.countPracticeSessions(ctx.db, ctx.user.uid);
   const visible = [];
@@ -11126,7 +11262,8 @@ async function renderDaily(ctx, root, opts = {}) {
   }
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
-  const consignes = all.filter((c) => !c.days?.length || c.days.includes(currentDay));
+  const interactiveConsignes = all.filter((c) => !c.summaryOnlyScope);
+  const consignes = interactiveConsignes.filter((c) => !c.days?.length || c.days.includes(currentDay));
   modesLogger.info("screen.daily.consignes", consignes.length);
 
   const dayKey = selectedKey;
@@ -11443,9 +11580,13 @@ async function renderDaily(ctx, root, opts = {}) {
   };
 
   const handleValueChange = (consigne, row, value, { serialized, summary, baseSerialized } = {}) => {
-    const hasContent = consigne.type === "checklist"
-      ? hasChecklistResponse(consigne, row, value)
-      : hasValueForConsigne(consigne, value);
+    const normalizedValue = normalizeConsigneValueForPersistence(consigne, row, value);
+    const skipActive = Boolean(row?.dataset?.skipAnswered === "1");
+    const hasContent = skipActive
+      ? true
+      : consigne.type === "checklist"
+        ? hasChecklistResponse(consigne, row, normalizedValue)
+        : hasValueForConsigne(consigne, normalizedValue);
     if (!hasContent) {
       previousAnswers.delete(consigne.id);
       if (row) {
@@ -11460,24 +11601,24 @@ async function renderDaily(ctx, root, opts = {}) {
     const computedBaseSerialized =
       baseSerialized !== undefined
         ? baseSerialized
-        : serializeValueForComparison(consigne, value);
+        : serializeValueForComparison(consigne, normalizedValue);
     const providedCombined = typeof serialized === "string" ? serialized : null;
     const combinedSerialized =
       providedCombined !== null
         ? providedCombined
         : summarySerialized
-        ? `${computedBaseSerialized}__summary__${summarySerialized}`
-        : computedBaseSerialized;
+          ? `${computedBaseSerialized}__summary__${summarySerialized}`
+          : computedBaseSerialized;
     if (row) {
       if (!hasContent) {
         delete row.dataset.currentValue;
-      } else if (typeof value === "object") {
+      } else if (typeof normalizedValue === "object") {
         row.dataset.currentValue = computedBaseSerialized;
       } else {
-        row.dataset.currentValue = String(value);
+        row.dataset.currentValue = String(normalizedValue);
       }
     }
-    scheduleAutoSave(consigne, value, {
+    scheduleAutoSave(consigne, normalizedValue, {
       serialized: combinedSerialized,
       hasContent,
       summary: hasContent ? summaryMetadata : null,
@@ -11651,7 +11792,8 @@ async function renderDaily(ctx, root, opts = {}) {
     bindConsigneRowValue(row, item, {
       initialValue,
       onChange: (value) => {
-        const baseSerialized = serializeValueForComparison(item, value);
+        const normalizedValue = normalizeConsigneValueForPersistence(item, row, value);
+        const baseSerialized = serializeValueForComparison(item, normalizedValue);
         const summaryMetadata = readConsigneSummaryMetadata(row);
         const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
         const combinedSerialized = summarySerialized
@@ -11666,7 +11808,7 @@ async function renderDaily(ctx, root, opts = {}) {
           return;
         }
         observedValues.set(item.id, combinedSerialized);
-        handleValueChange(item, row, value, {
+        handleValueChange(item, row, normalizedValue, {
           serialized: combinedSerialized,
           summary: summaryMetadata,
           baseSerialized,
@@ -11699,7 +11841,8 @@ async function renderDaily(ctx, root, opts = {}) {
       bindConsigneRowValue(childRow, child, {
         initialValue,
         onChange: (value) => {
-          const baseSerialized = serializeValueForComparison(child, value);
+          const normalizedValue = normalizeConsigneValueForPersistence(child, childRow, value);
+          const baseSerialized = serializeValueForComparison(child, normalizedValue);
           const summaryMetadata = readConsigneSummaryMetadata(childRow);
           const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
           const combinedSerialized = summarySerialized
@@ -11714,7 +11857,7 @@ async function renderDaily(ctx, root, opts = {}) {
             return;
           }
           observedValues.set(child.id, combinedSerialized);
-          handleValueChange(child, childRow, value, {
+          handleValueChange(child, childRow, normalizedValue, {
             serialized: combinedSerialized,
             summary: summaryMetadata,
             baseSerialized,

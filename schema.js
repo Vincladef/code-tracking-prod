@@ -366,6 +366,23 @@ function normalizeParentId(value) {
   return trimmed ? String(trimmed) : null;
 }
 
+function normalizeSummaryOnlyScope(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "weekly" || normalized === "week" || normalized === "hebdo" || normalized === "hebdomadaire") {
+    return "weekly";
+  }
+  if (normalized === "monthly" || normalized === "month" || normalized === "mensuel" || normalized === "mensuelle") {
+    return "monthly";
+  }
+  return null;
+}
+
 let checklistIdCounter = 0;
 
 function generateChecklistItemId() {
@@ -439,6 +456,7 @@ function hydrateConsigne(doc) {
     srEnabled: data.srEnabled !== false,
     weeklySummaryEnabled: data.weeklySummaryEnabled !== false,
     monthlySummaryEnabled: data.monthlySummaryEnabled !== false,
+    summaryOnlyScope: normalizeSummaryOnlyScope(data.summaryOnlyScope),
     parentId: normalizeParentId(data.parentId),
     checklistItems: normalizedChecklist.items,
     checklistItemIds: normalizedChecklist.ids,
@@ -1288,6 +1306,7 @@ async function addConsigne(db, uid, payload) {
     srEnabled: payload.srEnabled !== false,
     weeklySummaryEnabled: payload.weeklySummaryEnabled !== false,
     monthlySummaryEnabled: payload.monthlySummaryEnabled !== false,
+    summaryOnlyScope: normalizeSummaryOnlyScope(payload.summaryOnlyScope),
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
     parentId: normalizeParentId(payload.parentId),
@@ -1452,6 +1471,7 @@ async function updateConsigne(db, uid, id, payload, options = {}) {
     srEnabled: payload.srEnabled !== false,
     weeklySummaryEnabled: payload.weeklySummaryEnabled !== false,
     monthlySummaryEnabled: payload.monthlySummaryEnabled !== false,
+    summaryOnlyScope: normalizeSummaryOnlyScope(payload.summaryOnlyScope),
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
     parentId: normalizeParentId(payload.parentId),
