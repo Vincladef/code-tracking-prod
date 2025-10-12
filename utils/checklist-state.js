@@ -500,9 +500,8 @@
     }
     if (hasAnswerEntries(normalizedAnswers)) {
       const derived = selectedIdsFromAnswers(normalizedAnswers);
-      if (derived.length) {
-        selectedIds = normalizeSelectedIds([...selectedIds, ...derived]);
-      }
+      // On privilégie toujours les réponses: elles définissent la vérité
+      selectedIds = normalizeSelectedIds(derived);
     }
     const rawSkippedIds = Array.isArray(payload.skippedIds)
       ? payload.skippedIds
@@ -524,6 +523,10 @@
           normalizedAnswers[key] = { value: "yes", skipped: true };
         }
       });
+    }
+    // Sécurité finale: si on a des réponses, recalculer selectedIds uniquement à partir d'elles
+    if (hasAnswerEntries(normalizedAnswers)) {
+      selectedIds = selectedIdsFromAnswers(normalizedAnswers);
     }
     const optionsHash = isNonEmptyString(payload.optionsHash)
       ? payload.optionsHash
@@ -1418,26 +1421,50 @@
       if (!consigneId) return;
       // Génère entries à partir de la structure de la réponse (entry)
       let entriesArr = [];
+      // Prépare un Set d'IDs skipped à partir de différentes sources possibles
+      const skippedIdsSet = new Set(
+        normalizeSelectedIds(
+          (Array.isArray(entry.skippedIds) && entry.skippedIds) ||
+            (Array.isArray(entry.skipped_ids) && entry.skipped_ids) ||
+            []
+        ).map((id) => String(id))
+      );
+      const normalizedAnswers = entry.answers && typeof entry.answers === "object" ? normalizeAnswers(entry.answers) : {};
+      // Ajoute les IDs marqués skipped dans answers
+      if (normalizedAnswers && typeof normalizedAnswers === "object") {
+        Object.entries(normalizedAnswers).forEach(([id, ans]) => {
+          if (ans && normalizeSkippedFlag(ans.skipped)) {
+            const key = String(id || "");
+            if (key) skippedIdsSet.add(key);
+          }
+        });
+      }
       if (Array.isArray(entry.entries)) {
         entriesArr = entry.entries;
       } else if (entry.value && typeof entry.value === "object" && Array.isArray(entry.value.items)) {
         // Structure type { value: { items: [...] } }
         entriesArr = entry.value.items.map((checked, idx) => {
-          const id = entry.value.ids && entry.value.ids[idx] ? entry.value.ids[idx] : `${consigneId}:${idx}`;
+          const id = entry.value.ids && entry.value.ids[idx] ? String(entry.value.ids[idx]) : `${consigneId}:${idx}`;
+          const skipActive = skippedIdsSet.has(id) || (Array.isArray(entry.skipped) && entry.skipped[idx] === true);
           return {
-            input: { checked: !!checked, dataset: {} },
-            host: { dataset: {} },
+            input: { checked: !!checked, dataset: skipActive ? { checklistSkip: "1" } : {} },
+            host: { dataset: skipActive ? { checklistSkipped: "1" } : {} },
             itemId: id,
             legacyId: id,
           };
         });
       } else if (Array.isArray(entry.selectedIds)) {
-        entriesArr = entry.selectedIds.map((id) => ({
-          input: { checked: true, dataset: {} },
-          host: { dataset: {} },
-          itemId: id,
-          legacyId: id,
-        }));
+        entriesArr = entry.selectedIds.map((rawId) => {
+          const id = String(rawId);
+          const ans = normalizedAnswers && normalizedAnswers[id];
+          const skipActive = skippedIdsSet.has(id) || (ans && normalizeSkippedFlag(ans.skipped));
+          return {
+            input: { checked: true, dataset: skipActive ? { checklistSkip: "1" } : {} },
+            host: { dataset: skipActive ? { checklistSkipped: "1" } : {} },
+            itemId: id,
+            legacyId: id,
+          };
+        });
       }
       // On recalcule selectedIds à partir des entrées pour exclure les skipped
       let selectedIds = readSelectedIdsFromEntries(entriesArr);
