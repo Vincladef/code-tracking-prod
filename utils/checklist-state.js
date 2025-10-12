@@ -675,10 +675,14 @@
     return finalPayload;
   }
 
-  async function loadSelection(db, uid, consigneId) {
+  async function loadSelection(db, uid, consigneId, options = {}) {
     if (!uid || !consigneId) return null;
-    const todayKey = currentParisDayKey();
-    const cached = readCachedSelection(uid, consigneId, todayKey);
+    const requestedKey = options && options.dateKey ? normalizeDateKey(options.dateKey) : null;
+    const pageKeyFromCtx = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
+      ? normalizeDateKey(window.AppCtx.dateIso)
+      : null;
+    const dateKey = requestedKey || pageKeyFromCtx || currentParisDayKey();
+    const cached = readCachedSelection(uid, consigneId, dateKey);
     if (cached) {
       debugLog("loadSelection:cache-hit", {
         consigneId,
@@ -688,10 +692,10 @@
       });
       return cached;
     }
-    debugLog("loadSelection:cache-miss", { consigneId, dateKey: todayKey });
+    debugLog("loadSelection:cache-miss", { consigneId, dateKey });
     if (db && typeof doc === "function" && typeof getDoc === "function") {
       try {
-        const ref = doc(db, "u", uid, "answers", todayKey, "consignes", consigneId);
+        const ref = doc(db, "u", uid, "answers", dateKey, "consignes", consigneId);
         const snap = await getDoc(ref);
         if (snapshotHasData(snap)) {
           const data = typeof snap.data === "function" ? snap.data() || {} : snap?.data || {};
@@ -700,7 +704,7 @@
             selectedIds: data.checked || data.selectedIds,
             optionsHash: data.optionsHash,
             ts: data.updatedAt ?? data.ts,
-            dateKey: data.dateKey || data.dayKey || todayKey,
+            dateKey: data.dateKey || data.dayKey || dateKey,
             answers: data.answers,
             skippedIds: data.skippedIds,
           });
@@ -728,7 +732,7 @@
           query(
             collection(db, "u", uid, "responses"),
             where("consigneId", "==", consigneId),
-            where("dayKey", "==", todayKey),
+            where("dayKey", "==", dateKey),
             limit(1)
           )
         );
@@ -741,7 +745,7 @@
             selectedIds,
             optionsHash: data.optionsHash,
             ts: data.updatedAt || data.ts || data.createdAt,
-            dateKey: data.dayKey || data.dateKey || todayKey,
+            dateKey: data.dayKey || data.dateKey || dateKey,
             answers: data.answers,
             skippedIds: data.skippedIds,
           });
@@ -1303,7 +1307,11 @@
         consigneId,
         hasHidden: Boolean(root.querySelector('[data-checklist-state]')),
       });
-      let saved = await loadSelection(db, uid, consigneId);
+      // Déterminer la date de page depuis AppCtx si présente
+      const pageKeyFromCtx = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
+        ? normalizeDateKey(window.AppCtx.dateIso)
+        : null;
+      let saved = await loadSelection(db, uid, consigneId, { dateKey: pageKeyFromCtx || currentParisDayKey() });
       if (saved) {
         debugLog("hydrateRoot:loaded", {
           consigneId,

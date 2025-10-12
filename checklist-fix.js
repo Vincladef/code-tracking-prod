@@ -661,7 +661,7 @@
       root.dataset?.consigneId ||
       null;
     const uid = resolveUid(options.uid);
-    const dateKey = options.dateKey || todayKey();
+  const dateKey = options.dateKey || (typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? GLOBAL.AppCtx.dateIso : todayKey());
     const manager = GLOBAL.ChecklistState || null;
     const db = options.db || GLOBAL.AppCtx?.db || null;
     const log = (event, extra = {}, level = "info") => {
@@ -876,7 +876,7 @@
       };
       if (manager && typeof manager.loadSelection === "function" && db) {
         try {
-          saved = await manager.loadSelection(db, effectiveUid, consigneId);
+          saved = await manager.loadSelection(db, effectiveUid, consigneId, { dateKey });
           if (saved) {
             log("hydrate.manager", { dateKey: saved.dateKey || null, selected: selectedCount(saved) });
           } else {

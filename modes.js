@@ -5236,12 +5236,13 @@ function inputForType(consigne, initialValue = null) {
           };
           const hydrate = window.hydrateChecklist;
           const uid = window.AppCtx?.user?.uid || null;
+          const dateKey = window.AppCtx?.dateIso || (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
           const consigneId = root.getAttribute('data-consigne-id') || root.dataset.consigneId || '';
           hydratePayload();
           ensureItemIds();
           sync();
           if (typeof hydrate === 'function') {
-            Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key' }))
+            Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key', dateKey }))
               .then(() => {
                 ensureItemIds();
                 sync();
