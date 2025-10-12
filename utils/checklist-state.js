@@ -487,6 +487,27 @@
         selectedIds = normalizeSelectedIds([...selectedIds, ...derived]);
       }
     }
+    const rawSkippedIds = Array.isArray(payload.skippedIds)
+      ? payload.skippedIds
+      : Array.isArray(payload.skipped_ids)
+      ? payload.skipped_ids
+      : null;
+    let skippedIds = normalizeSelectedIds(rawSkippedIds || []);
+    if (rawChecklistValue && Array.isArray(rawChecklistValue.skippedIds) && rawChecklistValue.skippedIds.length) {
+      skippedIds = normalizeSelectedIds([...skippedIds, ...rawChecklistValue.skippedIds]);
+    }
+    if (hasAnswerEntries(normalizedAnswers) && skippedIds.length) {
+      skippedIds.forEach((id) => {
+        const key = String(id || "");
+        if (!key) return;
+        const existing = normalizedAnswers[key];
+        if (existing && typeof existing === "object") {
+          normalizedAnswers[key] = { ...existing, skipped: true };
+        } else {
+          normalizedAnswers[key] = { value: "yes", skipped: true };
+        }
+      });
+    }
     const optionsHash = isNonEmptyString(payload.optionsHash)
       ? payload.optionsHash
       : payload.optionsHash == null
@@ -509,6 +530,7 @@
       ts: tsValue,
       dateKey,
       answers: normalizedAnswers,
+      skippedIds,
     };
   }
 
@@ -563,6 +585,7 @@
             checked: finalPayload.selectedIds,
             optionsHash: finalPayload.optionsHash || null,
             answers: finalPayload.answers || {},
+            skippedIds: finalPayload.skippedIds || [],
             updatedAt: timestamp,
             ts: finalPayload.ts,
             dateKey: finalPayload.dateKey,
@@ -582,6 +605,7 @@
           selectedIds: finalPayload.selectedIds,
           optionsHash: finalPayload.optionsHash || null,
           dateKey: finalPayload.dateKey,
+          skippedIds: finalPayload.skippedIds || [],
           ts: typeof serverTimestamp === "function" ? serverTimestamp() : new Date(),
         });
       } catch (error) {
@@ -618,6 +642,7 @@
             ts: data.updatedAt ?? data.ts,
             dateKey: data.dateKey || data.dayKey || todayKey,
             answers: data.answers,
+            skippedIds: data.skippedIds,
           });
           cacheSelection(uid, consigneId, normalized);
           debugLog("loadSelection:firestore-answer", {
@@ -658,6 +683,7 @@
             ts: data.updatedAt || data.ts || data.createdAt,
             dateKey: data.dayKey || data.dateKey || todayKey,
             answers: data.answers,
+            skippedIds: data.skippedIds,
           });
           cacheSelection(uid, consigneId, normalized);
           debugLog("loadSelection:responses", {
@@ -705,6 +731,7 @@
             : data.ts,
         dateKey: data.dateKey || data.dayKey,
         answers: data.answers,
+        skippedIds: data.skippedIds,
       });
       cacheSelection(uid, consigneId, normalized);
       debugLog("loadSelection:history", {
@@ -1009,6 +1036,9 @@
     const consigneId = normalizeConsigneId(options.consigneId || root.getAttribute("data-consigne-id") || root.dataset?.consigneId);
     const selectedSet = new Set(selectedIds.map((value) => String(value)));
     const answersMap = answersToMap(payload.answers);
+    const skippedSet = new Set(
+      normalizeSelectedIds(payload.skippedIds).map((value) => String(value))
+    );
     const entries = collectChecklistEntries(root, consigneId);
     if (!entries.length) {
       return false;
@@ -1032,6 +1062,9 @@
         } else if (answer.value === "no") {
           shouldCheck = false;
         }
+      }
+      if (!shouldSkip && (skippedSet.has(primaryId) || (legacyKey && skippedSet.has(legacyKey)))) {
+        shouldSkip = true;
       }
       const { checkedChanged, skipChanged } = applySkipState(input, host, shouldSkip, {
         fallbackChecked: shouldCheck,
@@ -1124,6 +1157,24 @@
       ts: Date.now(),
       answers: buildAnswersFromEntries(entries),
     };
+    const skippedIds = entries
+      .map(({ input, host, itemId, legacyId }) => {
+        const skipActive =
+          (input?.dataset?.checklistSkip === "1") || (host?.dataset?.checklistSkipped === "1");
+        if (!skipActive) {
+          return null;
+        }
+        const id = String(itemId ?? "").trim();
+        if (id) {
+          return id;
+        }
+        const legacy = String(legacyId ?? "").trim();
+        return legacy || null;
+      })
+      .filter(Boolean);
+    if (skippedIds.length) {
+      payload.skippedIds = normalizeSelectedIds(skippedIds);
+    }
     const optionUid = normalizeConsigneId(options.uid);
     const uid = optionUid || context.uid;
     const db = options.db || context.db;

@@ -388,6 +388,33 @@ function buildChecklistDom(document) {
   const items2 = Array.isArray(payload2.items) ? payload2.items : payload2;
   assert.strictEqual(items2[1], true, "Serialized state should reflect hydrated answers");
 
+  // Third scenario: ensure skipped ids are reapplied when answers are missing.
+  manager.loadSelection = async () => ({
+    consigneId: "consigne-1",
+    selectedIds: [],
+    skippedIds: ["consigne-1:item-a"],
+    optionsHash: "hash-2",
+  });
+
+  const { root: root3, inputA: inputA3, inputB: inputB3 } = buildChecklistDom(global.document);
+  global.document.body.appendChild(root3);
+
+  await global.window.hydrateChecklist({ container: root3, consigneId: "consigne-1", itemKeyAttr: "data-key" });
+
+  assert.strictEqual(
+    inputA3.dataset.checklistSkip,
+    "1",
+    "Skipped ids should mark the checkbox dataset as skipped",
+  );
+  const hostA3 = inputA3.closest("[data-checklist-item]");
+  assert(hostA3.classList.contains("checklist-item--skipped"), "Skipped ids should add the skipped class");
+  assert.strictEqual(hostA3.getAttribute("data-validated"), "skip", "Skipped ids should mark the item as validated with skip");
+  assert.strictEqual(
+    inputB3.dataset.checklistSkip,
+    undefined,
+    "Non-skipped items should remain unmarked",
+  );
+
   console.log("Checklist hydration tests passed.");
 })().catch((error) => {
   console.error(error);
