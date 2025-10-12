@@ -1056,6 +1056,28 @@
         if (hidden) {
           hidden.value = JSON.stringify(checklistValue);
         }
+        // On force la restauration de l'état complet (coché/skippé)
+        if (checklistValue.answers && typeof checklistValue.answers === "object") {
+          // On applique l'état answer/skipped à chaque item
+          const items = root.querySelectorAll('[data-checklist-item]');
+          items.forEach((item) => {
+            const input = item.querySelector('[data-checklist-input], input[type="checkbox"]');
+            const key = input?.getAttribute('data-key') || item.getAttribute('data-checklist-key');
+            const answer = checklistValue.answers[key];
+            if (answer) {
+              input.checked = answer.value === 'yes' || answer.value === 'maybe';
+              if (answer.skipped) {
+                input.setAttribute('data-checklist-skip', '1');
+                item.setAttribute('data-checklist-skipped', '1');
+                item.classList.add('checklist-item--skipped');
+              } else {
+                input.removeAttribute('data-checklist-skip');
+                item.removeAttribute('data-checklist-skipped');
+                item.classList.remove('checklist-item--skipped');
+              }
+            }
+          });
+        }
         applySelection(root, checklistValue, { consigneId, optionsHash });
       } else {
         applySelection(root, saved, { consigneId, optionsHash });
