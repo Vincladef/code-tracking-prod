@@ -40,6 +40,7 @@
     uid: null,
   };
     let observer = null;
+    const processedRoots = new WeakSet();
   function toMillis(value, fallback = Date.now()) {
     if (typeof value === "number" && Number.isFinite(value)) {
       return value;
