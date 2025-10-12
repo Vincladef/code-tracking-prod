@@ -437,7 +437,12 @@
           const skipFlag =
             (input.dataset && input.dataset.checklistSkip === "1") ||
             (host && host.dataset && host.dataset.checklistSkipped === "1");
-          const value = skipFlag || Boolean(input.checked) ? "yes" : "no";
+          let value;
+          if (skipFlag) {
+            value = "no";
+          } else {
+            value = Boolean(input.checked) ? "yes" : "no";
+          }
           answers[itemId] = { value, skipped: skipFlag };
         });
         if (Object.keys(answers).length) {
