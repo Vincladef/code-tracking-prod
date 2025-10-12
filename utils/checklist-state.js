@@ -1221,10 +1221,11 @@
         // Ajoute la clé de date pour empêcher la réutilisation entre jours
         dateKey: (function() {
           const fromPayload = payload && payload.dateKey ? normalizeDateKey(payload.dateKey) : null;
+          const fromUrl = (function(){ try { return getPageDateKeyFromUrl(); } catch(_) { return null; } })();
           const fromCtx = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
             ? normalizeDateKey(window.AppCtx.dateIso)
             : null;
-          return fromPayload || fromCtx || currentParisDayKey();
+          return fromPayload || fromUrl || fromCtx || currentParisDayKey();
         })(),
       };
       if (Array.isArray(payloadState.skipped) && payloadState.skipped.every((value) => value === false)) {
@@ -1287,10 +1288,19 @@
     const selectedIds = readSelectedIdsFromEntries(entries);
     const optionsHash =
       options.optionsHash || root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
+    // Date de persistance: ?d=... (URL) > AppCtx > today > options
+    const effectiveDateKey = (function() {
+      const fromOpt = options.dateKey ? normalizeDateKey(options.dateKey) : null;
+      const fromUrl = (function(){ try { return getPageDateKeyFromUrl(); } catch(_) { return null; } })();
+      const fromCtx = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
+        ? normalizeDateKey(window.AppCtx.dateIso)
+        : null;
+      return normalizeDateKey(fromOpt || fromUrl || fromCtx || currentParisDayKey());
+    })();
     const payload = {
       selectedIds,
       optionsHash,
-      dateKey: options.dateKey || currentParisDayKey(),
+      dateKey: effectiveDateKey,
       ts: Date.now(),
       answers: buildAnswersFromEntries(entries),
     };
@@ -1315,6 +1325,13 @@
     const optionUid = normalizeConsigneId(options.uid);
     const uid = optionUid || context.uid;
     const db = options.db || context.db;
+    debugLog("persistRoot", {
+      consigneId,
+      dateKey: payload.dateKey,
+      selected: selectedIds.length,
+      skipped: (payload.skippedIds && payload.skippedIds.length) || 0,
+      answers: Object.keys(payload.answers || {}).length,
+    });
     if (!uid) {
       return normalizePayload({ consigneId, ...payload });
     }
