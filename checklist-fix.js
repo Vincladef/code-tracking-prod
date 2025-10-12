@@ -644,15 +644,15 @@
             host.setAttribute("data-validated", target.checked ? "true" : "false");
           }
           const selectedKeys = collectSelectedKeys(root, itemKeyAttr);
+          const effectiveUid = resolveUid(uid);
           if (manager && typeof manager.persistRoot === "function") {
             try {
-              manager.persistRoot(root, { consigneId, dateKey });
+              manager.persistRoot(root, { consigneId, dateKey, uid: effectiveUid, db });
             } catch (error) {
               console.warn("[checklist-fix] persistRoot", error);
             }
             return;
           }
-          const effectiveUid = resolveUid(uid);
           if (!effectiveUid || !consigneId) {
             return;
           }

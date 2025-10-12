@@ -975,7 +975,9 @@
 
   async function persistRoot(root, options = {}) {
     if (!(root instanceof Element)) return null;
-    const consigneId = normalizeConsigneId(options.consigneId || root.getAttribute("data-consigne-id") || root.dataset?.consigneId);
+    const consigneId = normalizeConsigneId(
+      options.consigneId || root.getAttribute("data-consigne-id") || root.dataset?.consigneId
+    );
     if (!consigneId) {
       return null;
     }
@@ -993,7 +995,9 @@
       ts: Date.now(),
       answers: buildAnswersFromEntries(entries),
     };
-    const { db, uid } = context;
+    const optionUid = normalizeConsigneId(options.uid);
+    const uid = optionUid || context.uid;
+    const db = options.db || context.db;
     if (!uid) {
       return normalizePayload({ consigneId, ...payload });
     }
