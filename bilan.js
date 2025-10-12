@@ -82,12 +82,16 @@
     const scope = String(period?.scope || "").toLowerCase();
     const weeklyEnabled = consigne?.weeklySummaryEnabled !== false;
     const monthlyEnabled = consigne?.monthlySummaryEnabled !== false;
+    const yearlyEnabled = consigne?.yearlySummaryEnabled !== false;
     const summaryOnlyScope = String(consigne?.summaryOnlyScope || "").toLowerCase();
     if (summaryOnlyScope === "weekly") {
       return scope === "week" || scope === "weekly";
     }
     if (summaryOnlyScope === "monthly") {
       return scope === "month" || scope === "monthly";
+    }
+    if (summaryOnlyScope === "yearly") {
+      return scope === "year" || scope === "yearly";
     }
     if (scope === "week" || scope === "weekly") {
       return weeklyEnabled;
@@ -96,7 +100,7 @@
       return monthlyEnabled;
     }
     if (scope === "year" || scope === "yearly") {
-      return weeklyEnabled || monthlyEnabled;
+      return yearlyEnabled;
     }
     return true;
   }

@@ -380,6 +380,9 @@ function normalizeSummaryOnlyScope(value) {
   if (normalized === "monthly" || normalized === "month" || normalized === "mensuel" || normalized === "mensuelle") {
     return "monthly";
   }
+  if (normalized === "yearly" || normalized === "year" || normalized === "annuel" || normalized === "annuelle") {
+    return "yearly";
+  }
   return null;
 }
 
@@ -456,6 +459,7 @@ function hydrateConsigne(doc) {
     srEnabled: data.srEnabled !== false,
     weeklySummaryEnabled: data.weeklySummaryEnabled !== false,
     monthlySummaryEnabled: data.monthlySummaryEnabled !== false,
+    yearlySummaryEnabled: data.yearlySummaryEnabled !== false,
     summaryOnlyScope: normalizeSummaryOnlyScope(data.summaryOnlyScope),
     parentId: normalizeParentId(data.parentId),
     checklistItems: normalizedChecklist.items,
@@ -1306,6 +1310,7 @@ async function addConsigne(db, uid, payload) {
     srEnabled: payload.srEnabled !== false,
     weeklySummaryEnabled: payload.weeklySummaryEnabled !== false,
     monthlySummaryEnabled: payload.monthlySummaryEnabled !== false,
+    yearlySummaryEnabled: payload.yearlySummaryEnabled !== false,
     summaryOnlyScope: normalizeSummaryOnlyScope(payload.summaryOnlyScope),
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
@@ -1471,6 +1476,7 @@ async function updateConsigne(db, uid, id, payload, options = {}) {
     srEnabled: payload.srEnabled !== false,
     weeklySummaryEnabled: payload.weeklySummaryEnabled !== false,
     monthlySummaryEnabled: payload.monthlySummaryEnabled !== false,
+    yearlySummaryEnabled: payload.yearlySummaryEnabled !== false,
     summaryOnlyScope: normalizeSummaryOnlyScope(payload.summaryOnlyScope),
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),

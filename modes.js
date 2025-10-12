@@ -5793,20 +5793,29 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     : "";
   let weeklySummaryEnabled = consigne?.weeklySummaryEnabled !== false;
   let monthlySummaryEnabled = consigne?.monthlySummaryEnabled !== false;
+  let yearlySummaryEnabled = consigne?.yearlySummaryEnabled !== false;
   if (summaryOnlyScope === "weekly") {
     weeklySummaryEnabled = true;
     monthlySummaryEnabled = false;
+    yearlySummaryEnabled = false;
   } else if (summaryOnlyScope === "monthly") {
     weeklySummaryEnabled = false;
     monthlySummaryEnabled = true;
+    yearlySummaryEnabled = false;
+  } else if (summaryOnlyScope === "yearly") {
+    weeklySummaryEnabled = false;
+    monthlySummaryEnabled = false;
+    yearlySummaryEnabled = true;
   }
   const summaryVisibilityValue = summaryOnlyScope === "weekly"
     ? "weekly"
     : summaryOnlyScope === "monthly"
     ? "monthly"
+    : summaryOnlyScope === "yearly"
+    ? "yearly"
     : "all";
   const advancedOpenAttr =
-    isEphemeral || !weeklySummaryEnabled || !monthlySummaryEnabled || currentObjId || summaryVisibilityValue !== "all"
+    isEphemeral || !weeklySummaryEnabled || !monthlySummaryEnabled || !yearlySummaryEnabled || currentObjId || summaryVisibilityValue !== "all"
       ? " open"
       : "";
   const ephemeralHiddenAttr = isEphemeral ? "" : " hidden";
@@ -5887,6 +5896,10 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
               <input type="checkbox" name="summaryMonthly" ${monthlySummaryEnabled ? "checked" : ""}>
               <span>Inclure dans le bilan mensuel</span>
             </label>
+            <label class="inline-flex items-center gap-2">
+              <input type="checkbox" name="summaryYearly" ${yearlySummaryEnabled ? "checked" : ""}>
+              <span>Inclure dans le bilan annuel</span>
+            </label>
             <fieldset class="grid gap-1">
               <span class="text-sm text-[var(--muted)]">Visibilité</span>
               <label class="inline-flex items-center gap-2">
@@ -5900,6 +5913,10 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
               <label class="inline-flex items-center gap-2">
                 <input type="radio" name="summaryVisibility" value="monthly" ${summaryVisibilityValue === "monthly" ? "checked" : ""}>
                 <span>Uniquement bilan mensuel</span>
+              </label>
+              <label class="inline-flex items-center gap-2">
+                <input type="radio" name="summaryVisibility" value="yearly" ${summaryVisibilityValue === "yearly" ? "checked" : ""}>
+                <span>Uniquement bilan annuel</span>
               </label>
             </fieldset>
           </div>
@@ -5997,11 +6014,13 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
   }
   const summaryWeeklyCheckbox = m.querySelector('input[name="summaryWeekly"]');
   const summaryMonthlyCheckbox = m.querySelector('input[name="summaryMonthly"]');
+  const summaryYearlyCheckbox = m.querySelector('input[name="summaryYearly"]');
   const summaryVisibilityRadios = Array.from(m.querySelectorAll('input[name="summaryVisibility"]'));
   let currentSummaryVisibility = summaryVisibilityValue;
   let savedAllSummaryState = {
     weekly: summaryWeeklyCheckbox ? summaryWeeklyCheckbox.checked : false,
     monthly: summaryMonthlyCheckbox ? summaryMonthlyCheckbox.checked : false,
+    yearly: summaryYearlyCheckbox ? summaryYearlyCheckbox.checked : false,
   };
   const updateSavedAllState = () => {
     if (currentSummaryVisibility !== "all") {
@@ -6010,6 +6029,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     savedAllSummaryState = {
       weekly: summaryWeeklyCheckbox ? summaryWeeklyCheckbox.checked : savedAllSummaryState.weekly,
       monthly: summaryMonthlyCheckbox ? summaryMonthlyCheckbox.checked : savedAllSummaryState.monthly,
+      yearly: summaryYearlyCheckbox ? summaryYearlyCheckbox.checked : savedAllSummaryState.yearly,
     };
   };
   const applyCheckboxState = (checkbox, { checked, disabled }) => {
@@ -6028,18 +6048,26 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       savedAllSummaryState = {
         weekly: summaryWeeklyCheckbox ? summaryWeeklyCheckbox.checked : savedAllSummaryState.weekly,
         monthly: summaryMonthlyCheckbox ? summaryMonthlyCheckbox.checked : savedAllSummaryState.monthly,
+        yearly: summaryYearlyCheckbox ? summaryYearlyCheckbox.checked : savedAllSummaryState.yearly,
       };
     }
     currentSummaryVisibility = nextVisibility;
     if (nextVisibility === "weekly") {
       applyCheckboxState(summaryWeeklyCheckbox, { checked: true, disabled: true });
       applyCheckboxState(summaryMonthlyCheckbox, { checked: false, disabled: true });
+      applyCheckboxState(summaryYearlyCheckbox, { checked: false, disabled: true });
     } else if (nextVisibility === "monthly") {
       applyCheckboxState(summaryWeeklyCheckbox, { checked: false, disabled: true });
       applyCheckboxState(summaryMonthlyCheckbox, { checked: true, disabled: true });
+      applyCheckboxState(summaryYearlyCheckbox, { checked: false, disabled: true });
+    } else if (nextVisibility === "yearly") {
+      applyCheckboxState(summaryWeeklyCheckbox, { checked: false, disabled: true });
+      applyCheckboxState(summaryMonthlyCheckbox, { checked: false, disabled: true });
+      applyCheckboxState(summaryYearlyCheckbox, { checked: true, disabled: true });
     } else {
       applyCheckboxState(summaryWeeklyCheckbox, { checked: savedAllSummaryState.weekly, disabled: false });
       applyCheckboxState(summaryMonthlyCheckbox, { checked: savedAllSummaryState.monthly, disabled: false });
+      applyCheckboxState(summaryYearlyCheckbox, { checked: savedAllSummaryState.yearly, disabled: false });
     }
   };
   summaryVisibilityRadios.forEach((radio) => {
@@ -6054,6 +6082,11 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
   }
   if (summaryMonthlyCheckbox) {
     summaryMonthlyCheckbox.addEventListener("change", () => {
+      updateSavedAllState();
+    });
+  }
+  if (summaryYearlyCheckbox) {
+    summaryYearlyCheckbox.addEventListener("change", () => {
       updateSavedAllState();
     });
   }
@@ -6551,15 +6584,23 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       const summaryVisibilityChoice = String(fd.get("summaryVisibility") || "all");
       let weeklySummaryEnabled = fd.get("summaryWeekly") !== null;
       let monthlySummaryEnabled = fd.get("summaryMonthly") !== null;
+      let yearlySummaryEnabled = fd.get("summaryYearly") !== null;
       let summaryOnlyScopeValue = null;
       if (summaryVisibilityChoice === "weekly") {
         summaryOnlyScopeValue = "weekly";
         weeklySummaryEnabled = true;
         monthlySummaryEnabled = false;
+        yearlySummaryEnabled = false;
       } else if (summaryVisibilityChoice === "monthly") {
         summaryOnlyScopeValue = "monthly";
         weeklySummaryEnabled = false;
         monthlySummaryEnabled = true;
+        yearlySummaryEnabled = false;
+      } else if (summaryVisibilityChoice === "yearly") {
+        summaryOnlyScopeValue = "yearly";
+        weeklySummaryEnabled = false;
+        monthlySummaryEnabled = false;
+        yearlySummaryEnabled = true;
       }
 
       const payload = {
@@ -6572,6 +6613,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         srEnabled: fd.get("srEnabled") !== null,
         weeklySummaryEnabled,
         monthlySummaryEnabled,
+        yearlySummaryEnabled,
         summaryOnlyScope: summaryOnlyScopeValue,
         ephemeral: ephemeralEnabled,
         ephemeralDurationDays,
@@ -6671,6 +6713,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         objectiveId: selectedObjective || null,
         weeklySummaryEnabled: payload.weeklySummaryEnabled,
         monthlySummaryEnabled: payload.monthlySummaryEnabled,
+        yearlySummaryEnabled: payload.yearlySummaryEnabled,
         summaryOnlyScope: payload.summaryOnlyScope || null,
       };
       if (subRows.length) {
@@ -6681,6 +6724,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         hasChildren: subRows.length > 0,
         weeklySummaryEnabled: payload.weeklySummaryEnabled,
         monthlySummaryEnabled: payload.monthlySummaryEnabled,
+        yearlySummaryEnabled: payload.yearlySummaryEnabled,
         summaryOnlyScope: payload.summaryOnlyScope || null,
       };
       let consigneId = consigne?.id || null;
@@ -6723,6 +6767,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
             srEnabled: payload.srEnabled,
             weeklySummaryEnabled: payload.weeklySummaryEnabled,
             monthlySummaryEnabled: payload.monthlySummaryEnabled,
+            yearlySummaryEnabled: payload.yearlySummaryEnabled,
             summaryOnlyScope: payload.summaryOnlyScope,
             ephemeral: payload.ephemeral,
             ephemeralDurationDays: payload.ephemeralDurationDays,
