@@ -139,13 +139,53 @@ Schema.snapshotExists = Schema.snapshotExists || snapshotExists;
 
 // --- DEBUG LOGGER ---
 const D = {
-  on: true, // << mets false pour couper
-  info: (...a) => D.on && console.info("[HP]", ...a),
-  debug: (...a) => D.on && console.debug("[HP]", ...a),
-  warn: (...a) => D.on && console.warn("[HP]", ...a),
-  error: (...a) => D.on && console.error("[HP]", ...a),
-  group: (label, ...a) => D.on && console.groupCollapsed(`📘 ${label}`, ...a),
-  groupEnd: () => D.on && console.groupEnd(),
+  _enabled: true,
+  _indent: 0,
+  get on() {
+    return this._enabled;
+  },
+  set on(value) {
+    this._enabled = Boolean(value);
+  },
+  _emit(method, icon, args) {
+    if (!this._enabled) {
+      return;
+    }
+    const indent = this._indent > 0 ? "  ".repeat(this._indent) : "";
+    const prefix = `${icon} [HP] ${indent}`;
+    if (!args.length) {
+      console[method](prefix);
+      return;
+    }
+    if (typeof args[0] === "string") {
+      const [first, ...rest] = args;
+      console[method](`${prefix}${first ? ` ${first}` : ""}`, ...rest);
+      return;
+    }
+    console[method](prefix, ...args);
+  },
+  info(...args) {
+    this._emit("info", "ℹ️", args);
+  },
+  debug(...args) {
+    const method = typeof console.debug === "function" ? "debug" : "log";
+    this._emit(method, "🐞", args);
+  },
+  warn(...args) {
+    this._emit("warn", "⚠️", args);
+  },
+  error(...args) {
+    this._emit("error", "⛔", args);
+  },
+  group(label, ...rest) {
+    this._emit("info", "📂", [label, ...rest]);
+    this._indent += 1;
+  },
+  groupEnd() {
+    if (this._indent > 0) {
+      this._indent -= 1;
+    }
+  },
 };
 Schema.D = Schema.D || D;
 const schemaLog = () => {};
