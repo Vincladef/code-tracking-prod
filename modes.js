@@ -5216,6 +5216,11 @@ function inputForType(consigne, initialValue = null) {
                   console.info('[checklist] hydrate.hidden.skip-date-mismatch', { hiddenKey, pageDateKey });
                   return;
                 }
+                if (pageDateKey && !hiddenKey) {
+                  // Page avec date explicite mais payload sans dateKey → ignorer
+                  console.info('[checklist] hydrate.hidden.skip-missing-dateKey', { pageDateKey });
+                  return;
+                }
               } catch (e) {}
               const payload = Array.isArray(raw)
                 ? { items: raw.map((item) => item === true), skipped: [] }

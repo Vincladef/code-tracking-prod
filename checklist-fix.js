@@ -689,11 +689,12 @@
           console.warn("[checklist-fix] hidden:parse", error);
           return;
         }
-        // Si un dateKey est présent sur la valeur cachée et ne correspond pas au jour de page, on ignore
+        // Si la page a une date explicite et que la valeur cachée n'a pas de dateKey
+        // ou que la dateKey ne correspond pas au jour de la page, on ignore.
         try {
           const hiddenKey = parsed && typeof parsed === 'object' && parsed.dateKey ? String(parsed.dateKey) : null;
           const pageKey = typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? GLOBAL.AppCtx.dateIso : null;
-          if (hiddenKey && pageKey && hiddenKey !== pageKey) {
+          if (pageKey && (!hiddenKey || hiddenKey !== pageKey)) {
             log("hydrate.hidden.skip-date-mismatch", { hiddenKey, pageKey });
             return;
           }
