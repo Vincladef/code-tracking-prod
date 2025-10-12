@@ -1055,6 +1055,12 @@
   }
 
   function applySelection(root, payload, options = {}) {
+    debugLog("applySelection:payload", {
+      consigneId,
+      answers: payload.answers,
+      skippedIds: payload.skippedIds,
+      selectedIds: payload.selectedIds,
+    });
     if (!root || !payload) return false;
     const selectedIds = normalizeSelectedIds(payload.selectedIds);
     const consigneId = normalizeConsigneId(options.consigneId || root.getAttribute("data-consigne-id") || root.dataset?.consigneId);
