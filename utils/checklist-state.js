@@ -1083,7 +1083,7 @@
       const ts = entry.updatedAt || entry.ts;
       tasks.push(
         saveSelection(db, uid, consigneId, {
-          selectedIds,
+            checklistValue: entry.value || entry.normalizedValue || entry.answers || {},
           optionsHash,
           dateKey,
           ts,
