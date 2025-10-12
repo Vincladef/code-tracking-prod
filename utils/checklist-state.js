@@ -222,6 +222,22 @@
     return normalizeDateKey(Date.now());
   }
 
+  // Récupère la date explicite depuis l'URL (?d=YYYY-MM-DD) dans search ou hash
+  function getPageDateKeyFromUrl() {
+    try {
+      const pick = (s) => {
+        if (!s) return null;
+        const m = String(s).match(/[?&]d=(\d{4}-\d{2}-\d{2})\b/i);
+        return m ? normalizeDateKey(m[1]) : null;
+      };
+      const search = typeof GLOBAL.location !== "undefined" ? (GLOBAL.location.search || "") : "";
+      const hash = typeof GLOBAL.location !== "undefined" ? (GLOBAL.location.hash || "") : "";
+      return pick(search) || pick(hash) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function snapshotHasData(snap) {
     const schemaSnapshotExists = GLOBAL.Schema?.snapshotExists;
     if (typeof schemaSnapshotExists === "function") {
@@ -1323,12 +1339,14 @@
         consigneId,
         hasHidden: Boolean(root.querySelector('[data-checklist-state]')),
       });
-      // Déterminer la date de page depuis AppCtx si présente
+      // Déterminer la date de page: priorité à ?d= dans l'URL, puis AppCtx, sinon today
+      const pageKeyFromUrl = getPageDateKeyFromUrl();
       const pageKeyFromCtx = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
         ? normalizeDateKey(window.AppCtx.dateIso)
         : null;
-  const requestedKey = pageKeyFromCtx || currentParisDayKey();
-  let saved = await loadSelection(db, uid, consigneId, { dateKey: requestedKey });
+      const requestedKey = pageKeyFromUrl || pageKeyFromCtx || currentParisDayKey();
+
+      let saved = await loadSelection(db, uid, consigneId, { dateKey: requestedKey });
       if (saved) {
         debugLog("hydrateRoot:loaded", {
           consigneId,
@@ -1337,14 +1355,29 @@
           hasAnswers: Boolean(saved.answers && Object.keys(saved.answers).length),
         });
       }
-      // Si aucune réponse pour la date courante: ne pas récupérer une autre date
-      // sur une vue quotidienne avec date explicite. On stoppe ici pour garder l'indépendance par jour.
+      // Si aucune réponse pour la date courante et qu'une date explicite est présente
+      // (via URL ou contexte), réinitialiser l'UI vide pour ce jour et sortir.
+      if (!saved && (pageKeyFromUrl || pageKeyFromCtx)) {
+        debugLog("hydrateRoot:no-current-day-reset", { consigneId, dateKey: requestedKey });
+        applySelection(
+          root,
+          { selectedIds: [], answers: {}, skippedIds: [], dateKey: requestedKey },
+          {
+            consigneId,
+            optionsHash: root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null,
+            markDirty: false,
+            showHint: false,
+          }
+        );
+        // Nettoyer tous les flags dirty résiduels
+        const hiddenReset = root.querySelector('[data-checklist-state]');
+        if (hiddenReset && hiddenReset.dataset) delete hiddenReset.dataset.dirty;
+        if (root.dataset) delete root.dataset.checklistDirty;
+        root.removeAttribute("data-checklist-dirty");
+        return;
+      }
+      // Sinon (pas de date explicite), fallback localStorage pour compat (ex. écran sans contexte de date)
       if (!saved) {
-        if (pageKeyFromCtx) {
-          debugLog("hydrateRoot:no-current-day", { consigneId, dateKey: requestedKey });
-          return;
-        }
-        // Sinon (pas de date explicite), fallback localStorage pour compat (ex. écran sans contexte de date)
         debugLog("hydrateRoot:no-current-day", { consigneId });
         const storage = safeLocalStorage();
         let lastPayload = null;
@@ -1389,9 +1422,7 @@
           try {
             const enriched = { ...checklistValue };
             if (!enriched.dateKey) {
-              const pageKey = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
-                ? normalizeDateKey(window.AppCtx.dateIso)
-                : null;
+              const pageKey = pageKeyFromUrl || pageKeyFromCtx || null;
               enriched.dateKey = pageKey || saved.dateKey || currentParisDayKey();
             }
             hidden.value = JSON.stringify(enriched);
@@ -1432,7 +1463,7 @@
             }
           });
         }
-        applySelection(root, checklistValue, { consigneId, optionsHash });
+        applySelection(root, checklistValue, { consigneId, optionsHash, markDirty: false, showHint: false });
       } else {
         debugLog("hydrateRoot:apply-selection", {
           consigneId,
@@ -1440,8 +1471,13 @@
           selected: Array.isArray(saved.selectedIds) ? saved.selectedIds.length : 0,
           hasAnswers: Boolean(saved.answers && Object.keys(saved.answers).length),
         });
-        applySelection(root, saved, { consigneId, optionsHash });
+        applySelection(root, saved, { consigneId, optionsHash, markDirty: false, showHint: false });
       }
+      // Nettoyer tout flag dirty résiduel
+      const hidden = root.querySelector('[data-checklist-state]');
+      if (hidden && hidden.dataset) delete hidden.dataset.dirty;
+      if (root.dataset) delete root.dataset.checklistDirty;
+      root.removeAttribute("data-checklist-dirty");
       debugLog("hydrateRoot:done", { consigneId });
     } catch (error) {
       console.warn("[checklist-state] hydrate", error);
