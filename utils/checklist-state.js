@@ -337,9 +337,11 @@
       const skipValue = Object.prototype.hasOwnProperty.call(entry, "skipped")
         ? entry.skipped
         : entry.skiped;
+      const isSkipped = normalizeSkippedFlag(skipValue);
+      // Si skipped, la valeur est toujours 'no' (jamais cochée)
       const normalizedEntry = {
-        value: normalizeAnswerValue(entry.value),
-        skipped: normalizeSkippedFlag(skipValue),
+        value: isSkipped ? "no" : normalizeAnswerValue(entry.value),
+        skipped: isSkipped,
       };
       normalized[key] = normalizedEntry;
     });
