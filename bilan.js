@@ -796,51 +796,37 @@
       const hasValue = typeof Modes.hasValueForConsigne === "function"
         ? Modes.hasValueForConsigne(consigne, value)
         : !(value === null || value === undefined || value === "");
-      if (row) {
-        row.dataset.saving = "1";
-      }
-      try {
-        if (hasValue) {
-          const payload = {
-            key,
-            consigneId: consigne?.id || null,
-            family: consigne?.family || null,
-            type: consigne?.type || null,
-            value,
-            label: consigne?.text || null,
-            category: consigne?.summaryCategory || consigne?.category || null,
-            summaryScope: normalizedSummaryScope || null,
-            summaryMode: "bilan",
-            summaryLabel,
-            summaryPeriod: period.key || null,
-            summaryKey: key,
-            source: "bilan",
-            origin: normalizedSummaryScope ? `bilan:${normalizedSummaryScope}` : "bilan",
-            context: ["bilan", normalizedSummaryScope || null, period.key || null]
-              .filter(Boolean)
-              .join(":") || "bilan",
-            moduleId: "bilan",
-          };
-          await Schema.saveSummaryAnswers(ctx.db, ctx.user.uid, period.scope, period.key, [payload], metadata);
-          answersMap.set(key, { id: key, value, type: consigne?.type || null, family: consigne?.family || null });
-        } else {
-          await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, period.scope, period.key, key, metadata);
-          answersMap.delete(key);
+      if (holder) {
+        holder.innerHTML = typeof Modes.inputForType === "function"
+          ? Modes.inputForType(consigne, initialValue)
+          : "";
+        if (typeof Modes.enhanceRangeMeters === "function") {
+          Modes.enhanceRangeMeters(holder);
         }
-        if (row) {
-          delete row.dataset.error;
+        // --- Ajout : forcer l'hydratation checklist après rendu ---
+        if (consigne.type === "checklist" && window.ChecklistState && typeof window.ChecklistState.hydrateExistingRoots === "function") {
+          setTimeout(() => {
+            window.ChecklistState.hydrateExistingRoots(holder);
+          }, 0);
         }
-      } catch (error) {
-        bilanLogger?.error?.("bilan.save.single", { error, scope: period.scope, periodKey: period.key, consigneId: consigne?.id });
-        if (row) {
-          row.dataset.error = "1";
-        }
-      } finally {
-        if (row) {
-          delete row.dataset.saving;
+        // --- Debug format de sauvegarde checklist ---
+        if (consigne.type === "checklist" && previous) {
+          // eslint-disable-next-line no-console
+          console.debug("[DEBUG checklist] Format réponse précédente:", previous);
+          if (!previous.answers || !Array.isArray(previous.selectedIds)) {
+            // eslint-disable-next-line no-console
+            console.warn("[DEBUG checklist] Réponse précédente au format inattendu (answers/selectedIds manquants)", previous);
+          }
         }
       }
-    };
+      if (previous && typeof Modes.setConsigneRowValue === "function") {
+        const hasExplicitValue = Object.prototype.hasOwnProperty.call(previous, "value");
+        const looksLikeChecklistState = Array.isArray(previous.items);
+        if (hasExplicitValue || looksLikeChecklistState) {
+          // ...existing code...
+        }
+      }
+        // ...existing code...
 
     return (consigne, value, row, key) => {
       if (!consigne || !key) return;
