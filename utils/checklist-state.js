@@ -1048,7 +1048,12 @@
       const skipFlag =
         (entry.input.dataset && entry.input.dataset.checklistSkip === "1") ||
         (entry.host && entry.host.dataset && entry.host.dataset.checklistSkipped === "1");
-      const value = skipFlag || Boolean(entry.input.checked) ? "yes" : "no";
+      let value;
+      if (skipFlag) {
+        value = "skipped";
+      } else {
+        value = Boolean(entry.input.checked) ? "yes" : "no";
+      }
       answers[id] = { value: normalizeAnswerValue(value), skipped: skipFlag };
     });
     return answers;
@@ -1095,7 +1100,7 @@
         if (answer) {
           if (answer.value === "yes" || answer.value === "maybe") {
             shouldCheck = true;
-          } else if (answer.value === "no") {
+          } else if (answer.value === "no" || answer.value === "skipped") {
             shouldCheck = false;
           }
         } else {
