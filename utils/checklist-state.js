@@ -334,9 +334,12 @@
       if (typeof entry !== "object" || Array.isArray(entry)) {
         entry = { value: entry };
       }
+      const skipValue = Object.prototype.hasOwnProperty.call(entry, "skipped")
+        ? entry.skipped
+        : entry.skiped;
       const normalizedEntry = {
         value: normalizeAnswerValue(entry.value),
-        skipped: normalizeSkippedFlag(entry.skipped),
+        skipped: normalizeSkippedFlag(skipValue),
       };
       normalized[key] = normalizedEntry;
     });
@@ -937,6 +940,23 @@
     return previous;
   }
 
+  function updateSkipButtonState(host, skip) {
+    if (!host || typeof host.querySelector !== "function") {
+      return;
+    }
+    const button = host.querySelector("[data-checklist-skip-btn]");
+    if (!button) {
+      return;
+    }
+    if (skip) {
+      button.classList.add("is-active");
+      button.setAttribute("aria-pressed", "true");
+    } else {
+      button.classList.remove("is-active");
+      button.setAttribute("aria-pressed", "false");
+    }
+  }
+
   function applySkipState(input, host, skip, options = {}) {
     if (!input) {
       return { checkedChanged: false, skipChanged: false };
@@ -952,6 +972,7 @@
         input.indeterminate = true;
       }
       input.checked = false;
+      input.disabled = true;
       if (input.dataset) {
         input.dataset[CHECKLIST_SKIP_DATA_KEY] = "1";
       }
@@ -966,10 +987,12 @@
         }
         host.setAttribute("data-validated", "skip");
       }
+      updateSkipButtonState(host, true);
     } else {
       if ("indeterminate" in input) {
         input.indeterminate = false;
       }
+      input.disabled = false;
       if (input.dataset) {
         delete input.dataset[CHECKLIST_SKIP_DATA_KEY];
       }
@@ -996,6 +1019,7 @@
         }
         host.setAttribute("data-validated", input.checked ? "true" : "false");
       }
+      updateSkipButtonState(host, false);
     }
 
     const afterChecked = Boolean(input.checked);

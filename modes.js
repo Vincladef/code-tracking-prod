@@ -858,7 +858,43 @@ function readChecklistSkipped(value) {
     : Array.isArray(value.skipStates)
     ? value.skipStates
     : [];
-  return raw.map((item) => item === true);
+  const base = raw.map((item) => item === true);
+  if (value.answers && typeof value.answers === "object") {
+    const normalizeSkipValue = (input) => {
+      if (input === true) return true;
+      if (input === false || input == null) return false;
+      if (typeof input === "number") {
+        if (!Number.isFinite(input)) return false;
+        return input !== 0;
+      }
+      if (typeof input === "string") {
+        const normalized = input.trim().toLowerCase();
+        if (!normalized) return false;
+        return ["1", "true", "yes", "y", "on", "skip", "passed"].includes(normalized);
+      }
+      return false;
+    };
+    const answersObject = value.answers;
+    const orderedAnswers = Array.isArray(value.checklistItemIds)
+      ? value.checklistItemIds.map((id) => answersObject?.[id] || null)
+      : Object.values(answersObject);
+    const mergedLength = Math.max(base.length, orderedAnswers.length);
+    return Array.from({ length: mergedLength }, (_, index) => {
+      const existing = Boolean(base[index]);
+      if (existing) {
+        return true;
+      }
+      const entry = orderedAnswers[index];
+      if (!entry || typeof entry !== "object") {
+        return false;
+      }
+      const rawSkip = Object.prototype.hasOwnProperty.call(entry, "skipped")
+        ? entry.skipped
+        : entry.skiped;
+      return normalizeSkipValue(rawSkip);
+    });
+  }
+  return base;
 }
 
 function normalizeChecklistStateArrays(value, length = null) {
@@ -4785,12 +4821,14 @@ function inputForType(consigne, initialValue = null) {
         const skipClass = skipped ? " checklist-item--skipped" : "";
         const skipAttr = skipped ? ' data-checklist-skipped="1"' : "";
         const inputSkipAttr = skipped ? ' data-checklist-skip="1"' : "";
+        const skipButtonClass = skipped ? "checklist-skip-btn is-active" : "checklist-skip-btn";
+        const skipButtonPressed = skipped ? "true" : "false";
         const checkedAttr = checked ? "checked" : "";
         return `
           <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm${skipClass}" data-checklist-item data-item-id="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-checklist-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" data-checklist-label="${escapeHtml(trimmedLabel)}" data-validated="${validatedAttr}"${skipAttr}>
             <input type="checkbox" class="h-4 w-4" data-checklist-input data-key="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" ${inputSkipAttr} ${checkedAttr}>
             <span class="flex-1">${escapeHtml(label)}</span>
-            <button type="button" class="checklist-skip-btn" data-checklist-skip-btn title="Passer cet élément (ne pas le compter)">⏭</button>
+            <button type="button" class="${skipButtonClass}" data-checklist-skip-btn aria-pressed="${skipButtonPressed}" title="Passer cet élément (ne pas le compter)">⏭</button>
           </label>`;
       })
       .join("");
@@ -4824,6 +4862,18 @@ function inputForType(consigne, initialValue = null) {
             return null;
           };
           const resolveHost = (input) => resolveClosest(input, '[data-checklist-item]');
+          const setSkipButtonState = (host, skip) => {
+            if (!host || typeof host.querySelector !== 'function') return;
+            const button = host.querySelector('[data-checklist-skip-btn]');
+            if (!button) return;
+            if (skip) {
+              button.classList.add('is-active');
+              button.setAttribute('aria-pressed', 'true');
+            } else {
+              button.classList.remove('is-active');
+              button.setAttribute('aria-pressed', 'false');
+            }
+          };
           const isSkipped = (input, host = resolveHost(input)) => {
             if (!input) return false;
             if (input.dataset && input.dataset[SKIP_DATA_KEY] === '1') return true;
@@ -4855,6 +4905,7 @@ function inputForType(consigne, initialValue = null) {
                 input.indeterminate = true;
               }
               input.checked = false;
+              input.disabled = true;
               if (input.dataset) {
                 input.dataset[SKIP_DATA_KEY] = '1';
               }
@@ -4865,6 +4916,7 @@ function inputForType(consigne, initialValue = null) {
                 host.classList.add('checklist-item--skipped');
                 host.setAttribute('data-validated', 'skip');
               }
+              setSkipButtonState(host, true);
             } else {
               let previousChecked = null;
               if ('indeterminate' in input) {
@@ -4887,6 +4939,7 @@ function inputForType(consigne, initialValue = null) {
                   ? previousChecked === '1' || previousChecked === 'true'
                   : Boolean(input.defaultChecked);
               input.checked = Boolean(shouldCheck);
+              input.disabled = false;
               if (host) {
                 host.classList.remove('checklist-item--skipped');
                 if (host.dataset) {
@@ -4895,6 +4948,7 @@ function inputForType(consigne, initialValue = null) {
                 host.removeAttribute('data-checklist-skipped');
                 host.setAttribute('data-validated', input.checked ? 'true' : 'false');
               }
+              setSkipButtonState(host, false);
             }
           };
           const ensureItemIds = () => {
@@ -4927,6 +4981,8 @@ function inputForType(consigne, initialValue = null) {
                   input.dataset[SKIP_DATA_KEY] = '1';
                 }
                 input.setAttribute('data-checklist-skip', '1');
+                input.disabled = true;
+                setSkipButtonState(host, true);
               } else {
                 host.classList.remove('checklist-item--skipped');
                 host.removeAttribute('data-checklist-skipped');
@@ -4935,6 +4991,8 @@ function inputForType(consigne, initialValue = null) {
                   delete input.dataset[SKIP_DATA_KEY];
                 }
                 input.removeAttribute('data-checklist-skip');
+                input.disabled = false;
+                setSkipButtonState(host, false);
               }
             });
           };

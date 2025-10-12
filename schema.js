@@ -1607,6 +1607,20 @@ function valueToNumericPoint(type, value) {
   if (type === "yesno")   return value === "yes" ? 1 : 0;
   if (type === "num") return Number(value) || 0;
   if (type === "checklist") {
+    const normalizeSkipValue = (raw) => {
+      if (raw === true) return true;
+      if (raw === false || raw == null) return false;
+      if (typeof raw === "number") {
+        if (!Number.isFinite(raw)) return false;
+        return raw !== 0;
+      }
+      if (typeof raw === "string") {
+        const normalized = raw.trim().toLowerCase();
+        if (!normalized) return false;
+        return ["1", "true", "yes", "y", "on", "skip", "passed"].includes(normalized);
+      }
+      return false;
+    };
     const items = Array.isArray(value)
       ? value.map((item) => item === true)
       : value && typeof value === "object" && Array.isArray(value.items)
@@ -1618,7 +1632,24 @@ function valueToNumericPoint(type, value) {
     const skippedRaw = value && typeof value === "object" && Array.isArray(value.skipped)
       ? value.skipped.map((item) => item === true)
       : [];
-    const skipped = items.map((_, index) => Boolean(skippedRaw[index]));
+    let skipped = items.map((_, index) => Boolean(skippedRaw[index]));
+    if (value && typeof value === "object" && value.answers && typeof value.answers === "object") {
+      const answersObject = value.answers;
+      const orderedAnswers = Array.isArray(value.checklistItemIds)
+        ? value.checklistItemIds.map((id) => answersObject?.[id] || null)
+        : Object.values(answersObject);
+      skipped = skipped.map((current, index) => {
+        const entry = orderedAnswers[index];
+        if (!entry || typeof entry !== "object") {
+          return current;
+        }
+        const rawSkip = Object.prototype.hasOwnProperty.call(entry, "skipped")
+          ? entry.skipped
+          : entry.skiped;
+        const normalized = normalizeSkipValue(rawSkip);
+        return current || normalized;
+      });
+    }
     let consideredTotal = 0;
     let completed = 0;
     items.forEach((checked, index) => {

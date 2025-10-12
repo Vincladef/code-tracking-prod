@@ -202,6 +202,23 @@ function testReadChecklistSkippedNormalizesValues() {
   );
 }
 
+function testReadChecklistSkippedSupportsAnswersMap() {
+  const skipped = readChecklistSkipped({
+    items: [false, false, false],
+    checklistItemIds: ["item-a", "item-b", "item-c"],
+    answers: {
+      "item-a": { value: "no", skipped: true },
+      "item-b": { value: "yes", skipped: false },
+      "item-c": { value: "yes", skiped: "yes" },
+    },
+  });
+  assert.deepStrictEqual(
+    skipped,
+    [true, false, true],
+    "Les états passés doivent être lus depuis la carte des réponses",
+  );
+}
+
 function testSanitizeChecklistItemsDropsEmptyEntries() {
   const consigne = { checklistItems: ["Alpha", "", "  ", "Beta"] };
   assert.deepStrictEqual(
@@ -221,6 +238,7 @@ try {
   testBuildChecklistValueSupportsSkipStatesAlias();
   testReadChecklistStatesNormalizesValues();
   testReadChecklistSkippedNormalizesValues();
+  testReadChecklistSkippedSupportsAnswersMap();
   testSanitizeChecklistItemsDropsEmptyEntries();
   console.log("All checklist status tests passed.");
 } catch (error) {
