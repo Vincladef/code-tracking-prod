@@ -796,49 +796,62 @@
       const hasValue = typeof Modes.hasValueForConsigne === "function"
         ? Modes.hasValueForConsigne(consigne, value)
         : !(value === null || value === undefined || value === "");
-      if (row) {
-        row.dataset.saving = "1";
+
+      const baseAnswer = {
+        id: key,
+        key,
+        consigneId: consigne?.id || null,
+        family: consigne?.family || null,
+        type: consigne?.type || null,
+        summaryScope: normalizedSummaryScope || null,
+        summaryLabel,
+        label: consigne?.summaryLabel || consigne?.text || null,
+        category: consigne?.summaryCategory || consigne?.category || null,
+      };
+
+      if (hasValue) {
+        answersMap.set(key, { ...baseAnswer, value });
+      } else {
+        answersMap.delete(key);
       }
+
+      const metadataForPersist = { ...metadata, summaryLabel };
+
       try {
-        if (hasValue) {
-          const payload = {
+        if (!hasValue) {
+          await Schema.deleteSummaryAnswer(
+            ctx.db,
+            ctx.user.uid,
+            period.scope,
+            period.key,
             key,
-            consigneId: consigne?.id || null,
-            family: consigne?.family || null,
-            type: consigne?.type || null,
-            value,
-            label: consigne?.text || null,
-            category: consigne?.summaryCategory || consigne?.category || null,
-            summaryScope: normalizedSummaryScope || null,
-            summaryMode: "bilan",
-            summaryLabel,
-            summaryPeriod: period.key || null,
-            summaryKey: key,
-            source: "bilan",
-            origin: normalizedSummaryScope ? `bilan:${normalizedSummaryScope}` : "bilan",
-            context: ["bilan", normalizedSummaryScope || null, period.key || null]
-              .filter(Boolean)
-              .join(":") || "bilan",
-            moduleId: "bilan",
-          };
-          await Schema.saveSummaryAnswers(ctx.db, ctx.user.uid, period.scope, period.key, [payload], metadata);
-          answersMap.set(key, { id: key, value, type: consigne?.type || null, family: consigne?.family || null });
-        } else {
-          await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, period.scope, period.key, key, metadata);
-          answersMap.delete(key);
+            metadataForPersist,
+          );
+          return;
         }
-        if (row) {
-          delete row.dataset.error;
-        }
+
+        await Schema.saveSummaryAnswers(
+          ctx.db,
+          ctx.user.uid,
+          period.scope,
+          period.key,
+          [
+            {
+              key,
+              consigneId: baseAnswer.consigneId,
+              family: baseAnswer.family,
+              type: baseAnswer.type,
+              value,
+              summaryScope: baseAnswer.summaryScope,
+              summaryLabel: baseAnswer.summaryLabel,
+              label: baseAnswer.label,
+              category: baseAnswer.category,
+            },
+          ],
+          metadataForPersist,
+        );
       } catch (error) {
-        bilanLogger?.error?.("bilan.save.single", { error, scope: period.scope, periodKey: period.key, consigneId: consigne?.id });
-        if (row) {
-          row.dataset.error = "1";
-        }
-      } finally {
-        if (row) {
-          delete row.dataset.saving;
-        }
+        bilanLogger?.error?.("bilan.summary.persist", { error, key });
       }
     };
 

@@ -139,13 +139,53 @@ Schema.snapshotExists = Schema.snapshotExists || snapshotExists;
 
 // --- DEBUG LOGGER ---
 const D = {
-  on: true, // << mets false pour couper
-  info: (...a) => D.on && console.info("[HP]", ...a),
-  debug: (...a) => D.on && console.debug("[HP]", ...a),
-  warn: (...a) => D.on && console.warn("[HP]", ...a),
-  error: (...a) => D.on && console.error("[HP]", ...a),
-  group: (label, ...a) => D.on && console.groupCollapsed(`📘 ${label}`, ...a),
-  groupEnd: () => D.on && console.groupEnd(),
+  _enabled: true,
+  _indent: 0,
+  get on() {
+    return this._enabled;
+  },
+  set on(value) {
+    this._enabled = Boolean(value);
+  },
+  _emit(method, icon, args) {
+    if (!this._enabled) {
+      return;
+    }
+    const indent = this._indent > 0 ? "  ".repeat(this._indent) : "";
+    const prefix = `${icon} [HP] ${indent}`;
+    if (!args.length) {
+      console[method](prefix);
+      return;
+    }
+    if (typeof args[0] === "string") {
+      const [first, ...rest] = args;
+      console[method](`${prefix}${first ? ` ${first}` : ""}`, ...rest);
+      return;
+    }
+    console[method](prefix, ...args);
+  },
+  info(...args) {
+    this._emit("info", "ℹ️", args);
+  },
+  debug(...args) {
+    const method = typeof console.debug === "function" ? "debug" : "log";
+    this._emit(method, "🐞", args);
+  },
+  warn(...args) {
+    this._emit("warn", "⚠️", args);
+  },
+  error(...args) {
+    this._emit("error", "⛔", args);
+  },
+  group(label, ...rest) {
+    this._emit("info", "📂", [label, ...rest]);
+    this._indent += 1;
+  },
+  groupEnd() {
+    if (this._indent > 0) {
+      this._indent -= 1;
+    }
+  },
 };
 Schema.D = Schema.D || D;
 const schemaLog = () => {};
@@ -1567,6 +1607,20 @@ function valueToNumericPoint(type, value) {
   if (type === "yesno")   return value === "yes" ? 1 : 0;
   if (type === "num") return Number(value) || 0;
   if (type === "checklist") {
+    const normalizeSkipValue = (raw) => {
+      if (raw === true) return true;
+      if (raw === false || raw == null) return false;
+      if (typeof raw === "number") {
+        if (!Number.isFinite(raw)) return false;
+        return raw !== 0;
+      }
+      if (typeof raw === "string") {
+        const normalized = raw.trim().toLowerCase();
+        if (!normalized) return false;
+        return ["1", "true", "yes", "y", "on", "skip", "passed"].includes(normalized);
+      }
+      return false;
+    };
     const items = Array.isArray(value)
       ? value.map((item) => item === true)
       : value && typeof value === "object" && Array.isArray(value.items)
@@ -1578,7 +1632,24 @@ function valueToNumericPoint(type, value) {
     const skippedRaw = value && typeof value === "object" && Array.isArray(value.skipped)
       ? value.skipped.map((item) => item === true)
       : [];
-    const skipped = items.map((_, index) => Boolean(skippedRaw[index]));
+    let skipped = items.map((_, index) => Boolean(skippedRaw[index]));
+    if (value && typeof value === "object" && value.answers && typeof value.answers === "object") {
+      const answersObject = value.answers;
+      const orderedAnswers = Array.isArray(value.checklistItemIds)
+        ? value.checklistItemIds.map((id) => answersObject?.[id] || null)
+        : Object.values(answersObject);
+      skipped = skipped.map((current, index) => {
+        const entry = orderedAnswers[index];
+        if (!entry || typeof entry !== "object") {
+          return current;
+        }
+        const rawSkip = Object.prototype.hasOwnProperty.call(entry, "skipped")
+          ? entry.skipped
+          : entry.skiped;
+        const normalized = normalizeSkipValue(rawSkip);
+        return current || normalized;
+      });
+    }
     let consideredTotal = 0;
     let completed = 0;
     items.forEach((checked, index) => {
