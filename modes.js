@@ -5790,6 +5790,10 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     ? "weekly"
     : normalizedSummaryOnlyScope === "monthly" || normalizedSummaryOnlyScope === "month"
     ? "monthly"
+    : normalizedSummaryOnlyScope === "yearly" || normalizedSummaryOnlyScope === "year"
+    ? "yearly"
+    : normalizedSummaryOnlyScope === "summary" || normalizedSummaryOnlyScope === "bilan" || normalizedSummaryOnlyScope === "bilans"
+    ? "summary"
     : "";
   let weeklySummaryEnabled = consigne?.weeklySummaryEnabled !== false;
   let monthlySummaryEnabled = consigne?.monthlySummaryEnabled !== false;
@@ -5807,13 +5811,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     monthlySummaryEnabled = false;
     yearlySummaryEnabled = true;
   }
-  const summaryVisibilityValue = summaryOnlyScope === "weekly"
-    ? "weekly"
-    : summaryOnlyScope === "monthly"
-    ? "monthly"
-    : summaryOnlyScope === "yearly"
-    ? "yearly"
-    : "all";
+  const summaryVisibilityValue = summaryOnlyScope ? "summary" : "all";
   const advancedOpenAttr =
     isEphemeral || !weeklySummaryEnabled || !monthlySummaryEnabled || !yearlySummaryEnabled || currentObjId || summaryVisibilityValue !== "all"
       ? " open"
@@ -5907,16 +5905,8 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
                 <span>Journal et bilans</span>
               </label>
               <label class="inline-flex items-center gap-2">
-                <input type="radio" name="summaryVisibility" value="weekly" ${summaryVisibilityValue === "weekly" ? "checked" : ""}>
-                <span>Uniquement bilan hebdomadaire</span>
-              </label>
-              <label class="inline-flex items-center gap-2">
-                <input type="radio" name="summaryVisibility" value="monthly" ${summaryVisibilityValue === "monthly" ? "checked" : ""}>
-                <span>Uniquement bilan mensuel</span>
-              </label>
-              <label class="inline-flex items-center gap-2">
-                <input type="radio" name="summaryVisibility" value="yearly" ${summaryVisibilityValue === "yearly" ? "checked" : ""}>
-                <span>Uniquement bilan annuel</span>
+                <input type="radio" name="summaryVisibility" value="summary" ${summaryVisibilityValue === "summary" ? "checked" : ""}>
+                <span>Uniquement bilans</span>
               </label>
             </fieldset>
           </div>
@@ -6034,11 +6024,15 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
   };
   const applyCheckboxState = (checkbox, { checked, disabled }) => {
     if (!checkbox) return;
-    checkbox.checked = checked;
-    checkbox.disabled = disabled;
+    if (typeof checked === "boolean") {
+      checkbox.checked = checked;
+    }
+    if (typeof disabled === "boolean") {
+      checkbox.disabled = disabled;
+    }
     const label = checkbox.closest("label");
     if (label) {
-      label.classList.toggle("opacity-60", disabled);
+      label.classList.toggle("opacity-60", Boolean(checkbox.disabled));
     }
   };
   const syncSummaryVisibilityControls = () => {
@@ -6052,18 +6046,10 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       };
     }
     currentSummaryVisibility = nextVisibility;
-    if (nextVisibility === "weekly") {
-      applyCheckboxState(summaryWeeklyCheckbox, { checked: true, disabled: true });
-      applyCheckboxState(summaryMonthlyCheckbox, { checked: false, disabled: true });
-      applyCheckboxState(summaryYearlyCheckbox, { checked: false, disabled: true });
-    } else if (nextVisibility === "monthly") {
-      applyCheckboxState(summaryWeeklyCheckbox, { checked: false, disabled: true });
-      applyCheckboxState(summaryMonthlyCheckbox, { checked: true, disabled: true });
-      applyCheckboxState(summaryYearlyCheckbox, { checked: false, disabled: true });
-    } else if (nextVisibility === "yearly") {
-      applyCheckboxState(summaryWeeklyCheckbox, { checked: false, disabled: true });
-      applyCheckboxState(summaryMonthlyCheckbox, { checked: false, disabled: true });
-      applyCheckboxState(summaryYearlyCheckbox, { checked: true, disabled: true });
+    if (nextVisibility === "summary") {
+      applyCheckboxState(summaryWeeklyCheckbox, { disabled: false });
+      applyCheckboxState(summaryMonthlyCheckbox, { disabled: false });
+      applyCheckboxState(summaryYearlyCheckbox, { disabled: false });
     } else {
       applyCheckboxState(summaryWeeklyCheckbox, { checked: savedAllSummaryState.weekly, disabled: false });
       applyCheckboxState(summaryMonthlyCheckbox, { checked: savedAllSummaryState.monthly, disabled: false });
@@ -6586,21 +6572,20 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       let monthlySummaryEnabled = fd.get("summaryMonthly") !== null;
       let yearlySummaryEnabled = fd.get("summaryYearly") !== null;
       let summaryOnlyScopeValue = null;
-      if (summaryVisibilityChoice === "weekly") {
-        summaryOnlyScopeValue = "weekly";
-        weeklySummaryEnabled = true;
-        monthlySummaryEnabled = false;
-        yearlySummaryEnabled = false;
-      } else if (summaryVisibilityChoice === "monthly") {
-        summaryOnlyScopeValue = "monthly";
-        weeklySummaryEnabled = false;
-        monthlySummaryEnabled = true;
-        yearlySummaryEnabled = false;
-      } else if (summaryVisibilityChoice === "yearly") {
-        summaryOnlyScopeValue = "yearly";
-        weeklySummaryEnabled = false;
-        monthlySummaryEnabled = false;
-        yearlySummaryEnabled = true;
+      if (summaryVisibilityChoice === "summary") {
+        if (!weeklySummaryEnabled && !monthlySummaryEnabled && !yearlySummaryEnabled) {
+          alert("Sélectionne au moins un type de bilan lorsque la consigne est uniquement au format bilan.");
+          return;
+        }
+        if (weeklySummaryEnabled && !monthlySummaryEnabled && !yearlySummaryEnabled) {
+          summaryOnlyScopeValue = "weekly";
+        } else if (!weeklySummaryEnabled && monthlySummaryEnabled && !yearlySummaryEnabled) {
+          summaryOnlyScopeValue = "monthly";
+        } else if (!weeklySummaryEnabled && !monthlySummaryEnabled && yearlySummaryEnabled) {
+          summaryOnlyScopeValue = "yearly";
+        } else {
+          summaryOnlyScopeValue = "summary";
+        }
       }
 
       const payload = {

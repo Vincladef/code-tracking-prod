@@ -383,6 +383,15 @@ function normalizeSummaryOnlyScope(value) {
   if (normalized === "yearly" || normalized === "year" || normalized === "annuel" || normalized === "annuelle") {
     return "yearly";
   }
+  if (
+    normalized === "summary" ||
+    normalized === "bilan" ||
+    normalized === "bilans" ||
+    normalized === "summary-only" ||
+    normalized === "bilan-only"
+  ) {
+    return "summary";
+  }
   return null;
 }
 
