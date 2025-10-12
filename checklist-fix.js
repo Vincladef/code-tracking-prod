@@ -276,7 +276,7 @@
     }
     try {
       const ref = db
-        .collection("users")
+        .collection("u")
         .doc(uid)
         .collection("answers")
         .doc(dateKey)
@@ -312,7 +312,7 @@
     };
     try {
       const ref = db
-        .collection("users")
+        .collection("u")
         .doc(uid)
         .collection("answers")
         .doc(dateKey)

@@ -463,7 +463,7 @@
     const timestamp = Date.now();
     if (db && typeof doc === "function" && typeof setDoc === "function") {
       try {
-        const docRef = doc(db, "users", uid, "answers", finalPayload.dateKey, "consignes", finalPayload.consigneId);
+        const docRef = doc(db, "u", uid, "answers", finalPayload.dateKey, "consignes", finalPayload.consigneId);
         await setDoc(
           docRef,
           {
@@ -483,7 +483,7 @@
     }
     if (db && typeof collection === "function" && typeof addDoc === "function") {
       try {
-        const colRef = collection(db, "users", uid, "history");
+        const colRef = collection(db, "u", uid, "history");
         await addDoc(colRef, {
           type: "checklist",
           consigneId: finalPayload.consigneId,
@@ -508,7 +508,7 @@
     }
     if (db && typeof doc === "function" && typeof getDoc === "function") {
       try {
-        const ref = doc(db, "users", uid, "answers", todayKey, "consignes", consigneId);
+        const ref = doc(db, "u", uid, "answers", todayKey, "consignes", consigneId);
         const snap = await getDoc(ref);
         if (snapshotHasData(snap)) {
           const data = typeof snap.data === "function" ? snap.data() || {} : snap?.data || {};
@@ -572,7 +572,7 @@
     }
     try {
       const constraints = [
-        collection(db, "users", uid, "history"),
+        collection(db, "u", uid, "history"),
         where("type", "==", "checklist"),
         where("consigneId", "==", consigneId),
         orderBy("ts", "desc"),

@@ -23,7 +23,7 @@ const assert = require("assert");
     limit: (value) => ({ type: "limit", value }),
     getDocs: async (queryDescriptor) => {
       const segments = queryDescriptor?.args?.[0]?.segments || [];
-      if (segments[0] === "users" && segments[2] === "history") {
+      if (segments[0] === "u" && segments[2] === "history") {
         return { docs: [fakeDocSnap] };
       }
       return { docs: [] };
