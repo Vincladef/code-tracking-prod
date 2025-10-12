@@ -1069,26 +1069,31 @@
     }
     let anyChange = false;
     entries.forEach(({ input, host, itemId, legacyId }) => {
-      if (!input) {
-        return;
-      }
+      if (!input) return;
       const primaryId = String(itemId ?? "");
       const legacyKey = legacyId ? String(legacyId) : "";
       const answer =
         (primaryId && answersMap.get(primaryId)) || (legacyKey && answersMap.get(legacyKey)) || null;
-      let shouldCheck =
-        selectedSet.has(primaryId) || (legacyKey ? selectedSet.has(legacyKey) : false);
+      // On restaure l'état skipped même si la case n'est pas cochée
       let shouldSkip = false;
       if (answer) {
         shouldSkip = Boolean(answer.skipped);
-        if (answer.value === "yes" || answer.value === "maybe") {
-          shouldCheck = true;
-        } else if (answer.value === "no") {
-          shouldCheck = false;
-        }
       }
       if (!shouldSkip && (skippedSet.has(primaryId) || (legacyKey && skippedSet.has(legacyKey)))) {
         shouldSkip = true;
+      }
+      // On restaure la case cochée uniquement si non skipped
+      let shouldCheck = false;
+      if (!shouldSkip) {
+        if (answer) {
+          if (answer.value === "yes" || answer.value === "maybe") {
+            shouldCheck = true;
+          } else if (answer.value === "no") {
+            shouldCheck = false;
+          }
+        } else {
+          shouldCheck = selectedSet.has(primaryId) || (legacyKey ? selectedSet.has(legacyKey) : false);
+        }
       }
       const { checkedChanged, skipChanged } = applySkipState(input, host, shouldSkip, {
         fallbackChecked: shouldCheck,
