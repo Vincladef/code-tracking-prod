@@ -2466,7 +2466,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const lastEntry = orderedEntries[orderedEntries.length - 1] || null;
       const lastDateIso = lastEntry?.date || "";
       const lastMeta = lastDateIso ? iterationMetaByKey.get(lastDateIso) : null;
+      // lastDateObj: date d’affichage (peut inclure createdAt si disponible)
       const lastDateObj = lastEntry?.createdAt || lastMeta?.dateObj || null;
+      // lastDayDateObj: date purement basée sur le jour (clé de l’itération), pour trier par jour
+      const lastDayDateObj = lastMeta?.dateObj || null;
       const lastValue = lastEntry?.value ?? "";
       const lastNote = lastEntry?.note ?? "";
       const priority = normalizePriorityValue(consigne.priority);
@@ -2515,6 +2518,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         lastDateShort: lastDateObj ? shortDateFormatter.format(lastDateObj) : "Jamais",
         lastDateFull: lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais",
         lastRelative: formatRelativeDate(lastDateObj || lastDateIso),
+  lastDayDateObj,
         lastValue,
         lastFormatted: lastFormattedText,
         lastFormattedHtml,
@@ -2532,6 +2536,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       };
       return stat;
     });
+
 
     const titleText = customTitle
       ? customTitle
@@ -2651,7 +2656,19 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         note: "Réponse notée",
         na: "Sans donnée",
       };
-      const cards = stats
+      // En mode journalier, on affiche les consignes les plus récentes (par jour) en premier
+      const renderedStats = (isPractice || allowMixedMode)
+        ? stats
+        : stats
+            .slice()
+            .sort((a, b) => {
+              const at = a.lastDayDateObj ? a.lastDayDateObj.getTime() : -Infinity;
+              const bt = b.lastDayDateObj ? b.lastDayDateObj.getTime() : -Infinity;
+              // tri décroissant: plus récent en haut
+              return bt - at;
+            });
+
+      const cards = renderedStats
         .map((stat) => {
           const accentStyle = stat.accentStrong
             ? ` style="--history-accent:${stat.accentStrong}; --history-soft:${stat.accentSoft}; --history-border:${stat.accentBorder};"`
@@ -2770,7 +2787,19 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const consigneId = target.getAttribute("data-consigne");
       const pointIndex = Number(target.getAttribute("data-index"));
       if (!Number.isFinite(pointIndex)) return;
-      const stat = stats.find((item) => item.id === consigneId);
+      // Rechercher la stat par id dans la dernière version rendue
+      const sections = Array.from(historyContainer.querySelectorAll('.practice-dashboard__history-section'));
+      const idx = sections.findIndex((sec) => sec.getAttribute('data-id') === consigneId);
+      const renderedStats = (isPractice || allowMixedMode)
+        ? stats
+        : stats
+            .slice()
+            .sort((a, b) => {
+              const at = a.lastDayDateObj ? a.lastDayDateObj.getTime() : -Infinity;
+              const bt = b.lastDayDateObj ? b.lastDayDateObj.getTime() : -Infinity;
+              return bt - at;
+            });
+      const stat = renderedStats.find((item) => item.id === consigneId) || stats.find((item) => item.id === consigneId);
       if (!stat) return;
       if (stat.type === "info") return;
       openCellEditor(stat, pointIndex);
@@ -2836,6 +2865,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const lastMeta = lastDateIso ? iterationMetaByKey.get(lastDateIso) : null;
       const lastDateObj = lastEntry?.createdAt || lastMeta?.dateObj || null;
       const lastValue = lastEntry?.value ?? "";
+  // Maintenir la date de jour utilisée pour le tri décroissant en mode daily
+  stat.lastDayDateObj = lastMeta?.dateObj || null;
       stat.lastDateIso = lastDateIso;
       stat.lastDateShort = lastDateObj ? shortDateFormatter.format(lastDateObj) : "Jamais";
       stat.lastDateFull = lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais";
