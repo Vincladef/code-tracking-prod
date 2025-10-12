@@ -1094,7 +1094,7 @@
       if (!shouldSkip && (skippedSet.has(primaryId) || (legacyKey && skippedSet.has(legacyKey)))) {
         shouldSkip = true;
       }
-      // On restaure la case cochée uniquement si non skipped
+      // Si skipped, la case doit TOUJOURS être décochée
       let shouldCheck = false;
       if (!shouldSkip) {
         if (answer) {
@@ -1110,7 +1110,10 @@
       const { checkedChanged, skipChanged } = applySkipState(input, host, shouldSkip, {
         fallbackChecked: shouldCheck,
       });
-      if (!shouldSkip && input.checked !== shouldCheck) {
+      // Force décochage si skipped
+      if (shouldSkip && input.checked) {
+        input.checked = false;
+      } else if (!shouldSkip && input.checked !== shouldCheck) {
         input.checked = shouldCheck;
       }
       if (host && !shouldSkip) {
