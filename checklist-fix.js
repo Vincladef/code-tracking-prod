@@ -701,9 +701,15 @@
           } catch (_) {}
           const pageKey = typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? GLOBAL.AppCtx.dateIso : null;
           const expectedKey = hashDate || pageKey || null;
-          if (expectedKey && (!hiddenKey || hiddenKey !== expectedKey)) {
-            log("hydrate.hidden.skip-date-mismatch", { hiddenKey, pageKey: expectedKey });
-            return;
+          if (expectedKey) {
+            if (!hiddenKey) {
+              log("hydrate.hidden.skip-missing-dateKey", { pageKey: expectedKey });
+              return;
+            }
+            if (hiddenKey !== expectedKey) {
+              log("hydrate.hidden.skip-date-mismatch", { hiddenKey, pageKey: expectedKey });
+              return;
+            }
           }
         } catch (e) {
           // ignore

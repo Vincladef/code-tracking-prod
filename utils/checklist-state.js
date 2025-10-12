@@ -73,7 +73,8 @@
     if (shouldLog === null && typeof GLOBAL.location !== "undefined") {
       try {
         const search = String(GLOBAL.location.search || "");
-        if (/[?&]checklistDebug=(1|true|yes)\b/i.test(search)) {
+        const hash = String(GLOBAL.location.hash || "");
+        if (/[?&]checklistDebug=(1|true|yes)\b/i.test(search) || /[?&]checklistDebug=(1|true|yes)\b/i.test(hash)) {
           shouldLog = true;
         }
       } catch (e) {
