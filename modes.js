@@ -10122,6 +10122,18 @@ const DAILY_ENTRY_TYPES = {
   WEEKLY: "week",
   MONTHLY: "month",
 };
+
+function normalizeDailyView(value) {
+  if (!value) return null;
+  const normalized = String(value).toLowerCase();
+  if (normalized === "week" || normalized === "weekly") {
+    return DAILY_ENTRY_TYPES.WEEKLY;
+  }
+  if (normalized === "month" || normalized === "monthly") {
+    return DAILY_ENTRY_TYPES.MONTHLY;
+  }
+  return null;
+}
 const DAILY_WEEKDAY_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
 const DAILY_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
 const DAILY_SHORT_RANGE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
@@ -10423,12 +10435,39 @@ function entryToDayKey(entry) {
   }
   return null;
 }
+function isWeekBoundaryDay(entry) {
+  if (!entry || entry.type !== DAILY_ENTRY_TYPES.DAY) return false;
+  const date = entry.date instanceof Date ? entry.date : null;
+  if (!date) return false;
+  return date.getDay() === DAILY_WEEK_ENDS_ON;
+}
 function computeNextEntry(entry) {
   if (!entry) return null;
   if (entry.type === DAILY_ENTRY_TYPES.DAY) {
+    if (isWeekBoundaryDay(entry)) {
+      const weekly = createWeeklySummaryEntry(entry.date);
+      if (weekly) return weekly;
+    }
     const nextDate = new Date(entry.date.getTime());
     nextDate.setDate(nextDate.getDate() + 1);
     return createDayEntry(nextDate);
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
+    const monthly = createMonthlySummaryEntry(entry.sunday);
+    if (monthly) return monthly;
+    if (entry.sunday instanceof Date) {
+      const nextDate = new Date(entry.sunday.getTime());
+      nextDate.setDate(nextDate.getDate() + 1);
+      return createDayEntry(nextDate);
+    }
+    return null;
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
+    if (entry.sunday instanceof Date) {
+      const nextDate = new Date(entry.sunday.getTime());
+      nextDate.setDate(nextDate.getDate() + 1);
+      return createDayEntry(nextDate);
+    }
   }
   return null;
 }
@@ -10437,7 +10476,22 @@ function computePrevEntry(entry) {
   if (entry.type === DAILY_ENTRY_TYPES.DAY) {
     const prevDate = new Date(entry.date.getTime());
     prevDate.setDate(prevDate.getDate() - 1);
-    return createDayEntry(prevDate);
+    const prevDay = createDayEntry(prevDate);
+    if (prevDay && isWeekBoundaryDay(prevDay)) {
+      const monthly = createMonthlySummaryEntry(prevDay.date);
+      if (monthly) return monthly;
+      const weekly = createWeeklySummaryEntry(prevDay.date);
+      if (weekly) return weekly;
+    }
+    return prevDay;
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
+    return createDayEntry(entry.sunday);
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
+    const weekly = createWeeklySummaryEntry(entry.sunday);
+    if (weekly) return weekly;
+    return createDayEntry(entry.sunday);
   }
   return null;
 }
@@ -10490,30 +10544,48 @@ async function renderDaily(ctx, root, opts = {}) {
   const dateIso = opts.dateIso || qp.get("d");
   const explicitDate = dateIso ? toStartOfDay(dateIso) : null;
   const requestedDay = normalizeDay(opts.day) || normalizeDay(qp.get("day"));
+  const requestedView = normalizeDailyView(opts.view || qp.get("view"));
 
   let entry = null;
   let selectedDate = null;
   let currentDay = null;
 
-  if (explicitDate) {
-    selectedDate = new Date(explicitDate.getTime());
+  const baseDate = explicitDate
+    ? new Date(explicitDate.getTime())
+    : requestedDay
+    ? (() => {
+        const d = dateForDayFromToday(requestedDay);
+        d.setHours(0, 0, 0, 0);
+        return d;
+      })()
+    : toStartOfDay(new Date());
+
+  if (baseDate) {
+    selectedDate = new Date(baseDate.getTime());
+  }
+
+  if (requestedView === DAILY_ENTRY_TYPES.WEEKLY) {
+    entry = createWeeklySummaryEntry(selectedDate);
+  } else if (requestedView === DAILY_ENTRY_TYPES.MONTHLY) {
+    entry = createMonthlySummaryEntry(selectedDate) || createWeeklySummaryEntry(selectedDate);
+  }
+
+  if (!entry && selectedDate) {
     entry = createDayEntry(selectedDate);
-    currentDay = entry?.dayCode || null;
-  } else if (requestedDay) {
-    selectedDate = dateForDayFromToday(requestedDay);
-    selectedDate.setHours(0, 0, 0, 0);
-    entry = createDayEntry(selectedDate);
-    currentDay = requestedDay;
-  } else {
-    selectedDate = toStartOfDay(new Date());
-    entry = createDayEntry(selectedDate);
-    currentDay = entry?.dayCode || null;
   }
 
   if (!entry) {
     selectedDate = toStartOfDay(new Date());
     entry = createDayEntry(selectedDate);
-    currentDay = entry?.dayCode || null;
+  }
+
+  if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
+    currentDay = entry.dayCode || requestedDay || null;
+    if (entry.date instanceof Date) {
+      selectedDate = new Date(entry.date.getTime());
+    }
+  } else {
+    currentDay = null;
   }
 
   const navLabel = entry?.navLabel || (selectedDate ? formatDailyNavLabel(selectedDate) : "Journalier");
@@ -10596,6 +10668,50 @@ async function renderDaily(ctx, root, opts = {}) {
         title: scopeChoice.label,
       });
     };
+  }
+
+  if (!isDayEntry) {
+    const summaryCard = document.createElement("section");
+    summaryCard.className = "card space-y-4 p-3 sm:p-4";
+    const summaryTitle = entry?.navLabel || "Bilan";
+    const summarySubtitle = entry?.navSubtitle || "";
+    summaryCard.innerHTML = `
+      <header class="space-y-1">
+        <h2 class="text-lg font-semibold">${escapeHtml(summaryTitle)}</h2>
+        ${summarySubtitle ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(summarySubtitle)}</p>` : ""}
+      </header>
+      <div class="space-y-4" data-summary-root>
+        <p class="text-sm text-[var(--muted)]">Chargement du bilan…</p>
+      </div>
+    `;
+    container.appendChild(summaryCard);
+    const summaryRoot = summaryCard.querySelector("[data-summary-root]");
+    if (!summaryRoot) {
+      modesLogger.groupEnd();
+      if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+        window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+      }
+      return;
+    }
+    if (!window.Bilan || typeof window.Bilan.renderSummary !== "function") {
+      summaryRoot.innerHTML = `<p class="text-sm text-[var(--muted)]">Module de bilan indisponible.</p>`;
+      modesLogger.groupEnd();
+      if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+        window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+      }
+      return;
+    }
+    try {
+      await window.Bilan.renderSummary({ ctx, entry, mount: summaryRoot });
+    } catch (error) {
+      console.error("daily.summary.render", error);
+      summaryRoot.innerHTML = `<p class="text-sm text-red-600">Impossible de charger les consignes du bilan.</p>`;
+    }
+    modesLogger.groupEnd();
+    if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+      window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+    }
+    return;
   }
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
