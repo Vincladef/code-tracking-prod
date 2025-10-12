@@ -796,37 +796,64 @@
       const hasValue = typeof Modes.hasValueForConsigne === "function"
         ? Modes.hasValueForConsigne(consigne, value)
         : !(value === null || value === undefined || value === "");
-      if (holder) {
-        holder.innerHTML = typeof Modes.inputForType === "function"
-          ? Modes.inputForType(consigne, initialValue)
-          : "";
-        if (typeof Modes.enhanceRangeMeters === "function") {
-          Modes.enhanceRangeMeters(holder);
-        }
-        // --- Ajout : forcer l'hydratation checklist après rendu ---
-        if (consigne.type === "checklist" && window.ChecklistState && typeof window.ChecklistState.hydrateExistingRoots === "function") {
-          setTimeout(() => {
-            window.ChecklistState.hydrateExistingRoots(holder);
-          }, 0);
-        }
-        // --- Debug format de sauvegarde checklist ---
-        if (consigne.type === "checklist" && previous) {
-          // eslint-disable-next-line no-console
-          console.debug("[DEBUG checklist] Format réponse précédente:", previous);
-          if (!previous.answers || !Array.isArray(previous.selectedIds)) {
-            // eslint-disable-next-line no-console
-            console.warn("[DEBUG checklist] Réponse précédente au format inattendu (answers/selectedIds manquants)", previous);
-          }
-        }
+
+      const baseAnswer = {
+        id: key,
+        key,
+        consigneId: consigne?.id || null,
+        family: consigne?.family || null,
+        type: consigne?.type || null,
+        summaryScope: normalizedSummaryScope || null,
+        summaryLabel,
+        label: consigne?.summaryLabel || consigne?.text || null,
+        category: consigne?.summaryCategory || consigne?.category || null,
+      };
+
+      if (hasValue) {
+        answersMap.set(key, { ...baseAnswer, value });
+      } else {
+        answersMap.delete(key);
       }
-      if (previous && typeof Modes.setConsigneRowValue === "function") {
-        const hasExplicitValue = Object.prototype.hasOwnProperty.call(previous, "value");
-        const looksLikeChecklistState = Array.isArray(previous.items);
-        if (hasExplicitValue || looksLikeChecklistState) {
-          // ...existing code...
+
+      const metadataForPersist = { ...metadata, summaryLabel };
+
+      try {
+        if (!hasValue) {
+          await Schema.deleteSummaryAnswer(
+            ctx.db,
+            ctx.user.uid,
+            period.scope,
+            period.key,
+            key,
+            metadataForPersist,
+          );
+          return;
         }
+
+        await Schema.saveSummaryAnswers(
+          ctx.db,
+          ctx.user.uid,
+          period.scope,
+          period.key,
+          [
+            {
+              key,
+              consigneId: baseAnswer.consigneId,
+              family: baseAnswer.family,
+              type: baseAnswer.type,
+              value,
+              summaryScope: baseAnswer.summaryScope,
+              summaryLabel: baseAnswer.summaryLabel,
+              label: baseAnswer.label,
+              category: baseAnswer.category,
+            },
+          ],
+          metadataForPersist,
+        );
+      } catch (error) {
+        bilanLogger?.error?.("bilan.summary.persist", { error, key });
       }
-        // ...existing code...
+    };
 
     return (consigne, value, row, key) => {
       if (!consigne || !key) return;
