@@ -642,7 +642,12 @@
         (target.dataset && target.dataset.checklistSkip === "1") ||
         (item.dataset && item.dataset.checklistSkipped === "1");
       if (skipped) {
+        // Prevent the change if item is skipped - revert to unchecked state
+        event.preventDefault();
+        event.stopPropagation();
+        target.checked = false;
         applySkipState(target, item, true);
+        return;
       } else {
         applySkipState(target, item, false);
       }
