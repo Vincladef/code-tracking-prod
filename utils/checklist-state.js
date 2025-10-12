@@ -273,6 +273,40 @@
     }
   }
 
+  function dispatchHiddenUpdate(element) {
+    if (!element || typeof element.dispatchEvent !== "function") return;
+    const eventInit = { bubbles: true };
+    const createLegacyEvent = (type) => {
+      try {
+        const doc = element.ownerDocument || (typeof document !== "undefined" ? document : null);
+        if (!doc || typeof doc.createEvent !== "function") return null;
+        const evt = doc.createEvent("Event");
+        evt.initEvent(type, true, true);
+        return evt;
+      } catch (error) {
+        return null;
+      }
+    };
+    const fire = (type) => {
+      try {
+        element.dispatchEvent(new Event(type, eventInit));
+      } catch (error) {
+        const legacy = createLegacyEvent(type);
+        if (legacy) {
+          try {
+            element.dispatchEvent(legacy);
+            return;
+          } catch (dispatchError) {
+            console.warn("[checklist-state] hidden:event", dispatchError);
+          }
+        }
+        console.warn("[checklist-state] hidden:event", error);
+      }
+    };
+    fire("input");
+    fire("change");
+  }
+
   function isNonEmptyString(value) {
     return typeof value === "string" && value.length > 0;
   }
@@ -1235,7 +1269,15 @@
         delete payloadState.answers;
       }
       try {
-        hidden.value = JSON.stringify(payloadState);
+        const nextValue = JSON.stringify(payloadState);
+        const previousValue = hidden.value;
+        hidden.value = nextValue;
+        if (typeof hidden.setAttribute === "function") {
+          hidden.setAttribute("value", nextValue);
+        }
+        if (previousValue !== nextValue) {
+          dispatchHiddenUpdate(hidden);
+        }
       } catch (error) {
         console.warn("[checklist-state] hidden:update", error);
       }
