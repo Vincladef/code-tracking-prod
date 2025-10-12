@@ -1055,6 +1055,7 @@
   }
 
   function applySelection(root, payload, options = {}) {
+    const consigneId = normalizeConsigneId(options.consigneId || root.getAttribute("data-consigne-id") || root.dataset?.consigneId);
     debugLog("applySelection:payload", {
       consigneId,
       answers: payload.answers,
