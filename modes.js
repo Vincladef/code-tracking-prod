@@ -4835,6 +4835,10 @@ function inputForType(consigne, initialValue = null) {
     const initialPayload = {
       items: normalizedValue,
       skipped: normalizedSkipped,
+      // Important pour éviter la réutilisation d'un autre jour
+      dateKey: (typeof window !== 'undefined' && window.AppCtx?.dateIso)
+        ? String(window.AppCtx.dateIso)
+        : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null),
     };
     const initialSerialized = escapeHtml(JSON.stringify(initialPayload));
     const scriptContent = String.raw`
@@ -4862,6 +4866,9 @@ function inputForType(consigne, initialValue = null) {
             return null;
           };
           const resolveHost = (input) => resolveClosest(input, '[data-checklist-item]');
+          const pageDateKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso)
+            ? String(window.AppCtx.dateIso)
+            : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
           const setSkipButtonState = (host, skip) => {
             if (!host || typeof host.querySelector !== 'function') return;
             const button = host.querySelector('[data-checklist-skip-btn]');
@@ -5202,6 +5209,14 @@ function inputForType(consigne, initialValue = null) {
           const hydratePayload = () => {
             try {
               const raw = JSON.parse(hidden.value || '[]');
+              // Si le hidden payload contient une clé de date incompatible, on n'applique pas
+              try {
+                const hiddenKey = raw && typeof raw === 'object' && raw.dateKey ? String(raw.dateKey) : null;
+                if (hiddenKey && pageDateKey && hiddenKey !== pageDateKey) {
+                  console.info('[checklist] hydrate.hidden.skip-date-mismatch', { hiddenKey, pageDateKey });
+                  return;
+                }
+              } catch (e) {}
               const payload = Array.isArray(raw)
                 ? { items: raw.map((item) => item === true), skipped: [] }
                 : {

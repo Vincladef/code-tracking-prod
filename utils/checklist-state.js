@@ -762,6 +762,13 @@
         console.warn("[checklist-state] firestore:responses:load", error);
       }
     }
+    // IMPORTANT: si une date explicite est fournie (par options.dateKey ou AppCtx.dateIso),
+    // on NE fait PAS de fallback sur l'historique d'autres jours. Cela garantit l'isolation par jour.
+    const hasExplicitDate = Boolean(requestedKey || pageKeyFromCtx);
+    if (hasExplicitDate) {
+      debugLog("loadSelection:skip-history-fallback", { consigneId, dateKey });
+      return null;
+    }
     if (!db ||
       typeof collection !== "function" ||
       typeof query !== "function" ||
@@ -1194,6 +1201,14 @@
           return skipDataset || skipHost;
         }),
         answers: buildAnswersFromEntries(entries),
+        // Ajoute la clé de date pour empêcher la réutilisation entre jours
+        dateKey: (function() {
+          const fromPayload = payload && payload.dateKey ? normalizeDateKey(payload.dateKey) : null;
+          const fromCtx = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
+            ? normalizeDateKey(window.AppCtx.dateIso)
+            : null;
+          return fromPayload || fromCtx || currentParisDayKey();
+        })(),
       };
       if (Array.isArray(payloadState.skipped) && payloadState.skipped.every((value) => value === false)) {
         delete payloadState.skipped;
@@ -1370,7 +1385,18 @@
         // On injecte dans le champ caché pour que le DOM se synchronise
         const hidden = root.querySelector('input[type="hidden"][data-checklist-state]');
         if (hidden) {
-          hidden.value = JSON.stringify(checklistValue);
+          try {
+            const enriched = { ...checklistValue };
+            if (!enriched.dateKey) {
+              const pageKey = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
+                ? normalizeDateKey(window.AppCtx.dateIso)
+                : null;
+              enriched.dateKey = pageKey || saved.dateKey || currentParisDayKey();
+            }
+            hidden.value = JSON.stringify(enriched);
+          } catch (e) {
+            hidden.value = JSON.stringify(checklistValue);
+          }
         }
         debugLog("hydrateRoot:checklist-value", {
           consigneId,
