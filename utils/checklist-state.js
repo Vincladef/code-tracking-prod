@@ -36,30 +36,54 @@
   const HINT_WARNING_CLASS = "preselect-hint--warning";
 
   const context = {
-    db: null,
-    uid: null,
-  };
-
-  const processedRoots = new WeakSet();
-  let observer = null;
-
-  function toMillis(value, fallback = Date.now()) {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (value instanceof Date) {
-      const time = value.getTime();
-      return Number.isNaN(time) ? fallback : time;
-    }
-    if (value && typeof value.toMillis === "function") {
-      try {
-        const millis = value.toMillis();
-        if (typeof millis === "number" && Number.isFinite(millis)) {
-          return millis;
+    try {
+      let saved = await loadSelection(db, uid, consigneId);
+      // Si aucune réponse pour la date courante, chercher la dernière réponse connue (hors date)
+      if (!saved) {
+        // Cherche dans l'historique localStorage toutes les dates pour ce consigneId
+        const storage = safeLocalStorage();
+        let lastPayload = null;
+        if (storage) {
+          const prefix = `${STORAGE_PREFIX}:${uid}:${consigneId}:`;
+          for (let i = 0; i < storage.length; i++) {
+            const key = storage.key(i);
+            if (key && key.startsWith(prefix)) {
+              try {
+                const parsed = JSON.parse(storage.getItem(key));
+                if (parsed && (!lastPayload || (parsed.ts > lastPayload.ts))) {
+                  lastPayload = parsed;
+                }
+              } catch {}
+            }
+          }
         }
-      } catch (error) {
-        console.warn("[checklist-state] toMillis:toMillis", error);
+        if (lastPayload) {
+          saved = lastPayload;
+        } else {
+          return;
+        }
       }
+      const optionsHash = root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
+      // On restaure l'état complet si disponible
+      let checklistValue = saved.checklistValue || saved.value || null;
+      if (checklistValue && typeof checklistValue === "string") {
+        try {
+          checklistValue = JSON.parse(checklistValue);
+        } catch (e) {}
+      }
+      if (checklistValue && typeof checklistValue === "object") {
+        // On injecte dans le champ caché pour que le DOM se synchronise
+        const hidden = root.querySelector('input[type="hidden"][data-checklist-state]');
+        if (hidden) {
+          hidden.value = JSON.stringify(checklistValue);
+        }
+        applySelection(root, checklistValue, { consigneId, optionsHash });
+      } else {
+        applySelection(root, saved, { consigneId, optionsHash });
+      }
+    } catch (error) {
+      console.warn("[checklist-state] hydrate", error);
+    }
     }
     if (value && typeof value.toDate === "function") {
       try {
@@ -1018,10 +1042,50 @@
     const { db, uid } = context;
     if (!uid) return;
     try {
-      const saved = await loadSelection(db, uid, consigneId);
-      if (!saved) return;
+      let saved = await loadSelection(db, uid, consigneId);
+      // Si aucune réponse pour la date courante, chercher la dernière réponse connue (hors date)
+      if (!saved) {
+        // Cherche dans l'historique localStorage toutes les dates pour ce consigneId
+        const storage = safeLocalStorage();
+        let lastPayload = null;
+        if (storage) {
+          const prefix = `${STORAGE_PREFIX}:${uid}:${consigneId}:`;
+          for (let i = 0; i < storage.length; i++) {
+            const key = storage.key(i);
+            if (key && key.startsWith(prefix)) {
+              try {
+                const parsed = JSON.parse(storage.getItem(key));
+                if (parsed && (!lastPayload || (parsed.ts > lastPayload.ts))) {
+                  lastPayload = parsed;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+        if (lastPayload) {
+          saved = lastPayload;
+        } else {
+          return;
+        }
+      }
       const optionsHash = root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
-      applySelection(root, saved, { consigneId, optionsHash });
+      // On restaure l'état complet si disponible
+      let checklistValue = saved.checklistValue || saved.value || null;
+      if (checklistValue && typeof checklistValue === "string") {
+        try {
+          checklistValue = JSON.parse(checklistValue);
+        } catch (e) {}
+      }
+      if (checklistValue && typeof checklistValue === "object") {
+        // On injecte dans le champ caché pour que le DOM se synchronise
+        const hidden = root.querySelector('input[type="hidden"][data-checklist-state]');
+        if (hidden) {
+          hidden.value = JSON.stringify(checklistValue);
+        }
+        applySelection(root, checklistValue, { consigneId, optionsHash });
+      } else {
+        applySelection(root, saved, { consigneId, optionsHash });
+      }
     } catch (error) {
       console.warn("[checklist-state] hydrate", error);
     }
