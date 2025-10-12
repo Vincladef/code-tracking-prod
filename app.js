@@ -94,6 +94,44 @@
     }
   }
 
+  function ensureChecklistHydration(scope) {
+    const manager = window.ChecklistState;
+    if (!manager) return;
+    const hydrate = manager.hydrateExistingRoots || manager.hydrateRoots;
+    if (typeof hydrate !== "function") return;
+
+    const run = () => {
+      try {
+        hydrate.call(manager, scope || document);
+      } catch (error) {
+        console.warn("[app] checklist:hydrate", error);
+      }
+    };
+
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(run);
+    } else {
+      setTimeout(run, 0);
+    }
+  }
+
+  function renderWithChecklistHydration(result, scope) {
+    if (result && typeof result.then === "function") {
+      return result
+        .then((value) => {
+          ensureChecklistHydration(scope);
+          return value;
+        })
+        .catch((error) => {
+          ensureChecklistHydration(scope);
+          throw error;
+        });
+    }
+
+    ensureChecklistHydration(scope);
+    return result;
+  }
+
   function ensureRichTextModalCheckboxBehavior() {
     if (typeof document === "undefined") return;
 
@@ -445,6 +483,23 @@
       return previous;
     };
 
+    const updateSkipButtonState = (host, skip) => {
+      if (!host || typeof host.querySelector !== "function") {
+        return;
+      }
+      const button = host.querySelector("[data-checklist-skip-btn]");
+      if (!button) {
+        return;
+      }
+      if (skip) {
+        button.classList.add("is-active");
+        button.setAttribute("aria-pressed", "true");
+      } else {
+        button.classList.remove("is-active");
+        button.setAttribute("aria-pressed", "false");
+      }
+    };
+
     const applySkipState = (input, host, skip, options = {}) => {
       if (!input) {
         return;
@@ -455,6 +510,7 @@
           input.indeterminate = true;
         }
         input.checked = false;
+        input.disabled = true;
         if (input.dataset) {
           input.dataset[CHECKLIST_SKIP_DATA_KEY] = "1";
         }
@@ -469,12 +525,14 @@
           }
           host.setAttribute("data-validated", "skip");
         }
+        updateSkipButtonState(host, true);
         return;
       }
 
       if ("indeterminate" in input) {
         input.indeterminate = false;
       }
+      input.disabled = false;
       if (input.dataset) {
         delete input.dataset[CHECKLIST_SKIP_DATA_KEY];
       }
@@ -501,6 +559,7 @@
         }
         host.setAttribute("data-validated", input.checked ? "true" : "false");
       }
+      updateSkipButtonState(host, false);
     };
 
     document.addEventListener("click", (event) => {
@@ -557,7 +616,11 @@
       updateHiddenState(root);
       const persistFn = window.ChecklistState?.persistRoot;
       if (typeof persistFn === "function") {
-        Promise.resolve(persistFn.call(window.ChecklistState, root)).catch((error) => {
+        const ctxUid = window.AppCtx?.user?.uid || null;
+        const ctxDb = window.AppCtx?.db || null;
+        Promise.resolve(
+          persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })
+        ).catch((error) => {
           console.warn("[app] checklist:persist", error);
         });
       }
@@ -2958,13 +3021,23 @@
         return renderAdmin(ctx.db);
       case "dashboard":
       case "daily":
-        return Modes.renderDaily(ctx, root, { day: qp.get("day"), dateIso: qp.get("d") });
+        return renderWithChecklistHydration(
+          Modes.renderDaily(ctx, root, {
+            day: qp.get("day"),
+            dateIso: qp.get("d"),
+            view: qp.get("view"),
+          }),
+          root
+        );
       case "practice":
-        return Modes.renderPractice(ctx, root, { newSession: qp.get("new") === "1" });
+        return renderWithChecklistHydration(
+          Modes.renderPractice(ctx, root, { newSession: qp.get("new") === "1" }),
+          root
+        );
       case "history":
-        return Modes.renderHistory(ctx, root);
+        return renderWithChecklistHydration(Modes.renderHistory(ctx, root), root);
       case "goals":
-        return Goals.renderGoals(ctx, root);
+        return renderWithChecklistHydration(Goals.renderGoals(ctx, root), root);
       default:
         root.innerHTML = "<div class='card'>Page inconnue.</div>";
     }

@@ -858,7 +858,43 @@ function readChecklistSkipped(value) {
     : Array.isArray(value.skipStates)
     ? value.skipStates
     : [];
-  return raw.map((item) => item === true);
+  const base = raw.map((item) => item === true);
+  if (value.answers && typeof value.answers === "object") {
+    const normalizeSkipValue = (input) => {
+      if (input === true) return true;
+      if (input === false || input == null) return false;
+      if (typeof input === "number") {
+        if (!Number.isFinite(input)) return false;
+        return input !== 0;
+      }
+      if (typeof input === "string") {
+        const normalized = input.trim().toLowerCase();
+        if (!normalized) return false;
+        return ["1", "true", "yes", "y", "on", "skip", "passed"].includes(normalized);
+      }
+      return false;
+    };
+    const answersObject = value.answers;
+    const orderedAnswers = Array.isArray(value.checklistItemIds)
+      ? value.checklistItemIds.map((id) => answersObject?.[id] || null)
+      : Object.values(answersObject);
+    const mergedLength = Math.max(base.length, orderedAnswers.length);
+    return Array.from({ length: mergedLength }, (_, index) => {
+      const existing = Boolean(base[index]);
+      if (existing) {
+        return true;
+      }
+      const entry = orderedAnswers[index];
+      if (!entry || typeof entry !== "object") {
+        return false;
+      }
+      const rawSkip = Object.prototype.hasOwnProperty.call(entry, "skipped")
+        ? entry.skipped
+        : entry.skiped;
+      return normalizeSkipValue(rawSkip);
+    });
+  }
+  return base;
 }
 
 function normalizeChecklistStateArrays(value, length = null) {
@@ -1050,6 +1086,34 @@ function buildChecklistValue(consigne, rawValue, fallbackValue = null) {
   }
   if (Array.isArray(result.skipped) && result.skipped.every((value) => value === false)) {
     delete result.skipped;
+  }
+  const resolvedAnswers = (() => {
+    if (rawValue && typeof rawValue === "object") {
+      return rawValue.answers || rawValue.answerMap || null;
+    }
+    if (fallbackValue && typeof fallbackValue === "object") {
+      return fallbackValue.answers || fallbackValue.answerMap || null;
+    }
+    return null;
+  })();
+  if (resolvedAnswers && typeof resolvedAnswers === "object") {
+    if (resolvedAnswers instanceof Map) {
+      result.answers = Object.fromEntries(resolvedAnswers.entries());
+    } else {
+      result.answers = { ...resolvedAnswers };
+    }
+  }
+  const resolvedSelectedIds = (() => {
+    if (rawValue && typeof rawValue === "object" && Array.isArray(rawValue.selectedIds)) {
+      return rawValue.selectedIds;
+    }
+    if (fallbackValue && typeof fallbackValue === "object" && Array.isArray(fallbackValue.selectedIds)) {
+      return fallbackValue.selectedIds;
+    }
+    return null;
+  })();
+  if (Array.isArray(resolvedSelectedIds) && resolvedSelectedIds.length) {
+    result.selectedIds = resolvedSelectedIds.map((value) => String(value));
   }
   return result;
 }
@@ -2004,13 +2068,30 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         return null;
       }
       if (typeof input === "object") {
-        if (Array.isArray(input.items) || Array.isArray(input.values) || Array.isArray(input.checked) || Array.isArray(input.answers)) {
+        if (
+          Array.isArray(input.items) ||
+          Array.isArray(input.values) ||
+          Array.isArray(input.checked) ||
+          Array.isArray(input.answers)
+        ) {
           const rawItems = input.items || input.values || input.checked || input.answers || [];
+          const rawSkipped = Array.isArray(input.skipped)
+            ? input.skipped
+            : Array.isArray(input.skipStates)
+            ? input.skipStates
+            : null;
           const normalizedItems = rawItems.map((item) => normalizeChecklistFlag(item));
+          const normalizedStates = normalizeChecklistStateArrays(
+            { items: normalizedItems, skipped: Array.isArray(rawSkipped) ? rawSkipped : [] },
+            normalizedItems.length || undefined
+          );
           const labels = coerceChecklistLabels(input.labels || input.itemsLabels || input.titles || null);
-          const structure = { items: normalizedItems };
+          const structure = { items: normalizedStates.items };
           if (labels && labels.length) {
             structure.labels = labels;
+          }
+          if (Array.isArray(rawSkipped)) {
+            structure.skipped = normalizedStates.skipped;
           }
           return structure;
         }
@@ -2033,6 +2114,13 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
               ...nextValue,
               items: nextValue.items.slice(),
               ...(Array.isArray(nextValue.labels) ? { labels: nextValue.labels.slice() } : {}),
+              ...(
+                Array.isArray(nextValue.skipped)
+                  ? { skipped: nextValue.skipped.slice() }
+                  : Array.isArray(nextValue.skipStates)
+                  ? { skipped: nextValue.skipStates.slice() }
+                  : {}
+              ),
             }
           : nextValue;
       }
@@ -2045,15 +2133,42 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const currentLabels = Array.isArray(currentValue.labels) ? currentValue.labels : [];
       const nextLabels = Array.isArray(nextValue.labels) ? nextValue.labels : [];
       const mergedLabels = nextLabels.length ? nextLabels : currentLabels;
+      const nextSkipRaw = Array.isArray(nextValue.skipped)
+        ? nextValue.skipped
+        : Array.isArray(nextValue.skipStates)
+        ? nextValue.skipStates
+        : [];
+      const currentSkipRaw = Array.isArray(currentValue.skipped)
+        ? currentValue.skipped
+        : Array.isArray(currentValue.skipStates)
+        ? currentValue.skipStates
+        : [];
+      const hasNextSkip = Array.isArray(nextValue.skipped) || Array.isArray(nextValue.skipStates);
+      const hasCurrentSkip = Array.isArray(currentValue.skipped) || Array.isArray(currentValue.skipStates);
+      const mergedSkipSource = hasNextSkip ? nextSkipRaw : currentSkipRaw;
+      const normalizedStates = normalizeChecklistStateArrays(
+        { items: mergedItems, skipped: mergedSkipSource },
+        mergedItems.length || undefined
+      );
       const merged = {
         ...currentValue,
         ...nextValue,
-        items: mergedItems.slice(),
+        items: normalizedStates.items.slice(),
       };
       if (mergedLabels.length) {
         merged.labels = mergedLabels.slice();
       } else if (merged.labels) {
         delete merged.labels;
+      }
+      const hasSkipValues = normalizedStates.skipped.some((value) => value === true);
+      if (hasNextSkip || hasCurrentSkip) {
+        if (hasSkipValues) {
+          merged.skipped = normalizedStates.skipped.slice();
+        } else if (merged.skipped) {
+          delete merged.skipped;
+        }
+      } else if (merged.skipped) {
+        delete merged.skipped;
       }
       return merged;
     }
@@ -4706,12 +4821,14 @@ function inputForType(consigne, initialValue = null) {
         const skipClass = skipped ? " checklist-item--skipped" : "";
         const skipAttr = skipped ? ' data-checklist-skipped="1"' : "";
         const inputSkipAttr = skipped ? ' data-checklist-skip="1"' : "";
+        const skipButtonClass = skipped ? "checklist-skip-btn is-active" : "checklist-skip-btn";
+        const skipButtonPressed = skipped ? "true" : "false";
         const checkedAttr = checked ? "checked" : "";
         return `
           <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm${skipClass}" data-checklist-item data-item-id="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-checklist-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" data-checklist-label="${escapeHtml(trimmedLabel)}" data-validated="${validatedAttr}"${skipAttr}>
             <input type="checkbox" class="h-4 w-4" data-checklist-input data-key="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" ${inputSkipAttr} ${checkedAttr}>
             <span class="flex-1">${escapeHtml(label)}</span>
-            <button type="button" class="checklist-skip-btn" data-checklist-skip-btn title="Passer cet élément (ne pas le compter)">⏭</button>
+            <button type="button" class="${skipButtonClass}" data-checklist-skip-btn aria-pressed="${skipButtonPressed}" title="Passer cet élément (ne pas le compter)">⏭</button>
           </label>`;
       })
       .join("");
@@ -4745,6 +4862,18 @@ function inputForType(consigne, initialValue = null) {
             return null;
           };
           const resolveHost = (input) => resolveClosest(input, '[data-checklist-item]');
+          const setSkipButtonState = (host, skip) => {
+            if (!host || typeof host.querySelector !== 'function') return;
+            const button = host.querySelector('[data-checklist-skip-btn]');
+            if (!button) return;
+            if (skip) {
+              button.classList.add('is-active');
+              button.setAttribute('aria-pressed', 'true');
+            } else {
+              button.classList.remove('is-active');
+              button.setAttribute('aria-pressed', 'false');
+            }
+          };
           const isSkipped = (input, host = resolveHost(input)) => {
             if (!input) return false;
             if (input.dataset && input.dataset[SKIP_DATA_KEY] === '1') return true;
@@ -4776,6 +4905,7 @@ function inputForType(consigne, initialValue = null) {
                 input.indeterminate = true;
               }
               input.checked = false;
+              input.disabled = true;
               if (input.dataset) {
                 input.dataset[SKIP_DATA_KEY] = '1';
               }
@@ -4786,6 +4916,7 @@ function inputForType(consigne, initialValue = null) {
                 host.classList.add('checklist-item--skipped');
                 host.setAttribute('data-validated', 'skip');
               }
+              setSkipButtonState(host, true);
             } else {
               let previousChecked = null;
               if ('indeterminate' in input) {
@@ -4808,6 +4939,7 @@ function inputForType(consigne, initialValue = null) {
                   ? previousChecked === '1' || previousChecked === 'true'
                   : Boolean(input.defaultChecked);
               input.checked = Boolean(shouldCheck);
+              input.disabled = false;
               if (host) {
                 host.classList.remove('checklist-item--skipped');
                 if (host.dataset) {
@@ -4816,6 +4948,7 @@ function inputForType(consigne, initialValue = null) {
                 host.removeAttribute('data-checklist-skipped');
                 host.setAttribute('data-validated', input.checked ? 'true' : 'false');
               }
+              setSkipButtonState(host, false);
             }
           };
           const ensureItemIds = () => {
@@ -4848,6 +4981,8 @@ function inputForType(consigne, initialValue = null) {
                   input.dataset[SKIP_DATA_KEY] = '1';
                 }
                 input.setAttribute('data-checklist-skip', '1');
+                input.disabled = true;
+                setSkipButtonState(host, true);
               } else {
                 host.classList.remove('checklist-item--skipped');
                 host.removeAttribute('data-checklist-skipped');
@@ -4856,6 +4991,8 @@ function inputForType(consigne, initialValue = null) {
                   delete input.dataset[SKIP_DATA_KEY];
                 }
                 input.removeAttribute('data-checklist-skip');
+                input.disabled = false;
+                setSkipButtonState(host, false);
               }
             });
           };
@@ -5106,7 +5243,6 @@ function inputForType(consigne, initialValue = null) {
           if (typeof hydrate === 'function') {
             Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key' }))
               .then(() => {
-                hydratePayload();
                 ensureItemIds();
                 sync();
               })
@@ -7830,20 +7966,23 @@ function hasChecklistResponse(consigne, row, value) {
   if (value && typeof value === "object" && value.__hasAnswer === true) {
     return true;
   }
-  const states = readChecklistStates(value);
-  if (states.length > 0) {
+  if (checklistHasSelection(value)) {
+    return true;
+  }
+  const skippedStates = readChecklistSkipped(value);
+  if (skippedStates.some(Boolean)) {
     return true;
   }
   if (row instanceof HTMLElement) {
-    const hidden = row.querySelector(`[name="checklist:${consigne.id}"]`);
-    if (hidden && hidden.dataset.dirty === "1") {
-      return true;
-    }
     const container = row.querySelector(
       `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
     );
-    if (container && container.dataset.checklistDirty === "1") {
-      return true;
+    if (container) {
+      const domState = readChecklistDomState(container);
+      const hasSelected = domState.items.some((checked, index) => checked && !domState.skipped[index]);
+      if (hasSelected || domState.skipped.some(Boolean)) {
+        return true;
+      }
     }
   }
   return false;
@@ -7858,8 +7997,10 @@ function hasValueForConsigne(consigne, value) {
     return typeof value === "string" && value.trim().length > 0;
   }
   if (type === "checklist") {
-    const states = readChecklistStates(value);
-    return states.length > 0;
+    if (checklistHasSelection(value)) {
+      return true;
+    }
+    return readChecklistSkipped(value).some(Boolean);
   }
   if (type === "num") {
     if (value === null || value === undefined || value === "") return false;
@@ -10122,6 +10263,18 @@ const DAILY_ENTRY_TYPES = {
   WEEKLY: "week",
   MONTHLY: "month",
 };
+
+function normalizeDailyView(value) {
+  if (!value) return null;
+  const normalized = String(value).toLowerCase();
+  if (normalized === "week" || normalized === "weekly") {
+    return DAILY_ENTRY_TYPES.WEEKLY;
+  }
+  if (normalized === "month" || normalized === "monthly") {
+    return DAILY_ENTRY_TYPES.MONTHLY;
+  }
+  return null;
+}
 const DAILY_WEEKDAY_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
 const DAILY_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
 const DAILY_SHORT_RANGE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
@@ -10423,12 +10576,39 @@ function entryToDayKey(entry) {
   }
   return null;
 }
+function isWeekBoundaryDay(entry) {
+  if (!entry || entry.type !== DAILY_ENTRY_TYPES.DAY) return false;
+  const date = entry.date instanceof Date ? entry.date : null;
+  if (!date) return false;
+  return date.getDay() === DAILY_WEEK_ENDS_ON;
+}
 function computeNextEntry(entry) {
   if (!entry) return null;
   if (entry.type === DAILY_ENTRY_TYPES.DAY) {
+    if (isWeekBoundaryDay(entry)) {
+      const weekly = createWeeklySummaryEntry(entry.date);
+      if (weekly) return weekly;
+    }
     const nextDate = new Date(entry.date.getTime());
     nextDate.setDate(nextDate.getDate() + 1);
     return createDayEntry(nextDate);
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
+    const monthly = createMonthlySummaryEntry(entry.sunday);
+    if (monthly) return monthly;
+    if (entry.sunday instanceof Date) {
+      const nextDate = new Date(entry.sunday.getTime());
+      nextDate.setDate(nextDate.getDate() + 1);
+      return createDayEntry(nextDate);
+    }
+    return null;
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
+    if (entry.sunday instanceof Date) {
+      const nextDate = new Date(entry.sunday.getTime());
+      nextDate.setDate(nextDate.getDate() + 1);
+      return createDayEntry(nextDate);
+    }
   }
   return null;
 }
@@ -10437,7 +10617,22 @@ function computePrevEntry(entry) {
   if (entry.type === DAILY_ENTRY_TYPES.DAY) {
     const prevDate = new Date(entry.date.getTime());
     prevDate.setDate(prevDate.getDate() - 1);
-    return createDayEntry(prevDate);
+    const prevDay = createDayEntry(prevDate);
+    if (prevDay && isWeekBoundaryDay(prevDay)) {
+      const monthly = createMonthlySummaryEntry(prevDay.date);
+      if (monthly) return monthly;
+      const weekly = createWeeklySummaryEntry(prevDay.date);
+      if (weekly) return weekly;
+    }
+    return prevDay;
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
+    return createDayEntry(entry.sunday);
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
+    const weekly = createWeeklySummaryEntry(entry.sunday);
+    if (weekly) return weekly;
+    return createDayEntry(entry.sunday);
   }
   return null;
 }
@@ -10490,30 +10685,48 @@ async function renderDaily(ctx, root, opts = {}) {
   const dateIso = opts.dateIso || qp.get("d");
   const explicitDate = dateIso ? toStartOfDay(dateIso) : null;
   const requestedDay = normalizeDay(opts.day) || normalizeDay(qp.get("day"));
+  const requestedView = normalizeDailyView(opts.view || qp.get("view"));
 
   let entry = null;
   let selectedDate = null;
   let currentDay = null;
 
-  if (explicitDate) {
-    selectedDate = new Date(explicitDate.getTime());
+  const baseDate = explicitDate
+    ? new Date(explicitDate.getTime())
+    : requestedDay
+    ? (() => {
+        const d = dateForDayFromToday(requestedDay);
+        d.setHours(0, 0, 0, 0);
+        return d;
+      })()
+    : toStartOfDay(new Date());
+
+  if (baseDate) {
+    selectedDate = new Date(baseDate.getTime());
+  }
+
+  if (requestedView === DAILY_ENTRY_TYPES.WEEKLY) {
+    entry = createWeeklySummaryEntry(selectedDate);
+  } else if (requestedView === DAILY_ENTRY_TYPES.MONTHLY) {
+    entry = createMonthlySummaryEntry(selectedDate) || createWeeklySummaryEntry(selectedDate);
+  }
+
+  if (!entry && selectedDate) {
     entry = createDayEntry(selectedDate);
-    currentDay = entry?.dayCode || null;
-  } else if (requestedDay) {
-    selectedDate = dateForDayFromToday(requestedDay);
-    selectedDate.setHours(0, 0, 0, 0);
-    entry = createDayEntry(selectedDate);
-    currentDay = requestedDay;
-  } else {
-    selectedDate = toStartOfDay(new Date());
-    entry = createDayEntry(selectedDate);
-    currentDay = entry?.dayCode || null;
   }
 
   if (!entry) {
     selectedDate = toStartOfDay(new Date());
     entry = createDayEntry(selectedDate);
-    currentDay = entry?.dayCode || null;
+  }
+
+  if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
+    currentDay = entry.dayCode || requestedDay || null;
+    if (entry.date instanceof Date) {
+      selectedDate = new Date(entry.date.getTime());
+    }
+  } else {
+    currentDay = null;
   }
 
   const navLabel = entry?.navLabel || (selectedDate ? formatDailyNavLabel(selectedDate) : "Journalier");
@@ -10596,6 +10809,50 @@ async function renderDaily(ctx, root, opts = {}) {
         title: scopeChoice.label,
       });
     };
+  }
+
+  if (!isDayEntry) {
+    const summaryCard = document.createElement("section");
+    summaryCard.className = "card space-y-4 p-3 sm:p-4";
+    const summaryTitle = entry?.navLabel || "Bilan";
+    const summarySubtitle = entry?.navSubtitle || "";
+    summaryCard.innerHTML = `
+      <header class="space-y-1">
+        <h2 class="text-lg font-semibold">${escapeHtml(summaryTitle)}</h2>
+        ${summarySubtitle ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(summarySubtitle)}</p>` : ""}
+      </header>
+      <div class="space-y-4" data-summary-root>
+        <p class="text-sm text-[var(--muted)]">Chargement du bilan…</p>
+      </div>
+    `;
+    container.appendChild(summaryCard);
+    const summaryRoot = summaryCard.querySelector("[data-summary-root]");
+    if (!summaryRoot) {
+      modesLogger.groupEnd();
+      if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+        window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+      }
+      return;
+    }
+    if (!window.Bilan || typeof window.Bilan.renderSummary !== "function") {
+      summaryRoot.innerHTML = `<p class="text-sm text-[var(--muted)]">Module de bilan indisponible.</p>`;
+      modesLogger.groupEnd();
+      if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+        window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+      }
+      return;
+    }
+    try {
+      await window.Bilan.renderSummary({ ctx, entry, mount: summaryRoot });
+    } catch (error) {
+      console.error("daily.summary.render", error);
+      summaryRoot.innerHTML = `<p class="text-sm text-red-600">Impossible de charger les consignes du bilan.</p>`;
+    }
+    modesLogger.groupEnd();
+    if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+      window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+    }
+    return;
   }
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");

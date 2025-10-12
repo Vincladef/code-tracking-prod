@@ -39,10 +39,47 @@
     db: null,
     uid: null,
   };
-
-  const processedRoots = new WeakSet();
+  const ENABLE_DEBUG_LOGS = true;
+  const stateLogger =
+    typeof GLOBAL.Schema === "object" && GLOBAL.Schema && typeof GLOBAL.Schema.D === "object"
+      ? GLOBAL.Schema.D
+      : null;
+  function debugLog(event, payload, level = "info") {
+    const globalFlag =
+      typeof GLOBAL.__CHECKLIST_STATE_DEBUG__ === "boolean"
+        ? GLOBAL.__CHECKLIST_STATE_DEBUG__
+        : null;
+    const shouldLog = globalFlag === null ? ENABLE_DEBUG_LOGS : globalFlag;
+    if (!shouldLog) {
+      return;
+    }
+    const label = `checklist.state.${event}`;
+    const loggerMethod =
+      stateLogger && typeof stateLogger[level] === "function"
+        ? stateLogger[level].bind(stateLogger)
+        : null;
+    const fallback =
+      level === "warn"
+        ? console.warn
+        : level === "error"
+        ? console.error
+        : console.info;
+    if (loggerMethod) {
+      if (payload === undefined) {
+        loggerMethod(label);
+      } else {
+        loggerMethod(label, payload);
+      }
+      return;
+    }
+    if (payload === undefined) {
+      fallback.call(console, `[checklist-state] ${event}`);
+      return;
+    }
+    fallback.call(console, `[checklist-state] ${event}`, payload);
+  }
   let observer = null;
-
+  const processedRoots = new WeakSet();
   function toMillis(value, fallback = Date.now()) {
     if (typeof value === "number" && Number.isFinite(value)) {
       return value;
@@ -297,13 +334,45 @@
       if (typeof entry !== "object" || Array.isArray(entry)) {
         entry = { value: entry };
       }
+      const skipValue = Object.prototype.hasOwnProperty.call(entry, "skipped")
+        ? entry.skipped
+        : entry.skiped;
       const normalizedEntry = {
         value: normalizeAnswerValue(entry.value),
-        skipped: normalizeSkippedFlag(entry.skipped),
+        skipped: normalizeSkippedFlag(skipValue),
       };
       normalized[key] = normalizedEntry;
     });
     return normalized;
+  }
+
+  function hasAnswerEntries(map) {
+    return map && typeof map === "object" && Object.keys(map).length > 0;
+  }
+
+  function parseChecklistValue(raw) {
+    if (!raw) {
+      return null;
+    }
+    if (raw instanceof Map) {
+      return Object.fromEntries(raw.entries());
+    }
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") {
+          return null;
+        }
+        return parsed;
+      } catch (error) {
+        console.warn("[checklist-state] checklistValue:parse", error);
+        return null;
+      }
+    }
+    if (typeof raw !== "object") {
+      return null;
+    }
+    return raw;
   }
 
   function selectedIdsFromAnswers(answers) {
@@ -387,13 +456,60 @@
   }
 
   function normalizePayload(payload = {}) {
-    const normalizedAnswers = normalizeAnswers(payload.answers || payload.answerMap);
+    const normalizedConsigneId = normalizeConsigneId(payload.consigneId);
+    const rawChecklistValue =
+      parseChecklistValue(payload.checklistValue) ||
+      parseChecklistValue(payload.value) ||
+      parseChecklistValue(payload.normalizedValue);
+    const normalizedFromChecklist = normalizeAnswers(
+      rawChecklistValue && typeof rawChecklistValue === "object"
+        ? rawChecklistValue.answers || rawChecklistValue.answerMap
+        : null
+    );
+    let normalizedAnswers = normalizeAnswers(payload.answers || payload.answerMap);
+    if (hasAnswerEntries(normalizedFromChecklist)) {
+      if (hasAnswerEntries(normalizedAnswers)) {
+        normalizedAnswers = { ...normalizedFromChecklist, ...normalizedAnswers };
+      } else {
+        normalizedAnswers = normalizedFromChecklist;
+      }
+    }
     let selectedIds = normalizeSelectedIds(payload.selectedIds || payload.checked);
-    if (normalizedAnswers && Object.keys(normalizedAnswers).length) {
+    if (rawChecklistValue && Array.isArray(rawChecklistValue.selectedIds) && rawChecklistValue.selectedIds.length) {
+      selectedIds = normalizeSelectedIds([...selectedIds, ...rawChecklistValue.selectedIds]);
+    }
+    if (!selectedIds.length && rawChecklistValue) {
+      const inferred = fallbackSelectedIds(normalizedConsigneId, { value: rawChecklistValue });
+      if (inferred.length) {
+        selectedIds = normalizeSelectedIds([...selectedIds, ...inferred]);
+      }
+    }
+    if (hasAnswerEntries(normalizedAnswers)) {
       const derived = selectedIdsFromAnswers(normalizedAnswers);
       if (derived.length) {
         selectedIds = normalizeSelectedIds([...selectedIds, ...derived]);
       }
+    }
+    const rawSkippedIds = Array.isArray(payload.skippedIds)
+      ? payload.skippedIds
+      : Array.isArray(payload.skipped_ids)
+      ? payload.skipped_ids
+      : null;
+    let skippedIds = normalizeSelectedIds(rawSkippedIds || []);
+    if (rawChecklistValue && Array.isArray(rawChecklistValue.skippedIds) && rawChecklistValue.skippedIds.length) {
+      skippedIds = normalizeSelectedIds([...skippedIds, ...rawChecklistValue.skippedIds]);
+    }
+    if (hasAnswerEntries(normalizedAnswers) && skippedIds.length) {
+      skippedIds.forEach((id) => {
+        const key = String(id || "");
+        if (!key) return;
+        const existing = normalizedAnswers[key];
+        if (existing && typeof existing === "object") {
+          normalizedAnswers[key] = { ...existing, skipped: true };
+        } else {
+          normalizedAnswers[key] = { value: "yes", skipped: true };
+        }
+      });
     }
     const optionsHash = isNonEmptyString(payload.optionsHash)
       ? payload.optionsHash
@@ -411,12 +527,13 @@
     const dateKey = normalizeDateKey(rawDateKey || tsValue);
     return {
       type: "checklist",
-      consigneId: normalizeConsigneId(payload.consigneId),
+      consigneId: normalizedConsigneId,
       selectedIds,
       optionsHash,
       ts: tsValue,
       dateKey,
       answers: normalizedAnswers,
+      skippedIds,
     };
   }
 
@@ -463,7 +580,7 @@
     const timestamp = Date.now();
     if (db && typeof doc === "function" && typeof setDoc === "function") {
       try {
-        const docRef = doc(db, "users", uid, "answers", finalPayload.dateKey, "consignes", finalPayload.consigneId);
+        const docRef = doc(db, "u", uid, "answers", finalPayload.dateKey, "consignes", finalPayload.consigneId);
         await setDoc(
           docRef,
           {
@@ -471,6 +588,7 @@
             checked: finalPayload.selectedIds,
             optionsHash: finalPayload.optionsHash || null,
             answers: finalPayload.answers || {},
+            skippedIds: finalPayload.skippedIds || [],
             updatedAt: timestamp,
             ts: finalPayload.ts,
             dateKey: finalPayload.dateKey,
@@ -483,13 +601,14 @@
     }
     if (db && typeof collection === "function" && typeof addDoc === "function") {
       try {
-        const colRef = collection(db, "users", uid, "history");
+        const colRef = collection(db, "u", uid, "history");
         await addDoc(colRef, {
           type: "checklist",
           consigneId: finalPayload.consigneId,
           selectedIds: finalPayload.selectedIds,
           optionsHash: finalPayload.optionsHash || null,
           dateKey: finalPayload.dateKey,
+          skippedIds: finalPayload.skippedIds || [],
           ts: typeof serverTimestamp === "function" ? serverTimestamp() : new Date(),
         });
       } catch (error) {
@@ -504,11 +623,18 @@
     const todayKey = currentParisDayKey();
     const cached = readCachedSelection(uid, consigneId, todayKey);
     if (cached) {
+      debugLog("loadSelection:cache-hit", {
+        consigneId,
+        dateKey: cached.dateKey,
+        selected: Array.isArray(cached.selectedIds) ? cached.selectedIds.length : 0,
+        hasAnswers: Boolean(cached.answers && Object.keys(cached.answers).length),
+      });
       return cached;
     }
+    debugLog("loadSelection:cache-miss", { consigneId, dateKey: todayKey });
     if (db && typeof doc === "function" && typeof getDoc === "function") {
       try {
-        const ref = doc(db, "users", uid, "answers", todayKey, "consignes", consigneId);
+        const ref = doc(db, "u", uid, "answers", todayKey, "consignes", consigneId);
         const snap = await getDoc(ref);
         if (snapshotHasData(snap)) {
           const data = typeof snap.data === "function" ? snap.data() || {} : snap?.data || {};
@@ -519,8 +645,15 @@
             ts: data.updatedAt ?? data.ts,
             dateKey: data.dateKey || data.dayKey || todayKey,
             answers: data.answers,
+            skippedIds: data.skippedIds,
           });
           cacheSelection(uid, consigneId, normalized);
+          debugLog("loadSelection:firestore-answer", {
+            consigneId,
+            dateKey: normalized.dateKey,
+            selected: normalized.selectedIds.length,
+            hasAnswers: Boolean(normalized.answers && Object.keys(normalized.answers).length),
+          });
           return normalized;
         }
       } catch (error) {
@@ -553,8 +686,15 @@
             ts: data.updatedAt || data.ts || data.createdAt,
             dateKey: data.dayKey || data.dateKey || todayKey,
             answers: data.answers,
+            skippedIds: data.skippedIds,
           });
           cacheSelection(uid, consigneId, normalized);
+          debugLog("loadSelection:responses", {
+            consigneId,
+            dateKey: normalized.dateKey,
+            selected: normalized.selectedIds.length,
+            hasAnswers: Boolean(normalized.answers && Object.keys(normalized.answers).length),
+          });
           return normalized;
         }
       } catch (error) {
@@ -572,7 +712,7 @@
     }
     try {
       const constraints = [
-        collection(db, "users", uid, "history"),
+        collection(db, "u", uid, "history"),
         where("type", "==", "checklist"),
         where("consigneId", "==", consigneId),
         orderBy("ts", "desc"),
@@ -594,8 +734,15 @@
             : data.ts,
         dateKey: data.dateKey || data.dayKey,
         answers: data.answers,
+        skippedIds: data.skippedIds,
       });
       cacheSelection(uid, consigneId, normalized);
+      debugLog("loadSelection:history", {
+        consigneId,
+        dateKey: normalized.dateKey,
+        selected: normalized.selectedIds.length,
+        hasAnswers: Boolean(normalized.answers && Object.keys(normalized.answers).length),
+      });
       return normalized;
     } catch (error) {
       console.warn("[checklist-state] firestore:load", error);
@@ -793,6 +940,23 @@
     return previous;
   }
 
+  function updateSkipButtonState(host, skip) {
+    if (!host || typeof host.querySelector !== "function") {
+      return;
+    }
+    const button = host.querySelector("[data-checklist-skip-btn]");
+    if (!button) {
+      return;
+    }
+    if (skip) {
+      button.classList.add("is-active");
+      button.setAttribute("aria-pressed", "true");
+    } else {
+      button.classList.remove("is-active");
+      button.setAttribute("aria-pressed", "false");
+    }
+  }
+
   function applySkipState(input, host, skip, options = {}) {
     if (!input) {
       return { checkedChanged: false, skipChanged: false };
@@ -808,6 +972,7 @@
         input.indeterminate = true;
       }
       input.checked = false;
+      input.disabled = true;
       if (input.dataset) {
         input.dataset[CHECKLIST_SKIP_DATA_KEY] = "1";
       }
@@ -822,10 +987,12 @@
         }
         host.setAttribute("data-validated", "skip");
       }
+      updateSkipButtonState(host, true);
     } else {
       if ("indeterminate" in input) {
         input.indeterminate = false;
       }
+      input.disabled = false;
       if (input.dataset) {
         delete input.dataset[CHECKLIST_SKIP_DATA_KEY];
       }
@@ -852,6 +1019,7 @@
         }
         host.setAttribute("data-validated", input.checked ? "true" : "false");
       }
+      updateSkipButtonState(host, false);
     }
 
     const afterChecked = Boolean(input.checked);
@@ -880,40 +1048,63 @@
       const skipFlag =
         (entry.input.dataset && entry.input.dataset.checklistSkip === "1") ||
         (entry.host && entry.host.dataset && entry.host.dataset.checklistSkipped === "1");
-      const value = skipFlag || Boolean(entry.input.checked) ? "yes" : "no";
+      let value;
+      if (skipFlag) {
+        value = "skipped";
+      } else {
+        value = Boolean(entry.input.checked) ? "yes" : "no";
+      }
       answers[id] = { value: normalizeAnswerValue(value), skipped: skipFlag };
     });
     return answers;
   }
 
   function applySelection(root, payload, options = {}) {
-    if (!root || !payload) return false;
-    const selectedIds = normalizeSelectedIds(payload.selectedIds);
     const consigneId = normalizeConsigneId(options.consigneId || root.getAttribute("data-consigne-id") || root.dataset?.consigneId);
-    const selectedSet = new Set(selectedIds.map((value) => String(value)));
+    debugLog("applySelection:payload", {
+      consigneId,
+      answers: payload.answers,
+      skippedIds: payload.skippedIds,
+      selectedIds: payload.selectedIds,
+    });
+    if (!root || !payload) return false;
+  const selectedIds = normalizeSelectedIds(payload.selectedIds);
+  // consigneId déjà déclaré ci-dessus
+  const selectedSet = new Set(selectedIds.map((value) => String(value)));
     const answersMap = answersToMap(payload.answers);
+    const skippedSet = new Set(
+      normalizeSelectedIds(payload.skippedIds).map((value) => String(value))
+    );
     const entries = collectChecklistEntries(root, consigneId);
     if (!entries.length) {
       return false;
     }
     let anyChange = false;
     entries.forEach(({ input, host, itemId, legacyId }) => {
-      if (!input) {
-        return;
-      }
+      if (!input) return;
       const primaryId = String(itemId ?? "");
       const legacyKey = legacyId ? String(legacyId) : "";
       const answer =
         (primaryId && answersMap.get(primaryId)) || (legacyKey && answersMap.get(legacyKey)) || null;
-      let shouldCheck =
-        selectedSet.has(primaryId) || (legacyKey ? selectedSet.has(legacyKey) : false);
+      // On restaure l'état skipped même si la case n'est pas cochée
       let shouldSkip = false;
       if (answer) {
         shouldSkip = Boolean(answer.skipped);
-        if (answer.value === "yes" || answer.value === "maybe") {
-          shouldCheck = true;
-        } else if (answer.value === "no") {
-          shouldCheck = false;
+      }
+      if (!shouldSkip && (skippedSet.has(primaryId) || (legacyKey && skippedSet.has(legacyKey)))) {
+        shouldSkip = true;
+      }
+      // On restaure la case cochée uniquement si non skipped
+      let shouldCheck = false;
+      if (!shouldSkip) {
+        if (answer) {
+          if (answer.value === "yes" || answer.value === "maybe") {
+            shouldCheck = true;
+          } else if (answer.value === "no" || answer.value === "skipped") {
+            shouldCheck = false;
+          }
+        } else {
+          shouldCheck = selectedSet.has(primaryId) || (legacyKey ? selectedSet.has(legacyKey) : false);
         }
       }
       const { checkedChanged, skipChanged } = applySkipState(input, host, shouldSkip, {
@@ -970,12 +1161,26 @@
       }
     }
     root.dataset.checklistHydrated = "1";
+    const selectedCount = entries.reduce((count, { input }) => (input && input.checked ? count + 1 : count), 0);
+    const skippedCount = entries.reduce(
+      (count, { input, host }) =>
+        (input?.dataset?.checklistSkip === "1" || host?.dataset?.checklistSkipped === "1") ? count + 1 : count,
+      0
+    );
+    debugLog("applySelection:done", {
+      consigneId,
+      selected: selectedCount,
+      skipped: skippedCount,
+      entries: entries.length,
+    });
     return anyChange;
   }
 
   async function persistRoot(root, options = {}) {
     if (!(root instanceof Element)) return null;
-    const consigneId = normalizeConsigneId(options.consigneId || root.getAttribute("data-consigne-id") || root.dataset?.consigneId);
+    const consigneId = normalizeConsigneId(
+      options.consigneId || root.getAttribute("data-consigne-id") || root.dataset?.consigneId
+    );
     if (!consigneId) {
       return null;
     }
@@ -993,7 +1198,27 @@
       ts: Date.now(),
       answers: buildAnswersFromEntries(entries),
     };
-    const { db, uid } = context;
+    const skippedIds = entries
+      .map(({ input, host, itemId, legacyId }) => {
+        const skipActive =
+          (input?.dataset?.checklistSkip === "1") || (host?.dataset?.checklistSkipped === "1");
+        if (!skipActive) {
+          return null;
+        }
+        const id = String(itemId ?? "").trim();
+        if (id) {
+          return id;
+        }
+        const legacy = String(legacyId ?? "").trim();
+        return legacy || null;
+      })
+      .filter(Boolean);
+    if (skippedIds.length) {
+      payload.skippedIds = normalizeSelectedIds(skippedIds);
+    }
+    const optionUid = normalizeConsigneId(options.uid);
+    const uid = optionUid || context.uid;
+    const db = options.db || context.db;
     if (!uid) {
       return normalizePayload({ consigneId, ...payload });
     }
@@ -1014,10 +1239,110 @@
     const { db, uid } = context;
     if (!uid) return;
     try {
-      const saved = await loadSelection(db, uid, consigneId);
-      if (!saved) return;
+      debugLog("hydrateRoot:start", {
+        consigneId,
+        hasHidden: Boolean(root.querySelector('[data-checklist-state]')),
+      });
+      let saved = await loadSelection(db, uid, consigneId);
+      if (saved) {
+        debugLog("hydrateRoot:loaded", {
+          consigneId,
+          dateKey: saved.dateKey,
+          selected: Array.isArray(saved.selectedIds) ? saved.selectedIds.length : 0,
+          hasAnswers: Boolean(saved.answers && Object.keys(saved.answers).length),
+        });
+      }
+      // Si aucune réponse pour la date courante, chercher la dernière réponse connue (hors date)
+      if (!saved) {
+        debugLog("hydrateRoot:no-current-day", { consigneId });
+        // Cherche dans l'historique localStorage toutes les dates pour ce consigneId
+        const storage = safeLocalStorage();
+        let lastPayload = null;
+        if (storage) {
+          const prefix = `${STORAGE_PREFIX}:${uid}:${consigneId}:`;
+          for (let i = 0; i < storage.length; i++) {
+            const key = storage.key(i);
+            if (key && key.startsWith(prefix)) {
+              try {
+                const parsed = JSON.parse(storage.getItem(key));
+                if (parsed && (!lastPayload || (parsed.ts > lastPayload.ts))) {
+                  lastPayload = parsed;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+        if (lastPayload) {
+          debugLog("hydrateRoot:local-fallback", {
+            consigneId,
+            dateKey: lastPayload.dateKey,
+            selected: Array.isArray(lastPayload.selectedIds) ? lastPayload.selectedIds.length : 0,
+            hasAnswers: Boolean(lastPayload.answers && Object.keys(lastPayload.answers).length),
+          });
+          saved = lastPayload;
+        } else {
+          debugLog("hydrateRoot:no-history", { consigneId });
+          return;
+        }
+      }
       const optionsHash = root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
-      applySelection(root, saved, { consigneId, optionsHash });
+      // On restaure l'état complet si disponible
+      let checklistValue = saved.checklistValue || saved.value || null;
+      if (checklistValue && typeof checklistValue === "string") {
+        try {
+          checklistValue = JSON.parse(checklistValue);
+        } catch (e) {}
+      }
+      if (checklistValue && typeof checklistValue === "object") {
+        // On injecte dans le champ caché pour que le DOM se synchronise
+        const hidden = root.querySelector('input[type="hidden"][data-checklist-state]');
+        if (hidden) {
+          hidden.value = JSON.stringify(checklistValue);
+        }
+        debugLog("hydrateRoot:checklist-value", {
+          consigneId,
+          dateKey: checklistValue.dateKey || saved.dateKey,
+          answers: checklistValue.answers ? Object.keys(checklistValue.answers).length : 0,
+          selected: Array.isArray(checklistValue.items) ? checklistValue.items.filter(Boolean).length : null,
+        });
+        // On force la restauration de l'état answers pour chaque item
+        if (checklistValue.answers && typeof checklistValue.answers === "object") {
+          const items = root.querySelectorAll('[data-checklist-item]');
+          items.forEach((item) => {
+            const input = item.querySelector('[data-checklist-input], input[type="checkbox"]');
+            const key = input?.getAttribute('data-key') || item.getAttribute('data-checklist-key');
+            const answer = checklistValue.answers[key];
+            if (answer) {
+              input.checked = answer.value === 'yes' || answer.value === 'maybe';
+              if (answer.skipped) {
+                input.setAttribute('data-checklist-skip', '1');
+                item.setAttribute('data-checklist-skipped', '1');
+                item.classList.add('checklist-item--skipped');
+              } else {
+                input.removeAttribute('data-checklist-skip');
+                item.removeAttribute('data-checklist-skipped');
+                item.classList.remove('checklist-item--skipped');
+              }
+            } else {
+              // Si pas de réponse, décocher et retirer le skip
+              if (input) input.checked = false;
+              item.removeAttribute('data-checklist-skipped');
+              item.classList.remove('checklist-item--skipped');
+              if (input) input.removeAttribute('data-checklist-skip');
+            }
+          });
+        }
+        applySelection(root, checklistValue, { consigneId, optionsHash });
+      } else {
+        debugLog("hydrateRoot:apply-selection", {
+          consigneId,
+          dateKey: saved.dateKey,
+          selected: Array.isArray(saved.selectedIds) ? saved.selectedIds.length : 0,
+          hasAnswers: Boolean(saved.answers && Object.keys(saved.answers).length),
+        });
+        applySelection(root, saved, { consigneId, optionsHash });
+      }
+      debugLog("hydrateRoot:done", { consigneId });
     } catch (error) {
       console.warn("[checklist-state] hydrate", error);
     }
@@ -1025,7 +1350,9 @@
 
   function hydrateExistingRoots(scope = GLOBAL.document) {
     if (!scope || !scope.querySelectorAll) return;
-    scope.querySelectorAll("[data-checklist-root]").forEach((root) => {
+    const roots = scope.querySelectorAll("[data-checklist-root]");
+    debugLog("hydrateExistingRoots", { count: roots.length });
+    roots.forEach((root) => {
       processedRoots.delete(root);
       hydrateRoot(root);
     });
@@ -1072,19 +1399,63 @@
       if (!entry || entry.type !== "checklist") return;
       const consigneId = normalizeConsigneId(entry.consigneId || entry.consigne_id || entry.consigneID);
       if (!consigneId) return;
-      const selectedIds = normalizeSelectedIds(entry.selectedIds || entry.selected_ids);
+      // On recalcule selectedIds à partir des entrées pour exclure les skipped
+      let selectedIds = readSelectedIdsFromEntries(entriesArr);
+      if (!selectedIds.length) {
+        const fallbackIds = fallbackSelectedIds(consigneId, entry);
+        if (fallbackIds.length) {
+          selectedIds = fallbackIds;
+        }
+      }
+      // Génère entries à partir de la structure de la réponse (entry)
+      let entriesArr = [];
+      if (Array.isArray(entry.entries)) {
+        entriesArr = entry.entries;
+      } else if (entry.value && typeof entry.value === "object" && Array.isArray(entry.value.items)) {
+        // Structure type { value: { items: [...] } }
+        entriesArr = entry.value.items.map((checked, idx) => {
+          const id = entry.value.ids && entry.value.ids[idx] ? entry.value.ids[idx] : `${consigneId}:${idx}`;
+          return {
+            input: { checked: !!checked, dataset: {} },
+            host: { dataset: {} },
+            itemId: id,
+            legacyId: id,
+          };
+        });
+      } else if (Array.isArray(entry.selectedIds)) {
+        entriesArr = entry.selectedIds.map((id) => ({
+          input: { checked: true, dataset: {} },
+          host: { dataset: {} },
+          itemId: id,
+          legacyId: id,
+        }));
+      }
       const optionsHash = entry.optionsHash || entry.options_hash || null;
-      const dateKey =
-        entry.dateKey || entry.dayKey || entry.date_key || entry.day_key || entry.date || null;
-      const ts = entry.updatedAt || entry.ts;
-      tasks.push(
-        saveSelection(db, uid, consigneId, {
-          selectedIds,
-          optionsHash,
-          dateKey,
-          ts,
+      const answers = buildAnswersFromEntries(entriesArr);
+      const skippedIds = entriesArr
+        .map(({ input, host, itemId, legacyId }) => {
+          const skipActive =
+            (input?.dataset?.checklistSkip === "1") || (host?.dataset?.checklistSkipped === "1");
+          if (!skipActive) {
+            return null;
+          }
+          const id = String(itemId ?? "").trim();
+          if (id) {
+            return id;
+          }
+          const legacy = String(legacyId ?? "").trim();
+          return legacy || null;
         })
-      );
+        .filter(Boolean);
+      const payload = {
+        selectedIds,
+        optionsHash,
+        dateKey: entry.dateKey || entry.dayKey || currentParisDayKey(),
+        ts: entry.updatedAt || entry.ts || Date.now(),
+        answers,
+        skippedIds,
+      };
+      tasks.push(saveSelection(db, uid, consigneId, payload));
     });
     if (tasks.length) {
       await Promise.all(tasks);

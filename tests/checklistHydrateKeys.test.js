@@ -342,9 +342,30 @@ function buildChecklistDom(document) {
   const items = Array.isArray(payload.items) ? payload.items : payload;
   assert.strictEqual(items[0], false, "Hydration should leave untouched items unchecked before edits");
 
+  const {
+    root: hiddenRoot,
+    inputA: hiddenInputA,
+    hidden: hiddenField,
+  } = buildChecklistDom(global.document);
+  global.document.body.appendChild(hiddenRoot);
+  await global.window.hydrateChecklist({
+    container: hiddenRoot,
+    consigneId: "consigne-1",
+    itemKeyAttr: "data-key",
+  });
+  hiddenField.value = JSON.stringify({ items: [true, false], skipped: [false, false] });
+  hiddenField.dispatchEvent(new MockEvent("input"));
+  assert.strictEqual(
+    hiddenInputA.checked,
+    true,
+    "Hidden state changes should hydrate checkboxes"
+  );
+
   // Second scenario: ensure answers map hydrates when no selectedIds are present.
   require("../utils/checklist-state.js");
   const manager = global.window.ChecklistState;
+  const originalPersistRoot = manager.persistRoot;
+
   manager.loadSelection = async () => ({
     consigneId: "consigne-1",
     selectedIds: [],
@@ -368,6 +389,136 @@ function buildChecklistDom(document) {
   const payload2 = JSON.parse(hidden2.value || "[]");
   const items2 = Array.isArray(payload2.items) ? payload2.items : payload2;
   assert.strictEqual(items2[1], true, "Serialized state should reflect hydrated answers");
+
+  // Third scenario: ensure skipped ids are reapplied when answers are missing.
+  manager.loadSelection = async () => ({
+    consigneId: "consigne-1",
+    selectedIds: [],
+    skippedIds: ["consigne-1:item-a"],
+    optionsHash: "hash-2",
+  });
+
+  const { root: root3, inputA: inputA3, inputB: inputB3 } = buildChecklistDom(global.document);
+  global.document.body.appendChild(root3);
+
+  await global.window.hydrateChecklist({ container: root3, consigneId: "consigne-1", itemKeyAttr: "data-key" });
+
+  assert.strictEqual(
+    inputA3.dataset.checklistSkip,
+    "1",
+    "Skipped ids should mark the checkbox dataset as skipped",
+  );
+  const hostA3 = inputA3.closest("[data-checklist-item]");
+  assert(hostA3.classList.contains("checklist-item--skipped"), "Skipped ids should add the skipped class");
+  assert.strictEqual(hostA3.getAttribute("data-validated"), "skip", "Skipped ids should mark the item as validated with skip");
+  assert.strictEqual(
+    inputB3.dataset.checklistSkip,
+    undefined,
+    "Non-skipped items should remain unmarked",
+  );
+
+  // Fourth scenario: ensure skipped states are persisted and restored.
+  manager.persistRoot = originalPersistRoot;
+
+  const { root: root4, inputA: inputA4 } = buildChecklistDom(global.document);
+  global.document.body.appendChild(root4);
+
+  manager.applySelection(
+    root4,
+    {
+      consigneId: "consigne-1",
+      selectedIds: [],
+      skippedIds: ["consigne-1:item-a"],
+      answers: {
+        "consigne-1:item-a": { value: "yes", skipped: true },
+        "consigne-1:item-b": { value: "no", skipped: false },
+      },
+    },
+    { consigneId: "consigne-1", showHint: false, markDirty: false }
+  );
+
+  const storage = new Map();
+  global.window.localStorage = {
+    getItem(key) {
+      return storage.has(key) ? storage.get(key) : null;
+    },
+    setItem(key, value) {
+      storage.set(key, String(value));
+    },
+    removeItem(key) {
+      storage.delete(key);
+    },
+  };
+
+  const persisted = await manager.persistRoot(root4, {
+    consigneId: "consigne-1",
+    uid: "user-test",
+  });
+
+  assert(persisted, "Persisted payload should be returned");
+  assert.deepStrictEqual(
+    persisted.skippedIds,
+    ["consigne-1:item-a"],
+    "Persisted payload should include skipped ids",
+  );
+  assert(
+    persisted.answers &&
+      persisted.answers["consigne-1:item-a"] &&
+      persisted.answers["consigne-1:item-a"].skipped === true,
+    "Persisted answers should flag skipped entries",
+  );
+
+  const cacheKey = manager.storageKey("user-test", "consigne-1", persisted.dateKey);
+  const cachedRaw = storage.get(cacheKey);
+  assert(cachedRaw, "Cached payload should be written to localStorage");
+  const cachedParsed = JSON.parse(cachedRaw);
+  assert.deepStrictEqual(
+    cachedParsed.skippedIds,
+    ["consigne-1:item-a"],
+    "Cached payload should serialize skipped ids",
+  );
+  assert(
+    cachedParsed.answers &&
+      cachedParsed.answers["consigne-1:item-a"]?.skipped === true,
+    "Cached payload should serialize skipped answers",
+  );
+
+  const cachedNormalized = manager.readCachedSelection(
+    "user-test",
+    "consigne-1",
+    persisted.dateKey,
+  );
+  assert(cachedNormalized, "Cached selection should be readable");
+  assert.deepStrictEqual(
+    cachedNormalized.skippedIds,
+    ["consigne-1:item-a"],
+    "Cached selection should retain skipped ids",
+  );
+  assert(
+    cachedNormalized.answers &&
+      cachedNormalized.answers["consigne-1:item-a"]?.skipped === true,
+    "Cached selection should retain skipped answers",
+  );
+
+  const { root: root5, inputA: inputA5, inputB: inputB5 } = buildChecklistDom(global.document);
+  global.document.body.appendChild(root5);
+
+  manager.applySelection(root5, persisted, {
+    consigneId: "consigne-1",
+    showHint: false,
+    markDirty: false,
+  });
+
+  assert.strictEqual(
+    inputA5.dataset.checklistSkip,
+    "1",
+    "Rehydrated payload should mark skipped checkbox",
+  );
+  assert.strictEqual(
+    inputB5.dataset.checklistSkip,
+    undefined,
+    "Rehydrated payload should not skip other entries",
+  );
 
   console.log("Checklist hydration tests passed.");
 })().catch((error) => {
