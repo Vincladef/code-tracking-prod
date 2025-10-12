@@ -167,6 +167,23 @@ function testBuildChecklistValueKeepsSkippedStates() {
   );
 }
 
+function testBuildChecklistValueSupportsSkipStatesAlias() {
+  const consigne = { checklistItems: ["Un", "Deux"] };
+  const built = buildChecklistValue(consigne, {
+    items: [true, false],
+    skipStates: [false, true],
+  });
+  assert.deepStrictEqual(
+    built,
+    {
+      labels: ["Un", "Deux"],
+      items: [true, false],
+      skipped: [false, true],
+    },
+    "Les états passés doivent être restaurés même lorsqu’ils proviennent de skipStates",
+  );
+}
+
 function testReadChecklistStatesNormalizesValues() {
   const states = readChecklistStates({ items: [true, "yes", 1, false] });
   assert.deepStrictEqual(
@@ -201,6 +218,7 @@ try {
   testDotColorSignalsAllUncheckedAsKo();
   testBuildChecklistValueRespectsConsigneLabels();
   testBuildChecklistValueKeepsSkippedStates();
+  testBuildChecklistValueSupportsSkipStatesAlias();
   testReadChecklistStatesNormalizesValues();
   testReadChecklistSkippedNormalizesValues();
   testSanitizeChecklistItemsDropsEmptyEntries();
