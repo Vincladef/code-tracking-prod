@@ -3458,9 +3458,6 @@ function consigneActions() {
 const CONSIGNE_ACTION_SELECTOR = ".js-consigne-actions";
 let openConsigneActionsRoot = null;
 let consigneActionsDocListenersBound = false;
-const consigneActionPanelState = new WeakMap();
-let consigneActionsRafHandle = null;
-const CONSIGNE_ACTION_FLOATING_GAP = 8;
 
 function getConsigneActionElements(root) {
   if (!root) return { trigger: null, panel: null };
@@ -3474,9 +3471,6 @@ function removeConsigneActionListeners() {
   if (!consigneActionsDocListenersBound) return;
   document.removeEventListener("click", onDocumentClickConsigneActions, true);
   document.removeEventListener("keydown", onDocumentKeydownConsigneActions, true);
-  window.removeEventListener("resize", onViewportChangeConsigneActions, true);
-  document.removeEventListener("scroll", onViewportChangeConsigneActions, true);
-  cancelConsigneActionsRaf();
   consigneActionsDocListenersBound = false;
 }
 
@@ -3484,8 +3478,6 @@ function ensureConsigneActionListeners() {
   if (consigneActionsDocListenersBound) return;
   document.addEventListener("click", onDocumentClickConsigneActions, true);
   document.addEventListener("keydown", onDocumentKeydownConsigneActions, true);
-  window.addEventListener("resize", onViewportChangeConsigneActions, true);
-  document.addEventListener("scroll", onViewportChangeConsigneActions, true);
   consigneActionsDocListenersBound = true;
 }
 
@@ -3495,7 +3487,6 @@ function closeConsigneActionMenu(root, { focusTrigger = false } = {}) {
   if (panel && !panel.hidden) {
     panel.hidden = true;
     panel.setAttribute("aria-hidden", "true");
-    unfloatConsigneActionPanel(root, panel);
   }
   if (trigger) {
     trigger.setAttribute("aria-expanded", "false");
@@ -3529,9 +3520,6 @@ function openConsigneActionMenu(root) {
   openConsigneActionsRoot = root;
   ensureConsigneActionListeners();
   markConsigneActionState(root, true);
-  if (panel) {
-    floatConsigneActionPanel(root, panel, trigger);
-  }
 }
 
 function toggleConsigneActionMenu(root) {
@@ -3564,133 +3552,6 @@ function onDocumentKeydownConsigneActions(event) {
     closeConsigneActionMenu(openConsigneActionsRoot, { focusTrigger: true });
     event.stopPropagation();
   }
-}
-
-function onViewportChangeConsigneActions() {
-  if (!openConsigneActionsRoot) return;
-  scheduleConsigneActionsReposition();
-}
-
-function scheduleConsigneActionsReposition() {
-  if (consigneActionsRafHandle !== null) return;
-  consigneActionsRafHandle = window.requestAnimationFrame(() => {
-    consigneActionsRafHandle = null;
-    repositionOpenConsigneActionMenu();
-  });
-}
-
-function cancelConsigneActionsRaf() {
-  if (consigneActionsRafHandle === null) return;
-  window.cancelAnimationFrame(consigneActionsRafHandle);
-  consigneActionsRafHandle = null;
-}
-
-function repositionOpenConsigneActionMenu() {
-  if (!openConsigneActionsRoot) return;
-  const { trigger, panel } = getConsigneActionElements(openConsigneActionsRoot);
-  if (!trigger || !panel || panel.hidden || panel.dataset.consigneActionsFloating !== "1") return;
-  positionConsigneActionPanel(openConsigneActionsRoot, trigger, panel);
-}
-
-function floatConsigneActionPanel(root, panel, trigger) {
-  if (!panel || !trigger || !root) return;
-  const doc = root.ownerDocument || document;
-  let state = consigneActionPanelState.get(root);
-  if (!state) {
-    state = {
-      placeholder: doc.createComment("consigne-actions-panel-placeholder"),
-      previousStyle: null,
-    };
-    consigneActionPanelState.set(root, state);
-  }
-  const { placeholder } = state;
-  if (!placeholder.parentNode) {
-    panel.parentNode?.insertBefore(placeholder, panel);
-  }
-  if (!state.previousStyle) {
-    state.previousStyle = {
-      position: panel.style.position || "",
-      left: panel.style.left || "",
-      right: panel.style.right || "",
-      top: panel.style.top || "",
-      bottom: panel.style.bottom || "",
-      visibility: panel.style.visibility || "",
-      zIndex: panel.style.zIndex || "",
-    };
-  }
-  doc.body.appendChild(panel);
-  panel.dataset.consigneActionsFloating = "1";
-  panel.style.position = "fixed";
-  panel.style.right = "auto";
-  panel.style.bottom = "auto";
-  panel.style.left = "0";
-  panel.style.top = "0";
-  panel.style.zIndex = "2147483000";
-  panel.style.visibility = "hidden";
-  positionConsigneActionPanel(root, trigger, panel);
-  panel.style.visibility = state.previousStyle?.visibility || "";
-}
-
-function unfloatConsigneActionPanel(root, panel) {
-  if (!panel || panel.dataset.consigneActionsFloating !== "1") return;
-  const state = consigneActionPanelState.get(root);
-  const placeholder = state?.placeholder;
-  if (placeholder?.parentNode) {
-    placeholder.parentNode.insertBefore(panel, placeholder);
-    placeholder.remove();
-  } else {
-    root.append(panel);
-  }
-  delete panel.dataset.consigneActionsFloating;
-  if (state?.previousStyle) {
-    const prev = state.previousStyle;
-    panel.style.position = prev.position;
-    panel.style.left = prev.left;
-    panel.style.right = prev.right;
-    panel.style.top = prev.top;
-    panel.style.bottom = prev.bottom;
-    panel.style.visibility = prev.visibility;
-    panel.style.zIndex = prev.zIndex;
-  } else {
-    panel.style.position = "";
-    panel.style.left = "";
-    panel.style.right = "";
-    panel.style.top = "";
-    panel.style.bottom = "";
-    panel.style.visibility = "";
-    panel.style.zIndex = "";
-  }
-  panel.style.transform = "";
-  panel.style.width = "";
-  panel.style.height = "";
-  panel.style.maxWidth = "";
-}
-
-function positionConsigneActionPanel(root, trigger, panel) {
-  if (!root || !trigger || !panel) return;
-  const rect = trigger.getBoundingClientRect();
-  const panelRect = panel.getBoundingClientRect();
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  let left = rect.right - panelRect.width;
-  const gap = CONSIGNE_ACTION_FLOATING_GAP;
-  if (left + panelRect.width + gap > viewportWidth) {
-    left = viewportWidth - panelRect.width - gap;
-  }
-  if (left < gap) {
-    left = gap;
-  }
-  let top = rect.bottom + gap;
-  if (top + panelRect.height + gap > viewportHeight) {
-    const above = rect.top - panelRect.height - gap;
-    if (above >= gap) {
-      top = above;
-    } else {
-      top = Math.max(gap, viewportHeight - panelRect.height - gap);
-    }
-  }
-  panel.style.left = `${Math.round(left)}px`;
-  panel.style.top = `${Math.round(top)}px`;
 }
 
 function markConsigneActionState(root, isOpen) {
