@@ -8383,6 +8383,30 @@ function attachConsigneEditor(row, consigne, options = {}) {
                 console.warn('[consigne] persist:skip', e);
               });
             }
+            // Persistance directe de la réponse skip pour la consigne
+            try {
+              const db = window.AppCtx?.db || null;
+              const uid = window.AppCtx?.user?.uid || null;
+              const dayKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso)
+                ? String(window.AppCtx.dateIso)
+                : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
+              if (db && uid) {
+                const answers = [{ consigne, value: { skipped: true }, dayKey }];
+                if (Schema?.saveResponses) {
+                  Schema.saveResponses(db, uid, 'daily', answers)
+                    .then(() => {
+                      modesLogger?.info?.('consigne.skip.persist.saved', { consigneId: consigne?.id ?? null, dayKey });
+                    })
+                    .catch((error) => {
+                      modesLogger?.warn?.('consigne.skip.persist.fail', { consigneId: consigne?.id ?? null, error: String(error && error.message || error) });
+                    });
+                }
+              } else {
+                modesLogger?.warn?.('consigne.skip.persist.skipped', { reason: 'no-db-or-uid' });
+              }
+            } catch (e) {
+              modesLogger?.warn?.('consigne.skip.persist.error', e);
+            }
             try {
               modesLogger?.info?.('consigne.skip.ui', {
                 consigneId: consigne?.id ?? null,
