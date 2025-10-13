@@ -12145,5 +12145,8 @@ if (typeof module !== "undefined" && module.exports) {
     sanitizeChecklistItems,
     readChecklistStates,
     readChecklistSkipped,
+    // Expose select internals for tests (non-breaking for runtime)
+    setConsigneSkipState,
+    normalizeConsigneValueForPersistence,
   };
 }
