@@ -7530,6 +7530,13 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
   enhanceRangeMeters(row);
   initializeChecklistScope(row, { consigneId: consigne?.id ?? null });
   ensureConsigneSkipField(row, consigne);
+  // Applique l’état Passer dès le rendu si la valeur précédente l’indique
+  try {
+    const wasSkipped = !!(initialValue && typeof initialValue === "object" && initialValue.skipped === true);
+    if (wasSkipped) {
+      setConsigneSkipState(row, consigne, true, { emitInputEvents: false, updateUI: true });
+    }
+  } catch (_) {}
   return row;
 }
 
@@ -8396,9 +8403,11 @@ function attachConsigneEditor(row, consigne, options = {}) {
                   Schema.saveResponses(db, uid, 'daily', answers)
                     .then(() => {
                       modesLogger?.info?.('consigne.skip.persist.saved', { consigneId: consigne?.id ?? null, dayKey });
+                      try { showToast && showToast('Passée enregistrée.'); } catch (_) {}
                     })
                     .catch((error) => {
                       modesLogger?.warn?.('consigne.skip.persist.fail', { consigneId: consigne?.id ?? null, error: String(error && error.message || error) });
+                      try { showToast && showToast("Échec de l'enregistrement. Réessaye."); } catch (_) {}
                     });
                 }
               } else {
