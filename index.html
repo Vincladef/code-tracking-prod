@@ -939,10 +939,11 @@
       transition:background .2s ease, border-color .2s ease;
     }
     .consigne-row--actions-open {
-      z-index:200;
+      z-index:9000;
     }
     .consigne-actions--open {
-      z-index:2000;
+      position:relative;
+      z-index:9500;
     }
     .consigne-row:first-child {
       border-top:none;
@@ -1324,7 +1325,7 @@
       border:1px solid rgba(148,163,184,.35);
       border-radius:.75rem;
       box-shadow:0 10px 30px -12px rgba(15,23,42,.25);
-      z-index:1200;
+  z-index:9900;
     }
     .consigne-actions__panel[hidden] {
       display:none !important;
