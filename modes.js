@@ -8288,7 +8288,29 @@ function attachConsigneEditor(row, consigne, options = {}) {
     if (skipBtn) {
       skipBtn.addEventListener("click", (event) => {
         event.preventDefault();
-        setConsigneSkipState(row, consigne, true);
+        // Assure la présence du champ caché et met à jour l'UI immédiatement
+        try {
+          const targetRow = (row && row.isConnected) ? row : overlay.ownerDocument?.querySelector?.(`[data-consigne-id="${String(consigne?.id ?? "")}" ]`);
+          const r = targetRow || row;
+          if (r) {
+            ensureConsigneSkipField(r, consigne);
+            setConsigneSkipState(r, consigne, true);
+            // Sécurise l’UI si un écouteur manquerait
+            applyConsigneSkipState(r, consigne, true, { updateUI: true });
+            // Déclenche une persistance éventuelle pour les checklists imbriquées dans la consigne
+            const root = r.querySelector?.('[data-checklist-root]');
+            const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
+            if (root && typeof persistFn === 'function') {
+              const ctxUid = window.AppCtx?.user?.uid || null;
+              const ctxDb = window.AppCtx?.db || null;
+              Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
+                console.warn('[consigne] persist:skip', e);
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('[consigne] skip:handler', err);
+        }
         updateParentChildAnsweredFlag();
         syncParentAnswered();
         updateSummaryControlState();
