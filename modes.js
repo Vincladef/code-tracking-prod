@@ -4737,23 +4737,25 @@ if (window.Modes?.richText) {
 }
 
 function inputForType(consigne, initialValue = null) {
+  const skipLikeInitial = initialValue && typeof initialValue === "object" && initialValue.skipped === true;
+  const normalizedInitial = skipLikeInitial ? null : initialValue;
   if (consigne.type === "info") {
     return INFO_STATIC_BLOCK;
   }
   if (consigne.type === "short") {
-    const value = escapeHtml(initialValue ?? "");
+    const value = escapeHtml(normalizedInitial ?? "");
     return `<input name="short:${consigne.id}" class="w-full" placeholder="Réponse" value="${value}">`;
   }
   if (consigne.type === "long") {
     return renderRichTextInput(`long:${consigne.id}`, {
       consigneId: consigne.id,
-      initialValue,
+      initialValue: normalizedInitial,
       placeholder: "Réponse",
     });
   }
   if (consigne.type === "num") {
-    const sliderValue = initialValue != null && initialValue !== ""
-      ? Number(initialValue)
+    const sliderValue = normalizedInitial != null && normalizedInitial !== ""
+      ? Number(normalizedInitial)
       : 5;
     const safeValue = Number.isFinite(sliderValue) ? sliderValue : 5;
     return `
@@ -4767,7 +4769,7 @@ function inputForType(consigne, initialValue = null) {
     `;
   }
   if (consigne.type === "likert6") {
-    const current = (initialValue ?? "").toString();
+    const current = (normalizedInitial ?? "").toString();
     // Ordre désiré : Oui → Plutôt oui → Neutre → Plutôt non → Non → Pas de réponse
     return `
       <select name="likert6:${consigne.id}" class="w-full">
@@ -4782,7 +4784,7 @@ function inputForType(consigne, initialValue = null) {
     `;
   }
   if (consigne.type === "likert5") {
-    const current = initialValue != null ? String(initialValue) : "";
+    const current = normalizedInitial != null ? String(normalizedInitial) : "";
     return `
       <select name="likert5:${consigne.id}" class="w-full">
         <option value="" ${current === "" ? "selected" : ""}>— choisir —</option>
@@ -4795,7 +4797,7 @@ function inputForType(consigne, initialValue = null) {
     `;
   }
   if (consigne.type === "yesno") {
-    const current = (initialValue ?? "").toString();
+    const current = (normalizedInitial ?? "").toString();
     return `
       <select name="yesno:${consigne.id}" class="w-full">
         <option value="" ${current === "" ? "selected" : ""}>— choisir —</option>
@@ -4807,17 +4809,17 @@ function inputForType(consigne, initialValue = null) {
   if (consigne.type === "checklist") {
     const items = sanitizeChecklistItems(consigne);
     const initialStates = (() => {
-      if (Array.isArray(initialValue)) {
-        return initialValue.map((value) => value === true);
+      if (Array.isArray(normalizedInitial)) {
+        return normalizedInitial.map((value) => value === true);
       }
-      if (initialValue && typeof initialValue === "object") {
-        return readChecklistStates(initialValue);
+      if (normalizedInitial && typeof normalizedInitial === "object") {
+        return readChecklistStates(normalizedInitial);
       }
       return [];
     })();
     const initialSkipStates = (() => {
-      if (initialValue && typeof initialValue === "object") {
-        return readChecklistSkipped(initialValue);
+      if (normalizedInitial && typeof normalizedInitial === "object") {
+        return readChecklistSkipped(normalizedInitial);
       }
       return [];
     })();
