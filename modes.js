@@ -7073,6 +7073,13 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
     ? { skipped: true }
     : rawValue;
   let status = dotColor(consigne.type, valueForStatus);
+  try {
+    modesLogger?.debug?.("consigne.status.update", {
+      consigneId: consigne?.id ?? null,
+      skip: Boolean(skipFlag),
+      status,
+    });
+  } catch (_) {}
   if (status === "na" && row.dataset.childAnswered === "1") {
     status = "note";
   }
@@ -7376,6 +7383,12 @@ function parseConsigneSkipValue(input) {
 
 function applyConsigneSkipState(row, consigne, shouldSkip, { updateUI = true } = {}) {
   if (!row || !consigne) return;
+  try {
+    modesLogger?.info?.("consigne.skip.apply", {
+      consigneId: consigne?.id ?? null,
+      shouldSkip: Boolean(shouldSkip),
+    });
+  } catch (_) {}
   if (shouldSkip) {
     row.dataset.skipAnswered = "1";
     clearConsigneSummaryMetadata(row);
@@ -7403,6 +7416,13 @@ function ensureConsigneSkipField(row, consigne) {
       const stringId = String(id);
       input.name = `skip:${stringId}`;
       input.setAttribute("data-autosave-field", `consigne:${stringId}:skip`);
+      try {
+        modesLogger?.debug?.("consigne.skip.ensure-field", {
+          consigneId: stringId,
+          name: input.name,
+          autosaveField: input.getAttribute("data-autosave-field"),
+        });
+      } catch (_) {}
     } else {
       input.name = "skip";
     }
@@ -7411,6 +7431,13 @@ function ensureConsigneSkipField(row, consigne) {
   if (!input.dataset.skipHandlerAttached) {
     const sync = () => {
       const shouldSkip = parseConsigneSkipValue(input.value);
+      try {
+        modesLogger?.debug?.("consigne.skip.sync", {
+          consigneId: consigne?.id ?? null,
+          raw: input.value,
+          parsed: shouldSkip,
+        });
+      } catch (_) {}
       applyConsigneSkipState(row, consigne, shouldSkip, { updateUI: true });
     };
     input.addEventListener("input", sync);
@@ -7426,6 +7453,14 @@ function setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents = tru
   applyConsigneSkipState(row, consigne, shouldSkip, { updateUI });
   if (!input) return;
   const nextValue = shouldSkip ? "1" : "";
+  try {
+    modesLogger?.info?.("consigne.skip.set", {
+      consigneId: consigne?.id ?? null,
+      nextValue,
+      emitInputEvents: Boolean(emitInputEvents),
+      updateUI: Boolean(updateUI),
+    });
+  } catch (_) {}
   if (input.value === nextValue) return;
   input.value = nextValue;
   if (emitInputEvents) {
@@ -7440,8 +7475,20 @@ function normalizeConsigneValueForPersistence(consigne, row, value) {
   }
   if (row.dataset && row.dataset.skipAnswered === "1") {
     if (value && typeof value === "object" && value.skipped === true) {
+      try {
+        modesLogger?.debug?.("consigne.skip.normalize", {
+          consigneId: consigne?.id ?? null,
+          alreadySkipped: true,
+        });
+      } catch (_) {}
       return value;
     }
+    try {
+      modesLogger?.info?.("consigne.skip.normalize", {
+        consigneId: consigne?.id ?? null,
+        forceSkipped: true,
+      });
+    } catch (_) {}
     return { skipped: true };
   }
   return value;
@@ -8290,6 +8337,9 @@ function attachConsigneEditor(row, consigne, options = {}) {
         event.preventDefault();
         // Assure la présence du champ caché et met à jour l'UI immédiatement
         try {
+          modesLogger?.group?.("ui.consigne.skip.click", { consigneId: consigne?.id ?? null });
+        } catch (_) {}
+        try {
           const targetRow = (row && row.isConnected) ? row : overlay.ownerDocument?.querySelector?.(`[data-consigne-id="${String(consigne?.id ?? "")}" ]`);
           const r = targetRow || row;
           if (r) {
@@ -8303,10 +8353,23 @@ function attachConsigneEditor(row, consigne, options = {}) {
             if (root && typeof persistFn === 'function') {
               const ctxUid = window.AppCtx?.user?.uid || null;
               const ctxDb = window.AppCtx?.db || null;
+              try {
+                modesLogger?.info?.('consigne.skip.persist.attempt', {
+                  consigneId: consigne?.id ?? null,
+                  hasChecklistRoot: Boolean(root),
+                });
+              } catch (_) {}
               Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
                 console.warn('[consigne] persist:skip', e);
               });
             }
+            try {
+              modesLogger?.info?.('consigne.skip.ui', {
+                consigneId: consigne?.id ?? null,
+                status: r?.dataset?.status || null,
+                skipFlag: r?.dataset?.skipAnswered || null,
+              });
+            } catch (_) {}
           }
         } catch (err) {
           console.warn('[consigne] skip:handler', err);
@@ -8318,6 +8381,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
           options.onSkip({ event, close: closeOverlay, consigne, row });
         }
         closeOverlay();
+        try { modesLogger?.groupEnd?.(); } catch (_) {}
       });
     }
     const validateBtn = overlay.querySelector("[data-consigne-editor-validate]");
@@ -11558,8 +11622,23 @@ async function renderDaily(ctx, root, opts = {}) {
     if (normalizedSummary) {
       Object.assign(answers[0], normalizedSummary);
     }
+    try {
+      modesLogger?.info?.("daily.autosave.enqueue", {
+        consigneId: consigne?.id ?? null,
+        type: consigne?.type || null,
+        hasSummary: !!normalizedSummary,
+        dayKey,
+        skipped: !!(pendingValue && typeof pendingValue === 'object' && pendingValue.skipped === true),
+      });
+    } catch (_) {}
     Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers)
       .then(async () => {
+        try {
+          modesLogger?.info?.("daily.autosave.saved", {
+            consigneId: consigne?.id ?? null,
+            dayKey,
+          });
+        } catch (_) {}
         markAnswerAsSaved(consigne, pendingValue, pendingSerialized, normalizedSummary);
         if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
           try {
@@ -11571,6 +11650,13 @@ async function renderDaily(ctx, root, opts = {}) {
       })
       .catch((error) => {
         console.error("daily.autosave.error", error);
+        try {
+          modesLogger?.warn?.("daily.autosave.fail", {
+            consigneId: consigne?.id ?? null,
+            dayKey,
+            error: String(error && error.message || error) || "unknown",
+          });
+        } catch (_) {}
         notifyAutoSaveError();
         const retryDelay = Math.min(10000, Math.max(2000, resolveAutoSaveDelay(consigne) * 2));
         state.timeout = setTimeout(() => runAutoSave(consigneId), retryDelay);
@@ -11679,6 +11765,15 @@ async function renderDaily(ctx, root, opts = {}) {
       : consigne.type === "checklist"
         ? hasChecklistResponse(consigne, row, normalizedValue)
         : hasValueForConsigne(consigne, normalizedValue);
+    try {
+      modesLogger?.debug?.("consigne.value.change", {
+        consigneId: consigne?.id ?? null,
+        type: consigne?.type || null,
+        skipActive,
+        hasContent,
+        normalizedIsSkipped: !!(normalizedValue && typeof normalizedValue === 'object' && normalizedValue.skipped === true),
+      });
+    } catch (_) {}
     if (!hasContent) {
       previousAnswers.delete(consigne.id);
       if (row) {
