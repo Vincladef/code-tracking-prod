@@ -7541,6 +7541,14 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
 }
 
 function setConsigneRowValue(row, consigne, value) {
+  const skipWasActive = row?.dataset?.skipAnswered === "1";
+  const maintainOrClearSkip = (hasAnswer) => {
+    if (skipWasActive && !hasAnswer) {
+      applyConsigneSkipState(row, consigne, true, { updateUI: true });
+      return;
+    }
+    setConsigneSkipState(row, consigne, false, { updateUI: false });
+  };
   const skipLikeValue = value && typeof value === "object" && value.skipped === true;
   ensureConsigneSkipField(row, consigne);
   if (skipLikeValue) {
@@ -7571,7 +7579,8 @@ function setConsigneRowValue(row, consigne, value) {
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
     }
     updateConsigneStatusUI(row, consigne, normalized);
-    setConsigneSkipState(row, consigne, false, { updateUI: false });
+    const hasContent = richTextHasContent(normalized);
+    maintainOrClearSkip(hasContent);
     return;
   }
   if (consigne?.type === "checklist") {
@@ -7630,13 +7639,15 @@ function setConsigneRowValue(row, consigne, value) {
       delete container.dataset.checklistDirty;
     }
     updateConsigneStatusUI(row, consigne, normalizedValue);
-    setConsigneSkipState(row, consigne, false, { updateUI: false });
+    const hasChecklistAnswer = normalizedValue ? hasChecklistResponse(consigne, row, normalizedValue) : false;
+    maintainOrClearSkip(hasChecklistAnswer);
     return;
   }
   const fields = findConsigneInputFields(row, consigne);
   if (!fields.length) {
     updateConsigneStatusUI(row, consigne, value);
-    setConsigneSkipState(row, consigne, false, { updateUI: false });
+    const hasAnswer = hasValueForConsigne(consigne, value);
+    maintainOrClearSkip(hasAnswer);
     return;
   }
   const normalizedValue = value === null || value === undefined ? "" : value;
@@ -7658,7 +7669,9 @@ function setConsigneRowValue(row, consigne, value) {
     field.dispatchEvent(new Event("input", { bubbles: true }));
     field.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  setConsigneSkipState(row, consigne, false, { updateUI: false });
+  const afterValue = readConsigneCurrentValue(consigne, row);
+  const hasAnswer = hasValueForConsigne(consigne, afterValue);
+  maintainOrClearSkip(hasAnswer);
 }
 
 function attachConsigneEditor(row, consigne, options = {}) {
@@ -8508,11 +8521,11 @@ function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
   const syncSkipStateFromValue = (value) => {
     if (!row || !consigne) return;
     const skipInValue = Boolean(value && typeof value === "object" && value.skipped === true);
+    const skipActive = row?.dataset?.skipAnswered === "1";
     const hasAnswer = consigne.type === "checklist"
       ? hasChecklistResponse(consigne, row, value)
       : hasValueForConsigne(consigne, value);
-    const shouldSkip = skipInValue && !hasAnswer;
-    const skipActive = row?.dataset?.skipAnswered === "1";
+    const shouldSkip = (skipInValue || skipActive) && !hasAnswer;
     if (shouldSkip !== skipActive) {
       setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents: false, updateUI: false });
     }
