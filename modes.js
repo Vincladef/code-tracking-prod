@@ -1525,6 +1525,7 @@ function setupConsignePriorityMenu(row, consigne, ctx) {
 
 function summaryScopeLabel(scope) {
   const normalized = String(scope || "").toLowerCase();
+  if (normalized === "adhoc" || normalized.includes("ponct")) return "Bilan ponctuel";
   if (normalized === "monthly") return "Bilan mensuel";
   if (normalized === "yearly") return "Bilan annuel";
   return "Bilan hebdomadaire";
@@ -1534,6 +1535,7 @@ async function chooseBilanScope(options = {}) {
   const allowMonthly = options.allowMonthly !== false;
   const scopes = [
     { scope: "weekly", label: "Bilan hebdomadaire", description: "Synthèse de la semaine écoulée." },
+    { scope: "adhoc", label: "Bilan ponctuel", description: "Instantané sur une date précise." },
   ];
   if (allowMonthly) {
     scopes.push({ scope: "monthly", label: "Bilan mensuel", description: "Vue d’ensemble du mois." });
@@ -1624,6 +1626,27 @@ function createYearlySummaryEntry(baseDate) {
   };
 }
 
+function createAdhocSummaryEntry(baseDate) {
+  const anchor = toStartOfDay(baseDate || new Date());
+  if (!anchor) return null;
+  const end = new Date(anchor.getTime());
+  end.setHours(23, 59, 59, 999);
+  const dayKey =
+    typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(anchor)
+      : anchor.toISOString().slice(0, 10);
+  return {
+    type: DAILY_ENTRY_TYPES.ADHOC,
+    date: anchor,
+    dayKey,
+    start: anchor,
+    end,
+    navLabel: "Bilan ponctuel",
+    navSubtitle: formatDailyNavLabel(anchor),
+    weekEndsOn: DAILY_WEEK_ENDS_ON,
+  };
+}
+
 function entryForSummaryScope(scope, baseDate = new Date()) {
   const normalized = String(scope || "").toLowerCase();
   if (normalized === "monthly") {
@@ -1631,6 +1654,9 @@ function entryForSummaryScope(scope, baseDate = new Date()) {
   }
   if (normalized === "yearly") {
     return createYearlySummaryEntry(baseDate);
+  }
+  if (normalized === "adhoc" || normalized.includes("ponct")) {
+    return createAdhocSummaryEntry(baseDate);
   }
   return createWeeklySummaryEntry(baseDate);
 }
@@ -5533,6 +5559,21 @@ function buildSummaryMetadataForScope(scope, { date = new Date() } = {}) {
         ? Schema.dayKeyFromDate(baseDate)
         : "";
     result.summaryPeriod = weekKey;
+  } else if (
+    raw === "adhoc" ||
+    raw === "ponctuel" ||
+    raw === "ponctuelle" ||
+    raw === "ponctual" ||
+    raw === "punctual"
+  ) {
+    result.summaryScope = "adhoc";
+    result.summaryLabel = "Bilan ponctuel";
+    const dayKey =
+      typeof Schema?.dayKeyFromDate === "function"
+        ? Schema.dayKeyFromDate(baseDate)
+        : baseDate.toISOString().slice(0, 10);
+    result.summaryPeriod = dayKey;
+    result.summaryDayKey = dayKey;
   } else if (raw === "month" || raw === "monthly") {
     result.summaryScope = "monthly";
     result.summaryLabel = "Bilan mensuel";
@@ -7838,6 +7879,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
       : "";
     const summaryMenuItems = [
       { scope: "weekly", label: "Bilan hebdomadaire" },
+      { scope: "adhoc", label: "Bilan ponctuel" },
       { scope: "monthly", label: "Bilan mensuel" },
       { scope: "yearly", label: "Bilan annuel" },
     ];
@@ -8675,6 +8717,12 @@ function renderHistoryChart(data, { type, mode } = {}) {
             normalizedScope.includes("yearly")
           ) {
             summaryScope = "yearly";
+          } else if (
+            normalizedScope.includes("ponct") ||
+            normalizedScope.includes("adhoc") ||
+            normalizedScope.includes("ad-hoc")
+          ) {
+            summaryScope = "adhoc";
           }
           const hasBilanFlag = Boolean(entry.isBilan) || normalizedScope.includes("bilan");
           const hasSummaryFlag =
@@ -8683,7 +8731,8 @@ function renderHistoryChart(data, { type, mode } = {}) {
             hasBilanFlag ||
             normalizedScope.includes("summary") ||
             normalizedScope.includes("yearly") ||
-            normalizedScope.includes("annuel");
+            normalizedScope.includes("annuel") ||
+            normalizedScope.includes("ponct");
           return {
             date: new Date(entry.date),
             value: Number(entry.value),
@@ -10896,6 +10945,7 @@ const DAILY_ENTRY_TYPES = {
   WEEKLY: "week",
   MONTHLY: "month",
   YEARLY: "year",
+  ADHOC: "adhoc",
 };
 
 function normalizeDailyView(value) {
@@ -11223,6 +11273,12 @@ function entryToDayKey(entry) {
       ? Schema.dayKeyFromDate(anchor)
       : null;
   }
+  if (entry?.type === DAILY_ENTRY_TYPES.ADHOC) {
+    if (typeof entry.dayKey === "string" && entry.dayKey) {
+      return entry.dayKey;
+    }
+    return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.date) : null;
+  }
   return null;
 }
 function isWeekBoundaryDay(entry) {
@@ -11275,6 +11331,14 @@ function computeNextEntry(entry) {
     }
     return null;
   }
+  if (entry.type === DAILY_ENTRY_TYPES.ADHOC) {
+    if (entry.date instanceof Date) {
+      const nextDate = new Date(entry.date.getTime());
+      nextDate.setDate(nextDate.getDate() + 1);
+      return createDayEntry(nextDate);
+    }
+    return null;
+  }
   return null;
 }
 function computePrevEntry(entry) {
@@ -11314,12 +11378,26 @@ function computePrevEntry(entry) {
     }
     return null;
   }
+  if (entry.type === DAILY_ENTRY_TYPES.ADHOC) {
+    if (entry.date instanceof Date) {
+      return createDayEntry(entry.date);
+    }
+    return null;
+  }
   return null;
 }
 function entryToQuery(entry, basePath, qp) {
   const params = new URLSearchParams(qp);
   params.delete("day");
   if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
+    params.delete("view");
+    const key = entryToDayKey(entry);
+    if (key) {
+      params.set("d", key);
+    } else {
+      params.delete("d");
+    }
+  } else if (entry?.type === DAILY_ENTRY_TYPES.ADHOC) {
     params.delete("view");
     const key = entryToDayKey(entry);
     if (key) {

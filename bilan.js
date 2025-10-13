@@ -173,6 +173,40 @@
         weekEndsOn,
       };
     }
+    if (
+      type === "adhoc" ||
+      type === "adhoc_summary" ||
+      type === "ponctuel" ||
+      type === "ponctuelle"
+    ) {
+      const rawDate = entry.date instanceof Date && !Number.isNaN(entry.date.getTime())
+        ? new Date(entry.date.getTime())
+        : typeof entry.dayKey === "string" && entry.dayKey
+        ? new Date(entry.dayKey)
+        : entry.start instanceof Date && !Number.isNaN(entry.start.getTime())
+        ? new Date(entry.start.getTime())
+        : new Date();
+      const base = rawDate instanceof Date && !Number.isNaN(rawDate.getTime()) ? rawDate : new Date();
+      const start = typeof Schema?.startOfDay === "function" ? Schema.startOfDay(base) : new Date(base.getTime());
+      const end = typeof Schema?.endOfDay === "function"
+        ? Schema.endOfDay(base)
+        : (() => {
+            const d = new Date(base.getTime());
+            d.setHours(23, 59, 59, 999);
+            return d;
+          })();
+      const dayKey = entry.dayKey
+        || (typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(base) : base.toISOString().slice(0, 10));
+      return {
+        scope: "adhoc",
+        start,
+        end,
+        key: dayKey,
+        label: entry.navSubtitle || entry.navLabel || "",
+        entry,
+        weekEndsOn,
+      };
+    }
     return null;
   }
 
@@ -945,6 +979,10 @@
       ? "Bilan mensuel"
       : normalizedSummaryScope === "weekly"
       ? "Bilan hebdomadaire"
+      : normalizedSummaryScope === "yearly"
+      ? "Bilan annuel"
+      : normalizedSummaryScope === "adhoc"
+      ? "Bilan ponctuel"
       : "Bilan";
 
     const persist = async (consigne, value, row, key) => {

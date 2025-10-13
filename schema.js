@@ -2297,6 +2297,7 @@ function summaryCollectionName(scope) {
   if (scope === "week" || scope === "weekly") return "weekly_summaries";
   if (scope === "month" || scope === "monthly") return "monthly_summaries";
   if (scope === "year" || scope === "yearly" || scope === "annual") return "yearly_summaries";
+  if (scope === "adhoc" || scope === "ponctuel" || scope === "ponctuelle") return "adhoc_summaries";
   return null;
 }
 
@@ -2315,6 +2316,9 @@ function normalizeSummaryScopeValue(scope) {
     raw === "année"
   ) {
     return "yearly";
+  }
+  if (raw === "adhoc" || raw === "ponctuel" || raw === "ponctuelle" || raw === "ponctual") {
+    return "adhoc";
   }
   return raw;
 }
@@ -2425,6 +2429,8 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
       ? "Bilan hebdomadaire"
       : normalizedSummaryScope === "yearly"
       ? "Bilan annuel"
+      : normalizedSummaryScope === "adhoc"
+      ? "Bilan ponctuel"
       : "Bilan");
   const baseDate = resolveSummaryBaseDate(metadata);
   const createdAtIso = baseDate instanceof Date && !Number.isNaN(baseDate.getTime())
