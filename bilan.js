@@ -534,7 +534,7 @@
       row.classList.add("consigne-row--parent");
     }
     const metaHtml = "";
-    const isManageableFamily = consigne.family === "daily" || consigne.family === "practice";
+    const isManageableFamily = ["daily", "practice", "objective"].includes(consigne.family);
     const actionsHtml = !isChild ? renderConsigneActionsMenu({ disableAdvanced: !isManageableFamily }) : "";
     const descriptionHtml = consigne.summaryMeta?.description
       ? `<p class="consigne-row__description text-sm text-[var(--muted)]">${escapeHtml(consigne.summaryMeta.description)}</p>`
