@@ -3498,7 +3498,7 @@ function closeConsigneActionMenu(root, { focusTrigger = false } = {}) {
     openConsigneActionsRoot = null;
     removeConsigneActionListeners();
   }
-  markConsigneActionRowState(root, false);
+  markConsigneActionState(root, false);
 }
 
 function openConsigneActionMenu(root) {
@@ -3519,7 +3519,7 @@ function openConsigneActionMenu(root) {
   }
   openConsigneActionsRoot = root;
   ensureConsigneActionListeners();
-  markConsigneActionRowState(root, true);
+  markConsigneActionState(root, true);
 }
 
 function toggleConsigneActionMenu(root) {
@@ -3554,11 +3554,14 @@ function onDocumentKeydownConsigneActions(event) {
   }
 }
 
-function markConsigneActionRowState(root, isOpen) {
+function markConsigneActionState(root, isOpen) {
   if (!root || typeof root.closest !== "function") return;
-  const row = root.closest(".consigne-row");
-  if (!row) return;
-  row.classList.toggle("consigne-row--actions-open", Boolean(isOpen));
+  const shouldOpen = Boolean(isOpen);
+  root.classList.toggle("consigne-actions--open", shouldOpen);
+  const host = root.closest(".consigne-row, .consigne-card");
+  if (host) {
+    host.classList.toggle("consigne-row--actions-open", shouldOpen);
+  }
 }
 
 function setupConsigneActionMenus(scope = document, configure) {
