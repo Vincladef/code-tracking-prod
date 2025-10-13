@@ -2430,11 +2430,15 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
   const createdAtIso = baseDate instanceof Date && !Number.isNaN(baseDate.getTime())
     ? baseDate.toISOString()
     : now();
-  const summaryDayKey = (typeof metadata?.summaryDayKey === "string" && metadata.summaryDayKey.trim())
-    ? metadata.summaryDayKey.trim()
-    : baseDate instanceof Date && typeof dayKeyFromDate === "function"
-    ? dayKeyFromDate(baseDate)
-    : "";
+  const summaryDayKeyInput = metadata?.summaryDayKey;
+  let summaryDayKey = "";
+  if (typeof summaryDayKeyInput === "string" && summaryDayKeyInput.trim()) {
+    summaryDayKey = summaryDayKeyInput.trim();
+  } else if (summaryDayKeyInput === false) {
+    summaryDayKey = "";
+  } else if (baseDate instanceof Date && typeof dayKeyFromDate === "function") {
+    summaryDayKey = dayKeyFromDate(baseDate);
+  }
   const periodStartIso = metadata?.start instanceof Date ? metadata.start.toISOString() : null;
   const periodEndIso = metadata?.end instanceof Date ? metadata.end.toISOString() : null;
   const writes = [];
