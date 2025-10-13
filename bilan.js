@@ -291,7 +291,15 @@
     return row;
   }
 
-  function renderConsigneActionsMenu() {
+  function renderConsigneActionsMenu({ disableAdvanced = false } = {}) {
+    const actionBtn = (label, cls = "", { disabled = false } = {}) => {
+      const disabledAttr = disabled ? " disabled" : "";
+      const disabledClass = disabled ? " opacity-50" : "";
+      return `
+        <button type="button" class="btn btn-ghost text-sm text-left ${cls}${disabledClass}" role="menuitem"${disabledAttr}>${label}</button>
+      `;
+    };
+    const disableExtras = disableAdvanced === true;
     return `
       <div class="daily-consigne__actions js-consigne-actions" role="group" aria-label="Actions" style="position:relative;">
         <button type="button"
@@ -306,7 +314,11 @@
              role="menu"
              aria-hidden="true"
              hidden>
-          <button type="button" class="btn btn-ghost text-sm text-left js-history-action" role="menuitem">Historique</button>
+          ${actionBtn("Historique", "js-history-action")}
+          ${actionBtn("Modifier", "js-edit", { disabled: disableExtras })}
+          ${actionBtn("Décaler", "js-delay", { disabled: disableExtras })}
+          ${actionBtn("Activer la répétition espacée", "js-sr-toggle", { disabled: disableExtras })}
+          ${actionBtn("Supprimer", "js-del text-red-600", { disabled: disableExtras })}
         </div>
       </div>
     `;
@@ -522,7 +534,8 @@
       row.classList.add("consigne-row--parent");
     }
     const metaHtml = "";
-    const actionsHtml = !isChild ? renderConsigneActionsMenu() : "";
+    const isManageableFamily = consigne.family === "daily" || consigne.family === "practice";
+    const actionsHtml = !isChild ? renderConsigneActionsMenu({ disableAdvanced: !isManageableFamily }) : "";
     const descriptionHtml = consigne.summaryMeta?.description
       ? `<p class="consigne-row__description text-sm text-[var(--muted)]">${escapeHtml(consigne.summaryMeta.description)}</p>`
       : "";
@@ -591,18 +604,132 @@
     if (!isChild) {
       const actionsRoot = row.querySelector(".js-consigne-actions");
       const historyButton = actionsRoot?.querySelector(".js-history-action");
+      const editButton = actionsRoot?.querySelector(".js-edit");
+      const deleteButton = actionsRoot?.querySelector(".js-del");
+      const delayButton = actionsRoot?.querySelector(".js-delay");
+      const srToggleButton = actionsRoot?.querySelector(".js-sr-toggle");
+      const closeMenuFromNode = typeof Modes.closeConsigneActionMenuFromNode === "function"
+        ? Modes.closeConsigneActionMenuFromNode
+        : () => {};
+      const showToast = typeof Modes.showToast === "function" ? Modes.showToast : () => {};
       if (historyButton && ctx && typeof Modes.openHistory === "function") {
         historyButton.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          if (typeof Modes.closeConsigneActionMenuFromNode === "function") {
-            Modes.closeConsigneActionMenuFromNode(historyButton);
-          }
+          closeMenuFromNode(historyButton);
           Modes.openHistory(ctx, consigne);
         });
       }
+      if (editButton) {
+        if (!isManageableFamily || !ctx || typeof Modes.openConsigneForm !== "function") {
+          editButton.disabled = true;
+        } else {
+          editButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            closeMenuFromNode(editButton);
+            Modes.openConsigneForm(ctx, consigne);
+          });
+        }
+      }
+      if (deleteButton) {
+        if (!isManageableFamily || !ctx) {
+          deleteButton.disabled = true;
+        } else {
+          deleteButton.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            closeMenuFromNode(deleteButton);
+            if (!window.confirm("Supprimer cette consigne ? (historique conservé)")) {
+              return;
+            }
+            try {
+              await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, consigne.id);
+              showToast("Consigne supprimée.");
+              row.remove();
+            } catch (error) {
+              bilanLogger?.warn?.("bilan.consigne.delete", error);
+              showToast("Impossible de supprimer la consigne.");
+            }
+          });
+        }
+      }
+      let srEnabled = consigne?.srEnabled !== false;
+      const updateDelayState = (enabled) => {
+        if (!delayButton) return;
+        const canDelay = isManageableFamily && consigne.family === "daily";
+        delayButton.disabled = !canDelay || !enabled;
+        delayButton.classList.toggle("opacity-50", !canDelay || !enabled);
+        if (!canDelay) {
+          delayButton.title = consigne.family === "practice"
+            ? "Décalage disponible depuis l’onglet Pratique."
+            : "Décalage indisponible pour cette consigne.";
+        } else {
+          delayButton.title = enabled
+            ? "Décaler la prochaine apparition"
+            : "Active la répétition espacée pour décaler";
+        }
+      };
+      updateDelayState(srEnabled);
+      if (delayButton && isManageableFamily && consigne.family === "daily" && ctx) {
+        delayButton.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          closeMenuFromNode(delayButton);
+          if (delayButton.disabled) {
+            showToast("Active la répétition espacée pour utiliser le décalage.");
+            return;
+          }
+          const raw = window.prompt("Décaler de combien de jours ?", "1");
+          if (raw === null) {
+            return;
+          }
+          const value = Number(String(raw).replace(",", "."));
+          const rounded = Math.round(value);
+          if (!Number.isFinite(value) || !Number.isFinite(rounded) || rounded < 1) {
+            showToast("Entre un entier positif.");
+            return;
+          }
+          const amount = rounded;
+          delayButton.disabled = true;
+          try {
+            await Schema.delayConsigne({
+              db: ctx.db,
+              uid: ctx.user.uid,
+              consigne,
+              mode: "daily",
+              amount,
+            });
+            showToast(`Consigne décalée de ${amount} jour${amount > 1 ? "s" : ""}.`);
+          } catch (error) {
+            bilanLogger?.warn?.("bilan.consigne.delay", error);
+            showToast("Impossible de décaler la consigne.");
+          } finally {
+            updateDelayState(srEnabled);
+          }
+        });
+      }
       if (actionsRoot && typeof Modes.setupConsigneActionMenus === "function") {
-        Modes.setupConsigneActionMenus(row);
+        const config = isManageableFamily && ctx && ctx.db && ctx.user?.uid && srToggleButton && !srToggleButton.disabled
+          ? () => ({
+            srToggle: {
+              getEnabled: () => srEnabled,
+              onToggle: async (next) => {
+                try {
+                  await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, { srEnabled: next });
+                  srEnabled = next;
+                  updateDelayState(srEnabled);
+                  return srEnabled;
+                } catch (error) {
+                  bilanLogger?.warn?.("bilan.consigne.sr", error);
+                  showToast("Impossible de mettre à jour la répétition espacée.");
+                  return srEnabled;
+                }
+              },
+            },
+          })
+          : undefined;
+        Modes.setupConsigneActionMenus(row, config);
       }
     }
     return row;

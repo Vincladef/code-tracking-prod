@@ -1613,7 +1613,7 @@ function createYearlySummaryEntry(baseDate) {
   const end = new Date(year, 11, 31, 23, 59, 59, 999);
   const yearKey = typeof Schema?.yearKeyFromDate === "function" ? Schema.yearKeyFromDate(anchor) : String(year);
   return {
-    type: "yearly",
+    type: DAILY_ENTRY_TYPES.YEARLY,
     year,
     yearKey,
     yearStart: start,
@@ -10895,6 +10895,7 @@ const DAILY_ENTRY_TYPES = {
   DAY: "day",
   WEEKLY: "week",
   MONTHLY: "month",
+  YEARLY: "year",
 };
 
 function normalizeDailyView(value) {
@@ -10905,6 +10906,15 @@ function normalizeDailyView(value) {
   }
   if (normalized === "month" || normalized === "monthly") {
     return DAILY_ENTRY_TYPES.MONTHLY;
+  }
+  if (
+    normalized === "year" ||
+    normalized === "yearly" ||
+    normalized === "annuel" ||
+    normalized === "annuelle" ||
+    normalized === "annual"
+  ) {
+    return DAILY_ENTRY_TYPES.YEARLY;
   }
   return null;
 }
@@ -11207,6 +11217,12 @@ function entryToDayKey(entry) {
   if ((entry?.type === DAILY_ENTRY_TYPES.WEEKLY || entry?.type === DAILY_ENTRY_TYPES.MONTHLY) && entry.sunday) {
     return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.sunday) : null;
   }
+  if (entry?.type === DAILY_ENTRY_TYPES.YEARLY) {
+    const anchor = entry.yearEnd instanceof Date ? entry.yearEnd : entry.yearStart;
+    return anchor && typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(anchor)
+      : null;
+  }
   return null;
 }
 function isWeekBoundaryDay(entry) {
@@ -11237,11 +11253,27 @@ function computeNextEntry(entry) {
     return null;
   }
   if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
+    const monthEnd = entry.monthEnd instanceof Date ? entry.monthEnd : null;
+    if (monthEnd && monthEnd.getMonth() === 11) {
+      const yearly = createYearlySummaryEntry(monthEnd);
+      if (yearly) {
+        return yearly;
+      }
+    }
     if (entry.sunday instanceof Date) {
       const nextDate = new Date(entry.sunday.getTime());
       nextDate.setDate(nextDate.getDate() + 1);
       return createDayEntry(nextDate);
     }
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.YEARLY) {
+    const anchor = entry.yearEnd instanceof Date ? entry.yearEnd : entry.yearStart;
+    if (anchor instanceof Date) {
+      const nextDate = new Date(anchor.getTime());
+      nextDate.setDate(nextDate.getDate() + 1);
+      return createDayEntry(nextDate);
+    }
+    return null;
   }
   return null;
 }
@@ -11252,6 +11284,10 @@ function computePrevEntry(entry) {
     prevDate.setDate(prevDate.getDate() - 1);
     const prevDay = createDayEntry(prevDate);
     if (prevDay && isWeekBoundaryDay(prevDay)) {
+      if (prevDay.date instanceof Date && prevDay.date.getMonth() === 11 && prevDay.date.getDate() === 31) {
+        const yearly = createYearlySummaryEntry(prevDay.date);
+        if (yearly) return yearly;
+      }
       const monthly = createMonthlySummaryEntry(prevDay.date);
       if (monthly) return monthly;
       const weekly = createWeeklySummaryEntry(prevDay.date);
@@ -11267,6 +11303,17 @@ function computePrevEntry(entry) {
     if (weekly) return weekly;
     return createDayEntry(entry.sunday);
   }
+  if (entry.type === DAILY_ENTRY_TYPES.YEARLY) {
+    const anchor = entry.yearEnd instanceof Date ? entry.yearEnd : entry.yearStart;
+    if (anchor instanceof Date) {
+      const monthly = createMonthlySummaryEntry(anchor);
+      if (monthly) return monthly;
+      const weekly = createWeeklySummaryEntry(anchor);
+      if (weekly) return weekly;
+      return createDayEntry(anchor);
+    }
+    return null;
+  }
   return null;
 }
 function entryToQuery(entry, basePath, qp) {
@@ -11280,8 +11327,17 @@ function entryToQuery(entry, basePath, qp) {
     } else {
       params.delete("d");
     }
-  } else if (entry?.type === DAILY_ENTRY_TYPES.WEEKLY || entry?.type === DAILY_ENTRY_TYPES.MONTHLY) {
-    params.set("view", entry.type === DAILY_ENTRY_TYPES.WEEKLY ? "week" : "month");
+  } else if (
+    entry?.type === DAILY_ENTRY_TYPES.WEEKLY ||
+    entry?.type === DAILY_ENTRY_TYPES.MONTHLY ||
+    entry?.type === DAILY_ENTRY_TYPES.YEARLY
+  ) {
+    const viewValue = entry.type === DAILY_ENTRY_TYPES.WEEKLY
+      ? "week"
+      : entry.type === DAILY_ENTRY_TYPES.MONTHLY
+      ? "month"
+      : "year";
+    params.set("view", viewValue);
     const key = entryToDayKey(entry);
     if (key) {
       params.set("d", key);
@@ -11342,6 +11398,8 @@ async function renderDaily(ctx, root, opts = {}) {
     entry = createWeeklySummaryEntry(selectedDate);
   } else if (requestedView === DAILY_ENTRY_TYPES.MONTHLY) {
     entry = createMonthlySummaryEntry(selectedDate) || createWeeklySummaryEntry(selectedDate);
+  } else if (requestedView === DAILY_ENTRY_TYPES.YEARLY) {
+    entry = createYearlySummaryEntry(selectedDate);
   }
 
   if (!entry && selectedDate) {
