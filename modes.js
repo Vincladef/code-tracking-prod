@@ -3458,12 +3458,18 @@ function consigneActions() {
 const CONSIGNE_ACTION_SELECTOR = ".js-consigne-actions";
 let openConsigneActionsRoot = null;
 let consigneActionsDocListenersBound = false;
+const consigneActionPanelState = new WeakMap();
+
+const CONSIGNE_ACTION_FLOATING_GAP = 8;
+let consigneActionsRootSeq = 0;
+const consigneActionsRootRegistry = new Map();
 
 function getConsigneActionElements(root) {
   if (!root) return { trigger: null, panel: null };
+  const state = consigneActionPanelState.get(root);
   return {
     trigger: root.querySelector(".js-actions-trigger"),
-    panel: root.querySelector(".js-actions-panel"),
+    panel: state?.panel || root.querySelector(".js-actions-panel"),
   };
 }
 
@@ -3487,6 +3493,7 @@ function closeConsigneActionMenu(root, { focusTrigger = false } = {}) {
   if (panel && !panel.hidden) {
     panel.hidden = true;
     panel.setAttribute("aria-hidden", "true");
+    unfloatConsigneActionPanel(root, panel);
   }
   if (trigger) {
     trigger.setAttribute("aria-expanded", "false");
@@ -3520,6 +3527,9 @@ function openConsigneActionMenu(root) {
   openConsigneActionsRoot = root;
   ensureConsigneActionListeners();
   markConsigneActionState(root, true);
+  if (panel) {
+    floatConsigneActionPanel(root, panel, trigger);
+  }
 }
 
 function toggleConsigneActionMenu(root) {
@@ -3540,18 +3550,21 @@ function toggleConsigneActionMenu(root) {
   }
 }
 
-function onDocumentClickConsigneActions(event) {
-  if (!openConsigneActionsRoot) return;
-  if (openConsigneActionsRoot.contains(event.target)) return;
-  closeConsigneActionMenu(openConsigneActionsRoot);
-}
-
 function onDocumentKeydownConsigneActions(event) {
   if (!openConsigneActionsRoot) return;
   if (event.key === "Escape" || event.key === "Esc") {
     closeConsigneActionMenu(openConsigneActionsRoot, { focusTrigger: true });
     event.stopPropagation();
   }
+}
+
+function onDocumentClickConsigneActions(event) {
+  if (!openConsigneActionsRoot) return;
+  const state = consigneActionPanelState.get(openConsigneActionsRoot);
+  const panel = state?.panel;
+  if (openConsigneActionsRoot.contains(event.target)) return;
+  if (panel && panel.contains(event.target)) return;
+  closeConsigneActionMenu(openConsigneActionsRoot);
 }
 
 function markConsigneActionState(root, isOpen) {
@@ -3564,13 +3577,165 @@ function markConsigneActionState(root, isOpen) {
   }
 }
 
+function floatConsigneActionPanel(root, panel, trigger) {
+  if (!root || !panel || !trigger) return;
+  const doc = root.ownerDocument || document;
+  let state = consigneActionPanelState.get(root);
+  if (!state) {
+    state = {
+      placeholder: doc.createComment("consigne-actions-panel"),
+      previousStyle: null,
+      rafId: null,
+      lastLeft: null,
+      lastTop: null,
+      panel: panel,
+      root,
+    };
+    consigneActionPanelState.set(root, state);
+  } else {
+    state.panel = panel;
+    state.root = root;
+  }
+  if (!state.placeholder.parentNode) {
+    panel.parentNode?.insertBefore(state.placeholder, panel);
+  }
+  if (!panel.dataset.consigneActionsRootId) {
+    const rootId = root.dataset.consigneActionsId;
+    if (rootId) {
+      panel.dataset.consigneActionsRootId = rootId;
+    }
+  }
+  if (!state.previousStyle) {
+    state.previousStyle = {
+      position: panel.style.position || "",
+      left: panel.style.left || "",
+      right: panel.style.right || "",
+      top: panel.style.top || "",
+      bottom: panel.style.bottom || "",
+      transform: panel.style.transform || "",
+      visibility: panel.style.visibility || "",
+      zIndex: panel.style.zIndex || "",
+      width: panel.style.width || "",
+      height: panel.style.height || "",
+      maxWidth: panel.style.maxWidth || "",
+      willChange: panel.style.willChange || "",
+    };
+  }
+  doc.body.appendChild(panel);
+  panel.dataset.consigneActionsFloating = "1";
+  panel.style.position = "fixed";
+  panel.style.right = "auto";
+  panel.style.bottom = "auto";
+  panel.style.left = "0";
+  panel.style.top = "0";
+  panel.style.transform = "translate3d(0, 0, 0)";
+  panel.style.zIndex = "2147483000";
+  panel.style.visibility = "hidden";
+  panel.style.willChange = "transform";
+  state.lastLeft = null;
+  state.lastTop = null;
+  startConsigneActionPanelTracking(state, trigger, panel);
+  panel.style.visibility = "visible";
+}
+
+function unfloatConsigneActionPanel(root, panel) {
+  const state = consigneActionPanelState.get(root);
+  if (!state || !panel || panel.dataset.consigneActionsFloating !== "1") return;
+  stopConsigneActionPanelTracking(state);
+  const { placeholder, previousStyle } = state;
+  if (placeholder?.parentNode) {
+    placeholder.parentNode.replaceChild(panel, placeholder);
+  } else {
+    root.append(panel);
+  }
+  delete panel.dataset.consigneActionsFloating;
+  panel.style.position = previousStyle?.position || "";
+  panel.style.left = previousStyle?.left || "";
+  panel.style.right = previousStyle?.right || "";
+  panel.style.top = previousStyle?.top || "";
+  panel.style.bottom = previousStyle?.bottom || "";
+  panel.style.transform = previousStyle?.transform || "";
+  panel.style.visibility = previousStyle?.visibility || "";
+  panel.style.zIndex = previousStyle?.zIndex || "";
+  panel.style.width = previousStyle?.width || "";
+  panel.style.height = previousStyle?.height || "";
+  panel.style.maxWidth = previousStyle?.maxWidth || "";
+  panel.style.willChange = previousStyle?.willChange || "";
+  state.lastLeft = null;
+  state.lastTop = null;
+}
+
+function startConsigneActionPanelTracking(state, trigger, panel) {
+  stopConsigneActionPanelTracking(state);
+  const update = () => {
+    state.rafId = window.requestAnimationFrame(update);
+    positionConsigneActionPanel(state, trigger, panel);
+  };
+  update();
+}
+
+function stopConsigneActionPanelTracking(state) {
+  if (!state) return;
+  if (state.rafId !== null) {
+    window.cancelAnimationFrame(state.rafId);
+    state.rafId = null;
+  }
+}
+
+function positionConsigneActionPanel(state, trigger, panel) {
+  if (!trigger || !panel) return;
+  if (!trigger.isConnected) {
+    if (state?.root) {
+      closeConsigneActionMenu(state.root);
+    }
+    return;
+  }
+  const triggerRect = trigger.getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const gap = CONSIGNE_ACTION_FLOATING_GAP;
+  const panelRect = panel.getBoundingClientRect();
+  const panelWidth = panel.offsetWidth || panelRect.width || triggerRect.width;
+  const panelHeight = panel.offsetHeight || panelRect.height || triggerRect.height;
+  let left = triggerRect.right - panelWidth;
+  if (left + panelWidth + gap > viewportWidth) {
+    left = viewportWidth - panelWidth - gap;
+  }
+  if (left < gap) {
+    left = gap;
+  }
+  let top = triggerRect.bottom + gap;
+  if (top + panelHeight + gap > viewportHeight) {
+    const above = triggerRect.top - panelHeight - gap;
+    if (above >= gap) {
+      top = above;
+    } else {
+      top = Math.max(gap, viewportHeight - panelHeight - gap);
+    }
+  }
+  const roundedLeft = Math.round(left);
+  const roundedTop = Math.round(top);
+  if (state.lastLeft !== roundedLeft || state.lastTop !== roundedTop) {
+    panel.style.transform = `translate3d(${roundedLeft}px, ${roundedTop}px, 0)`;
+    state.lastLeft = roundedLeft;
+    state.lastTop = roundedTop;
+  }
+}
+
 function setupConsigneActionMenus(scope = document, configure) {
   $$(CONSIGNE_ACTION_SELECTOR, scope).forEach((actionsRoot) => {
     if (actionsRoot.dataset.actionsMenuReady === "1") return;
+    let rootId = actionsRoot.dataset.consigneActionsId;
+    if (!rootId) {
+      rootId = String(++consigneActionsRootSeq);
+      actionsRoot.dataset.consigneActionsId = rootId;
+    }
+    consigneActionsRootRegistry.set(rootId, actionsRoot);
     const config = typeof configure === "function" ? configure(actionsRoot) : configure || {};
     const { trigger, panel } = getConsigneActionElements(actionsRoot);
     if (!trigger || !panel) return;
     actionsRoot.dataset.actionsMenuReady = "1";
+    panel.dataset.consigneActionsRootId = rootId;
     panel.hidden = true;
     panel.setAttribute("aria-hidden", "true");
     trigger.setAttribute("aria-haspopup", "true");
@@ -3648,7 +3813,16 @@ function setupConsigneActionMenus(scope = document, configure) {
 
 function closeConsigneActionMenuFromNode(node, options) {
   if (!node) return;
-  const root = node.closest(CONSIGNE_ACTION_SELECTOR);
+  let root = node.closest(CONSIGNE_ACTION_SELECTOR);
+  if (!root) {
+    const floatingPanel = node.closest("[data-consigne-actions-root-id]");
+    if (floatingPanel) {
+      const id = floatingPanel.dataset.consigneActionsRootId;
+      if (id && consigneActionsRootRegistry.has(id)) {
+        root = consigneActionsRootRegistry.get(id);
+      }
+    }
+  }
   if (root) {
     closeConsigneActionMenu(root, options);
   }
