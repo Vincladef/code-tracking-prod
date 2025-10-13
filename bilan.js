@@ -811,6 +811,7 @@
       label: period.label,
       extras,
       moduleId: "bilan",
+      summaryDayKey: false,
     };
 
     const summaryLabel = normalizedSummaryScope === "monthly"
