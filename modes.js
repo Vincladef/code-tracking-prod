@@ -5081,6 +5081,20 @@ function inputForType(consigne, initialValue = null) {
             }
             root.dataset.checklistDirty = '1';
             sync({ markDirty: true, notify: true });
+            // Déclenche une persistance immédiate via le handler global (app.js)
+            try {
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+            } catch (err) {
+              // En cas d’environnement sans Event standard, fallback direct via le manager
+              const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
+              if (typeof persistFn === 'function') {
+                const ctxUid = window.AppCtx?.user?.uid || null;
+                const ctxDb = window.AppCtx?.db || null;
+                Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
+                  console.warn('[checklist] persist:toggleSkip', e);
+                });
+              }
+            }
           };
           root.addEventListener('click', (event) => {
             const button = resolveClosest(event.target, '[data-checklist-skip-btn]');
@@ -5289,6 +5303,19 @@ function inputForType(consigne, initialValue = null) {
                   host.setAttribute('data-validated', input.checked ? 'true' : 'false');
                 }
               });
+              // Persiste une fois l’état réhydraté pour qu’il survive au rechargement
+              try {
+                const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
+                if (typeof persistFn === 'function') {
+                  const ctxUid = window.AppCtx?.user?.uid || null;
+                  const ctxDb = window.AppCtx?.db || null;
+                  Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
+                    console.warn('[checklist] persist:hydrate', e);
+                  });
+                }
+              } catch (e) {
+                console.warn('[checklist] persist:hydrate', e);
+              }
             } catch (error) {
               console.warn('[checklist] payload', error);
             }
