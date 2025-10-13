@@ -8497,6 +8497,9 @@ function hasChecklistResponse(consigne, row, value) {
 }
 
 function hasValueForConsigne(consigne, value) {
+  if (value && typeof value === "object" && value.skipped === true) {
+    return false;
+  }
   const type = consigne?.type;
   if (type === "long") {
     return richTextHasContent(value);
