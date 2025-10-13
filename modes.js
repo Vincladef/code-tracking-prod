@@ -7439,6 +7439,15 @@ function ensureConsigneSkipField(row, consigne) {
         });
       } catch (_) {}
       applyConsigneSkipState(row, consigne, shouldSkip, { updateUI: true });
+      // Déclenche la persistance applicative (autosave schemas)
+      try {
+        const normalizedValue = shouldSkip ? { skipped: true } : readConsigneCurrentValue(consigne, row);
+        if (typeof handleValueChange === "function") {
+          handleValueChange(consigne, row, normalizedValue);
+        }
+      } catch (e) {
+        modesLogger?.warn?.("consigne.skip.sync.persist", e);
+      }
     };
     input.addEventListener("input", sync);
     input.addEventListener("change", sync);
@@ -8347,6 +8356,17 @@ function attachConsigneEditor(row, consigne, options = {}) {
             setConsigneSkipState(r, consigne, true);
             // Sécurise l’UI si un écouteur manquerait
             applyConsigneSkipState(r, consigne, true, { updateUI: true });
+            // Déclenche une persistance applicative immédiate
+            try {
+              if (typeof handleValueChange === 'function') {
+                handleValueChange(consigne, r, { skipped: true });
+              }
+              if (typeof runAutoSave === 'function' && consigne?.id != null) {
+                runAutoSave(consigne.id);
+              }
+            } catch (e) {
+              modesLogger?.warn?.('consigne.skip.click.persist', e);
+            }
             // Déclenche une persistance éventuelle pour les checklists imbriquées dans la consigne
             const root = r.querySelector?.('[data-checklist-root]');
             const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
@@ -11884,6 +11904,14 @@ async function renderDaily(ctx, root, opts = {}) {
       enhanceRangeMeters(holder);
       initializeChecklistScope(holder, { consigneId: item?.id ?? null });
       ensureConsigneSkipField(row, item);
+      // Si la valeur précédente indiquait un « Passer », applique l’état dès le rendu initial
+      try {
+        const prevVal = previous?.value;
+        const wasSkipped = !!(prevVal && typeof prevVal === "object" && prevVal.skipped === true);
+        if (wasSkipped) {
+          setConsigneSkipState(row, item, true, { emitInputEvents: false, updateUI: true });
+        }
+      } catch (_) {}
     }
     const previousSummary = normalizeSummaryMetadataInput(previous);
     if (previousSummary) {
