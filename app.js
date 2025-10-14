@@ -418,6 +418,14 @@
           items: inputs.map((node) => Boolean(node.checked)),
           skipped: inputs.map((node) => (node.dataset?.checklistSkip === "1" ? true : false)),
         };
+        try {
+          const pageKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso)
+            ? String(window.AppCtx.dateIso)
+            : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
+          if (pageKey) {
+            payload.dateKey = pageKey;
+          }
+        } catch (e) {}
         if (Array.isArray(payload.skipped) && payload.skipped.every((value) => value === false)) {
           delete payload.skipped;
         }
@@ -448,7 +456,7 @@
         if (Object.keys(answers).length) {
           payload.answers = answers;
         }
-        hidden.value = JSON.stringify(payload);
+  hidden.value = JSON.stringify(payload);
         hidden.dataset.dirty = "1";
         hidden.dispatchEvent(new Event("input", { bubbles: true }));
         hidden.dispatchEvent(new Event("change", { bubbles: true }));
@@ -3054,6 +3062,17 @@
         return renderAdmin(ctx.db);
       case "dashboard":
       case "daily":
+        // Propager la date de la page dans le contexte global pour les checklists
+        // afin que l'hydratation et la persistance soient scorées par jour (indépendance samedi/dimanche)
+        {
+          const pageDateIso = (qp.get("d") || "").trim();
+          ctx.dateIso = pageDateIso || null;
+          // AppCtx est une référence à ctx (assignée plus bas), une mutation suffit
+          // mais on s'assure de l'alignement au cas où
+          if (typeof window !== "undefined") {
+            window.AppCtx = ctx;
+          }
+        }
         return renderWithChecklistHydration(
           Modes.renderDaily(ctx, root, {
             day: qp.get("day"),

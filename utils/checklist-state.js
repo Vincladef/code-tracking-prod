@@ -39,17 +39,51 @@
     db: null,
     uid: null,
   };
-  const ENABLE_DEBUG_LOGS = true;
+  // Verbosité par défaut des logs (peut être outrepassée via __CHECKLIST_STATE_DEBUG__, localStorage ou URL)
+  const ENABLE_DEBUG_LOGS = false;
   const stateLogger =
     typeof GLOBAL.Schema === "object" && GLOBAL.Schema && typeof GLOBAL.Schema.D === "object"
       ? GLOBAL.Schema.D
       : null;
   function debugLog(event, payload, level = "info") {
-    const globalFlag =
+    // Ordre de priorité des flags:
+    // 1) window.__CHECKLIST_STATE_DEBUG__ = true/false
+    // 2) localStorage.DEBUG_CHECKLISTS = "1" | "true" | "yes"
+    // 3) ?checklistDebug=1 (dans l'URL)
+    // 4) ENABLE_DEBUG_LOGS (par défaut)
+    const explicitFlag =
       typeof GLOBAL.__CHECKLIST_STATE_DEBUG__ === "boolean"
         ? GLOBAL.__CHECKLIST_STATE_DEBUG__
         : null;
-    const shouldLog = globalFlag === null ? ENABLE_DEBUG_LOGS : globalFlag;
+    let shouldLog = explicitFlag;
+    if (shouldLog === null) {
+      try {
+        const storage = safeLocalStorage();
+        if (storage) {
+          const raw = storage.getItem("DEBUG_CHECKLISTS");
+          if (raw != null) {
+            const v = String(raw).trim().toLowerCase();
+            shouldLog = v === "1" || v === "true" || v === "yes";
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    if (shouldLog === null && typeof GLOBAL.location !== "undefined") {
+      try {
+        const search = String(GLOBAL.location.search || "");
+        const hash = String(GLOBAL.location.hash || "");
+        if (/[?&]checklistDebug=(1|true|yes)\b/i.test(search) || /[?&]checklistDebug=(1|true|yes)\b/i.test(hash)) {
+          shouldLog = true;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    if (shouldLog === null) {
+      shouldLog = ENABLE_DEBUG_LOGS;
+    }
     if (!shouldLog) {
       return;
     }
@@ -188,6 +222,22 @@
     return normalizeDateKey(Date.now());
   }
 
+  // Récupère la date explicite depuis l'URL (?d=YYYY-MM-DD) dans search ou hash
+  function getPageDateKeyFromUrl() {
+    try {
+      const pick = (s) => {
+        if (!s) return null;
+        const m = String(s).match(/[?&]d=(\d{4}-\d{2}-\d{2})\b/i);
+        return m ? normalizeDateKey(m[1]) : null;
+      };
+      const search = typeof GLOBAL.location !== "undefined" ? (GLOBAL.location.search || "") : "";
+      const hash = typeof GLOBAL.location !== "undefined" ? (GLOBAL.location.hash || "") : "";
+      return pick(search) || pick(hash) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function snapshotHasData(snap) {
     const schemaSnapshotExists = GLOBAL.Schema?.snapshotExists;
     if (typeof schemaSnapshotExists === "function") {
@@ -221,6 +271,40 @@
       console.warn("[checklist-state] localStorage inaccessible", error);
       return null;
     }
+  }
+
+  function dispatchHiddenUpdate(element) {
+    if (!element || typeof element.dispatchEvent !== "function") return;
+    const eventInit = { bubbles: true };
+    const createLegacyEvent = (type) => {
+      try {
+        const doc = element.ownerDocument || (typeof document !== "undefined" ? document : null);
+        if (!doc || typeof doc.createEvent !== "function") return null;
+        const evt = doc.createEvent("Event");
+        evt.initEvent(type, true, true);
+        return evt;
+      } catch (error) {
+        return null;
+      }
+    };
+    const fire = (type) => {
+      try {
+        element.dispatchEvent(new Event(type, eventInit));
+      } catch (error) {
+        const legacy = createLegacyEvent(type);
+        if (legacy) {
+          try {
+            element.dispatchEvent(legacy);
+            return;
+          } catch (dispatchError) {
+            console.warn("[checklist-state] hidden:event", dispatchError);
+          }
+        }
+        console.warn("[checklist-state] hidden:event", error);
+      }
+    };
+    fire("input");
+    fire("change");
   }
 
   function isNonEmptyString(value) {
@@ -642,10 +726,14 @@
     return finalPayload;
   }
 
-  async function loadSelection(db, uid, consigneId) {
+  async function loadSelection(db, uid, consigneId, options = {}) {
     if (!uid || !consigneId) return null;
-    const todayKey = currentParisDayKey();
-    const cached = readCachedSelection(uid, consigneId, todayKey);
+    const requestedKey = options && options.dateKey ? normalizeDateKey(options.dateKey) : null;
+    const pageKeyFromCtx = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
+      ? normalizeDateKey(window.AppCtx.dateIso)
+      : null;
+    const dateKey = requestedKey || pageKeyFromCtx || currentParisDayKey();
+    const cached = readCachedSelection(uid, consigneId, dateKey);
     if (cached) {
       debugLog("loadSelection:cache-hit", {
         consigneId,
@@ -655,10 +743,10 @@
       });
       return cached;
     }
-    debugLog("loadSelection:cache-miss", { consigneId, dateKey: todayKey });
+    debugLog("loadSelection:cache-miss", { consigneId, dateKey });
     if (db && typeof doc === "function" && typeof getDoc === "function") {
       try {
-        const ref = doc(db, "u", uid, "answers", todayKey, "consignes", consigneId);
+        const ref = doc(db, "u", uid, "answers", dateKey, "consignes", consigneId);
         const snap = await getDoc(ref);
         if (snapshotHasData(snap)) {
           const data = typeof snap.data === "function" ? snap.data() || {} : snap?.data || {};
@@ -667,7 +755,7 @@
             selectedIds: data.checked || data.selectedIds,
             optionsHash: data.optionsHash,
             ts: data.updatedAt ?? data.ts,
-            dateKey: data.dateKey || data.dayKey || todayKey,
+            dateKey: data.dateKey || data.dayKey || dateKey,
             answers: data.answers,
             skippedIds: data.skippedIds,
           });
@@ -695,7 +783,7 @@
           query(
             collection(db, "u", uid, "responses"),
             where("consigneId", "==", consigneId),
-            where("dayKey", "==", todayKey),
+            where("dayKey", "==", dateKey),
             limit(1)
           )
         );
@@ -708,7 +796,7 @@
             selectedIds,
             optionsHash: data.optionsHash,
             ts: data.updatedAt || data.ts || data.createdAt,
-            dateKey: data.dayKey || data.dateKey || todayKey,
+            dateKey: data.dayKey || data.dateKey || dateKey,
             answers: data.answers,
             skippedIds: data.skippedIds,
           });
@@ -724,6 +812,13 @@
       } catch (error) {
         console.warn("[checklist-state] firestore:responses:load", error);
       }
+    }
+    // IMPORTANT: si une date explicite est fournie (par options.dateKey ou AppCtx.dateIso),
+    // on NE fait PAS de fallback sur l'historique d'autres jours. Cela garantit l'isolation par jour.
+    const hasExplicitDate = Boolean(requestedKey || pageKeyFromCtx);
+    if (hasExplicitDate) {
+      debugLog("loadSelection:skip-history-fallback", { consigneId, dateKey });
+      return null;
     }
     if (!db ||
       typeof collection !== "function" ||
@@ -1157,6 +1252,15 @@
           return skipDataset || skipHost;
         }),
         answers: buildAnswersFromEntries(entries),
+        // Ajoute la clé de date pour empêcher la réutilisation entre jours
+        dateKey: (function() {
+          const fromPayload = payload && payload.dateKey ? normalizeDateKey(payload.dateKey) : null;
+          const fromUrl = (function(){ try { return getPageDateKeyFromUrl(); } catch(_) { return null; } })();
+          const fromCtx = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
+            ? normalizeDateKey(window.AppCtx.dateIso)
+            : null;
+          return fromPayload || fromUrl || fromCtx || currentParisDayKey();
+        })(),
       };
       if (Array.isArray(payloadState.skipped) && payloadState.skipped.every((value) => value === false)) {
         delete payloadState.skipped;
@@ -1165,7 +1269,15 @@
         delete payloadState.answers;
       }
       try {
-        hidden.value = JSON.stringify(payloadState);
+        const nextValue = JSON.stringify(payloadState);
+        const previousValue = hidden.value;
+        hidden.value = nextValue;
+        if (typeof hidden.setAttribute === "function") {
+          hidden.setAttribute("value", nextValue);
+        }
+        if (previousValue !== nextValue) {
+          dispatchHiddenUpdate(hidden);
+        }
       } catch (error) {
         console.warn("[checklist-state] hidden:update", error);
       }
@@ -1218,10 +1330,19 @@
     const selectedIds = readSelectedIdsFromEntries(entries);
     const optionsHash =
       options.optionsHash || root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
+    // Date de persistance: ?d=... (URL) > AppCtx > today > options
+    const effectiveDateKey = (function() {
+      const fromOpt = options.dateKey ? normalizeDateKey(options.dateKey) : null;
+      const fromUrl = (function(){ try { return getPageDateKeyFromUrl(); } catch(_) { return null; } })();
+      const fromCtx = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
+        ? normalizeDateKey(window.AppCtx.dateIso)
+        : null;
+      return normalizeDateKey(fromOpt || fromUrl || fromCtx || currentParisDayKey());
+    })();
     const payload = {
       selectedIds,
       optionsHash,
-      dateKey: options.dateKey || currentParisDayKey(),
+      dateKey: effectiveDateKey,
       ts: Date.now(),
       answers: buildAnswersFromEntries(entries),
     };
@@ -1246,6 +1367,13 @@
     const optionUid = normalizeConsigneId(options.uid);
     const uid = optionUid || context.uid;
     const db = options.db || context.db;
+    debugLog("persistRoot", {
+      consigneId,
+      dateKey: payload.dateKey,
+      selected: selectedIds.length,
+      skipped: (payload.skippedIds && payload.skippedIds.length) || 0,
+      answers: Object.keys(payload.answers || {}).length,
+    });
     if (!uid) {
       return normalizePayload({ consigneId, ...payload });
     }
@@ -1270,7 +1398,14 @@
         consigneId,
         hasHidden: Boolean(root.querySelector('[data-checklist-state]')),
       });
-      let saved = await loadSelection(db, uid, consigneId);
+      // Déterminer la date de page: priorité à ?d= dans l'URL, puis AppCtx, sinon today
+      const pageKeyFromUrl = getPageDateKeyFromUrl();
+      const pageKeyFromCtx = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
+        ? normalizeDateKey(window.AppCtx.dateIso)
+        : null;
+      const requestedKey = pageKeyFromUrl || pageKeyFromCtx || currentParisDayKey();
+
+      let saved = await loadSelection(db, uid, consigneId, { dateKey: requestedKey });
       if (saved) {
         debugLog("hydrateRoot:loaded", {
           consigneId,
@@ -1279,10 +1414,30 @@
           hasAnswers: Boolean(saved.answers && Object.keys(saved.answers).length),
         });
       }
-      // Si aucune réponse pour la date courante, chercher la dernière réponse connue (hors date)
+      // Si aucune réponse pour la date courante et qu'une date explicite est présente
+      // (via URL ou contexte), réinitialiser l'UI vide pour ce jour et sortir.
+      if (!saved && (pageKeyFromUrl || pageKeyFromCtx)) {
+        debugLog("hydrateRoot:no-current-day-reset", { consigneId, dateKey: requestedKey });
+        applySelection(
+          root,
+          { selectedIds: [], answers: {}, skippedIds: [], dateKey: requestedKey },
+          {
+            consigneId,
+            optionsHash: root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null,
+            markDirty: false,
+            showHint: false,
+          }
+        );
+        // Nettoyer tous les flags dirty résiduels
+        const hiddenReset = root.querySelector('[data-checklist-state]');
+        if (hiddenReset && hiddenReset.dataset) delete hiddenReset.dataset.dirty;
+        if (root.dataset) delete root.dataset.checklistDirty;
+        root.removeAttribute("data-checklist-dirty");
+        return;
+      }
+      // Sinon (pas de date explicite), fallback localStorage pour compat (ex. écran sans contexte de date)
       if (!saved) {
         debugLog("hydrateRoot:no-current-day", { consigneId });
-        // Cherche dans l'historique localStorage toutes les dates pour ce consigneId
         const storage = safeLocalStorage();
         let lastPayload = null;
         if (storage) {
@@ -1292,25 +1447,24 @@
             if (key && key.startsWith(prefix)) {
               try {
                 const parsed = JSON.parse(storage.getItem(key));
-                if (parsed && (!lastPayload || (parsed.ts > lastPayload.ts))) {
+                if (parsed && (!lastPayload || parsed.ts > lastPayload.ts)) {
                   lastPayload = parsed;
                 }
               } catch (e) {}
             }
           }
         }
-        if (lastPayload) {
-          debugLog("hydrateRoot:local-fallback", {
-            consigneId,
-            dateKey: lastPayload.dateKey,
-            selected: Array.isArray(lastPayload.selectedIds) ? lastPayload.selectedIds.length : 0,
-            hasAnswers: Boolean(lastPayload.answers && Object.keys(lastPayload.answers).length),
-          });
-          saved = lastPayload;
-        } else {
+        if (!lastPayload) {
           debugLog("hydrateRoot:no-history", { consigneId });
           return;
         }
+        debugLog("hydrateRoot:local-fallback", {
+          consigneId,
+          dateKey: lastPayload.dateKey,
+          selected: Array.isArray(lastPayload.selectedIds) ? lastPayload.selectedIds.length : 0,
+          hasAnswers: Boolean(lastPayload.answers && Object.keys(lastPayload.answers).length),
+        });
+        saved = lastPayload;
       }
       const optionsHash = root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
       // On restaure l'état complet si disponible
@@ -1324,7 +1478,16 @@
         // On injecte dans le champ caché pour que le DOM se synchronise
         const hidden = root.querySelector('input[type="hidden"][data-checklist-state]');
         if (hidden) {
-          hidden.value = JSON.stringify(checklistValue);
+          try {
+            const enriched = { ...checklistValue };
+            if (!enriched.dateKey) {
+              const pageKey = pageKeyFromUrl || pageKeyFromCtx || null;
+              enriched.dateKey = pageKey || saved.dateKey || currentParisDayKey();
+            }
+            hidden.value = JSON.stringify(enriched);
+          } catch (e) {
+            hidden.value = JSON.stringify(checklistValue);
+          }
         }
         debugLog("hydrateRoot:checklist-value", {
           consigneId,
@@ -1359,7 +1522,7 @@
             }
           });
         }
-        applySelection(root, checklistValue, { consigneId, optionsHash });
+        applySelection(root, checklistValue, { consigneId, optionsHash, markDirty: false, showHint: false });
       } else {
         debugLog("hydrateRoot:apply-selection", {
           consigneId,
@@ -1367,8 +1530,13 @@
           selected: Array.isArray(saved.selectedIds) ? saved.selectedIds.length : 0,
           hasAnswers: Boolean(saved.answers && Object.keys(saved.answers).length),
         });
-        applySelection(root, saved, { consigneId, optionsHash });
+        applySelection(root, saved, { consigneId, optionsHash, markDirty: false, showHint: false });
       }
+      // Nettoyer tout flag dirty résiduel
+      const hidden = root.querySelector('[data-checklist-state]');
+      if (hidden && hidden.dataset) delete hidden.dataset.dirty;
+      if (root.dataset) delete root.dataset.checklistDirty;
+      root.removeAttribute("data-checklist-dirty");
       debugLog("hydrateRoot:done", { consigneId });
     } catch (error) {
       console.warn("[checklist-state] hydrate", error);
