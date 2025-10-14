@@ -422,6 +422,82 @@
     };
   }
 
+  function objectiveEntryDayKeyFromPeriod(period) {
+    if (!period) return "";
+    const fallback = new Date();
+    const end = period.end instanceof Date && !Number.isNaN(period.end.getTime()) ? period.end : null;
+    const start = period.start instanceof Date && !Number.isNaN(period.start.getTime()) ? period.start : null;
+    const baseDate = end || start || fallback;
+    if (typeof Schema?.dayKeyFromDate === "function") {
+      try {
+        return Schema.dayKeyFromDate(baseDate);
+      } catch (error) {
+        bilanLogger?.warn?.("bilan.objectives.dayKey", error);
+      }
+    }
+    if (baseDate instanceof Date && !Number.isNaN(baseDate.getTime())) {
+      return baseDate.toISOString().slice(0, 10);
+    }
+    return "";
+  }
+
+  function normalizeObjectiveSummaryValue(consigne, value) {
+    if (!consigne || consigne.family !== "objective") return null;
+    if (value === null || value === undefined) return null;
+    if (typeof value === "object") return null;
+    const type = consigne.type;
+    if (type === "likert6" || type === "likert5" || type === "num") {
+      const num = Number(value);
+      if (Number.isFinite(num)) {
+        return num;
+      }
+      return null;
+    }
+    if (type === "yesno") {
+      const normalized = String(value).trim().toLowerCase();
+      if (!normalized) return null;
+      if (["oui", "yes", "true"].includes(normalized)) return 5;
+      if (["non", "no", "false"].includes(normalized)) return 1;
+      return null;
+    }
+    if (typeof value === "string" && value.trim()) {
+      const num = Number(value);
+      if (Number.isFinite(num)) {
+        return num;
+      }
+    }
+    return null;
+  }
+
+  async function syncObjectiveEntryFromSummary(ctx, consigne, value, hasValue, period) {
+    if (!consigne || consigne.family !== "objective") return;
+    const db = ctx?.db;
+    const uid = ctx?.user?.uid;
+    if (!db || !uid) return;
+    const goal = consigne.originalGoal || null;
+    const objectiveId = goal?.id || consigne.id;
+    if (!objectiveId) return;
+    const dayKey = objectiveEntryDayKeyFromPeriod(period);
+    if (!dayKey) return;
+    try {
+      if (!hasValue) {
+        if (typeof Schema?.deleteObjectiveEntry === "function") {
+          await Schema.deleteObjectiveEntry(db, uid, objectiveId, dayKey);
+        } else if (typeof Schema?.saveObjectiveEntry === "function") {
+          await Schema.saveObjectiveEntry(db, uid, objectiveId, dayKey, null);
+        }
+        return;
+      }
+      const normalizedValue = normalizeObjectiveSummaryValue(consigne, value);
+      if (normalizedValue === null || normalizedValue === undefined) {
+        return;
+      }
+      await Schema.saveObjectiveEntry(db, uid, objectiveId, dayKey, normalizedValue);
+    } catch (error) {
+      bilanLogger?.warn?.("bilan.objectives.sync", { error, objectiveId, dayKey });
+    }
+  }
+
   function objectiveMatchesScope(goal, period) {
     if (!period) return false;
     if (!goal) return false;
@@ -1021,6 +1097,7 @@
             key,
             metadataForPersist,
           );
+          await syncObjectiveEntryFromSummary(ctx, consigne, value, false, period);
           return;
         }
 
@@ -1044,6 +1121,7 @@
           ],
           metadataForPersist,
         );
+        await syncObjectiveEntryFromSummary(ctx, consigne, value, true, period);
       } catch (error) {
         bilanLogger?.error?.("bilan.summary.persist", { error, key });
       }

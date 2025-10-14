@@ -2271,6 +2271,12 @@ async function saveObjectiveEntry(db, uid, objectifId, dateIso, value) {
   await setDoc(ref, { v: value, at: serverTimestamp() }, { merge: true });
 }
 
+async function deleteObjectiveEntry(db, uid, objectifId, dateIso) {
+  if (!db || !uid || !objectifId || !dateIso) return;
+  const ref = doc(db, "u", uid, "objectiveEntries", objectifId, "entries", dateIso);
+  await deleteDoc(ref);
+}
+
 async function getObjectiveEntry(db, uid, objectifId, dateIso) {
   if (!db || !uid || !objectifId || !dateIso) return null;
   try {
@@ -2786,6 +2792,7 @@ Object.assign(Schema, {
   linkConsigneToObjective,
   listConsignesByObjective,
   saveObjectiveEntry,
+  deleteObjectiveEntry,
   getObjectiveEntry,
   loadObjectiveEntriesRange,
   loadSummaryAnswers,
