@@ -366,6 +366,35 @@ function normalizeParentId(value) {
   return trimmed ? String(trimmed) : null;
 }
 
+function normalizeSummaryOnlyScope(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "weekly" || normalized === "week" || normalized === "hebdo" || normalized === "hebdomadaire") {
+    return "weekly";
+  }
+  if (normalized === "monthly" || normalized === "month" || normalized === "mensuel" || normalized === "mensuelle") {
+    return "monthly";
+  }
+  if (normalized === "yearly" || normalized === "year" || normalized === "annuel" || normalized === "annuelle") {
+    return "yearly";
+  }
+  if (
+    normalized === "summary" ||
+    normalized === "bilan" ||
+    normalized === "bilans" ||
+    normalized === "summary-only" ||
+    normalized === "bilan-only"
+  ) {
+    return "summary";
+  }
+  return null;
+}
+
 let checklistIdCounter = 0;
 
 function generateChecklistItemId() {
@@ -437,6 +466,10 @@ function hydrateConsigne(doc) {
     priority: normalizePriority(data.priority),
     days: normalizeDays(data.days),
     srEnabled: data.srEnabled !== false,
+    weeklySummaryEnabled: data.weeklySummaryEnabled !== false,
+    monthlySummaryEnabled: data.monthlySummaryEnabled !== false,
+    yearlySummaryEnabled: data.yearlySummaryEnabled !== false,
+    summaryOnlyScope: normalizeSummaryOnlyScope(data.summaryOnlyScope),
     parentId: normalizeParentId(data.parentId),
     checklistItems: normalizedChecklist.items,
     checklistItemIds: normalizedChecklist.ids,
@@ -1284,6 +1317,10 @@ async function addConsigne(db, uid, payload) {
   const ref = await addDoc(col(db, uid, "consignes"), {
     ...payload,
     srEnabled: payload.srEnabled !== false,
+    weeklySummaryEnabled: payload.weeklySummaryEnabled !== false,
+    monthlySummaryEnabled: payload.monthlySummaryEnabled !== false,
+    yearlySummaryEnabled: payload.yearlySummaryEnabled !== false,
+    summaryOnlyScope: normalizeSummaryOnlyScope(payload.summaryOnlyScope),
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
     parentId: normalizeParentId(payload.parentId),
@@ -1446,6 +1483,10 @@ async function updateConsigne(db, uid, id, payload, options = {}) {
   const normalizedPayload = {
     ...payload,
     srEnabled: payload.srEnabled !== false,
+    weeklySummaryEnabled: payload.weeklySummaryEnabled !== false,
+    monthlySummaryEnabled: payload.monthlySummaryEnabled !== false,
+    yearlySummaryEnabled: payload.yearlySummaryEnabled !== false,
+    summaryOnlyScope: normalizeSummaryOnlyScope(payload.summaryOnlyScope),
     priority: normalizePriority(payload.priority),
     days: normalizeDays(payload.days),
     parentId: normalizeParentId(payload.parentId),
@@ -2256,6 +2297,7 @@ function summaryCollectionName(scope) {
   if (scope === "week" || scope === "weekly") return "weekly_summaries";
   if (scope === "month" || scope === "monthly") return "monthly_summaries";
   if (scope === "year" || scope === "yearly" || scope === "annual") return "yearly_summaries";
+  if (scope === "adhoc" || scope === "ponctuel" || scope === "ponctuelle") return "adhoc_summaries";
   return null;
 }
 
@@ -2274,6 +2316,9 @@ function normalizeSummaryScopeValue(scope) {
     raw === "année"
   ) {
     return "yearly";
+  }
+  if (raw === "adhoc" || raw === "ponctuel" || raw === "ponctuelle" || raw === "ponctual") {
+    return "adhoc";
   }
   return raw;
 }
@@ -2384,16 +2429,22 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
       ? "Bilan hebdomadaire"
       : normalizedSummaryScope === "yearly"
       ? "Bilan annuel"
+      : normalizedSummaryScope === "adhoc"
+      ? "Bilan ponctuel"
       : "Bilan");
   const baseDate = resolveSummaryBaseDate(metadata);
   const createdAtIso = baseDate instanceof Date && !Number.isNaN(baseDate.getTime())
     ? baseDate.toISOString()
     : now();
-  const summaryDayKey = (typeof metadata?.summaryDayKey === "string" && metadata.summaryDayKey.trim())
-    ? metadata.summaryDayKey.trim()
-    : baseDate instanceof Date && typeof dayKeyFromDate === "function"
-    ? dayKeyFromDate(baseDate)
-    : "";
+  const summaryDayKeyInput = metadata?.summaryDayKey;
+  let summaryDayKey = "";
+  if (typeof summaryDayKeyInput === "string" && summaryDayKeyInput.trim()) {
+    summaryDayKey = summaryDayKeyInput.trim();
+  } else if (summaryDayKeyInput === false) {
+    summaryDayKey = "";
+  } else if (baseDate instanceof Date && typeof dayKeyFromDate === "function") {
+    summaryDayKey = dayKeyFromDate(baseDate);
+  }
   const periodStartIso = metadata?.start instanceof Date ? metadata.start.toISOString() : null;
   const periodEndIso = metadata?.end instanceof Date ? metadata.end.toISOString() : null;
   const writes = [];

@@ -938,6 +938,13 @@
       box-shadow:none;
       transition:background .2s ease, border-color .2s ease;
     }
+    .consigne-row--actions-open {
+      z-index:9000;
+    }
+    .consigne-actions--open {
+      position:relative;
+      z-index:9500;
+    }
     .consigne-row:first-child {
       border-top:none;
       padding-top:0;
@@ -1050,7 +1057,7 @@
       border:1px solid rgba(226,232,240,.9);
       background:#fff;
       box-shadow:0 18px 40px rgba(15,23,42,.16);
-      z-index:30;
+      z-index:200;
     }
     .consigne-row__priority-menu[hidden] {
       display:none;
@@ -1318,7 +1325,7 @@
       border:1px solid rgba(148,163,184,.35);
       border-radius:.75rem;
       box-shadow:0 10px 30px -12px rgba(15,23,42,.25);
-      z-index:10;
+  z-index:9900;
     }
     .consigne-actions__panel[hidden] {
       display:none !important;

@@ -1525,6 +1525,7 @@ function setupConsignePriorityMenu(row, consigne, ctx) {
 
 function summaryScopeLabel(scope) {
   const normalized = String(scope || "").toLowerCase();
+  if (normalized === "adhoc" || normalized.includes("ponct")) return "Bilan ponctuel";
   if (normalized === "monthly") return "Bilan mensuel";
   if (normalized === "yearly") return "Bilan annuel";
   return "Bilan hebdomadaire";
@@ -1534,6 +1535,7 @@ async function chooseBilanScope(options = {}) {
   const allowMonthly = options.allowMonthly !== false;
   const scopes = [
     { scope: "weekly", label: "Bilan hebdomadaire", description: "Synthèse de la semaine écoulée." },
+    { scope: "adhoc", label: "Bilan ponctuel", description: "Instantané sur une date précise." },
   ];
   if (allowMonthly) {
     scopes.push({ scope: "monthly", label: "Bilan mensuel", description: "Vue d’ensemble du mois." });
@@ -1613,13 +1615,34 @@ function createYearlySummaryEntry(baseDate) {
   const end = new Date(year, 11, 31, 23, 59, 59, 999);
   const yearKey = typeof Schema?.yearKeyFromDate === "function" ? Schema.yearKeyFromDate(anchor) : String(year);
   return {
-    type: "yearly",
+    type: DAILY_ENTRY_TYPES.YEARLY,
     year,
     yearKey,
     yearStart: start,
     yearEnd: end,
     navLabel: `Bilan ${year}`,
     navSubtitle: `${year}`,
+    weekEndsOn: DAILY_WEEK_ENDS_ON,
+  };
+}
+
+function createAdhocSummaryEntry(baseDate) {
+  const anchor = toStartOfDay(baseDate || new Date());
+  if (!anchor) return null;
+  const end = new Date(anchor.getTime());
+  end.setHours(23, 59, 59, 999);
+  const dayKey =
+    typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(anchor)
+      : anchor.toISOString().slice(0, 10);
+  return {
+    type: DAILY_ENTRY_TYPES.ADHOC,
+    date: anchor,
+    dayKey,
+    start: anchor,
+    end,
+    navLabel: "Bilan ponctuel",
+    navSubtitle: formatDailyNavLabel(anchor),
     weekEndsOn: DAILY_WEEK_ENDS_ON,
   };
 }
@@ -1631,6 +1654,9 @@ function entryForSummaryScope(scope, baseDate = new Date()) {
   }
   if (normalized === "yearly") {
     return createYearlySummaryEntry(baseDate);
+  }
+  if (normalized === "adhoc" || normalized.includes("ponct")) {
+    return createAdhocSummaryEntry(baseDate);
   }
   return createWeeklySummaryEntry(baseDate);
 }
@@ -2466,7 +2492,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const lastEntry = orderedEntries[orderedEntries.length - 1] || null;
       const lastDateIso = lastEntry?.date || "";
       const lastMeta = lastDateIso ? iterationMetaByKey.get(lastDateIso) : null;
+      // lastDateObj: date d’affichage (peut inclure createdAt si disponible)
       const lastDateObj = lastEntry?.createdAt || lastMeta?.dateObj || null;
+      // lastDayDateObj: date purement basée sur le jour (clé de l’itération), pour trier par jour
+      const lastDayDateObj = lastMeta?.dateObj || null;
       const lastValue = lastEntry?.value ?? "";
       const lastNote = lastEntry?.note ?? "";
       const priority = normalizePriorityValue(consigne.priority);
@@ -2515,6 +2544,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         lastDateShort: lastDateObj ? shortDateFormatter.format(lastDateObj) : "Jamais",
         lastDateFull: lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais",
         lastRelative: formatRelativeDate(lastDateObj || lastDateIso),
+  lastDayDateObj,
         lastValue,
         lastFormatted: lastFormattedText,
         lastFormattedHtml,
@@ -2532,6 +2562,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       };
       return stat;
     });
+
 
     const titleText = customTitle
       ? customTitle
@@ -2651,7 +2682,19 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         note: "Réponse notée",
         na: "Sans donnée",
       };
-      const cards = stats
+      // En mode journalier, on affiche les consignes les plus récentes (par jour) en premier
+      const renderedStats = (isPractice || allowMixedMode)
+        ? stats
+        : stats
+            .slice()
+            .sort((a, b) => {
+              const at = a.lastDayDateObj ? a.lastDayDateObj.getTime() : -Infinity;
+              const bt = b.lastDayDateObj ? b.lastDayDateObj.getTime() : -Infinity;
+              // tri décroissant: plus récent en haut
+              return bt - at;
+            });
+
+      const cards = renderedStats
         .map((stat) => {
           const accentStyle = stat.accentStrong
             ? ` style="--history-accent:${stat.accentStrong}; --history-soft:${stat.accentSoft}; --history-border:${stat.accentBorder};"`
@@ -2770,7 +2813,19 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const consigneId = target.getAttribute("data-consigne");
       const pointIndex = Number(target.getAttribute("data-index"));
       if (!Number.isFinite(pointIndex)) return;
-      const stat = stats.find((item) => item.id === consigneId);
+      // Rechercher la stat par id dans la dernière version rendue
+      const sections = Array.from(historyContainer.querySelectorAll('.practice-dashboard__history-section'));
+      const idx = sections.findIndex((sec) => sec.getAttribute('data-id') === consigneId);
+      const renderedStats = (isPractice || allowMixedMode)
+        ? stats
+        : stats
+            .slice()
+            .sort((a, b) => {
+              const at = a.lastDayDateObj ? a.lastDayDateObj.getTime() : -Infinity;
+              const bt = b.lastDayDateObj ? b.lastDayDateObj.getTime() : -Infinity;
+              return bt - at;
+            });
+      const stat = renderedStats.find((item) => item.id === consigneId) || stats.find((item) => item.id === consigneId);
       if (!stat) return;
       if (stat.type === "info") return;
       openCellEditor(stat, pointIndex);
@@ -2836,6 +2891,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const lastMeta = lastDateIso ? iterationMetaByKey.get(lastDateIso) : null;
       const lastDateObj = lastEntry?.createdAt || lastMeta?.dateObj || null;
       const lastValue = lastEntry?.value ?? "";
+  // Maintenir la date de jour utilisée pour le tri décroissant en mode daily
+  stat.lastDayDateObj = lastMeta?.dateObj || null;
       stat.lastDateIso = lastDateIso;
       stat.lastDateShort = lastDateObj ? shortDateFormatter.format(lastDateObj) : "Jamais";
       stat.lastDateFull = lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais";
@@ -3401,12 +3458,18 @@ function consigneActions() {
 const CONSIGNE_ACTION_SELECTOR = ".js-consigne-actions";
 let openConsigneActionsRoot = null;
 let consigneActionsDocListenersBound = false;
+const consigneActionPanelState = new WeakMap();
+
+const CONSIGNE_ACTION_FLOATING_GAP = 8;
+let consigneActionsRootSeq = 0;
+const consigneActionsRootRegistry = new Map();
 
 function getConsigneActionElements(root) {
   if (!root) return { trigger: null, panel: null };
+  const state = consigneActionPanelState.get(root);
   return {
     trigger: root.querySelector(".js-actions-trigger"),
-    panel: root.querySelector(".js-actions-panel"),
+    panel: state?.panel || root.querySelector(".js-actions-panel"),
   };
 }
 
@@ -3430,6 +3493,7 @@ function closeConsigneActionMenu(root, { focusTrigger = false } = {}) {
   if (panel && !panel.hidden) {
     panel.hidden = true;
     panel.setAttribute("aria-hidden", "true");
+    unfloatConsigneActionPanel(root, panel);
   }
   if (trigger) {
     trigger.setAttribute("aria-expanded", "false");
@@ -3441,6 +3505,7 @@ function closeConsigneActionMenu(root, { focusTrigger = false } = {}) {
     openConsigneActionsRoot = null;
     removeConsigneActionListeners();
   }
+  markConsigneActionState(root, false);
 }
 
 function openConsigneActionMenu(root) {
@@ -3461,6 +3526,10 @@ function openConsigneActionMenu(root) {
   }
   openConsigneActionsRoot = root;
   ensureConsigneActionListeners();
+  markConsigneActionState(root, true);
+  if (panel) {
+    floatConsigneActionPanel(root, panel, trigger);
+  }
 }
 
 function toggleConsigneActionMenu(root) {
@@ -3481,12 +3550,6 @@ function toggleConsigneActionMenu(root) {
   }
 }
 
-function onDocumentClickConsigneActions(event) {
-  if (!openConsigneActionsRoot) return;
-  if (openConsigneActionsRoot.contains(event.target)) return;
-  closeConsigneActionMenu(openConsigneActionsRoot);
-}
-
 function onDocumentKeydownConsigneActions(event) {
   if (!openConsigneActionsRoot) return;
   if (event.key === "Escape" || event.key === "Esc") {
@@ -3495,13 +3558,184 @@ function onDocumentKeydownConsigneActions(event) {
   }
 }
 
+function onDocumentClickConsigneActions(event) {
+  if (!openConsigneActionsRoot) return;
+  const state = consigneActionPanelState.get(openConsigneActionsRoot);
+  const panel = state?.panel;
+  if (openConsigneActionsRoot.contains(event.target)) return;
+  if (panel && panel.contains(event.target)) return;
+  closeConsigneActionMenu(openConsigneActionsRoot);
+}
+
+function markConsigneActionState(root, isOpen) {
+  if (!root || typeof root.closest !== "function") return;
+  const shouldOpen = Boolean(isOpen);
+  root.classList.toggle("consigne-actions--open", shouldOpen);
+  const host = root.closest(".consigne-row, .consigne-card");
+  if (host) {
+    host.classList.toggle("consigne-row--actions-open", shouldOpen);
+  }
+}
+
+function floatConsigneActionPanel(root, panel, trigger) {
+  if (!root || !panel || !trigger) return;
+  const doc = root.ownerDocument || document;
+  let state = consigneActionPanelState.get(root);
+  if (!state) {
+    state = {
+      placeholder: doc.createComment("consigne-actions-panel"),
+      previousStyle: null,
+      rafId: null,
+      lastLeft: null,
+      lastTop: null,
+      panel: panel,
+      root,
+    };
+    consigneActionPanelState.set(root, state);
+  } else {
+    state.panel = panel;
+    state.root = root;
+  }
+  if (!state.placeholder.parentNode) {
+    panel.parentNode?.insertBefore(state.placeholder, panel);
+  }
+  if (!panel.dataset.consigneActionsRootId) {
+    const rootId = root.dataset.consigneActionsId;
+    if (rootId) {
+      panel.dataset.consigneActionsRootId = rootId;
+    }
+  }
+  if (!state.previousStyle) {
+    state.previousStyle = {
+      position: panel.style.position || "",
+      left: panel.style.left || "",
+      right: panel.style.right || "",
+      top: panel.style.top || "",
+      bottom: panel.style.bottom || "",
+      transform: panel.style.transform || "",
+      visibility: panel.style.visibility || "",
+      zIndex: panel.style.zIndex || "",
+      width: panel.style.width || "",
+      height: panel.style.height || "",
+      maxWidth: panel.style.maxWidth || "",
+      willChange: panel.style.willChange || "",
+    };
+  }
+  doc.body.appendChild(panel);
+  panel.dataset.consigneActionsFloating = "1";
+  panel.style.position = "fixed";
+  panel.style.right = "auto";
+  panel.style.bottom = "auto";
+  panel.style.left = "0";
+  panel.style.top = "0";
+  panel.style.transform = "translate3d(0, 0, 0)";
+  panel.style.zIndex = "2147483000";
+  panel.style.visibility = "hidden";
+  panel.style.willChange = "transform";
+  state.lastLeft = null;
+  state.lastTop = null;
+  startConsigneActionPanelTracking(state, trigger, panel);
+  panel.style.visibility = "visible";
+}
+
+function unfloatConsigneActionPanel(root, panel) {
+  const state = consigneActionPanelState.get(root);
+  if (!state || !panel || panel.dataset.consigneActionsFloating !== "1") return;
+  stopConsigneActionPanelTracking(state);
+  const { placeholder, previousStyle } = state;
+  if (placeholder?.parentNode) {
+    placeholder.parentNode.replaceChild(panel, placeholder);
+  } else {
+    root.append(panel);
+  }
+  delete panel.dataset.consigneActionsFloating;
+  panel.style.position = previousStyle?.position || "";
+  panel.style.left = previousStyle?.left || "";
+  panel.style.right = previousStyle?.right || "";
+  panel.style.top = previousStyle?.top || "";
+  panel.style.bottom = previousStyle?.bottom || "";
+  panel.style.transform = previousStyle?.transform || "";
+  panel.style.visibility = previousStyle?.visibility || "";
+  panel.style.zIndex = previousStyle?.zIndex || "";
+  panel.style.width = previousStyle?.width || "";
+  panel.style.height = previousStyle?.height || "";
+  panel.style.maxWidth = previousStyle?.maxWidth || "";
+  panel.style.willChange = previousStyle?.willChange || "";
+  state.lastLeft = null;
+  state.lastTop = null;
+}
+
+function startConsigneActionPanelTracking(state, trigger, panel) {
+  stopConsigneActionPanelTracking(state);
+  const update = () => {
+    state.rafId = window.requestAnimationFrame(update);
+    positionConsigneActionPanel(state, trigger, panel);
+  };
+  update();
+}
+
+function stopConsigneActionPanelTracking(state) {
+  if (!state) return;
+  if (state.rafId !== null) {
+    window.cancelAnimationFrame(state.rafId);
+    state.rafId = null;
+  }
+}
+
+function positionConsigneActionPanel(state, trigger, panel) {
+  if (!trigger || !panel) return;
+  if (!trigger.isConnected) {
+    if (state?.root) {
+      closeConsigneActionMenu(state.root);
+    }
+    return;
+  }
+  const triggerRect = trigger.getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const gap = CONSIGNE_ACTION_FLOATING_GAP;
+  const panelRect = panel.getBoundingClientRect();
+  const panelWidth = panel.offsetWidth || panelRect.width || triggerRect.width;
+  const panelHeight = panel.offsetHeight || panelRect.height || triggerRect.height;
+  let left = triggerRect.right - panelWidth;
+  if (left + panelWidth + gap > viewportWidth) {
+    left = viewportWidth - panelWidth - gap;
+  }
+  if (left < gap) {
+    left = gap;
+  }
+  let top = triggerRect.bottom + gap;
+  if (top + panelHeight + gap > viewportHeight) {
+    const above = triggerRect.top - panelHeight - gap;
+    if (above >= gap) {
+      top = above;
+    } else {
+      top = Math.max(gap, viewportHeight - panelHeight - gap);
+    }
+  }
+  const roundedLeft = Math.round(left);
+  const roundedTop = Math.round(top);
+  if (state.lastLeft !== roundedLeft || state.lastTop !== roundedTop) {
+    panel.style.transform = `translate3d(${roundedLeft}px, ${roundedTop}px, 0)`;
+    state.lastLeft = roundedLeft;
+    state.lastTop = roundedTop;
+  }
+}
+
 function setupConsigneActionMenus(scope = document, configure) {
   $$(CONSIGNE_ACTION_SELECTOR, scope).forEach((actionsRoot) => {
     if (actionsRoot.dataset.actionsMenuReady === "1") return;
+    let rootId = actionsRoot.dataset.consigneActionsId;
+    if (!rootId) {
+      rootId = String(++consigneActionsRootSeq);
+      actionsRoot.dataset.consigneActionsId = rootId;
+    }
+    consigneActionsRootRegistry.set(rootId, actionsRoot);
     const config = typeof configure === "function" ? configure(actionsRoot) : configure || {};
     const { trigger, panel } = getConsigneActionElements(actionsRoot);
     if (!trigger || !panel) return;
     actionsRoot.dataset.actionsMenuReady = "1";
+    panel.dataset.consigneActionsRootId = rootId;
     panel.hidden = true;
     panel.setAttribute("aria-hidden", "true");
     trigger.setAttribute("aria-haspopup", "true");
@@ -3579,7 +3813,16 @@ function setupConsigneActionMenus(scope = document, configure) {
 
 function closeConsigneActionMenuFromNode(node, options) {
   if (!node) return;
-  const root = node.closest(CONSIGNE_ACTION_SELECTOR);
+  let root = node.closest(CONSIGNE_ACTION_SELECTOR);
+  if (!root) {
+    const floatingPanel = node.closest("[data-consigne-actions-root-id]");
+    if (floatingPanel) {
+      const id = floatingPanel.dataset.consigneActionsRootId;
+      if (id && consigneActionsRootRegistry.has(id)) {
+        root = consigneActionsRootRegistry.get(id);
+      }
+    }
+  }
   if (root) {
     closeConsigneActionMenu(root, options);
   }
@@ -4706,23 +4949,25 @@ if (window.Modes?.richText) {
 }
 
 function inputForType(consigne, initialValue = null) {
+  const skipLikeInitial = initialValue && typeof initialValue === "object" && initialValue.skipped === true;
+  const normalizedInitial = skipLikeInitial ? null : initialValue;
   if (consigne.type === "info") {
     return INFO_STATIC_BLOCK;
   }
   if (consigne.type === "short") {
-    const value = escapeHtml(initialValue ?? "");
+    const value = escapeHtml(normalizedInitial ?? "");
     return `<input name="short:${consigne.id}" class="w-full" placeholder="Réponse" value="${value}">`;
   }
   if (consigne.type === "long") {
     return renderRichTextInput(`long:${consigne.id}`, {
       consigneId: consigne.id,
-      initialValue,
+      initialValue: normalizedInitial,
       placeholder: "Réponse",
     });
   }
   if (consigne.type === "num") {
-    const sliderValue = initialValue != null && initialValue !== ""
-      ? Number(initialValue)
+    const sliderValue = normalizedInitial != null && normalizedInitial !== ""
+      ? Number(normalizedInitial)
       : 5;
     const safeValue = Number.isFinite(sliderValue) ? sliderValue : 5;
     return `
@@ -4736,7 +4981,7 @@ function inputForType(consigne, initialValue = null) {
     `;
   }
   if (consigne.type === "likert6") {
-    const current = (initialValue ?? "").toString();
+    const current = (normalizedInitial ?? "").toString();
     // Ordre désiré : Oui → Plutôt oui → Neutre → Plutôt non → Non → Pas de réponse
     return `
       <select name="likert6:${consigne.id}" class="w-full">
@@ -4751,7 +4996,7 @@ function inputForType(consigne, initialValue = null) {
     `;
   }
   if (consigne.type === "likert5") {
-    const current = initialValue != null ? String(initialValue) : "";
+    const current = normalizedInitial != null ? String(normalizedInitial) : "";
     return `
       <select name="likert5:${consigne.id}" class="w-full">
         <option value="" ${current === "" ? "selected" : ""}>— choisir —</option>
@@ -4764,7 +5009,7 @@ function inputForType(consigne, initialValue = null) {
     `;
   }
   if (consigne.type === "yesno") {
-    const current = (initialValue ?? "").toString();
+    const current = (normalizedInitial ?? "").toString();
     return `
       <select name="yesno:${consigne.id}" class="w-full">
         <option value="" ${current === "" ? "selected" : ""}>— choisir —</option>
@@ -4776,17 +5021,17 @@ function inputForType(consigne, initialValue = null) {
   if (consigne.type === "checklist") {
     const items = sanitizeChecklistItems(consigne);
     const initialStates = (() => {
-      if (Array.isArray(initialValue)) {
-        return initialValue.map((value) => value === true);
+      if (Array.isArray(normalizedInitial)) {
+        return normalizedInitial.map((value) => value === true);
       }
-      if (initialValue && typeof initialValue === "object") {
-        return readChecklistStates(initialValue);
+      if (normalizedInitial && typeof normalizedInitial === "object") {
+        return readChecklistStates(normalizedInitial);
       }
       return [];
     })();
     const initialSkipStates = (() => {
-      if (initialValue && typeof initialValue === "object") {
-        return readChecklistSkipped(initialValue);
+      if (normalizedInitial && typeof normalizedInitial === "object") {
+        return readChecklistSkipped(normalizedInitial);
       }
       return [];
     })();
@@ -4835,6 +5080,10 @@ function inputForType(consigne, initialValue = null) {
     const initialPayload = {
       items: normalizedValue,
       skipped: normalizedSkipped,
+      // Important pour éviter la réutilisation d'un autre jour
+      dateKey: (typeof window !== 'undefined' && window.AppCtx?.dateIso)
+        ? String(window.AppCtx.dateIso)
+        : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null),
     };
     const initialSerialized = escapeHtml(JSON.stringify(initialPayload));
     const scriptContent = String.raw`
@@ -4862,6 +5111,17 @@ function inputForType(consigne, initialValue = null) {
             return null;
           };
           const resolveHost = (input) => resolveClosest(input, '[data-checklist-item]');
+          const pageDateKey = (() => {
+            const ctxKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso) ? String(window.AppCtx.dateIso) : null;
+            let hashKey = null;
+            try {
+              const hash = typeof window.location?.hash === 'string' ? window.location.hash : '';
+              const qp = new URLSearchParams((hash.split('?')[1] || ''));
+              const d = (qp.get('d') || '').trim();
+              hashKey = d || null;
+            } catch (_) {}
+            return hashKey || ctxKey || (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
+          })();
           const setSkipButtonState = (host, skip) => {
             if (!host || typeof host.querySelector !== 'function') return;
             const button = host.querySelector('[data-checklist-skip-btn]');
@@ -5035,6 +5295,20 @@ function inputForType(consigne, initialValue = null) {
             }
             root.dataset.checklistDirty = '1';
             sync({ markDirty: true, notify: true });
+            // Déclenche une persistance immédiate via le handler global (app.js)
+            try {
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+            } catch (err) {
+              // En cas d’environnement sans Event standard, fallback direct via le manager
+              const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
+              if (typeof persistFn === 'function') {
+                const ctxUid = window.AppCtx?.user?.uid || null;
+                const ctxDb = window.AppCtx?.db || null;
+                Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
+                  console.warn('[checklist] persist:toggleSkip', e);
+                });
+              }
+            }
           };
           root.addEventListener('click', (event) => {
             const button = resolveClosest(event.target, '[data-checklist-skip-btn]');
@@ -5202,6 +5476,19 @@ function inputForType(consigne, initialValue = null) {
           const hydratePayload = () => {
             try {
               const raw = JSON.parse(hidden.value || '[]');
+              // Si le hidden payload contient une clé de date incompatible, on n'applique pas
+              try {
+                const hiddenKey = raw && typeof raw === 'object' && raw.dateKey ? String(raw.dateKey) : null;
+                if (hiddenKey && pageDateKey && hiddenKey !== pageDateKey) {
+                  console.info('[checklist] hydrate.hidden.skip-date-mismatch', { hiddenKey, pageDateKey });
+                  return;
+                }
+                if (pageDateKey && !hiddenKey) {
+                  // Page avec date explicite mais payload sans dateKey → ignorer
+                  console.info('[checklist] hydrate.hidden.skip-missing-dateKey', { pageDateKey });
+                  return;
+                }
+              } catch (e) {}
               const payload = Array.isArray(raw)
                 ? { items: raw.map((item) => item === true), skipped: [] }
                 : {
@@ -5230,18 +5517,32 @@ function inputForType(consigne, initialValue = null) {
                   host.setAttribute('data-validated', input.checked ? 'true' : 'false');
                 }
               });
+              // Persiste une fois l’état réhydraté pour qu’il survive au rechargement
+              try {
+                const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
+                if (typeof persistFn === 'function') {
+                  const ctxUid = window.AppCtx?.user?.uid || null;
+                  const ctxDb = window.AppCtx?.db || null;
+                  Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
+                    console.warn('[checklist] persist:hydrate', e);
+                  });
+                }
+              } catch (e) {
+                console.warn('[checklist] persist:hydrate', e);
+              }
             } catch (error) {
               console.warn('[checklist] payload', error);
             }
           };
           const hydrate = window.hydrateChecklist;
           const uid = window.AppCtx?.user?.uid || null;
+          const dateKey = window.AppCtx?.dateIso || (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
           const consigneId = root.getAttribute('data-consigne-id') || root.dataset.consigneId || '';
           hydratePayload();
           ensureItemIds();
           sync();
           if (typeof hydrate === 'function') {
-            Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key' }))
+            Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key', dateKey }))
               .then(() => {
                 ensureItemIds();
                 sync();
@@ -5444,6 +5745,21 @@ function buildSummaryMetadataForScope(scope, { date = new Date() } = {}) {
         ? Schema.dayKeyFromDate(baseDate)
         : "";
     result.summaryPeriod = weekKey;
+  } else if (
+    raw === "adhoc" ||
+    raw === "ponctuel" ||
+    raw === "ponctuelle" ||
+    raw === "ponctual" ||
+    raw === "punctual"
+  ) {
+    result.summaryScope = "adhoc";
+    result.summaryLabel = "Bilan ponctuel";
+    const dayKey =
+      typeof Schema?.dayKeyFromDate === "function"
+        ? Schema.dayKeyFromDate(baseDate)
+        : baseDate.toISOString().slice(0, 10);
+    result.summaryPeriod = dayKey;
+    result.summaryDayKey = dayKey;
   } else if (raw === "month" || raw === "monthly") {
     result.summaryScope = "monthly";
     result.summaryLabel = "Bilan mensuel";
@@ -5724,7 +6040,38 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       : "";
   const durationValueAttr = durationInitialValue === "" ? "" : escapeHtml(String(durationInitialValue));
   const isEphemeral = consigne?.ephemeral === true;
-  const advancedOpenAttr = isEphemeral ? " open" : "";
+  const rawSummaryOnlyScope = typeof consigne?.summaryOnlyScope === "string" ? consigne.summaryOnlyScope : "";
+  const normalizedSummaryOnlyScope = rawSummaryOnlyScope.trim().toLowerCase();
+  const summaryOnlyScope = normalizedSummaryOnlyScope === "weekly" || normalizedSummaryOnlyScope === "week"
+    ? "weekly"
+    : normalizedSummaryOnlyScope === "monthly" || normalizedSummaryOnlyScope === "month"
+    ? "monthly"
+    : normalizedSummaryOnlyScope === "yearly" || normalizedSummaryOnlyScope === "year"
+    ? "yearly"
+    : normalizedSummaryOnlyScope === "summary" || normalizedSummaryOnlyScope === "bilan" || normalizedSummaryOnlyScope === "bilans"
+    ? "summary"
+    : "";
+  let weeklySummaryEnabled = consigne?.weeklySummaryEnabled !== false;
+  let monthlySummaryEnabled = consigne?.monthlySummaryEnabled !== false;
+  let yearlySummaryEnabled = consigne?.yearlySummaryEnabled !== false;
+  if (summaryOnlyScope === "weekly") {
+    weeklySummaryEnabled = true;
+    monthlySummaryEnabled = false;
+    yearlySummaryEnabled = false;
+  } else if (summaryOnlyScope === "monthly") {
+    weeklySummaryEnabled = false;
+    monthlySummaryEnabled = true;
+    yearlySummaryEnabled = false;
+  } else if (summaryOnlyScope === "yearly") {
+    weeklySummaryEnabled = false;
+    monthlySummaryEnabled = false;
+    yearlySummaryEnabled = true;
+  }
+  const summaryVisibilityValue = summaryOnlyScope ? "summary" : "all";
+  const advancedOpenAttr =
+    isEphemeral || !weeklySummaryEnabled || !monthlySummaryEnabled || !yearlySummaryEnabled || currentObjId || summaryVisibilityValue !== "all"
+      ? " open"
+      : "";
   const ephemeralHiddenAttr = isEphemeral ? "" : " hidden";
   const durationLabel = mode === "daily" ? "Durée (jours)" : "Durée (itérations)";
   const durationHint =
@@ -5763,15 +6110,6 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
 
       ${catUI}
 
-      <div class="grid gap-1 objective-select">
-        <span class="text-sm text-[var(--muted)]">📌 Associer à un objectif</span>
-        <select id="objective-select" class="w-full objective-select__input">
-          <option value="">Aucun</option>
-          ${objectifsOptions}
-        </select>
-        <div class="objective-select__meta" data-objective-meta>${objectiveMetaInitial}</div>
-      </div>
-
       <label class="grid gap-1">
         <span class="text-sm text-[var(--muted)]">Priorité</span>
         <select name="priority" class="w-full">
@@ -5792,6 +6130,43 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           <span>Paramètres avancés</span>
         </summary>
         <div class="consigne-advanced__content">
+          <div class="grid gap-1 objective-select">
+            <span class="text-sm text-[var(--muted)]">📌 Associer à un objectif</span>
+            <select id="objective-select" class="w-full objective-select__input">
+              <option value="">Aucun</option>
+              ${objectifsOptions}
+            </select>
+            <div class="objective-select__meta" data-objective-meta>${objectiveMetaInitial}</div>
+          </div>
+
+          <div class="grid gap-2" data-summary-settings>
+            <span class="text-sm text-[var(--muted)]">Bilans</span>
+            <p class="consigne-advanced__hint">Choisis dans quels bilans cette consigne apparaît par défaut.</p>
+            <label class="inline-flex items-center gap-2">
+              <input type="checkbox" name="summaryWeekly" ${weeklySummaryEnabled ? "checked" : ""}>
+              <span>Inclure dans le bilan hebdomadaire</span>
+            </label>
+            <label class="inline-flex items-center gap-2">
+              <input type="checkbox" name="summaryMonthly" ${monthlySummaryEnabled ? "checked" : ""}>
+              <span>Inclure dans le bilan mensuel</span>
+            </label>
+            <label class="inline-flex items-center gap-2">
+              <input type="checkbox" name="summaryYearly" ${yearlySummaryEnabled ? "checked" : ""}>
+              <span>Inclure dans le bilan annuel</span>
+            </label>
+            <fieldset class="grid gap-1">
+              <span class="text-sm text-[var(--muted)]">Visibilité</span>
+              <label class="inline-flex items-center gap-2">
+                <input type="radio" name="summaryVisibility" value="all" ${summaryVisibilityValue === "all" ? "checked" : ""}>
+                <span>Journal et bilans</span>
+              </label>
+              <label class="inline-flex items-center gap-2">
+                <input type="radio" name="summaryVisibility" value="summary" ${summaryVisibilityValue === "summary" ? "checked" : ""}>
+                <span>Uniquement bilans</span>
+              </label>
+            </fieldset>
+          </div>
+
           <label class="inline-flex items-center gap-2">
             <input type="checkbox" name="ephemeral" ${isEphemeral ? "checked" : ""}>
             <span>Consigne éphémère</span>
@@ -5882,6 +6257,83 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         }
       }
     });
+  }
+  const summaryWeeklyCheckbox = m.querySelector('input[name="summaryWeekly"]');
+  const summaryMonthlyCheckbox = m.querySelector('input[name="summaryMonthly"]');
+  const summaryYearlyCheckbox = m.querySelector('input[name="summaryYearly"]');
+  const summaryVisibilityRadios = Array.from(m.querySelectorAll('input[name="summaryVisibility"]'));
+  let currentSummaryVisibility = summaryVisibilityValue;
+  let savedAllSummaryState = {
+    weekly: summaryWeeklyCheckbox ? summaryWeeklyCheckbox.checked : false,
+    monthly: summaryMonthlyCheckbox ? summaryMonthlyCheckbox.checked : false,
+    yearly: summaryYearlyCheckbox ? summaryYearlyCheckbox.checked : false,
+  };
+  const updateSavedAllState = () => {
+    if (currentSummaryVisibility !== "all") {
+      return;
+    }
+    savedAllSummaryState = {
+      weekly: summaryWeeklyCheckbox ? summaryWeeklyCheckbox.checked : savedAllSummaryState.weekly,
+      monthly: summaryMonthlyCheckbox ? summaryMonthlyCheckbox.checked : savedAllSummaryState.monthly,
+      yearly: summaryYearlyCheckbox ? summaryYearlyCheckbox.checked : savedAllSummaryState.yearly,
+    };
+  };
+  const applyCheckboxState = (checkbox, { checked, disabled }) => {
+    if (!checkbox) return;
+    if (typeof checked === "boolean") {
+      checkbox.checked = checked;
+    }
+    if (typeof disabled === "boolean") {
+      checkbox.disabled = disabled;
+    }
+    const label = checkbox.closest("label");
+    if (label) {
+      label.classList.toggle("opacity-60", Boolean(checkbox.disabled));
+    }
+  };
+  const syncSummaryVisibilityControls = () => {
+    const selected = summaryVisibilityRadios.find((radio) => radio.checked);
+    const nextVisibility = selected ? selected.value : "all";
+    if (nextVisibility !== "all" && currentSummaryVisibility === "all") {
+      savedAllSummaryState = {
+        weekly: summaryWeeklyCheckbox ? summaryWeeklyCheckbox.checked : savedAllSummaryState.weekly,
+        monthly: summaryMonthlyCheckbox ? summaryMonthlyCheckbox.checked : savedAllSummaryState.monthly,
+        yearly: summaryYearlyCheckbox ? summaryYearlyCheckbox.checked : savedAllSummaryState.yearly,
+      };
+    }
+    currentSummaryVisibility = nextVisibility;
+    if (nextVisibility === "summary") {
+      applyCheckboxState(summaryWeeklyCheckbox, { disabled: false });
+      applyCheckboxState(summaryMonthlyCheckbox, { disabled: false });
+      applyCheckboxState(summaryYearlyCheckbox, { disabled: false });
+    } else {
+      applyCheckboxState(summaryWeeklyCheckbox, { checked: savedAllSummaryState.weekly, disabled: false });
+      applyCheckboxState(summaryMonthlyCheckbox, { checked: savedAllSummaryState.monthly, disabled: false });
+      applyCheckboxState(summaryYearlyCheckbox, { checked: savedAllSummaryState.yearly, disabled: false });
+    }
+  };
+  summaryVisibilityRadios.forEach((radio) => {
+    radio.addEventListener("change", () => {
+      syncSummaryVisibilityControls();
+    });
+  });
+  if (summaryWeeklyCheckbox) {
+    summaryWeeklyCheckbox.addEventListener("change", () => {
+      updateSavedAllState();
+    });
+  }
+  if (summaryMonthlyCheckbox) {
+    summaryMonthlyCheckbox.addEventListener("change", () => {
+      updateSavedAllState();
+    });
+  }
+  if (summaryYearlyCheckbox) {
+    summaryYearlyCheckbox.addEventListener("change", () => {
+      updateSavedAllState();
+    });
+  }
+  if (summaryVisibilityRadios.length) {
+    syncSummaryVisibilityControls();
   }
   const typeSelectEl = m.querySelector('select[name="type"]');
   const checklistAnchor = m.querySelector('[data-checklist-editor-anchor]');
@@ -6371,6 +6823,27 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         }
       }
 
+      const summaryVisibilityChoice = String(fd.get("summaryVisibility") || "all");
+      let weeklySummaryEnabled = fd.get("summaryWeekly") !== null;
+      let monthlySummaryEnabled = fd.get("summaryMonthly") !== null;
+      let yearlySummaryEnabled = fd.get("summaryYearly") !== null;
+      let summaryOnlyScopeValue = null;
+      if (summaryVisibilityChoice === "summary") {
+        if (!weeklySummaryEnabled && !monthlySummaryEnabled && !yearlySummaryEnabled) {
+          alert("Sélectionne au moins un type de bilan lorsque la consigne est uniquement au format bilan.");
+          return;
+        }
+        if (weeklySummaryEnabled && !monthlySummaryEnabled && !yearlySummaryEnabled) {
+          summaryOnlyScopeValue = "weekly";
+        } else if (!weeklySummaryEnabled && monthlySummaryEnabled && !yearlySummaryEnabled) {
+          summaryOnlyScopeValue = "monthly";
+        } else if (!weeklySummaryEnabled && !monthlySummaryEnabled && yearlySummaryEnabled) {
+          summaryOnlyScopeValue = "yearly";
+        } else {
+          summaryOnlyScopeValue = "summary";
+        }
+      }
+
       const payload = {
         ownerUid: ctx.user.uid,
         mode,
@@ -6379,6 +6852,10 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         category: cat,
         priority: Number(fd.get("priority") || 2),
         srEnabled: fd.get("srEnabled") !== null,
+        weeklySummaryEnabled,
+        monthlySummaryEnabled,
+        yearlySummaryEnabled,
+        summaryOnlyScope: summaryOnlyScopeValue,
         ephemeral: ephemeralEnabled,
         ephemeralDurationDays,
         ephemeralDurationIterations,
@@ -6475,6 +6952,10 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         ephemeralDurationIterations: payload.ephemeralDurationIterations,
         parentId: payload.parentId || null,
         objectiveId: selectedObjective || null,
+        weeklySummaryEnabled: payload.weeklySummaryEnabled,
+        monthlySummaryEnabled: payload.monthlySummaryEnabled,
+        yearlySummaryEnabled: payload.yearlySummaryEnabled,
+        summaryOnlyScope: payload.summaryOnlyScope || null,
       };
       if (subRows.length) {
         historySnapshot.childrenCount = subRows.length;
@@ -6482,6 +6963,10 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       const historyMetadata = {
         objectiveId: selectedObjective || null,
         hasChildren: subRows.length > 0,
+        weeklySummaryEnabled: payload.weeklySummaryEnabled,
+        monthlySummaryEnabled: payload.monthlySummaryEnabled,
+        yearlySummaryEnabled: payload.yearlySummaryEnabled,
+        summaryOnlyScope: payload.summaryOnlyScope || null,
       };
       let consigneId = consigne?.id || null;
       if (consigne) {
@@ -6521,6 +7006,10 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
             category: payload.category,
             priority: payload.priority,
             srEnabled: payload.srEnabled,
+            weeklySummaryEnabled: payload.weeklySummaryEnabled,
+            monthlySummaryEnabled: payload.monthlySummaryEnabled,
+            yearlySummaryEnabled: payload.yearlySummaryEnabled,
+            summaryOnlyScope: payload.summaryOnlyScope,
             ephemeral: payload.ephemeral,
             ephemeralDurationDays: payload.ephemeralDurationDays,
             ephemeralDurationIterations: payload.ephemeralDurationIterations,
@@ -6813,6 +7302,13 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
     ? { skipped: true }
     : rawValue;
   let status = dotColor(consigne.type, valueForStatus);
+  try {
+    modesLogger?.debug?.("consigne.status.update", {
+      consigneId: consigne?.id ?? null,
+      skip: Boolean(skipFlag),
+      status,
+    });
+  } catch (_) {}
   if (status === "na" && row.dataset.childAnswered === "1") {
     status = "note";
   }
@@ -7099,6 +7595,143 @@ function findConsigneInputFields(row, consigne) {
   return Array.from(holder.querySelectorAll(`[name$=":${consigne.id}"]`));
 }
 
+function parseConsigneSkipValue(input) {
+  if (input === true) return true;
+  if (input === false || input == null) return false;
+  if (typeof input === "number") {
+    if (!Number.isFinite(input)) return false;
+    return input !== 0;
+  }
+  if (typeof input === "string") {
+    const normalized = input.trim().toLowerCase();
+    if (!normalized) return false;
+    return ["1", "true", "yes", "y", "on", "skip", "passed"].includes(normalized);
+  }
+  return false;
+}
+
+function applyConsigneSkipState(row, consigne, shouldSkip, { updateUI = true } = {}) {
+  if (!row || !consigne) return;
+  try {
+    modesLogger?.info?.("consigne.skip.apply", {
+      consigneId: consigne?.id ?? null,
+      shouldSkip: Boolean(shouldSkip),
+    });
+  } catch (_) {}
+  if (shouldSkip) {
+    row.dataset.skipAnswered = "1";
+    clearConsigneSummaryMetadata(row);
+  } else {
+    delete row.dataset.skipAnswered;
+  }
+  if (!updateUI) {
+    return;
+  }
+  const valueForStatus = shouldSkip ? { skipped: true } : readConsigneCurrentValue(consigne, row);
+  updateConsigneStatusUI(row, consigne, valueForStatus);
+}
+
+function ensureConsigneSkipField(row, consigne) {
+  if (!row || !consigne) return null;
+  const holder = row.querySelector("[data-consigne-input-holder]");
+  if (!holder) return null;
+  let input = holder.querySelector("[data-consigne-skip-input]");
+  if (!input) {
+    input = document.createElement("input");
+    input.type = "hidden";
+    input.setAttribute("data-consigne-skip-input", "");
+    const id = consigne?.id;
+    if (id != null) {
+      const stringId = String(id);
+      input.name = `skip:${stringId}`;
+      input.setAttribute("data-autosave-field", `consigne:${stringId}:skip`);
+      try {
+        modesLogger?.debug?.("consigne.skip.ensure-field", {
+          consigneId: stringId,
+          name: input.name,
+          autosaveField: input.getAttribute("data-autosave-field"),
+        });
+      } catch (_) {}
+    } else {
+      input.name = "skip";
+    }
+    holder.appendChild(input);
+  }
+  if (!input.dataset.skipHandlerAttached) {
+    const sync = () => {
+      const shouldSkip = parseConsigneSkipValue(input.value);
+      try {
+        modesLogger?.debug?.("consigne.skip.sync", {
+          consigneId: consigne?.id ?? null,
+          raw: input.value,
+          parsed: shouldSkip,
+        });
+      } catch (_) {}
+      applyConsigneSkipState(row, consigne, shouldSkip, { updateUI: true });
+      // Déclenche la persistance applicative (autosave schemas)
+      try {
+        const normalizedValue = shouldSkip ? { skipped: true } : readConsigneCurrentValue(consigne, row);
+        if (typeof handleValueChange === "function") {
+          handleValueChange(consigne, row, normalizedValue);
+        }
+      } catch (e) {
+        modesLogger?.warn?.("consigne.skip.sync.persist", e);
+      }
+    };
+    input.addEventListener("input", sync);
+    input.addEventListener("change", sync);
+    input.dataset.skipHandlerAttached = "1";
+  }
+  return input;
+}
+
+function setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents = true, updateUI = true } = {}) {
+  if (!row || !consigne) return;
+  const input = ensureConsigneSkipField(row, consigne);
+  applyConsigneSkipState(row, consigne, shouldSkip, { updateUI });
+  if (!input) return;
+  const nextValue = shouldSkip ? "1" : "";
+  try {
+    modesLogger?.info?.("consigne.skip.set", {
+      consigneId: consigne?.id ?? null,
+      nextValue,
+      emitInputEvents: Boolean(emitInputEvents),
+      updateUI: Boolean(updateUI),
+    });
+  } catch (_) {}
+  if (input.value === nextValue) return;
+  input.value = nextValue;
+  if (emitInputEvents) {
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+}
+
+function normalizeConsigneValueForPersistence(consigne, row, value) {
+  if (!consigne || !row) {
+    return value;
+  }
+  if (row.dataset && row.dataset.skipAnswered === "1") {
+    if (value && typeof value === "object" && value.skipped === true) {
+      try {
+        modesLogger?.debug?.("consigne.skip.normalize", {
+          consigneId: consigne?.id ?? null,
+          alreadySkipped: true,
+        });
+      } catch (_) {}
+      return value;
+    }
+    try {
+      modesLogger?.info?.("consigne.skip.normalize", {
+        consigneId: consigne?.id ?? null,
+        forceSkipped: true,
+      });
+    } catch (_) {}
+    return { skipped: true };
+  }
+  return value;
+}
+
 function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
   const row = document.createElement("div");
   row.className = "consigne-row consigne-row--child consigne-row--virtual";
@@ -7125,12 +7758,31 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
   row.appendChild(holder);
   enhanceRangeMeters(row);
   initializeChecklistScope(row, { consigneId: consigne?.id ?? null });
+  ensureConsigneSkipField(row, consigne);
+  // Applique l’état Passer dès le rendu si la valeur précédente l’indique
+  try {
+    const wasSkipped = !!(initialValue && typeof initialValue === "object" && initialValue.skipped === true);
+    if (wasSkipped) {
+      setConsigneSkipState(row, consigne, true, { emitInputEvents: false, updateUI: true });
+    }
+  } catch (_) {}
   return row;
 }
 
 function setConsigneRowValue(row, consigne, value) {
-  if (row) {
-    delete row.dataset.skipAnswered;
+  const skipWasActive = row?.dataset?.skipAnswered === "1";
+  const maintainOrClearSkip = (hasAnswer) => {
+    if (skipWasActive && !hasAnswer) {
+      applyConsigneSkipState(row, consigne, true, { updateUI: true });
+      return;
+    }
+    setConsigneSkipState(row, consigne, false, { updateUI: false });
+  };
+  const skipLikeValue = value && typeof value === "object" && value.skipped === true;
+  ensureConsigneSkipField(row, consigne);
+  if (skipLikeValue) {
+    setConsigneSkipState(row, consigne, true, { updateUI: true });
+    return;
   }
   if (consigne?.type === "long") {
     const editor = row?.querySelector(
@@ -7156,6 +7808,8 @@ function setConsigneRowValue(row, consigne, value) {
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
     }
     updateConsigneStatusUI(row, consigne, normalized);
+    const hasContent = richTextHasContent(normalized);
+    maintainOrClearSkip(hasContent);
     return;
   }
   if (consigne?.type === "checklist") {
@@ -7214,11 +7868,15 @@ function setConsigneRowValue(row, consigne, value) {
       delete container.dataset.checklistDirty;
     }
     updateConsigneStatusUI(row, consigne, normalizedValue);
+    const hasChecklistAnswer = normalizedValue ? hasChecklistResponse(consigne, row, normalizedValue) : false;
+    maintainOrClearSkip(hasChecklistAnswer);
     return;
   }
   const fields = findConsigneInputFields(row, consigne);
   if (!fields.length) {
     updateConsigneStatusUI(row, consigne, value);
+    const hasAnswer = hasValueForConsigne(consigne, value);
+    maintainOrClearSkip(hasAnswer);
     return;
   }
   const normalizedValue = value === null || value === undefined ? "" : value;
@@ -7240,6 +7898,9 @@ function setConsigneRowValue(row, consigne, value) {
     field.dispatchEvent(new Event("input", { bubbles: true }));
     field.dispatchEvent(new Event("change", { bubbles: true }));
   });
+  const afterValue = readConsigneCurrentValue(consigne, row);
+  const hasAnswer = hasValueForConsigne(consigne, afterValue);
+  maintainOrClearSkip(hasAnswer);
 }
 
 function attachConsigneEditor(row, consigne, options = {}) {
@@ -7404,6 +8065,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
       : "";
     const summaryMenuItems = [
       { scope: "weekly", label: "Bilan hebdomadaire" },
+      { scope: "adhoc", label: "Bilan ponctuel" },
       { scope: "monthly", label: "Bilan mensuel" },
       { scope: "yearly", label: "Bilan annuel" },
     ];
@@ -7932,16 +8594,90 @@ function attachConsigneEditor(row, consigne, options = {}) {
     if (skipBtn) {
       skipBtn.addEventListener("click", (event) => {
         event.preventDefault();
-        row.dataset.skipAnswered = "1";
-        clearConsigneSummaryMetadata(row);
+        // Assure la présence du champ caché et met à jour l'UI immédiatement
+        try {
+          modesLogger?.group?.("ui.consigne.skip.click", { consigneId: consigne?.id ?? null });
+        } catch (_) {}
+        try {
+          const targetRow = (row && row.isConnected) ? row : overlay.ownerDocument?.querySelector?.(`[data-consigne-id="${String(consigne?.id ?? "")}" ]`);
+          const r = targetRow || row;
+          if (r) {
+            ensureConsigneSkipField(r, consigne);
+            setConsigneSkipState(r, consigne, true);
+            // Sécurise l’UI si un écouteur manquerait
+            applyConsigneSkipState(r, consigne, true, { updateUI: true });
+            // Déclenche une persistance applicative immédiate
+            try {
+              if (typeof handleValueChange === 'function') {
+                handleValueChange(consigne, r, { skipped: true });
+              }
+              if (typeof runAutoSave === 'function' && consigne?.id != null) {
+                runAutoSave(consigne.id);
+              }
+            } catch (e) {
+              modesLogger?.warn?.('consigne.skip.click.persist', e);
+            }
+            // Déclenche une persistance éventuelle pour les checklists imbriquées dans la consigne
+            const root = r.querySelector?.('[data-checklist-root]');
+            const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
+            if (root && typeof persistFn === 'function') {
+              const ctxUid = window.AppCtx?.user?.uid || null;
+              const ctxDb = window.AppCtx?.db || null;
+              try {
+                modesLogger?.info?.('consigne.skip.persist.attempt', {
+                  consigneId: consigne?.id ?? null,
+                  hasChecklistRoot: Boolean(root),
+                });
+              } catch (_) {}
+              Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
+                console.warn('[consigne] persist:skip', e);
+              });
+            }
+            // Persistance directe de la réponse skip pour la consigne
+            try {
+              const db = window.AppCtx?.db || null;
+              const uid = window.AppCtx?.user?.uid || null;
+              const dayKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso)
+                ? String(window.AppCtx.dateIso)
+                : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
+              if (db && uid) {
+                const answers = [{ consigne, value: { skipped: true }, dayKey }];
+                if (Schema?.saveResponses) {
+                  Schema.saveResponses(db, uid, 'daily', answers)
+                    .then(() => {
+                      modesLogger?.info?.('consigne.skip.persist.saved', { consigneId: consigne?.id ?? null, dayKey });
+                      try { showToast && showToast('Passée enregistrée.'); } catch (_) {}
+                    })
+                    .catch((error) => {
+                      modesLogger?.warn?.('consigne.skip.persist.fail', { consigneId: consigne?.id ?? null, error: String(error && error.message || error) });
+                      try { showToast && showToast("Échec de l'enregistrement. Réessaye."); } catch (_) {}
+                    });
+                }
+              } else {
+                modesLogger?.warn?.('consigne.skip.persist.skipped', { reason: 'no-db-or-uid' });
+              }
+            } catch (e) {
+              modesLogger?.warn?.('consigne.skip.persist.error', e);
+            }
+            try {
+              modesLogger?.info?.('consigne.skip.ui', {
+                consigneId: consigne?.id ?? null,
+                status: r?.dataset?.status || null,
+                skipFlag: r?.dataset?.skipAnswered || null,
+              });
+            } catch (_) {}
+          }
+        } catch (err) {
+          console.warn('[consigne] skip:handler', err);
+        }
         updateParentChildAnsweredFlag();
-        updateConsigneStatusUI(row, consigne, { skipped: true });
         syncParentAnswered();
         updateSummaryControlState();
         if (typeof options.onSkip === "function") {
           options.onSkip({ event, close: closeOverlay, consigne, row });
         }
         closeOverlay();
+        try { modesLogger?.groupEnd?.(); } catch (_) {}
       });
     }
     const validateBtn = overlay.querySelector("[data-consigne-editor-validate]");
@@ -7989,6 +8725,9 @@ function hasChecklistResponse(consigne, row, value) {
 }
 
 function hasValueForConsigne(consigne, value) {
+  if (value && typeof value === "object" && value.skipped === true) {
+    return false;
+  }
   const type = consigne?.type;
   if (type === "long") {
     return richTextHasContent(value);
@@ -8012,7 +8751,20 @@ function hasValueForConsigne(consigne, value) {
 
 function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
   if (!row || !consigne) return;
+  const syncSkipStateFromValue = (value) => {
+    if (!row || !consigne) return;
+    const skipInValue = Boolean(value && typeof value === "object" && value.skipped === true);
+    const skipActive = row?.dataset?.skipAnswered === "1";
+    const hasAnswer = consigne.type === "checklist"
+      ? hasChecklistResponse(consigne, row, value)
+      : hasValueForConsigne(consigne, value);
+    const shouldSkip = (skipInValue || skipActive) && !hasAnswer;
+    if (shouldSkip !== skipActive) {
+      setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents: false, updateUI: false });
+    }
+  };
   const mapValueForStatus = (value) => {
+    syncSkipStateFromValue(value);
     if (row?.dataset?.skipAnswered === "1") {
       if (hasValueForConsigne(consigne, value)) {
         delete row.dataset.skipAnswered;
@@ -8151,6 +8903,12 @@ function renderHistoryChart(data, { type, mode } = {}) {
             normalizedScope.includes("yearly")
           ) {
             summaryScope = "yearly";
+          } else if (
+            normalizedScope.includes("ponct") ||
+            normalizedScope.includes("adhoc") ||
+            normalizedScope.includes("ad-hoc")
+          ) {
+            summaryScope = "adhoc";
           }
           const hasBilanFlag = Boolean(entry.isBilan) || normalizedScope.includes("bilan");
           const hasSummaryFlag =
@@ -8159,7 +8917,8 @@ function renderHistoryChart(data, { type, mode } = {}) {
             hasBilanFlag ||
             normalizedScope.includes("summary") ||
             normalizedScope.includes("yearly") ||
-            normalizedScope.includes("annuel");
+            normalizedScope.includes("annuel") ||
+            normalizedScope.includes("ponct");
           return {
             date: new Date(entry.date),
             value: Number(entry.value),
@@ -8535,6 +9294,73 @@ function getRecentResponsesStore() {
   return null;
 }
 
+function parseHistoryDateInput(value) {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+  }
+  if (typeof value.toDate === "function") {
+    try {
+      const parsedViaTimestamp = value.toDate();
+      if (parsedViaTimestamp instanceof Date && !Number.isNaN(parsedViaTimestamp.getTime())) {
+        return parsedViaTimestamp;
+      }
+    } catch (error) {
+      modesLogger?.debug?.("ui.history.date.parse", error);
+    }
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const fromDayKey = modesParseDayKeyToDate(trimmed);
+    if (fromDayKey instanceof Date && !Number.isNaN(fromDayKey.getTime())) {
+      return fromDayKey;
+    }
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) {
+      const fromNumber = new Date(numeric);
+      if (!Number.isNaN(fromNumber.getTime())) {
+        return fromNumber;
+      }
+    }
+    const parsed = new Date(trimmed);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+function resolveHistoryEntryDate(row) {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+  const candidates = [
+    row.pageDate,
+    row.page_date,
+    row.pageDateIso,
+    row.page_date_iso,
+    row.pageDateISO,
+    row.dayKey,
+    row.day_key,
+    row.createdAt,
+    row.updatedAt,
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseHistoryDateInput(candidate);
+    if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
 function historyRowIdentity(row) {
   if (!row || typeof row !== "object") {
     return "";
@@ -8542,17 +9368,11 @@ function historyRowIdentity(row) {
   if (row.id) {
     return `id:${row.id}`;
   }
-  const rawDate = row.createdAt?.toDate?.() ?? row.createdAt ?? row.updatedAt ?? null;
+  const resolvedDate = resolveHistoryEntryDate(row);
+  const rawDate = resolvedDate || null;
   let iso = "";
-  if (rawDate instanceof Date) {
-    if (!Number.isNaN(rawDate.getTime())) {
-      iso = rawDate.toISOString();
-    }
-  } else if (typeof rawDate === "string" || typeof rawDate === "number") {
-    const parsed = new Date(rawDate);
-    if (!Number.isNaN(parsed.getTime())) {
-      iso = parsed.toISOString();
-    }
+  if (rawDate instanceof Date && !Number.isNaN(rawDate.getTime())) {
+    iso = rawDate.toISOString();
   }
   let valueKey = "";
   try {
@@ -8591,8 +9411,10 @@ function mergeRowsWithRecent(rows, consigneId) {
   });
   if (pending.length) {
     pending.sort((a, b) => {
-      const aTime = new Date(a.createdAt || 0).getTime();
-      const bTime = new Date(b.createdAt || 0).getTime();
+      const aDate = resolveHistoryEntryDate(a);
+      const bDate = resolveHistoryEntryDate(b);
+      const aTime = aDate instanceof Date ? aDate.getTime() : new Date(a?.createdAt || 0).getTime();
+      const bTime = bDate instanceof Date ? bDate.getTime() : new Date(b?.createdAt || 0).getTime();
       return bTime - aTime;
     });
     store.set(consigneId, pending.slice(0, 10));
@@ -8600,10 +9422,15 @@ function mergeRowsWithRecent(rows, consigneId) {
     store.delete(consigneId);
   }
   merged.sort((a, b) => {
-    const aRaw = a.createdAt?.toDate?.() ?? a.createdAt ?? a.updatedAt ?? null;
-    const bRaw = b.createdAt?.toDate?.() ?? b.createdAt ?? b.updatedAt ?? null;
-    const aTime = aRaw instanceof Date ? aRaw.getTime() : new Date(aRaw || 0).getTime();
-    const bTime = bRaw instanceof Date ? bRaw.getTime() : new Date(bRaw || 0).getTime();
+    const aDate = resolveHistoryEntryDate(a);
+    const bDate = resolveHistoryEntryDate(b);
+    const aTime = aDate instanceof Date ? aDate.getTime() : 0;
+    const bTime = bDate instanceof Date ? bDate.getTime() : 0;
+    if (aTime === bTime) {
+      const aFallback = new Date(a?.createdAt || 0).getTime();
+      const bFallback = new Date(b?.createdAt || 0).getTime();
+      return bFallback - aFallback;
+    }
     return bTime - aTime;
   });
   return merged;
@@ -8790,7 +9617,8 @@ async function openHistory(ctx, consigne, options = {}) {
     }
     const createdAtSource = row?.createdAt ?? row?.updatedAt ?? null;
     const createdAt = parseDateForDaily(createdAtSource);
-    const dayKey = resolveDayKey(row, createdAt);
+    const primaryDate = resolveHistoryEntryDate(row) || createdAt;
+    const dayKey = resolveDayKey(row, primaryDate);
     if (!dayKey) {
       return true;
     }
@@ -8947,8 +9775,20 @@ async function openHistory(ctx, consigne, options = {}) {
     return {
       isSummary: hasSummaryField || hasSummaryKeyword || Boolean(scope),
       scope,
-      isBilan: hasBilanMarker || hasWeeklyMarker || hasMonthlyMarker || hasYearlyMarker,
+      isBilan: hasBilanMarker,
     };
+  }
+
+  function firstNonEmptyString(...values) {
+    for (const value of values) {
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (trimmed) {
+          return trimmed;
+        }
+      }
+    }
+    return "";
   }
 
   const chartPoints = [];
@@ -9137,13 +9977,14 @@ async function openHistory(ctx, consigne, options = {}) {
   const list = rows
     .map((r, index) => {
       const createdAtSource = r.createdAt?.toDate?.() ?? r.createdAt ?? r.updatedAt ?? null;
-      let createdAt = createdAtSource ? new Date(createdAtSource) : null;
-      if (createdAt && Number.isNaN(createdAt.getTime())) {
-        createdAt = null;
+      let recordedAt = createdAtSource ? new Date(createdAtSource) : null;
+      if (recordedAt && Number.isNaN(recordedAt.getTime())) {
+        recordedAt = null;
       }
-      const dayKey = resolveDayKey(r, createdAt);
+      const primaryDate = resolveHistoryEntryDate(r);
+      const dayKey = resolveDayKey(r, primaryDate || recordedAt);
       const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
-      const displayDate = dayDate || createdAt;
+      const displayDate = dayDate || primaryDate || recordedAt;
       const iso = displayDate && !Number.isNaN(displayDate.getTime()) ? displayDate.toISOString() : "";
       const dateText = displayDate && !Number.isNaN(displayDate.getTime())
         ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
@@ -9155,7 +9996,18 @@ async function openHistory(ctx, consigne, options = {}) {
       const numericValue = numericPoint(consigne.type, r.value);
       const note = r.note && String(r.note).trim();
       const summaryInfo = detectSummaryNote(r);
-      const summaryLabel = summaryInfo.isSummary
+      const rawSummaryLabel = summaryInfo.isSummary
+        ? firstNonEmptyString(
+            r.summaryLabel,
+            r.summary_label,
+            r.summary?.label,
+            r.summary?.title,
+            r.summaryTitle,
+            r.summary_title,
+            r.label
+          )
+        : "";
+      const defaultBilanLabel = summaryInfo.isBilan
         ? summaryInfo.scope === "monthly"
           ? "Bilan mensuel"
           : summaryInfo.scope === "weekly"
@@ -9164,26 +10016,30 @@ async function openHistory(ctx, consigne, options = {}) {
           ? "Bilan annuel"
           : "Bilan"
         : "";
-      const summaryNoteLabel = summaryInfo.isSummary
-        ? summaryInfo.scope === "monthly"
-          ? "Note de bilan mensuel"
-          : summaryInfo.scope === "weekly"
-          ? "Note de bilan hebdomadaire"
-          : summaryInfo.scope === "yearly"
-          ? "Note de bilan annuel"
-          : "Note de bilan"
+      const summaryLabel = rawSummaryLabel || defaultBilanLabel;
+      const summaryNoteLabel = summaryLabel
+        ? summaryInfo.isBilan
+          ? summaryInfo.scope === "monthly"
+            ? "Note de bilan mensuel"
+            : summaryInfo.scope === "weekly"
+            ? "Note de bilan hebdomadaire"
+            : summaryInfo.scope === "yearly"
+            ? "Note de bilan annuel"
+            : "Note de bilan"
+          : summaryLabel
         : "";
       const noteClasses = ["history-panel__note"];
       let noteDataAttrs = "";
       let noteBadgeMarkup = "";
-      if (note && summaryInfo.isSummary) {
-        noteClasses.push("history-panel__note--bilan");
-        const scopeLabel = summaryNoteLabel || "Note de bilan";
-        noteBadgeMarkup = `<span class="history-panel__note-badge">${escapeHtml(scopeLabel)}</span>`;
-        const scopeAttr = summaryInfo.scope
-          ? ` data-note-scope="${escapeHtml(summaryInfo.scope)}"`
-          : "";
-        noteDataAttrs = ` data-note-source="bilan"${scopeAttr}`;
+      if (note && summaryNoteLabel) {
+        if (summaryInfo.isBilan) {
+          noteClasses.push("history-panel__note--bilan");
+          const scopeAttr = summaryInfo.scope
+            ? ` data-note-scope="${escapeHtml(summaryInfo.scope)}"`
+            : "";
+          noteDataAttrs = ` data-note-source="bilan"${scopeAttr}`;
+        }
+        noteBadgeMarkup = `<span class="history-panel__note-badge">${escapeHtml(summaryNoteLabel)}</span>`;
       }
       const noteMarkup = note
         ? `<p class="${noteClasses.join(" ")}"${noteDataAttrs}>${noteBadgeMarkup}${noteBadgeMarkup ? " " : ""}<span class="history-panel__note-text">${escapeHtml(note)}</span></p>`
@@ -9225,7 +10081,7 @@ async function openHistory(ctx, consigne, options = {}) {
           isSummary: Boolean(summaryInfo.isSummary),
           summaryScope: summaryInfo.scope || "",
           isBilan: Boolean(summaryInfo.isBilan),
-          recordedAt: createdAt instanceof Date && !Number.isNaN(createdAt?.getTime?.()) ? createdAt : null,
+          recordedAt: recordedAt instanceof Date && !Number.isNaN(recordedAt?.getTime?.()) ? recordedAt : null,
           dayKey: typeof dayKey === "string" ? dayKey : "",
         });
       }
@@ -9238,21 +10094,27 @@ async function openHistory(ctx, consigne, options = {}) {
       const summaryBadge = summaryLabel
         ? `<span class="history-panel__summary-badge">${escapeHtml(summaryLabel)}</span>`
         : "";
-      const summaryMarker = summaryLabel
-        ? `<span class="history-panel__summary-marker" title="${escapeHtml(summaryLabel)}" aria-hidden="true"></span>`
+      let markerTitle = "";
+      if (summaryInfo.isSummary && summaryLabel) {
+        markerTitle = summaryLabel;
+      } else if (summaryInfo.isBilan) {
+        markerTitle = summaryLabel || "Bilan";
+      }
+      const summaryMarker = summaryInfo.isBilan
+        ? `<span class="history-panel__summary-marker"${markerTitle ? ` title="${escapeHtml(markerTitle)}"` : ""} aria-hidden="true"></span>`
         : "";
       const valueClasses = ["history-panel__value"];
       if (summaryInfo.isSummary) {
         valueClasses.push("history-panel__value--summary");
       }
       let recordedMetaLabel = "";
-      if (dayDate && createdAt && !Number.isNaN(createdAt.getTime())) {
+      if (dayDate && recordedAt && !Number.isNaN(recordedAt.getTime())) {
         const sameDay =
-          createdAt.getFullYear() === dayDate.getFullYear() &&
-          createdAt.getMonth() === dayDate.getMonth() &&
-          createdAt.getDate() === dayDate.getDate();
+          recordedAt.getFullYear() === dayDate.getFullYear() &&
+          recordedAt.getMonth() === dayDate.getMonth() &&
+          recordedAt.getDate() === dayDate.getDate();
         if (!sameDay) {
-          recordedMetaLabel = formatDisplayDate(createdAt, { preferDayView: false });
+          recordedMetaLabel = formatDisplayDate(recordedAt, { preferDayView: false });
         }
       }
       const metaParts = [];
@@ -9852,7 +10714,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         return;
       }
       const { scope } = scopeChoice;
-      const practiceConsignes = orderSorted.slice();
+      const practiceConsignes = summaryConsignes.slice();
       openBilanModal(ctx, {
         scope,
         title: `${scopeChoice.label} — ${currentCat}`,
@@ -9867,18 +10729,23 @@ async function renderPractice(ctx, root, _opts = {}) {
   }
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "practice");
-  const consignes = all.filter((c) => (c.category || "") === currentCat);
-  modesLogger.info("screen.practice.consignes", consignes.length);
+  const categoryConsignes = all.filter((c) => (c.category || "") === currentCat);
+  const playableConsignes = categoryConsignes.filter((c) => !c.summaryOnlyScope);
+  modesLogger.info("screen.practice.consignes", playableConsignes.length);
 
-  const orderSorted = consignes.slice().sort((a, b) => {
-    const orderA = Number(a.order || 0);
-    const orderB = Number(b.order || 0);
-    if (orderA !== orderB) return orderA - orderB;
-    const prioA = Number(a.priority || 0);
-    const prioB = Number(b.priority || 0);
-    if (prioA !== prioB) return prioA - prioB;
-    return (a.text || a.titre || "").localeCompare(b.text || b.titre || "");
-  });
+  const sortConsignesForDisplay = (list) =>
+    list.slice().sort((a, b) => {
+      const orderA = Number(a.order || 0);
+      const orderB = Number(b.order || 0);
+      if (orderA !== orderB) return orderA - orderB;
+      const prioA = Number(a.priority || 0);
+      const prioB = Number(b.priority || 0);
+      if (prioA !== prioB) return prioA - prioB;
+      return (a.text || a.titre || "").localeCompare(b.text || b.titre || "");
+    });
+
+  const orderSorted = sortConsignesForDisplay(playableConsignes);
+  const summaryConsignes = sortConsignesForDisplay(categoryConsignes);
 
   const sessionIndex = await Schema.countPracticeSessions(ctx.db, ctx.user.uid);
   const visible = [];
@@ -9974,6 +10841,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         holder.innerHTML = inputForType(c);
         enhanceRangeMeters(holder);
         initializeChecklistScope(holder, { consigneId: c?.id ?? null });
+        ensureConsigneSkipField(row, c);
       }
       const bH = row.querySelector(".js-histo");
       const bE = row.querySelector(".js-edit");
@@ -10262,6 +11130,8 @@ const DAILY_ENTRY_TYPES = {
   DAY: "day",
   WEEKLY: "week",
   MONTHLY: "month",
+  YEARLY: "year",
+  ADHOC: "adhoc",
 };
 
 function normalizeDailyView(value) {
@@ -10272,6 +11142,15 @@ function normalizeDailyView(value) {
   }
   if (normalized === "month" || normalized === "monthly") {
     return DAILY_ENTRY_TYPES.MONTHLY;
+  }
+  if (
+    normalized === "year" ||
+    normalized === "yearly" ||
+    normalized === "annuel" ||
+    normalized === "annuelle" ||
+    normalized === "annual"
+  ) {
+    return DAILY_ENTRY_TYPES.YEARLY;
   }
   return null;
 }
@@ -10574,6 +11453,18 @@ function entryToDayKey(entry) {
   if ((entry?.type === DAILY_ENTRY_TYPES.WEEKLY || entry?.type === DAILY_ENTRY_TYPES.MONTHLY) && entry.sunday) {
     return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.sunday) : null;
   }
+  if (entry?.type === DAILY_ENTRY_TYPES.YEARLY) {
+    const anchor = entry.yearEnd instanceof Date ? entry.yearEnd : entry.yearStart;
+    return anchor && typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(anchor)
+      : null;
+  }
+  if (entry?.type === DAILY_ENTRY_TYPES.ADHOC) {
+    if (typeof entry.dayKey === "string" && entry.dayKey) {
+      return entry.dayKey;
+    }
+    return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.date) : null;
+  }
   return null;
 }
 function isWeekBoundaryDay(entry) {
@@ -10604,11 +11495,35 @@ function computeNextEntry(entry) {
     return null;
   }
   if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
+    const monthEnd = entry.monthEnd instanceof Date ? entry.monthEnd : null;
+    if (monthEnd && monthEnd.getMonth() === 11) {
+      const yearly = createYearlySummaryEntry(monthEnd);
+      if (yearly) {
+        return yearly;
+      }
+    }
     if (entry.sunday instanceof Date) {
       const nextDate = new Date(entry.sunday.getTime());
       nextDate.setDate(nextDate.getDate() + 1);
       return createDayEntry(nextDate);
     }
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.YEARLY) {
+    const anchor = entry.yearEnd instanceof Date ? entry.yearEnd : entry.yearStart;
+    if (anchor instanceof Date) {
+      const nextDate = new Date(anchor.getTime());
+      nextDate.setDate(nextDate.getDate() + 1);
+      return createDayEntry(nextDate);
+    }
+    return null;
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.ADHOC) {
+    if (entry.date instanceof Date) {
+      const nextDate = new Date(entry.date.getTime());
+      nextDate.setDate(nextDate.getDate() + 1);
+      return createDayEntry(nextDate);
+    }
+    return null;
   }
   return null;
 }
@@ -10619,6 +11534,10 @@ function computePrevEntry(entry) {
     prevDate.setDate(prevDate.getDate() - 1);
     const prevDay = createDayEntry(prevDate);
     if (prevDay && isWeekBoundaryDay(prevDay)) {
+      if (prevDay.date instanceof Date && prevDay.date.getMonth() === 11 && prevDay.date.getDate() === 31) {
+        const yearly = createYearlySummaryEntry(prevDay.date);
+        if (yearly) return yearly;
+      }
       const monthly = createMonthlySummaryEntry(prevDay.date);
       if (monthly) return monthly;
       const weekly = createWeeklySummaryEntry(prevDay.date);
@@ -10634,6 +11553,23 @@ function computePrevEntry(entry) {
     if (weekly) return weekly;
     return createDayEntry(entry.sunday);
   }
+  if (entry.type === DAILY_ENTRY_TYPES.YEARLY) {
+    const anchor = entry.yearEnd instanceof Date ? entry.yearEnd : entry.yearStart;
+    if (anchor instanceof Date) {
+      const monthly = createMonthlySummaryEntry(anchor);
+      if (monthly) return monthly;
+      const weekly = createWeeklySummaryEntry(anchor);
+      if (weekly) return weekly;
+      return createDayEntry(anchor);
+    }
+    return null;
+  }
+  if (entry.type === DAILY_ENTRY_TYPES.ADHOC) {
+    if (entry.date instanceof Date) {
+      return createDayEntry(entry.date);
+    }
+    return null;
+  }
   return null;
 }
 function entryToQuery(entry, basePath, qp) {
@@ -10647,8 +11583,25 @@ function entryToQuery(entry, basePath, qp) {
     } else {
       params.delete("d");
     }
-  } else if (entry?.type === DAILY_ENTRY_TYPES.WEEKLY || entry?.type === DAILY_ENTRY_TYPES.MONTHLY) {
-    params.set("view", entry.type === DAILY_ENTRY_TYPES.WEEKLY ? "week" : "month");
+  } else if (entry?.type === DAILY_ENTRY_TYPES.ADHOC) {
+    params.delete("view");
+    const key = entryToDayKey(entry);
+    if (key) {
+      params.set("d", key);
+    } else {
+      params.delete("d");
+    }
+  } else if (
+    entry?.type === DAILY_ENTRY_TYPES.WEEKLY ||
+    entry?.type === DAILY_ENTRY_TYPES.MONTHLY ||
+    entry?.type === DAILY_ENTRY_TYPES.YEARLY
+  ) {
+    const viewValue = entry.type === DAILY_ENTRY_TYPES.WEEKLY
+      ? "week"
+      : entry.type === DAILY_ENTRY_TYPES.MONTHLY
+      ? "month"
+      : "year";
+    params.set("view", viewValue);
     const key = entryToDayKey(entry);
     if (key) {
       params.set("d", key);
@@ -10709,6 +11662,8 @@ async function renderDaily(ctx, root, opts = {}) {
     entry = createWeeklySummaryEntry(selectedDate);
   } else if (requestedView === DAILY_ENTRY_TYPES.MONTHLY) {
     entry = createMonthlySummaryEntry(selectedDate) || createWeeklySummaryEntry(selectedDate);
+  } else if (requestedView === DAILY_ENTRY_TYPES.YEARLY) {
+    entry = createYearlySummaryEntry(selectedDate);
   }
 
   if (!entry && selectedDate) {
@@ -10856,7 +11811,8 @@ async function renderDaily(ctx, root, opts = {}) {
   }
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
-  const consignes = all.filter((c) => !c.days?.length || c.days.includes(currentDay));
+  const interactiveConsignes = all.filter((c) => !c.summaryOnlyScope);
+  const consignes = interactiveConsignes.filter((c) => !c.days?.length || c.days.includes(currentDay));
   modesLogger.info("screen.daily.consignes", consignes.length);
 
   const dayKey = selectedKey;
@@ -11059,8 +12015,23 @@ async function renderDaily(ctx, root, opts = {}) {
     if (normalizedSummary) {
       Object.assign(answers[0], normalizedSummary);
     }
+    try {
+      modesLogger?.info?.("daily.autosave.enqueue", {
+        consigneId: consigne?.id ?? null,
+        type: consigne?.type || null,
+        hasSummary: !!normalizedSummary,
+        dayKey,
+        skipped: !!(pendingValue && typeof pendingValue === 'object' && pendingValue.skipped === true),
+      });
+    } catch (_) {}
     Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers)
       .then(async () => {
+        try {
+          modesLogger?.info?.("daily.autosave.saved", {
+            consigneId: consigne?.id ?? null,
+            dayKey,
+          });
+        } catch (_) {}
         markAnswerAsSaved(consigne, pendingValue, pendingSerialized, normalizedSummary);
         if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
           try {
@@ -11072,6 +12043,13 @@ async function renderDaily(ctx, root, opts = {}) {
       })
       .catch((error) => {
         console.error("daily.autosave.error", error);
+        try {
+          modesLogger?.warn?.("daily.autosave.fail", {
+            consigneId: consigne?.id ?? null,
+            dayKey,
+            error: String(error && error.message || error) || "unknown",
+          });
+        } catch (_) {}
         notifyAutoSaveError();
         const retryDelay = Math.min(10000, Math.max(2000, resolveAutoSaveDelay(consigne) * 2));
         state.timeout = setTimeout(() => runAutoSave(consigneId), retryDelay);
@@ -11173,9 +12151,22 @@ async function renderDaily(ctx, root, opts = {}) {
   };
 
   const handleValueChange = (consigne, row, value, { serialized, summary, baseSerialized } = {}) => {
-    const hasContent = consigne.type === "checklist"
-      ? hasChecklistResponse(consigne, row, value)
-      : hasValueForConsigne(consigne, value);
+    const normalizedValue = normalizeConsigneValueForPersistence(consigne, row, value);
+    const skipActive = Boolean(row?.dataset?.skipAnswered === "1");
+    const hasContent = skipActive
+      ? true
+      : consigne.type === "checklist"
+        ? hasChecklistResponse(consigne, row, normalizedValue)
+        : hasValueForConsigne(consigne, normalizedValue);
+    try {
+      modesLogger?.debug?.("consigne.value.change", {
+        consigneId: consigne?.id ?? null,
+        type: consigne?.type || null,
+        skipActive,
+        hasContent,
+        normalizedIsSkipped: !!(normalizedValue && typeof normalizedValue === 'object' && normalizedValue.skipped === true),
+      });
+    } catch (_) {}
     if (!hasContent) {
       previousAnswers.delete(consigne.id);
       if (row) {
@@ -11190,24 +12181,24 @@ async function renderDaily(ctx, root, opts = {}) {
     const computedBaseSerialized =
       baseSerialized !== undefined
         ? baseSerialized
-        : serializeValueForComparison(consigne, value);
+        : serializeValueForComparison(consigne, normalizedValue);
     const providedCombined = typeof serialized === "string" ? serialized : null;
     const combinedSerialized =
       providedCombined !== null
         ? providedCombined
         : summarySerialized
-        ? `${computedBaseSerialized}__summary__${summarySerialized}`
-        : computedBaseSerialized;
+          ? `${computedBaseSerialized}__summary__${summarySerialized}`
+          : computedBaseSerialized;
     if (row) {
       if (!hasContent) {
         delete row.dataset.currentValue;
-      } else if (typeof value === "object") {
+      } else if (typeof normalizedValue === "object") {
         row.dataset.currentValue = computedBaseSerialized;
       } else {
-        row.dataset.currentValue = String(value);
+        row.dataset.currentValue = String(normalizedValue);
       }
     }
-    scheduleAutoSave(consigne, value, {
+    scheduleAutoSave(consigne, normalizedValue, {
       serialized: combinedSerialized,
       hasContent,
       summary: hasContent ? summaryMetadata : null,
@@ -11285,6 +12276,15 @@ async function renderDaily(ctx, root, opts = {}) {
       holder.innerHTML = inputForType(item, previous?.value ?? null);
       enhanceRangeMeters(holder);
       initializeChecklistScope(holder, { consigneId: item?.id ?? null });
+      ensureConsigneSkipField(row, item);
+      // Si la valeur précédente indiquait un « Passer », applique l’état dès le rendu initial
+      try {
+        const prevVal = previous?.value;
+        const wasSkipped = !!(prevVal && typeof prevVal === "object" && prevVal.skipped === true);
+        if (wasSkipped) {
+          setConsigneSkipState(row, item, true, { emitInputEvents: false, updateUI: true });
+        }
+      } catch (_) {}
     }
     const previousSummary = normalizeSummaryMetadataInput(previous);
     if (previousSummary) {
@@ -11380,7 +12380,8 @@ async function renderDaily(ctx, root, opts = {}) {
     bindConsigneRowValue(row, item, {
       initialValue,
       onChange: (value) => {
-        const baseSerialized = serializeValueForComparison(item, value);
+        const normalizedValue = normalizeConsigneValueForPersistence(item, row, value);
+        const baseSerialized = serializeValueForComparison(item, normalizedValue);
         const summaryMetadata = readConsigneSummaryMetadata(row);
         const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
         const combinedSerialized = summarySerialized
@@ -11395,7 +12396,7 @@ async function renderDaily(ctx, root, opts = {}) {
           return;
         }
         observedValues.set(item.id, combinedSerialized);
-        handleValueChange(item, row, value, {
+        handleValueChange(item, row, normalizedValue, {
           serialized: combinedSerialized,
           summary: summaryMetadata,
           baseSerialized,
@@ -11428,7 +12429,8 @@ async function renderDaily(ctx, root, opts = {}) {
       bindConsigneRowValue(childRow, child, {
         initialValue,
         onChange: (value) => {
-          const baseSerialized = serializeValueForComparison(child, value);
+          const normalizedValue = normalizeConsigneValueForPersistence(child, childRow, value);
+          const baseSerialized = serializeValueForComparison(child, normalizedValue);
           const summaryMetadata = readConsigneSummaryMetadata(childRow);
           const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
           const combinedSerialized = summarySerialized
@@ -11443,7 +12445,7 @@ async function renderDaily(ctx, root, opts = {}) {
             return;
           }
           observedValues.set(child.id, combinedSerialized);
-          handleValueChange(child, childRow, value, {
+          handleValueChange(child, childRow, normalizedValue, {
             serialized: combinedSerialized,
             summary: summaryMetadata,
             baseSerialized,
@@ -11639,5 +12641,8 @@ if (typeof module !== "undefined" && module.exports) {
     sanitizeChecklistItems,
     readChecklistStates,
     readChecklistSkipped,
+    // Expose select internals for tests (non-breaking for runtime)
+    setConsigneSkipState,
+    normalizeConsigneValueForPersistence,
   };
 }

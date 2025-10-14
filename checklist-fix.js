@@ -661,7 +661,7 @@
       root.dataset?.consigneId ||
       null;
     const uid = resolveUid(options.uid);
-    const dateKey = options.dateKey || todayKey();
+  const dateKey = options.dateKey || (typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? GLOBAL.AppCtx.dateIso : todayKey());
     const manager = GLOBAL.ChecklistState || null;
     const db = options.db || GLOBAL.AppCtx?.db || null;
     const log = (event, extra = {}, level = "info") => {
@@ -688,6 +688,31 @@
         } catch (error) {
           console.warn("[checklist-fix] hidden:parse", error);
           return;
+        }
+        // Si la page a une date explicite et que la valeur cachée n'a pas de dateKey
+        // ou que la dateKey ne correspond pas au jour de la page, on ignore.
+        try {
+          const hiddenKey = parsed && typeof parsed === 'object' && parsed.dateKey ? String(parsed.dateKey) : null;
+          const hash = typeof GLOBAL.location?.hash === 'string' ? GLOBAL.location.hash : '';
+          let hashDate = null;
+          try {
+            const qp = new URLSearchParams((hash.split('?')[1] || ''));
+            hashDate = (qp.get('d') || '').trim() || null;
+          } catch (_) {}
+          const pageKey = typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? GLOBAL.AppCtx.dateIso : null;
+          const expectedKey = hashDate || pageKey || null;
+          if (expectedKey) {
+            if (!hiddenKey) {
+              log("hydrate.hidden.skip-missing-dateKey", { pageKey: expectedKey });
+              return;
+            }
+            if (hiddenKey !== expectedKey) {
+              log("hydrate.hidden.skip-date-mismatch", { hiddenKey, pageKey: expectedKey });
+              return;
+            }
+          }
+        } catch (e) {
+          // ignore
         }
         const payload = Array.isArray(parsed)
           ? { items: parsed.map((value) => value === true), skipped: [] }
@@ -876,7 +901,7 @@
       };
       if (manager && typeof manager.loadSelection === "function" && db) {
         try {
-          saved = await manager.loadSelection(db, effectiveUid, consigneId);
+          saved = await manager.loadSelection(db, effectiveUid, consigneId, { dateKey });
           if (saved) {
             log("hydrate.manager", { dateKey: saved.dateKey || null, selected: selectedCount(saved) });
           } else {
