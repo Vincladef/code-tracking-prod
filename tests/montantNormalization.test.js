@@ -69,7 +69,11 @@ function setupDomStubs() {
 
 setupDomStubs();
 
-const { normalizeMontantValue } = require("../modes.js");
+const {
+  normalizeMontantValue,
+  normalizeConsigneValueForPersistence,
+  dotColor,
+} = require("../modes.js");
 
 function createMontantConsigne(overrides = {}) {
   return {
@@ -130,10 +134,41 @@ function testMissingObjectiveFallsBackToNote() {
   assert.strictEqual(normalized.met, false, "Sans objectif, l’état atteint doit rester faux");
 }
 
+function testPersistenceNormalizationProducesEvaluatedObject() {
+  const consigne = createMontantConsigne();
+  const row = { dataset: {} };
+  const normalized = normalizeConsigneValueForPersistence(consigne, row, 15);
+  assert.deepStrictEqual(
+    normalized,
+    {
+      kind: "montant",
+      amount: 15,
+      unit: "pompes",
+      goal: 20,
+      operator: "eq",
+      progress: 0.75,
+      met: false,
+      status: "mid",
+    },
+    "La persistance doit produire un objet évalué cohérent pour les montants",
+  );
+}
+
+function testDotColorReflectsDistanceFromObjective() {
+  const consigne = createMontantConsigne({ montantGoal: 100, montantGoalOperator: "eq" });
+  assert.strictEqual(dotColor("montant", { amount: 100 }, consigne), "ok-strong", "Une réponse égale à l’objectif doit être verte");
+  assert.strictEqual(dotColor("montant", { amount: 90 }, consigne), "ok-soft", "Une réponse proche doit être vert clair");
+  assert.strictEqual(dotColor("montant", { amount: 65 }, consigne), "mid", "Une réponse moyenne doit être jaune");
+  assert.strictEqual(dotColor("montant", { amount: 45 }, consigne), "ko-soft", "Une réponse éloignée doit tendre vers le rouge clair");
+  assert.strictEqual(dotColor("montant", { amount: 10 }, consigne), "ko-strong", "Une réponse très éloignée doit être rouge");
+}
+
 try {
   testEqualityObjectivesAreMet();
   testGreaterThanObjectivesComputeProgressRatio();
   testMissingObjectiveFallsBackToNote();
+  testPersistenceNormalizationProducesEvaluatedObject();
+  testDotColorReflectsDistanceFromObjective();
   console.log("Montant normalization tests passed.");
 } catch (error) {
   console.error(error);
