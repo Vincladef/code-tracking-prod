@@ -12631,6 +12631,7 @@ Modes.clearConsigneSummaryMetadata = clearConsigneSummaryMetadata;
 Modes.readConsigneSummaryMetadata = readConsigneSummaryMetadata;
 Modes.buildSummaryMetadataForScope = buildSummaryMetadataForScope;
 Modes.setupConsigneActionMenus = setupConsigneActionMenus;
+Modes.setupConsignePriorityMenu = setupConsignePriorityMenu;
 Modes.closeConsigneActionMenuFromNode = closeConsigneActionMenuFromNode;
 
 if (typeof module !== "undefined" && module.exports) {
