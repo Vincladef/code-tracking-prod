@@ -8129,6 +8129,12 @@ function normalizeConsigneValueForPersistence(consigne, row, value) {
     } catch (_) {}
     return { skipped: true };
   }
+  if (consigne?.type === "montant") {
+    if (value === null || value === undefined || value === "") {
+      return value;
+    }
+    return normalizeMontantValue(value, consigne);
+  }
   return value;
 }
 
