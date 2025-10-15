@@ -659,7 +659,17 @@
         </div>
         <div class="consigne-row__meta">
           <span class="consigne-row__status" data-status="na">
-            <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+            <button
+              type="button"
+              class="consigne-row__dot-button"
+              data-priority-trigger
+              aria-haspopup="true"
+              aria-expanded="false"
+              title="Changer la priorité"
+            >
+              <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+            </button>
+            <div class="consigne-row__priority-menu" data-priority-menu hidden></div>
             <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
             <span class="sr-only" data-status-live aria-live="polite"></span>
           </span>
@@ -709,6 +719,13 @@
         Modes.attachConsigneEditor(row, consigne, options.editorConfig || {});
       } catch (error) {
         bilanLogger?.warn?.("bilan.attachConsigneEditor", error);
+      }
+    }
+    if (typeof Modes.setupConsignePriorityMenu === "function") {
+      try {
+        Modes.setupConsignePriorityMenu(row, consigne, ctx);
+      } catch (error) {
+        bilanLogger?.warn?.("bilan.priorityMenu.setup", error);
       }
     }
     if (!isChild) {
