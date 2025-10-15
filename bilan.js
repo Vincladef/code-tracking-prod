@@ -453,6 +453,20 @@
       }
       return null;
     }
+    if (type === "montant") {
+      if (value && typeof value === "object") {
+        const amount = value.amount ?? value.value ?? null;
+        const num = Number(amount);
+        if (Number.isFinite(num)) {
+          return num;
+        }
+      }
+      const num = Number(value);
+      if (Number.isFinite(num)) {
+        return num;
+      }
+      return null;
+    }
     if (type === "yesno") {
       const normalized = String(value).trim().toLowerCase();
       if (!normalized) return null;

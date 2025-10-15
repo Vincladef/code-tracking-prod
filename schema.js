@@ -603,6 +603,12 @@ function nextCooldownAfterAnswer(meta, prevState, value) {
   else if (meta.type === "likert5") inc = Number(value) >= 3 ? 1 : (Number(value) === 2 ? 0.5 : 0);
   else if (meta.type === "yesno") inc = (value === "yes") ? 1 : 0;
   else if (meta.type === "num") inc = Number(value) >= 7 ? 1 : (Number(value) >= 5 ? 0.5 : 0);
+  else if (meta.type === "montant") {
+    const details = extractMontantDetails(value, meta);
+    if (details.met) inc = 1;
+    else if (Number.isFinite(details.progress) && details.progress >= 0.75) inc = 0.5;
+    else inc = 0;
+  }
   else inc = 1;
 
   // streak strict
@@ -1184,10 +1190,17 @@ async function saveResponses(db, uid, mode, answers) {
       }
     }
     // SR (seulement si activée sur la consigne)
-    if (a.consigne?.srEnabled !== false) {
-      const prev = await readSRState(db, uid, a.consigne.id, "consigne");
-      const upd = nextCooldownAfterAnswer(
-        { mode, type: a.consigne.type, days: a.consigne.days || [], sessionIndex: a.sessionIndex },
+      if (a.consigne?.srEnabled !== false) {
+        const prev = await readSRState(db, uid, a.consigne.id, "consigne");
+        const upd = nextCooldownAfterAnswer(
+        {
+          mode,
+          type: a.consigne.type,
+          days: a.consigne.days || [],
+          sessionIndex: a.sessionIndex,
+          montantGoal: a.consigne.montantGoal,
+          montantGoalOperator: a.consigne.montantGoalOperator,
+        },
         prev,
         a.value
       );
@@ -1641,12 +1654,108 @@ async function fetchResponsesForConsigne(db, uid, consigneId, limitCount = 200) 
   return ss.docs.map(d => ({ id:d.id, ...d.data() }));
 }
 
-function valueToNumericPoint(type, value) {
+function normalizeMontantOperatorValue(value) {
+  if (value == null) return "eq";
+  const raw = String(value).trim().toLowerCase();
+  if (!raw) return "eq";
+  if (["eq", "=", "egal", "égal", "equal", "a", "à"].includes(raw)) return "eq";
+  if ([">=", "gte", ">", "superieur", "supérieur", "plus", "min"].includes(raw)) return "gte";
+  if (["<=", "lte", "<", "inferieur", "inférieur", "moins", "max"].includes(raw)) return "lte";
+  return "eq";
+}
+
+function parseMontantValue(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const normalized = value.replace(/,/g, ".").trim();
+    if (!normalized) return null;
+    const num = Number(normalized);
+    return Number.isFinite(num) ? num : null;
+  }
+  return null;
+}
+
+function computeMontantEvaluationSchema(amount, goal, operator) {
+  const amountNum = Number.isFinite(amount) ? amount : null;
+  const goalNum = Number.isFinite(goal) ? goal : null;
+  const op = normalizeMontantOperatorValue(operator);
+  if (amountNum === null) {
+    return { progress: null, met: false };
+  }
+  if (goalNum === null) {
+    return { progress: null, met: false };
+  }
+  let progress = null;
+  let met = false;
+  if (op === "lte") {
+    if (amountNum <= goalNum) {
+      progress = 1;
+      met = true;
+    } else if (goalNum === 0) {
+      progress = 0;
+    } else {
+      progress = Math.max(0, Math.min(1, goalNum / amountNum));
+    }
+  } else if (op === "eq") {
+    if (goalNum === 0) {
+      met = amountNum === 0;
+      progress = met ? 1 : 0;
+    } else {
+      const base = Math.max(Math.abs(goalNum), 1);
+      const diff = Math.abs(amountNum - goalNum);
+      progress = Math.max(0, Math.min(1, 1 - diff / base));
+      met = diff <= Number.EPSILON * base;
+    }
+  } else {
+    if (goalNum === 0) {
+      progress = amountNum > 0 ? 1 : 0;
+      met = amountNum >= goalNum;
+    } else {
+      const ratio = amountNum / goalNum;
+      progress = Math.max(0, Math.min(1, ratio));
+      met = amountNum >= goalNum;
+    }
+  }
+  if (!Number.isFinite(progress)) {
+    progress = null;
+  }
+  return { progress, met };
+}
+
+function extractMontantDetails(value, meta) {
+  const goalSource =
+    value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "goal")
+      ? value.goal
+      : meta?.montantGoal;
+  const operatorSource =
+    value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "operator")
+      ? value.operator
+      : meta?.montantGoalOperator;
+  const amountSource =
+    value && typeof value === "object"
+      ? value.amount ?? value.value ?? null
+      : value;
+  const amount = parseMontantValue(amountSource);
+  const goal = parseMontantValue(goalSource);
+  const operator = normalizeMontantOperatorValue(operatorSource);
+  const evaluation = computeMontantEvaluationSchema(amount, goal, operator);
+  return { amount, goal, operator, progress: evaluation.progress, met: evaluation.met };
+}
+
+function valueToNumericPoint(type, value, meta = null) {
   if (type === "info") return null;
   if (type === "likert6") return LIKERT_POINTS[value] ?? 0;
   if (type === "likert5") return Number(value) || 0;  // 0..4
   if (type === "yesno")   return value === "yes" ? 1 : 0;
   if (type === "num") return Number(value) || 0;
+  if (type === "montant") {
+    const details = extractMontantDetails(value, meta);
+    if (Number.isFinite(details.progress)) {
+      return details.progress;
+    }
+    return null;
+  }
   if (type === "checklist") {
     const normalizeSkipValue = (raw) => {
       if (raw === true) return true;
