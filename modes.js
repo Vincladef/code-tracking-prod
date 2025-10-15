@@ -8278,6 +8278,27 @@ function setConsigneRowValue(row, consigne, value) {
     maintainOrClearSkip(hasChecklistAnswer);
     return;
   }
+  if (consigne?.type === "montant") {
+    const normalized = normalizeMontantValue(value, consigne);
+    const fields = findConsigneInputFields(row, consigne);
+    const amountField = fields.find(
+      (field) => typeof field?.name === "string" && field.name.startsWith(`montant:`)
+    );
+    if (amountField) {
+      const nextValue = Number.isFinite(normalized.amount) ? String(normalized.amount) : "";
+      amountField.value = nextValue;
+      amountField.dispatchEvent(new Event("input", { bubbles: true }));
+      amountField.dispatchEvent(new Event("change", { bubbles: true }));
+      const afterValue = readConsigneCurrentValue(consigne, row);
+      const hasAnswer = hasValueForConsigne(consigne, afterValue);
+      maintainOrClearSkip(hasAnswer);
+    } else {
+      updateConsigneStatusUI(row, consigne, normalized);
+      const hasAnswer = Number.isFinite(normalized.amount);
+      maintainOrClearSkip(hasAnswer);
+    }
+    return;
+  }
   const fields = findConsigneInputFields(row, consigne);
   if (!fields.length) {
     updateConsigneStatusUI(row, consigne, value);
