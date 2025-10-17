@@ -431,7 +431,15 @@
     if (trackedForms.has(form)) return;
     const key = computeFormKey(form);
     if (!key) return;
-    const scheduleSave = debounce(() => {
+    const state = {
+      key,
+      scheduleSave: null,
+      restoring: false,
+      scheduleRestore: null,
+      saveScheduled: false,
+    };
+    const rawScheduleSave = debounce(() => {
+      state.saveScheduled = false;
       const serialized = serializeForm(form);
       if (!serialized) {
         persistState(key, null);
@@ -439,16 +447,20 @@
       }
       persistState(key, serialized);
     }, SAVE_DEBOUNCE_MS);
-
-    const state = {
-      key,
-      scheduleSave,
-      restoring: false,
-      scheduleRestore: null,
+    const scheduleSave = () => {
+      state.saveScheduled = true;
+      rawScheduleSave();
     };
+    scheduleSave.cancel = () => {
+      state.saveScheduled = false;
+      if (typeof rawScheduleSave.cancel === "function") {
+        rawScheduleSave.cancel();
+      }
+    };
+    state.scheduleSave = scheduleSave;
 
     state.scheduleRestore = debounce(() => {
-      if (state.restoring) return;
+      if (state.restoring || state.saveScheduled) return;
       const storedState = loadState(state.key);
       if (storedState) {
         restoreForm(form, state, storedState);
@@ -458,12 +470,12 @@
     const handleInput = (event) => {
       if (event && event.target && event.target.form && event.target.form !== form) return;
       if (state.restoring) return;
-      scheduleSave();
+      state.scheduleSave();
     };
 
     const handleSubmit = () => {
-      if (typeof scheduleSave.cancel === "function") {
-        scheduleSave.cancel();
+      if (typeof state.scheduleSave.cancel === "function") {
+        state.scheduleSave.cancel();
       }
       persistState(state.key, null);
     };
