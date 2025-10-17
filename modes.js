@@ -564,6 +564,153 @@ const LIKERT6_LABELS = {
 
 const NOTE_IGNORED_VALUES = new Set(["no_answer"]);
 
+const MONTANT_NUMBER_FORMATTER = new Intl.NumberFormat("fr-FR", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+
+const MONTANT_OPERATOR_SYMBOLS = {
+  eq: "=",
+  gte: "≥",
+  lte: "≤",
+};
+
+function normalizeMontantOperator(value) {
+  if (value == null) {
+    return "eq";
+  }
+  const raw = String(value).trim().toLowerCase();
+  if (!raw) return "eq";
+  if (["eq", "=", "egal", "égal", "equal", "a", "à"].includes(raw)) return "eq";
+  if ([">=", "gte", ">", "superieur", "supérieur", "plus", "min"].includes(raw)) return "gte";
+  if (["<=", "lte", "<", "inferieur", "inférieur", "moins", "max"].includes(raw)) return "lte";
+  return "eq";
+}
+
+function montantOperatorSymbol(operator) {
+  const normalized = normalizeMontantOperator(operator);
+  return MONTANT_OPERATOR_SYMBOLS[normalized] || "=";
+}
+
+function parseMontantNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string") {
+    const normalized = value.replace(/,/g, ".").trim();
+    if (!normalized) return null;
+    const num = Number(normalized);
+    return Number.isFinite(num) ? num : null;
+  }
+  return null;
+}
+
+function computeMontantEvaluation(amount, goal, operator) {
+  const amountNum = Number.isFinite(amount) ? amount : null;
+  const goalNum = Number.isFinite(goal) ? goal : null;
+  const op = normalizeMontantOperator(operator);
+  if (amountNum === null) {
+    return { progress: null, met: false, status: "na" };
+  }
+  if (goalNum === null) {
+    return { progress: null, met: false, status: "note" };
+  }
+  let progress = null;
+  let met = false;
+  if (op === "lte") {
+    if (amountNum <= goalNum) {
+      progress = 1;
+      met = true;
+    } else if (goalNum === 0) {
+      progress = 0;
+    } else {
+      progress = Math.max(0, Math.min(1, goalNum / amountNum));
+    }
+  } else if (op === "eq") {
+    if (goalNum === 0) {
+      met = amountNum === 0;
+      progress = met ? 1 : 0;
+    } else {
+      const base = Math.max(Math.abs(goalNum), 1);
+      const diff = Math.abs(amountNum - goalNum);
+      progress = Math.max(0, Math.min(1, 1 - diff / base));
+      met = diff <= Number.EPSILON * base;
+    }
+  } else {
+    if (goalNum === 0) {
+      progress = amountNum > 0 ? 1 : 0;
+      met = amountNum >= goalNum;
+    } else {
+      const ratio = amountNum / goalNum;
+      progress = Math.max(0, Math.min(1, ratio));
+      met = amountNum >= goalNum;
+    }
+  }
+  if (!Number.isFinite(progress)) {
+    progress = null;
+  }
+  let status;
+  if (progress === null) {
+    status = "note";
+  } else if (met) {
+    status = "ok-strong";
+  } else if (progress >= 0.85) {
+    status = "ok-soft";
+  } else if (progress >= 0.6) {
+    status = "mid";
+  } else if (progress >= 0.35) {
+    status = "ko-soft";
+  } else {
+    status = "ko-strong";
+  }
+  return { progress, met, status };
+}
+
+function normalizeMontantValue(rawValue, consigne) {
+  const baseUnit = typeof consigne?.montantUnit === "string" ? consigne.montantUnit.trim() : "";
+  const amountSource =
+    rawValue && typeof rawValue === "object"
+      ? rawValue.amount ?? rawValue.value ?? rawValue.quantity ?? null
+      : rawValue;
+  const unitSource =
+    rawValue && typeof rawValue === "object"
+      ? rawValue.unit ?? rawValue.label ?? rawValue.word ?? null
+      : null;
+  const goalSource =
+    rawValue && typeof rawValue === "object" && Object.prototype.hasOwnProperty.call(rawValue, "goal")
+      ? rawValue.goal
+      : consigne?.montantGoal;
+  const operatorSource =
+    rawValue && typeof rawValue === "object" && Object.prototype.hasOwnProperty.call(rawValue, "operator")
+      ? rawValue.operator
+      : consigne?.montantGoalOperator;
+  const amount = parseMontantNumber(amountSource);
+  const goal = parseMontantNumber(goalSource);
+  const operator = normalizeMontantOperator(operatorSource);
+  const unit = typeof unitSource === "string" && unitSource.trim() ? unitSource.trim() : baseUnit;
+  const evaluation = computeMontantEvaluation(amount, goal, operator);
+  return {
+    kind: "montant",
+    amount,
+    unit,
+    goal: goal !== null ? goal : null,
+    operator,
+    progress: evaluation.progress,
+    met: evaluation.met,
+    status: evaluation.status,
+  };
+}
+
+function buildMontantValue(consigne, amount) {
+  const goal = parseMontantNumber(consigne?.montantGoal);
+  const operator = normalizeMontantOperator(consigne?.montantGoalOperator);
+  const unit = typeof consigne?.montantUnit === "string" ? consigne.montantUnit.trim() : "";
+  return normalizeMontantValue({ amount, goal, operator, unit }, consigne);
+}
+
 function renderConsigneValueField(consigne, value, fieldId) {
   const type = consigne?.type || "short";
   if (type === "info") {
@@ -574,6 +721,27 @@ function renderConsigneValueField(consigne, value, fieldId) {
     return `<input id="${fieldId}" name="value" type="number" step="0.1" class="practice-editor__input" placeholder="Réponse" value="${
       Number.isFinite(current) ? escapeHtml(String(current)) : ""
     }">`;
+  }
+  if (type === "montant") {
+    const normalized = normalizeMontantValue(value, consigne);
+    const amount = Number.isFinite(normalized.amount) ? normalized.amount : null;
+    const unit = normalized.unit || consigne?.montantUnit || "";
+    const goal = Number.isFinite(normalized.goal) ? normalized.goal : null;
+    const symbol = montantOperatorSymbol(normalized.operator);
+    const objectiveLabel =
+      goal !== null
+        ? `Objectif ${symbol} ${MONTANT_NUMBER_FORMATTER.format(goal)}${unit ? ` ${unit}` : ""}`
+        : "";
+    const amountValue = amount === null ? "" : escapeHtml(String(amount));
+    return `
+      <div class="grid gap-1">
+        <div class="flex items-center gap-2">
+          <input id="${fieldId}" name="value" type="number" inputmode="decimal" step="any" min="0" class="practice-editor__input" placeholder="Montant" value="${amountValue}">
+          ${unit ? `<span class="text-sm text-[var(--muted)]">${escapeHtml(unit)}</span>` : ""}
+        </div>
+        ${objectiveLabel ? `<p class="text-xs text-[var(--muted)]">${escapeHtml(objectiveLabel)}</p>` : ""}
+      </div>
+    `;
   }
   if (type === "likert5") {
     const current = value === "" || value == null ? "" : Number(value);
@@ -632,6 +800,14 @@ function readConsigneValueFromForm(consigne, form) {
     if (field.value === "" || field.value == null) return "";
     const num = Number(field.value);
     return Number.isFinite(num) ? num : "";
+  }
+  if (type === "montant") {
+    if (field.value === "" || field.value == null) return "";
+    const amount = Number(field.value);
+    if (!Number.isFinite(amount)) {
+      return "";
+    }
+    return buildMontantValue(consigne, amount);
   }
   if (type === "likert5") {
     if (field.value === "" || field.value == null) return "";
@@ -1138,12 +1314,12 @@ function checklistIsComplete(value) {
   return hasConsidered;
 }
 
-function numericPoint(type, value) {
+function numericPoint(type, value, consigne = null) {
   if (value === null || value === undefined || value === "") return null;
   if (type === "likert6") {
     return likert6NumericPoint(value);
   }
-  const point = Schema.valueToNumericPoint(type, value);
+  const point = Schema.valueToNumericPoint(type, value, consigne);
   return Number.isFinite(point) ? point : null;
 }
 
@@ -1166,6 +1342,26 @@ function formatConsigneValue(type, value, options = {}) {
       return html && html.trim() ? html : escapeHtml(normalized.text || "—");
     }
     return normalized.text || "—";
+  }
+  if (type === "montant") {
+    const normalized = normalizeMontantValue(value, consigne);
+    if (!Number.isFinite(normalized.amount)) {
+      return wantsHtml ? "—" : "—";
+    }
+    const amountText = MONTANT_NUMBER_FORMATTER.format(normalized.amount);
+    const unit = normalized.unit || consigne?.montantUnit || "";
+    const baseText = unit ? `${amountText} ${unit}` : amountText;
+    const goalText = Number.isFinite(normalized.goal)
+      ? `${montantOperatorSymbol(normalized.operator)} ${MONTANT_NUMBER_FORMATTER.format(normalized.goal)}${unit ? ` ${unit}` : ""}`
+      : "";
+    if (!goalText) {
+      return wantsHtml ? escapeHtml(baseText) : baseText;
+    }
+    const objectiveLabel = `Objectif ${goalText}`;
+    if (wantsHtml) {
+      return `${escapeHtml(baseText)} <span class="montant-value__objective">(${escapeHtml(objectiveLabel)})</span>`;
+    }
+    return `${baseText} (${objectiveLabel})`;
   }
   if (value === null || value === undefined || value === "") return "—";
   if (type === "checklist") {
@@ -1807,6 +2003,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (type === "likert6") return "Échelle ×6";
     if (type === "likert5") return "Échelle ×5";
     if (type === "yesno") return "Oui / Non";
+    if (type === "montant") return "Montant";
     if (type === "num") return "Numérique";
     if (type === "checklist") return "Checklist";
     if (type === "long") return "Texte long";
@@ -1820,6 +2017,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (type === "likert5") return Math.max(0, Math.min(1, value / 4));
     if (type === "likert6") return Math.max(0, Math.min(1, value / (LIKERT6_ORDER.length - 1 || 1)));
     if (type === "yesno") return Math.max(0, Math.min(1, value));
+    if (type === "montant") return Math.max(0, Math.min(1, Number(value)));
   if (type === "checklist") {
     const states = readChecklistStates(value);
     if (!states.length) return null;
@@ -2460,7 +2658,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const timeline = iterationMeta.map((meta) => {
         const record = entries.get(meta.iso);
         const rawValue = record ? record.value : "";
-        const numeric = numericPoint(consigne.type, rawValue);
+        const numeric = numericPoint(consigne.type, rawValue, consigne);
         return {
           dateIso: meta.iso,
           rawValue,
@@ -2550,7 +2748,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         lastFormattedHtml,
         lastCommentRaw: lastNote,
         commentDisplay: truncateText(lastNote, 180),
-        statusKind: dotColor(consigne.type, lastValue),
+        statusKind: dotColor(consigne.type, lastValue, consigne),
         totalEntries: orderedEntries.length,
         color: baseColor,
         accentStrong,
@@ -2709,7 +2907,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
                 pointIndex = stat.timeline.findIndex((point) => point.dateIso === entry.date);
               }
               if (pointIndex < 0) return "";
-              const statusKind = dotColor(stat.type, entry.value);
+              const statusKind = dotColor(stat.type, entry.value, stat.consigne);
               const statusLabel = statusLabels[statusKind] || "Valeur";
               const dateLabel = meta?.fullLabel || meta?.label || entry.date;
               const relativeLabel = formatRelativeDate(meta?.dateObj || entry.date);
@@ -2846,7 +3044,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const note = newNote ? newNote : "";
       point.rawValue = rawValue;
       point.note = note;
-      point.numeric = numericPoint(stat.type, rawValue);
+      point.numeric = numericPoint(stat.type, rawValue, stat.consigne);
       if (stat.timelineByKey) {
         stat.timelineByKey.set(point.dateIso, point);
       }
@@ -2902,7 +3100,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       stat.lastFormattedHtml = formatConsigneValue(stat.type, lastValue, { mode: "html", consigne: stat.consigne });
       stat.lastCommentRaw = lastEntry?.note ?? "";
       stat.commentDisplay = truncateText(stat.lastCommentRaw, 180);
-      stat.statusKind = dotColor(stat.type, lastValue);
+      stat.statusKind = dotColor(stat.type, lastValue, stat.consigne);
     }
 
     function openCellEditor(stat, pointIndex) {
@@ -4980,6 +5178,27 @@ function inputForType(consigne, initialValue = null) {
       </div>
     `;
   }
+  if (consigne.type === "montant") {
+    const normalized = normalizeMontantValue(normalizedInitial, consigne);
+    const amount = Number.isFinite(normalized.amount) ? normalized.amount : "";
+    const unit = normalized.unit || consigne.montantUnit || "";
+    const goal = Number.isFinite(normalized.goal) ? normalized.goal : null;
+    const symbol = montantOperatorSymbol(normalized.operator);
+    const objectiveText =
+      goal !== null
+        ? `Objectif ${symbol} ${MONTANT_NUMBER_FORMATTER.format(goal)}${unit ? ` ${unit}` : ""}`
+        : "";
+    const amountValue = amount === "" ? "" : escapeHtml(String(amount));
+    return `
+      <div class="grid gap-1 montant-input">
+        <div class="flex items-center gap-2">
+          <input name="montant:${consigne.id}" class="w-full" type="number" inputmode="decimal" step="any" min="0" placeholder="Montant" value="${amountValue}">
+          ${unit ? `<span class="text-sm text-[var(--muted)]">${escapeHtml(unit)}</span>` : ""}
+        </div>
+        ${objectiveText ? `<p class="text-xs text-[var(--muted)]">${escapeHtml(objectiveText)}</p>` : ""}
+      </div>
+    `;
+  }
   if (consigne.type === "likert6") {
     const current = (normalizedInitial ?? "").toString();
     // Ordre désiré : Oui → Plutôt oui → Neutre → Plutôt non → Non → Pas de réponse
@@ -5858,6 +6077,14 @@ function collectAnswers(form, consignes, options = {}) {
     } else if (consigne.type === "num") {
       const val = form.querySelector(`[name="num:${consigne.id}"]`)?.value;
       if (val) pushAnswer(Number(val));
+    } else if (consigne.type === "montant") {
+      const raw = form.querySelector(`[name="montant:${consigne.id}"]`)?.value;
+      if (raw !== "" && raw != null) {
+        const amount = Number(raw);
+        if (Number.isFinite(amount)) {
+          pushAnswer(buildMontantValue(consigne, amount));
+        }
+      }
     } else if (consigne.type === "likert5") {
       const val = form.querySelector(`[name="likert5:${consigne.id}"]`)?.value;
       if (val !== "" && val != null) pushAnswer(Number(val));
@@ -6101,12 +6328,14 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           <option value="short"   ${consigne?.type === "short"   ? "selected" : ""}>Texte court</option>
           <option value="long"    ${consigne?.type === "long"    ? "selected" : ""}>Texte long</option>
           <option value="num"     ${consigne?.type === "num"     ? "selected" : ""}>Échelle numérique (0–10)</option>
+          <option value="montant" ${consigne?.type === "montant" ? "selected" : ""}>Montant</option>
           <option value="checklist" ${consigne?.type === "checklist" ? "selected" : ""}>Checklist</option>
           <option value="info"    ${consigne?.type === "info"    ? "selected" : ""}>${INFO_RESPONSE_LABEL}</option>
         </select>
       </label>
 
       <div data-checklist-editor-anchor></div>
+      <div data-montant-editor-anchor></div>
 
       ${catUI}
 
@@ -6355,6 +6584,39 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
   checklistAddBtn.textContent = '+ Ajouter un élément';
   checklistActions.appendChild(checklistAddBtn);
   checklistEditor.append(checklistLegend, checklistList, checklistActions);
+  const montantAnchor = m.querySelector('[data-montant-editor-anchor]');
+  const initialMontantUnit = typeof consigne?.montantUnit === 'string' ? consigne.montantUnit : '';
+  const initialMontantGoalNumber = parseMontantNumber(consigne?.montantGoal);
+  const initialMontantGoalValue =
+    initialMontantGoalNumber !== null && Number.isFinite(initialMontantGoalNumber)
+      ? String(initialMontantGoalNumber)
+      : '';
+  const initialMontantOperator = normalizeMontantOperator(consigne?.montantGoalOperator);
+  const montantEditor = document.createElement('fieldset');
+  montantEditor.className = 'grid gap-2';
+  montantEditor.dataset.montantEditor = '';
+  montantEditor.innerHTML = `
+    <legend class="text-sm text-[var(--muted)]">Configuration du montant</legend>
+    <label class="grid gap-1">
+      <span class="text-sm text-[var(--muted)]">Unité (ex. pompes)</span>
+      <input type="text" name="montant-unit" class="w-full" placeholder="Unité" value="${escapeHtml(initialMontantUnit || '')}">
+    </label>
+    <div class="grid gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] sm:items-end">
+      <label class="grid gap-1">
+        <span class="text-sm text-[var(--muted)]">Objectif</span>
+        <input type="number" inputmode="decimal" step="any" min="0" name="montant-goal" class="w-full" placeholder="Valeur cible" value="${escapeHtml(initialMontantGoalValue)}">
+      </label>
+      <label class="grid gap-1">
+        <span class="text-sm text-[var(--muted)]">Comparaison</span>
+        <select name="montant-operator" class="w-full">
+          <option value="eq" ${initialMontantOperator === 'eq' ? 'selected' : ''}>Égal à</option>
+          <option value="gte" ${initialMontantOperator === 'gte' ? 'selected' : ''}>Supérieur ou égal à</option>
+          <option value="lte" ${initialMontantOperator === 'lte' ? 'selected' : ''}>Inférieur ou égal à</option>
+        </select>
+      </label>
+    </div>
+    <p class="text-xs text-[var(--muted)]">L’objectif est optionnel.</p>
+  `;
   let checklistMounted = false;
   const mountChecklistEditor = () => {
     if (!checklistAnchor || checklistMounted) return;
@@ -6365,6 +6627,17 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     if (!checklistMounted) return;
     checklistEditor.remove();
     checklistMounted = false;
+  };
+  let montantMounted = false;
+  const mountMontantEditor = () => {
+    if (!montantAnchor || montantMounted) return;
+    montantAnchor.appendChild(montantEditor);
+    montantMounted = true;
+  };
+  const unmountMontantEditor = () => {
+    if (!montantMounted) return;
+    montantEditor.remove();
+    montantMounted = false;
   };
   const checklistEmptyClass = 'checklist-editor__empty';
   const renderChecklistEmptyState = () => {
@@ -6485,26 +6758,31 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       addChecklistRow();
     }
   };
-  const syncChecklistVisibility = () => {
-    const isChecklist = typeSelectEl?.value === 'checklist';
-    if (!isChecklist) {
+  const syncTypeSpecificVisibility = () => {
+    const selectedType = typeSelectEl?.value;
+    if (selectedType === 'checklist') {
+      mountChecklistEditor();
+      ensureChecklistHasRow();
+      renderChecklistEmptyState();
+      setupChecklistDragAndDrop();
+    } else {
       if (checklistList) {
         checklistList.innerHTML = '';
       }
       unmountChecklistEditor();
-      return;
     }
-    mountChecklistEditor();
-    ensureChecklistHasRow();
-    renderChecklistEmptyState();
-    setupChecklistDragAndDrop();
+    if (selectedType === 'montant') {
+      mountMontantEditor();
+    } else {
+      unmountMontantEditor();
+    }
   };
   if (typeSelectEl) {
     typeSelectEl.addEventListener('change', () => {
-      syncChecklistVisibility();
+      syncTypeSpecificVisibility();
     });
   }
-  syncChecklistVisibility();
+  syncTypeSpecificVisibility();
   renderChecklistEmptyState();
   const objectiveSelectEl = m.querySelector("#objective-select");
   const objectiveMetaBox = m.querySelector("[data-objective-meta]");
@@ -6547,6 +6825,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
             <option value="short" ${item.type === "short" ? "selected" : ""}>Texte court</option>
             <option value="long" ${item.type === "long" ? "selected" : ""}>Texte long</option>
             <option value="num" ${item.type === "num" ? "selected" : ""}>Échelle numérique (0–10)</option>
+            <option value="montant" ${item.type === "montant" ? "selected" : ""}>Montant</option>
             <option value="checklist" ${item.type === "checklist" ? "selected" : ""}>Checklist</option>
             <option value="info" ${item.type === "info" ? "selected" : ""}>${INFO_RESPONSE_LABEL}</option>
           </select>
@@ -6571,6 +6850,49 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         }
       };
       setSubChecklistVisibility(false);
+      const subMontantEditor = document.createElement('fieldset');
+      subMontantEditor.className = 'grid gap-2';
+      subMontantEditor.dataset.subMontantEditor = '';
+      const initialSubMontantUnit = typeof item.montantUnit === 'string' ? item.montantUnit : '';
+      const initialSubMontantGoalNumber = parseMontantNumber(item.montantGoal);
+      const initialSubMontantGoalValue =
+        initialSubMontantGoalNumber !== null && Number.isFinite(initialSubMontantGoalNumber)
+          ? String(initialSubMontantGoalNumber)
+          : '';
+      const initialSubMontantOperator = normalizeMontantOperator(item.montantGoalOperator);
+      subMontantEditor.innerHTML = `
+        <legend class="text-sm text-[var(--muted)]">Configuration du montant</legend>
+        <label class="grid gap-1">
+          <span class="text-sm text-[var(--muted)]">Unité (ex. pompes)</span>
+          <input type="text" name="sub-montant-unit" class="w-full" placeholder="Unité" value="${escapeHtml(initialSubMontantUnit || '')}">
+        </label>
+        <div class="grid gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] sm:items-end">
+          <label class="grid gap-1">
+            <span class="text-sm text-[var(--muted)]">Objectif</span>
+            <input type="number" inputmode="decimal" step="any" min="0" name="sub-montant-goal" class="w-full" placeholder="Valeur cible" value="${escapeHtml(initialSubMontantGoalValue)}">
+          </label>
+          <label class="grid gap-1">
+            <span class="text-sm text-[var(--muted)]">Comparaison</span>
+            <select name="sub-montant-operator" class="w-full">
+              <option value="eq" ${initialSubMontantOperator === 'eq' ? 'selected' : ''}>Égal à</option>
+              <option value="gte" ${initialSubMontantOperator === 'gte' ? 'selected' : ''}>Supérieur ou égal à</option>
+              <option value="lte" ${initialSubMontantOperator === 'lte' ? 'selected' : ''}>Inférieur ou égal à</option>
+            </select>
+          </label>
+        </div>
+        <p class="text-xs text-[var(--muted)]">L’objectif est optionnel.</p>
+      `;
+      const setSubMontantVisibility = (visible) => {
+        const isVisible = Boolean(visible);
+        subMontantEditor.hidden = !isVisible;
+        subMontantEditor.classList.toggle('hidden', !isVisible);
+        if (!isVisible) {
+          subMontantEditor.style.display = 'none';
+        } else {
+          subMontantEditor.style.removeProperty('display');
+        }
+      };
+      setSubMontantVisibility(false);
       const subChecklistLegend = document.createElement('legend');
       subChecklistLegend.className = 'text-sm text-[var(--muted)]';
       subChecklistLegend.textContent = "Éléments de checklist";
@@ -6588,6 +6910,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       subChecklistEditor.append(subChecklistLegend, subChecklistList, subChecklistActions);
       if (mainSection) {
         mainSection.appendChild(subChecklistEditor);
+        mainSection.appendChild(subMontantEditor);
       }
       const subChecklistEmptyClass = 'subchecklist-editor__empty';
       const renderSubChecklistEmptyState = () => {
@@ -6711,26 +7034,31 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         );
       }
       setupSubChecklistDragAndDrop();
-      const syncSubChecklistVisibility = () => {
-        const isChecklist = typeSelect?.value === 'checklist';
-        if (!isChecklist) {
+      const syncSubTypeVisibility = () => {
+        const selectedType = typeSelect?.value;
+        if (selectedType === 'checklist') {
+          setSubChecklistVisibility(true);
+          ensureSubChecklistHasRow();
+          renderSubChecklistEmptyState();
+        } else {
           if (subChecklistList) {
             subChecklistList.innerHTML = '';
           }
           setSubChecklistVisibility(false);
           renderSubChecklistEmptyState();
-          return;
         }
-        setSubChecklistVisibility(true);
-        ensureSubChecklistHasRow();
-        renderSubChecklistEmptyState();
+        if (selectedType === 'montant') {
+          setSubMontantVisibility(true);
+        } else {
+          setSubMontantVisibility(false);
+        }
       };
       if (typeSelect) {
         typeSelect.addEventListener('change', () => {
-          syncSubChecklistVisibility();
+          syncSubTypeVisibility();
         });
       }
-      syncSubChecklistVisibility();
+      syncSubTypeVisibility();
       row.querySelector('[data-remove]')?.addEventListener('click', () => {
         if (item.id) {
           removedChildIds.add(item.id);
@@ -6855,13 +7183,36 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         weeklySummaryEnabled,
         monthlySummaryEnabled,
         yearlySummaryEnabled,
-        summaryOnlyScope: summaryOnlyScopeValue,
-        ephemeral: ephemeralEnabled,
-        ephemeralDurationDays,
-        ephemeralDurationIterations,
-        active: true,
-        parentId: consigne?.parentId || null,
-      };
+      summaryOnlyScope: summaryOnlyScopeValue,
+      ephemeral: ephemeralEnabled,
+      ephemeralDurationDays,
+      ephemeralDurationIterations,
+      active: true,
+      parentId: consigne?.parentId || null,
+    };
+      if (payload.type === "montant") {
+        const unitField = m.querySelector('input[name="montant-unit"]');
+        const goalField = m.querySelector('input[name="montant-goal"]');
+        const operatorField = m.querySelector('select[name="montant-operator"]');
+        const unitValue = unitField?.value ? unitField.value.trim() : "";
+        const goalRaw = goalField?.value ? goalField.value.trim() : "";
+        let goalValue = null;
+        if (goalRaw) {
+          const parsedGoal = Number(goalRaw.replace(/,/g, '.'));
+          if (!Number.isFinite(parsedGoal)) {
+            alert('Indique un objectif numérique valide pour le montant.');
+            return;
+          }
+          goalValue = parsedGoal;
+        }
+        payload.montantUnit = unitValue;
+        payload.montantGoal = goalValue;
+        payload.montantGoalOperator = normalizeMontantOperator(operatorField?.value);
+      } else {
+        payload.montantUnit = "";
+        payload.montantGoal = null;
+        payload.montantGoalOperator = null;
+      }
       if (payload.type === "checklist") {
         const itemRows = Array.from(m.querySelectorAll('[data-checklist-editor-row]'));
         const items = itemRows.map((row) => {
@@ -7017,7 +7368,8 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
             parentId: consigneId,
           };
           const childDays = mode === "daily" ? payload.days || [] : undefined;
-          const updates = [];
+      const updates = [];
+      let invalidSubMontantGoal = false;
           if (subRows.length) {
             subRows.forEach((row) => {
               const textInput = row.querySelector('input[name="sub-text"]');
@@ -7033,6 +7385,9 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
                 checklistItems: [],
                 checklistItemIds: [],
               };
+              childPayload.montantUnit = "";
+              childPayload.montantGoal = null;
+              childPayload.montantGoalOperator = null;
               if (mode === "daily") {
                 childPayload.days = Array.isArray(childDays) ? [...childDays] : [];
               }
@@ -7055,6 +7410,24 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
                   subRow.dataset.subChecklistItemId = idValue;
                   return idValue;
                 });
+              } else if (typeValue === 'montant') {
+                const unitField = row.querySelector('input[name="sub-montant-unit"]');
+                const goalField = row.querySelector('input[name="sub-montant-goal"]');
+                const operatorField = row.querySelector('select[name="sub-montant-operator"]');
+                const unitVal = unitField?.value ? unitField.value.trim() : '';
+                const goalRaw = goalField?.value ? goalField.value.trim() : '';
+                let goalVal = null;
+                if (goalRaw) {
+                  const parsedGoal = Number(goalRaw.replace(/,/g, '.'));
+                  if (!Number.isFinite(parsedGoal)) {
+                    invalidSubMontantGoal = true;
+                  } else {
+                    goalVal = parsedGoal;
+                  }
+                }
+                childPayload.montantUnit = unitVal;
+                childPayload.montantGoal = goalVal;
+                childPayload.montantGoalOperator = normalizeMontantOperator(operatorField?.value);
               }
               if (childId) {
                 updates.push(
@@ -7074,6 +7447,10 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
                 );
               }
             });
+          }
+          if (invalidSubMontantGoal) {
+            alert('Indique un objectif numérique valide pour chaque sous-consigne de type montant.');
+            return;
           }
           removedChildIds.forEach((childId) => {
             updates.push(Schema.softDeleteConsigne(ctx.db, ctx.user.uid, childId));
@@ -7126,12 +7503,16 @@ function hasTextualNote(value) {
   return extractTextualNote(value).length > 0;
 }
 
-function dotColor(type, v){
+function dotColor(type, v, consigne){
   if (v && typeof v === "object" && v.skipped === true) {
     return "note";
   }
   if (type === "info") {
     return hasTextualNote(v) ? "note" : "na";
+  }
+  if (type === "montant") {
+    const normalized = normalizeMontantValue(v, consigne);
+    return normalized.status || "na";
   }
   if (type === "likert6") {
     const map = {
@@ -7266,6 +7647,14 @@ function historyStatusFromAverage(type, values) {
     if (average >= 4) return "mid";
     return "ko-strong";
   }
+  if (type === "montant") {
+    if (!Number.isFinite(average)) return null;
+    if (average >= 0.95) return "ok-strong";
+    if (average >= 0.75) return "ok-soft";
+    if (average >= 0.55) return "mid";
+    if (average >= 0.35) return "ko-soft";
+    return "ko-strong";
+  }
   return null;
 }
 
@@ -7301,7 +7690,7 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
   const valueForStatus = skipFlag && (!(rawValue && typeof rawValue === "object" && rawValue.skipped))
     ? { skipped: true }
     : rawValue;
-  let status = dotColor(consigne.type, valueForStatus);
+  let status = dotColor(consigne.type, valueForStatus, consigne);
   try {
     modesLogger?.debug?.("consigne.status.update", {
       consigneId: consigne?.id ?? null,
@@ -7426,6 +7815,17 @@ function readConsigneCurrentValue(consigne, scope) {
     if (!range || range.value === "" || range.value == null) return "";
     const num = Number(range.value);
     return Number.isFinite(num) ? num : "";
+  }
+  if (type === "montant") {
+    const input = scope.querySelector(`[name="montant:${id}"]`);
+    if (!input || input.value === "" || input.value == null) {
+      return "";
+    }
+    const amount = Number(input.value);
+    if (!Number.isFinite(amount)) {
+      return "";
+    }
+    return buildMontantValue(consigne, amount);
   }
   if (type === "likert5") {
     const select = scope.querySelector(`[name="likert5:${id}"]`);
@@ -7729,6 +8129,12 @@ function normalizeConsigneValueForPersistence(consigne, row, value) {
     } catch (_) {}
     return { skipped: true };
   }
+  if (consigne?.type === "montant") {
+    if (value === null || value === undefined || value === "") {
+      return value;
+    }
+    return normalizeMontantValue(value, consigne);
+  }
   return value;
 }
 
@@ -7872,6 +8278,27 @@ function setConsigneRowValue(row, consigne, value) {
     maintainOrClearSkip(hasChecklistAnswer);
     return;
   }
+  if (consigne?.type === "montant") {
+    const normalized = normalizeMontantValue(value, consigne);
+    const fields = findConsigneInputFields(row, consigne);
+    const amountField = fields.find(
+      (field) => typeof field?.name === "string" && field.name.startsWith(`montant:`)
+    );
+    if (amountField) {
+      const nextValue = Number.isFinite(normalized.amount) ? String(normalized.amount) : "";
+      amountField.value = nextValue;
+      amountField.dispatchEvent(new Event("input", { bubbles: true }));
+      amountField.dispatchEvent(new Event("change", { bubbles: true }));
+      const afterValue = readConsigneCurrentValue(consigne, row);
+      const hasAnswer = hasValueForConsigne(consigne, afterValue);
+      maintainOrClearSkip(hasAnswer);
+    } else {
+      updateConsigneStatusUI(row, consigne, normalized);
+      const hasAnswer = Number.isFinite(normalized.amount);
+      maintainOrClearSkip(hasAnswer);
+    }
+    return;
+  }
   const fields = findConsigneInputFields(row, consigne);
   if (!fields.length) {
     updateConsigneStatusUI(row, consigne, value);
@@ -7933,7 +8360,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
     child.srEnabled = child?.srEnabled !== false;
   });
   const TEXT_MODAL_TYPES = new Set(["long", "short", "notes", "texte", "long_text", "short_text"]);
-  const CENTER_MODAL_TYPES = new Set(["likert6", "likert5", "yesno", "num", "checklist", "info", "likert", "oui_non", "scale_0_10", "choix", "multiple"]);
+  const CENTER_MODAL_TYPES = new Set(["likert6", "likert5", "yesno", "num", "montant", "checklist", "info", "likert", "oui_non", "scale_0_10", "choix", "multiple"]);
   const pickPhoneModalClass = (item) => {
     const type = item?.type;
     if (TEXT_MODAL_TYPES.has(type)) return "phone-top";
@@ -8746,6 +9173,13 @@ function hasValueForConsigne(consigne, value) {
     const num = Number(value);
     return Number.isFinite(num);
   }
+  if (type === "montant") {
+    if (value === null || value === undefined || value === "") {
+      return false;
+    }
+    const normalized = normalizeMontantValue(value, consigne);
+    return Number.isFinite(normalized.amount);
+  }
   return !(value === null || value === undefined || value === "");
 }
 
@@ -8825,6 +9259,10 @@ function formatHistoryChartValue(type, value) {
     return String(Math.round(Number(value) * 100) / 100);
   }
   if (type === "num") {
+    const rounded = Math.round(Number(value) * 100) / 100;
+    return String(rounded);
+  }
+  if (type === "montant") {
     const rounded = Math.round(Number(value) * 100) / 100;
     return String(rounded);
   }
@@ -8922,6 +9360,10 @@ function renderHistoryChart(data, { type, mode } = {}) {
           return {
             date: new Date(entry.date),
             value: Number(entry.value),
+            progress:
+              entry.progress !== undefined && entry.progress !== null && Number.isFinite(Number(entry.progress))
+                ? Number(entry.progress)
+                : null,
             isSummary: hasSummaryFlag,
             summaryScope,
             isBilan: hasBilanFlag,
@@ -8940,9 +9382,15 @@ function renderHistoryChart(data, { type, mode } = {}) {
     `;
   }
 
-  const values = sorted.map((entry) => entry.value);
-  let min = Math.min(...values);
-  let max = Math.max(...values);
+  const values = sorted.map((entry) => {
+    if (type === "montant" && Number.isFinite(entry.progress)) {
+      return entry.progress;
+    }
+    return entry.value;
+  });
+  const chartValues = sorted.map((entry) => entry.value);
+  let min = Math.min(...chartValues);
+  let max = Math.max(...chartValues);
   if (!Number.isFinite(min) || !Number.isFinite(max)) {
     min = 0;
     max = 1;
@@ -9972,7 +10420,7 @@ async function openHistory(ctx, consigne, options = {}) {
     })
     .join("");
 
-  const EDITABLE_HISTORY_TYPES = new Set(["short", "long", "num", "likert5", "likert6", "yesno"]);
+  const EDITABLE_HISTORY_TYPES = new Set(["short", "long", "num", "montant", "likert5", "likert6", "yesno"]);
 
   const list = rows
     .map((r, index) => {
@@ -9990,10 +10438,18 @@ async function openHistory(ctx, consigne, options = {}) {
         ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
         : "Date inconnue";
       const relative = displayDate ? relativeLabel(displayDate) : "";
-      const formattedText = formatConsigneValue(consigne.type, r.value);
-      const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html" });
-      const status = dotColor(consigne.type, r.value) || "na";
-      const numericValue = numericPoint(consigne.type, r.value);
+      const formattedText = formatConsigneValue(consigne.type, r.value, { consigne });
+      const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html", consigne });
+      const status = dotColor(consigne.type, r.value, consigne) || "na";
+      const numericValue = numericPoint(consigne.type, r.value, consigne);
+      const montantDetails =
+        consigne.type === "montant" ? normalizeMontantValue(r.value, consigne) : null;
+      const chartValue =
+        consigne.type === "montant"
+          ? Number.isFinite(montantDetails?.amount)
+            ? montantDetails.amount
+            : Number.NaN
+          : Number(numericValue);
       const note = r.note && String(r.note).trim();
       const summaryInfo = detectSummaryNote(r);
       const rawSummaryLabel = summaryInfo.isSummary
@@ -10077,8 +10533,9 @@ async function openHistory(ctx, consigne, options = {}) {
       if (displayDate && numericValue !== null && !Number.isNaN(numericValue)) {
         chartPoints.push({
           date: displayDate,
-          value: Number(numericValue),
-          isSummary: Boolean(summaryInfo.isSummary),
+        value: chartValue,
+        progress: montantDetails?.progress ?? null,
+        isSummary: Boolean(summaryInfo.isSummary),
           summaryScope: summaryInfo.scope || "",
           isBilan: Boolean(summaryInfo.isBilan),
           recordedAt: recordedAt instanceof Date && !Number.isNaN(recordedAt?.getTime?.()) ? recordedAt : null,
@@ -11895,7 +12352,7 @@ async function renderDaily(ctx, root, opts = {}) {
     if (type === "long") return AUTO_SAVE_LONG_DELAY;
     if (type === "short") return AUTO_SAVE_DEFAULT_DELAY;
     if (type === "checklist") return AUTO_SAVE_FAST_DELAY;
-    if (type === "yesno" || type === "likert6" || type === "likert5" || type === "num") {
+    if (type === "yesno" || type === "likert6" || type === "likert5" || type === "num" || type === "montant") {
       return AUTO_SAVE_FAST_DELAY;
     }
     return AUTO_SAVE_DEFAULT_DELAY;
@@ -12631,6 +13088,7 @@ Modes.clearConsigneSummaryMetadata = clearConsigneSummaryMetadata;
 Modes.readConsigneSummaryMetadata = readConsigneSummaryMetadata;
 Modes.buildSummaryMetadataForScope = buildSummaryMetadataForScope;
 Modes.setupConsigneActionMenus = setupConsigneActionMenus;
+Modes.setupConsignePriorityMenu = setupConsignePriorityMenu;
 Modes.closeConsigneActionMenuFromNode = closeConsigneActionMenuFromNode;
 
 if (typeof module !== "undefined" && module.exports) {
@@ -12644,5 +13102,6 @@ if (typeof module !== "undefined" && module.exports) {
     // Expose select internals for tests (non-breaking for runtime)
     setConsigneSkipState,
     normalizeConsigneValueForPersistence,
+    normalizeMontantValue,
   };
 }

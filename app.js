@@ -2782,6 +2782,7 @@
               <p class="text-sm text-[var(--muted)]">Ajoutez rapidement une nouvelle fiche depuis votre téléphone.</p>
             </div>
             <input type="text" id="new-user-name" placeholder="Nom de l’utilisateur" required class="w-full" />
+            <input type="email" id="new-user-email" placeholder="Email de l’utilisateur (optionnel)" class="w-full" inputmode="email" autocomplete="email" />
             <button class="btn btn-primary w-full sm:w-auto" type="submit">Créer l’utilisateur</button>
           </form>
           <section class="card p-4 space-y-3">
@@ -2814,6 +2815,9 @@
         e.preventDefault();
         const input = document.getElementById("new-user-name");
         const name = input?.value?.trim();
+        const emailInput = document.getElementById("new-user-email");
+        const emailValue = emailInput?.value?.trim();
+        const email = emailValue ? emailValue : "";
         if (!name) return;
         appLog("admin:newUser:submit", { name });
         const uid = newUid();
@@ -2821,9 +2825,11 @@
           await appFirestore.setDoc(appFirestore.doc(db, "u", uid), {
             name: name,
             displayName: name,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            ...(email ? { email } : {})
           });
           if (input) input.value = "";
+          if (emailInput) emailInput.value = "";
           appLog("admin:newUser:created", { uid, name });
           loadUsers(db);
         } catch (error) {
@@ -2857,9 +2863,11 @@
         const data = d.data();
         const uid = d.id;
         const displayName = data.displayName || data.name || "(sans nom)";
+        const rawEmail = typeof data.email === "string" ? data.email.trim() : "";
         appLog("admin:users:load:item", { uid, displayName });
         const safeName = escapeHtml(displayName);
         const safeUid = escapeHtml(uid);
+        const safeEmail = escapeHtml(rawEmail);
         const encodedUid = encodeURIComponent(uid);
         const link = `${location.origin}${location.pathname}#/u/${encodedUid}/daily`;
         uids.push(uid);
@@ -2868,6 +2876,12 @@
             <div class="flex flex-col gap-1">
               <div class="font-semibold text-base">${safeName}</div>
               <div class="text-xs text-[var(--muted)] break-all">UID&nbsp;: ${safeUid}</div>
+              <div class="text-xs text-[var(--muted)] break-all">
+                Email&nbsp;:
+                ${rawEmail
+                  ? `<a class="text-[var(--accent)]" href="mailto:${encodeURIComponent(rawEmail)}">${safeEmail}</a>`
+                  : '<span class="italic">Non renseigné</span>'}
+              </div>
             </div>
             <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <a class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
@@ -2876,6 +2890,12 @@
                  rel="noopener noreferrer"
                  data-uid="${safeUid}"
                  data-action="open">Ouvrir</a>
+              <button type="button"
+                      class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
+                      data-uid="${safeUid}"
+                      data-email="${safeEmail}"
+                      data-action="email"
+                      title="Mettre à jour l’adresse email de ${safeName}">✉️ Email</button>
               <button type="button"
                       class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
                       data-uid="${safeUid}"
@@ -2913,6 +2933,40 @@
             e.preventDefault();
             appLog("admin:users:notifications:toggle", { uid });
             handleNotificationToggle(uid, actionTarget, { interactive: true });
+            return;
+          }
+          if (action === "email") {
+            const currentEmail = actionTarget.dataset.email || "";
+            appLog("admin:users:email:prompt", { uid, currentEmail });
+            const nextEmail = prompt("Adresse email de l’utilisateur :", currentEmail);
+            if (nextEmail === null) {
+              appLog("admin:users:email:cancelled", { uid });
+              return;
+            }
+            const trimmedEmail = nextEmail.trim();
+            if (trimmedEmail && !/^.+@.+\..+$/.test(trimmedEmail)) {
+              appLog("admin:users:email:invalid", { uid });
+              alert("Adresse email invalide.");
+              return;
+            }
+            try {
+              const userRef = appFirestore.doc(db, "u", uid);
+              const payload = trimmedEmail
+                ? { email: trimmedEmail }
+                : {
+                    email:
+                      typeof appFirestore.deleteField === "function"
+                        ? appFirestore.deleteField()
+                        : null,
+                  };
+              await appFirestore.setDoc(userRef, payload, { merge: true });
+              appLog("admin:users:email:write", { uid, nextEmail: trimmedEmail || null });
+              await loadUsers(db);
+            } catch (error) {
+              console.error("admin:users:email:error", error);
+              appLog("admin:users:email:error", { uid, message: error?.message || String(error) });
+              alert("Impossible de mettre à jour l’adresse email.");
+            }
             return;
           }
           if ((action || actionTarget.tagName === "A") && (action || "open") === "open") {
