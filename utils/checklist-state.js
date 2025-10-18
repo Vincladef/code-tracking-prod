@@ -626,6 +626,9 @@
       payload.date ||
       null;
     const dateKey = normalizeDateKey(rawDateKey || tsValue);
+    const previousDateKeyRaw = payload.previousDateKey || payload.previous_date_key || null;
+    const normalizedPrevious = normalizeDateKey(previousDateKeyRaw);
+    const previousDateKey = normalizedPrevious && normalizedPrevious !== dateKey ? normalizedPrevious : null;
     return {
       type: "checklist",
       consigneId: normalizedConsigneId,
@@ -635,7 +638,33 @@
       dateKey,
       answers: normalizedAnswers,
       skippedIds,
+      previousDateKey,
     };
+  }
+
+  function sanitizeLoadedPayload(payload, expectedDateKey) {
+    if (!payload || typeof payload !== "object") {
+      return payload;
+    }
+    const expected = normalizeDateKey(expectedDateKey);
+    if (!expected) {
+      return payload;
+    }
+    const payloadKey = normalizeDateKey(payload.dateKey);
+    if (payloadKey && payloadKey !== expected) {
+      return {
+        ...payload,
+        previousDateKey: payloadKey,
+        dateKey: expected,
+        selectedIds: [],
+        skippedIds: [],
+        answers: {},
+      };
+    }
+    if (!payloadKey && payload.dateKey !== expected) {
+      return { ...payload, dateKey: expected };
+    }
+    return payload;
   }
 
   function cacheSelection(uid, consigneId, payload) {
@@ -759,14 +788,15 @@
             answers: data.answers,
             skippedIds: data.skippedIds,
           });
-          cacheSelection(uid, consigneId, normalized);
+          const sanitized = sanitizeLoadedPayload(normalized, dateKey);
+          cacheSelection(uid, consigneId, sanitized);
           debugLog("loadSelection:firestore-answer", {
             consigneId,
-            dateKey: normalized.dateKey,
-            selected: normalized.selectedIds.length,
-            hasAnswers: Boolean(normalized.answers && Object.keys(normalized.answers).length),
+            dateKey: sanitized.dateKey,
+            selected: sanitized.selectedIds.length,
+            hasAnswers: Boolean(sanitized.answers && Object.keys(sanitized.answers).length),
           });
-          return normalized;
+          return sanitized;
         }
       } catch (error) {
         console.warn("[checklist-state] firestore:answers:load", error);
@@ -800,14 +830,15 @@
             answers: data.answers,
             skippedIds: data.skippedIds,
           });
-          cacheSelection(uid, consigneId, normalized);
+          const sanitized = sanitizeLoadedPayload(normalized, dateKey);
+          cacheSelection(uid, consigneId, sanitized);
           debugLog("loadSelection:responses", {
             consigneId,
-            dateKey: normalized.dateKey,
-            selected: normalized.selectedIds.length,
-            hasAnswers: Boolean(normalized.answers && Object.keys(normalized.answers).length),
+            dateKey: sanitized.dateKey,
+            selected: sanitized.selectedIds.length,
+            hasAnswers: Boolean(sanitized.answers && Object.keys(sanitized.answers).length),
           });
-          return normalized;
+          return sanitized;
         }
       } catch (error) {
         console.warn("[checklist-state] firestore:responses:load", error);
@@ -855,14 +886,15 @@
         answers: data.answers,
         skippedIds: data.skippedIds,
       });
-      cacheSelection(uid, consigneId, normalized);
+      const sanitized = sanitizeLoadedPayload(normalized, dateKey);
+      cacheSelection(uid, consigneId, sanitized);
       debugLog("loadSelection:history", {
         consigneId,
-        dateKey: normalized.dateKey,
-        selected: normalized.selectedIds.length,
-        hasAnswers: Boolean(normalized.answers && Object.keys(normalized.answers).length),
+        dateKey: sanitized.dateKey,
+        selected: sanitized.selectedIds.length,
+        hasAnswers: Boolean(sanitized.answers && Object.keys(sanitized.answers).length),
       });
-      return normalized;
+      return sanitized;
     } catch (error) {
       console.warn("[checklist-state] firestore:load", error);
       return null;
@@ -1292,7 +1324,11 @@
       const optionsHash = options.optionsHash || root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash;
       const changed = payload.optionsHash && optionsHash && payload.optionsHash !== optionsHash;
       const todayKey = currentParisDayKey();
-      const previousDateKey = payload.dateKey && payload.dateKey !== todayKey ? payload.dateKey : null;
+      const previousDateKey = payload.previousDateKey
+        ? normalizeDateKey(payload.previousDateKey)
+        : payload.dateKey && payload.dateKey !== todayKey
+        ? payload.dateKey
+        : null;
       if (selectedSet.size > 0 || changed || previousDateKey) {
         renderHint(root, consigneId, { optionsChanged: changed, previousDateKey });
       } else {
