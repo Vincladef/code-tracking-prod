@@ -368,8 +368,9 @@
 
   function locationScope() {
     const path = window.location?.pathname || "";
+    const search = window.location?.search || "";
     const hash = window.location?.hash || "";
-    return `${path}::${hash}`;
+    return `${path}${search}::${hash}`;
   }
 
   function computeAnonymousId(form) {
