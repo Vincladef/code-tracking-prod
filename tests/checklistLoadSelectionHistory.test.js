@@ -41,16 +41,12 @@ const assert = require("assert");
 
   assert(result, "loadSelection should resolve to a payload");
   assert.strictEqual(result.consigneId, "consigne-1", "The payload should keep the consigne id");
-  assert.deepStrictEqual(
-    result.selectedIds,
-    ["consigne-1:legacy-1"],
-    "Selected ids from history should be preserved"
-  );
-  assert(result.answers, "History fallback should include answers");
+  assert.deepStrictEqual(result.selectedIds, [], "Previous-day selections must not auto-apply");
+  assert.deepStrictEqual(result.answers, {}, "Answers from previous days should not auto-apply");
   assert.strictEqual(
-    result.answers["consigne-1:legacy-1"].value,
-    "yes",
-    "Checklist answers from history should be kept in the payload"
+    result.previousDateKey,
+    "2024-05-01",
+    "The payload should expose the original date for hint rendering"
   );
 
   console.log("Checklist history load test passed.");
