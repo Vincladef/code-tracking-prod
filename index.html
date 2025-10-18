@@ -1138,6 +1138,41 @@
       transition:background .2s ease, box-shadow .2s ease, transform .2s ease;
       box-shadow:0 0 0 3px var(--consigne-status-dot-shadow, rgba(148,163,184,.15));
     }
+    .consigne-history {
+      margin-top:.5rem;
+      overflow-x:auto;
+      -webkit-overflow-scrolling:touch;
+      padding-bottom:.25rem;
+    }
+    .consigne-history__track {
+      display:flex;
+      gap:.4rem;
+      align-items:center;
+      min-height:1rem;
+      padding:0 .25rem;
+    }
+    .consigne-history__item {
+      position:relative;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      flex:none;
+    }
+    .consigne-history__dot.consigne-row__dot {
+      width:.55rem;
+      height:.55rem;
+      box-shadow:none;
+    }
+    .consigne-history__item[data-placeholder="1"] .consigne-history__dot {
+      opacity:.45;
+    }
+    .consigne-history::-webkit-scrollbar {
+      height:4px;
+    }
+    .consigne-history::-webkit-scrollbar-thumb {
+      background:rgba(15,23,42,.2);
+      border-radius:999px;
+    }
     [data-priority-tone="high"] [data-status-dot] {
       position:relative;
       transform:scale(1.08);
