@@ -1139,32 +1139,111 @@
       box-shadow:0 0 0 3px var(--consigne-status-dot-shadow, rgba(148,163,184,.15));
     }
     .consigne-history {
-      margin-top:.5rem;
+      margin-top:.75rem;
       overflow-x:auto;
       -webkit-overflow-scrolling:touch;
-      padding-bottom:.25rem;
+      padding:.35rem .15rem .35rem 0;
     }
     .consigne-history__track {
       display:flex;
-      gap:.4rem;
-      align-items:center;
+      gap:.5rem;
+      align-items:stretch;
       min-height:1rem;
-      padding:0 .25rem;
+      padding:0 .35rem;
     }
     .consigne-history__item {
+      --consigne-history-border:rgba(148,163,184,.28);
+      --consigne-history-bg:rgba(248,250,252,.85);
+      --consigne-history-shadow:rgba(15,23,42,.08);
       position:relative;
       display:flex;
       align-items:center;
-      justify-content:center;
+      gap:.55rem;
       flex:none;
+      padding:.45rem .75rem;
+      border-radius:.95rem;
+      border:1px solid var(--consigne-history-border);
+      background:linear-gradient(135deg, rgba(255,255,255,.96), var(--consigne-history-bg));
+      box-shadow:0 6px 14px var(--consigne-history-shadow);
+      color:var(--consigne-history-text, #0f172a);
+      min-width:4.1rem;
+      transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
     }
-    .consigne-history__dot.consigne-row__dot {
-      width:.55rem;
-      height:.55rem;
+    .consigne-history__item:hover {
+      transform:translateY(-1px);
+      box-shadow:0 12px 24px rgba(15,23,42,.12);
+    }
+    .consigne-history__item[data-placeholder="1"] {
+      opacity:.5;
       box-shadow:none;
     }
-    .consigne-history__item[data-placeholder="1"] .consigne-history__dot {
-      opacity:.45;
+    .consigne-history__item[data-status="ok-strong"] {
+      --consigne-history-border:rgba(34,197,94,.38);
+      --consigne-history-bg:rgba(187,247,208,.5);
+      --consigne-history-text:#166534;
+      --consigne-history-shadow:rgba(34,197,94,.22);
+    }
+    .consigne-history__item[data-status="ok-soft"] {
+      --consigne-history-border:rgba(74,222,128,.35);
+      --consigne-history-bg:rgba(220,252,231,.55);
+      --consigne-history-text:#15803d;
+      --consigne-history-shadow:rgba(74,222,128,.18);
+    }
+    .consigne-history__item[data-status="mid"] {
+      --consigne-history-border:rgba(234,179,8,.34);
+      --consigne-history-bg:rgba(254,249,195,.6);
+      --consigne-history-text:#92400e;
+      --consigne-history-shadow:rgba(234,179,8,.2);
+    }
+    .consigne-history__item[data-status="ko-soft"] {
+      --consigne-history-border:rgba(248,113,113,.32);
+      --consigne-history-bg:rgba(254,226,226,.58);
+      --consigne-history-text:#b91c1c;
+      --consigne-history-shadow:rgba(248,113,113,.2);
+    }
+    .consigne-history__item[data-status="ko-strong"] {
+      --consigne-history-border:rgba(220,38,38,.36);
+      --consigne-history-bg:rgba(254,202,202,.6);
+      --consigne-history-text:#991b1b;
+      --consigne-history-shadow:rgba(220,38,38,.22);
+    }
+    .consigne-history__item[data-status="note"] {
+      --consigne-history-border:rgba(59,130,246,.3);
+      --consigne-history-bg:rgba(191,219,254,.58);
+      --consigne-history-text:#1d4ed8;
+      --consigne-history-shadow:rgba(59,130,246,.18);
+    }
+    .consigne-history__item[data-status="na"] {
+      --consigne-history-border:rgba(148,163,184,.32);
+      --consigne-history-bg:rgba(226,232,240,.55);
+      --consigne-history-text:#0f172a;
+      --consigne-history-shadow:rgba(148,163,184,.16);
+    }
+    .consigne-history__dot.consigne-row__dot {
+      width:.6rem;
+      height:.6rem;
+      box-shadow:none;
+      flex:none;
+    }
+    .consigne-history__meta {
+      display:flex;
+      flex-direction:column;
+      gap:.1rem;
+      line-height:1.25;
+      min-width:0;
+    }
+    .consigne-history__label {
+      font-size:.78rem;
+      font-weight:600;
+      letter-spacing:.02em;
+      color:inherit;
+    }
+    .consigne-history__weekday {
+      font-size:.65rem;
+      font-weight:500;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:#64748b;
     }
     .consigne-history::-webkit-scrollbar {
       height:4px;

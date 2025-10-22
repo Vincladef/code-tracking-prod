@@ -7661,6 +7661,7 @@ function historyStatusFromAverage(type, values) {
 const CONSIGNE_HISTORY_TIMELINE_DAY_COUNT = 21;
 const CONSIGNE_HISTORY_ROW_STATE = new WeakMap();
 const CONSIGNE_HISTORY_DAY_LABEL_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
+const CONSIGNE_HISTORY_WEEKDAY_LABEL_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "short" });
 const CONSIGNE_HISTORY_DAY_FULL_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   weekday: "long",
   day: "2-digit",
@@ -7682,6 +7683,16 @@ function formatHistoryDayLabel(date) {
   }
 }
 
+function formatHistoryWeekdayLabel(date) {
+  try {
+    const raw = CONSIGNE_HISTORY_WEEKDAY_LABEL_FORMATTER.format(date);
+    const cleaned = typeof raw === "string" ? raw.replace(/\.$/, "") : raw;
+    return capitalizeHistoryLabel(cleaned);
+  } catch (_) {
+    return "";
+  }
+}
+
 function formatHistoryDayFullLabel(date) {
   try {
     const raw = CONSIGNE_HISTORY_DAY_FULL_FORMATTER.format(date);
@@ -7689,6 +7700,26 @@ function formatHistoryDayFullLabel(date) {
   } catch (_) {
     return "";
   }
+}
+
+function buildHistoryTimelineLabels(date, fallbackKey) {
+  if (date instanceof Date && !Number.isNaN(date.getTime())) {
+    return {
+      label: formatHistoryDayLabel(date),
+      weekday: formatHistoryWeekdayLabel(date),
+    };
+  }
+  if (fallbackKey) {
+    const info = parseHistoryTimelineDateInfo(fallbackKey);
+    if (info?.date instanceof Date && !Number.isNaN(info.date.getTime())) {
+      return {
+        label: formatHistoryDayLabel(info.date),
+        weekday: formatHistoryWeekdayLabel(info.date),
+      };
+    }
+    return { label: fallbackKey, weekday: "" };
+  }
+  return { label: "", weekday: "" };
 }
 
 function buildHistoryTimelineTitle(date, fallbackKey, status) {
@@ -7898,26 +7929,33 @@ function buildConsigneHistoryTimeline(entries, consigne) {
       }
     });
   }
-  const points = [];
-  for (let offset = CONSIGNE_HISTORY_TIMELINE_DAY_COUNT - 1; offset >= 0; offset -= 1) {
-    const dayDate = new Date(today.getTime());
-    dayDate.setDate(dayDate.getDate() - offset);
-    const dayKey = typeof Schema?.dayKeyFromDate === "function"
-      ? Schema.dayKeyFromDate(dayDate)
-      : dayDate.toISOString().slice(0, 10);
-    const record = dayMap.get(dayKey) || null;
-    const status = record ? record.status : "na";
-    const title = buildHistoryTimelineTitle(dayDate, dayKey, status);
-    points.push({
+  const sortedRecords = Array.from(dayMap.entries())
+    .map(([dayKey, record]) => ({
       dayKey,
-      date: dayDate,
-      status,
+      status: record?.status || "na",
+      date: record?.date instanceof Date ? record.date : null,
+      timestamp: typeof record?.timestamp === "number"
+        ? record.timestamp
+        : record?.date instanceof Date && !Number.isNaN(record.date.getTime())
+          ? record.date.getTime()
+          : today.getTime(),
+    }))
+    .sort((a, b) => a.timestamp - b.timestamp);
+  const limited = sortedRecords.slice(-CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
+  return limited.map((record) => {
+    const title = buildHistoryTimelineTitle(record.date, record.dayKey, record.status);
+    const labels = buildHistoryTimelineLabels(record.date, record.dayKey);
+    return {
+      dayKey: record.dayKey,
+      date: record.date,
+      status: record.status,
       title,
       srLabel: title,
-      isPlaceholder: !record,
-    });
-  }
-  return points;
+      label: labels.label,
+      weekdayLabel: labels.weekday,
+      isPlaceholder: false,
+    };
+  });
 }
 
 function escapeTimelineSelector(value) {
@@ -7925,6 +7963,114 @@ function escapeTimelineSelector(value) {
     return CSS.escape(value);
   }
   return String(value).replace(/"/g, '\\"');
+}
+
+function ensureConsigneHistoryDot(item) {
+  if (!item) return null;
+  let dot = item.querySelector(".consigne-history__dot");
+  if (!dot) {
+    dot = document.createElement("span");
+    dot.className = "consigne-history__dot consigne-row__dot";
+    item.insertBefore(dot, item.firstChild || null);
+  }
+  return dot;
+}
+
+function ensureConsigneHistorySr(item) {
+  if (!item) return null;
+  let sr = item.querySelector(".sr-only");
+  if (!sr) {
+    sr = document.createElement("span");
+    sr.className = "sr-only";
+    item.appendChild(sr);
+  }
+  return sr;
+}
+
+function ensureConsigneHistoryMeta(item) {
+  if (!item) return null;
+  const sr = ensureConsigneHistorySr(item);
+  let meta = item.querySelector(".consigne-history__meta");
+  if (!meta) {
+    meta = document.createElement("span");
+    meta.className = "consigne-history__meta";
+    if (sr && sr.parentNode === item) {
+      item.insertBefore(meta, sr);
+    } else {
+      item.appendChild(meta);
+    }
+  }
+  return meta;
+}
+
+function ensureConsigneHistoryLabel(meta) {
+  if (!meta) return null;
+  let label = meta.querySelector(".consigne-history__label");
+  if (!label) {
+    label = document.createElement("span");
+    label.className = "consigne-history__label";
+    meta.appendChild(label);
+  }
+  return label;
+}
+
+function ensureConsigneHistoryWeekday(meta) {
+  if (!meta) return null;
+  let weekday = meta.querySelector(".consigne-history__weekday");
+  if (!weekday) {
+    weekday = document.createElement("span");
+    weekday.className = "consigne-history__weekday";
+    meta.appendChild(weekday);
+  }
+  return weekday;
+}
+
+function applyConsigneHistoryPoint(item, point) {
+  if (!item || !point) {
+    return;
+  }
+  if (point.dayKey) {
+    item.dataset.historyDay = point.dayKey;
+  } else {
+    delete item.dataset.historyDay;
+  }
+  if (point.date instanceof Date && !Number.isNaN(point.date.getTime())) {
+    item.dataset.dateIso = point.date.toISOString();
+  } else {
+    delete item.dataset.dateIso;
+  }
+  const status = point.status || "na";
+  item.dataset.status = status;
+  item.dataset.placeholder = point.isPlaceholder ? "1" : "0";
+  const dot = ensureConsigneHistoryDot(item);
+  if (dot) {
+    dot.className = `consigne-history__dot consigne-row__dot consigne-row__dot--${status}`;
+    dot.setAttribute("aria-hidden", "true");
+  }
+  const sr = ensureConsigneHistorySr(item);
+  const srText = point.srLabel || point.title || STATUS_LABELS[status] || status;
+  if (sr) {
+    sr.textContent = srText;
+  }
+  const meta = ensureConsigneHistoryMeta(item);
+  if (meta) {
+    const labelEl = ensureConsigneHistoryLabel(meta);
+    const weekdayEl = ensureConsigneHistoryWeekday(meta);
+    if (labelEl) {
+      labelEl.textContent = point.label || "";
+      labelEl.hidden = !point.label;
+    }
+    if (weekdayEl) {
+      weekdayEl.textContent = point.weekdayLabel || "";
+      weekdayEl.hidden = !point.weekdayLabel;
+    }
+    meta.hidden = !point.label && !point.weekdayLabel;
+  }
+  if (point.title) {
+    item.title = point.title;
+  } else {
+    item.removeAttribute("title");
+  }
 }
 
 function renderConsigneHistoryTimeline(row, points) {
@@ -7945,25 +8091,7 @@ function renderConsigneHistoryTimeline(row, points) {
     const item = document.createElement("div");
     item.className = "consigne-history__item";
     item.setAttribute("role", "listitem");
-    if (point.dayKey) {
-      item.dataset.historyDay = point.dayKey;
-    }
-    if (point.date instanceof Date && !Number.isNaN(point.date.getTime())) {
-      item.dataset.dateIso = point.date.toISOString();
-    }
-    item.dataset.status = point.status;
-    item.dataset.placeholder = point.isPlaceholder ? "1" : "0";
-    const dot = document.createElement("span");
-    dot.className = `consigne-history__dot consigne-row__dot consigne-row__dot--${point.status}`;
-    dot.setAttribute("aria-hidden", "true");
-    item.appendChild(dot);
-    const sr = document.createElement("span");
-    sr.className = "sr-only";
-    sr.textContent = point.srLabel || point.title || STATUS_LABELS[point.status] || point.status;
-    item.appendChild(sr);
-    if (point.title) {
-      item.title = point.title;
-    }
+    applyConsigneHistoryPoint(item, point);
     track.appendChild(item);
   });
   container.hidden = false;
@@ -7973,10 +8101,7 @@ function renderConsigneHistoryTimeline(row, points) {
 
 function updateConsigneHistoryTimeline(row, status) {
   const state = CONSIGNE_HISTORY_ROW_STATE.get(row);
-  if (!state || !state.hasDayTimeline) {
-    return;
-  }
-  if (state.track?.dataset?.historyMode !== "day") {
+  if (!state || !state.track) {
     return;
   }
   const todayKey = typeof Schema?.todayKey === "function" ? Schema.todayKey() : null;
@@ -7985,39 +8110,7 @@ function updateConsigneHistoryTimeline(row, status) {
   }
   const selector = `[data-history-day="${escapeTimelineSelector(todayKey)}"]`;
   let item = state.track.querySelector(selector);
-  if (!item) {
-    const info = parseHistoryTimelineDateInfo(todayKey);
-    const date = info?.date || null;
-    item = document.createElement("div");
-    item.className = "consigne-history__item";
-    item.setAttribute("role", "listitem");
-    item.dataset.historyDay = todayKey;
-    if (date) {
-      item.dataset.dateIso = date.toISOString();
-    }
-    item.dataset.placeholder = "0";
-    const dot = document.createElement("span");
-    dot.className = "consigne-history__dot consigne-row__dot";
-    dot.setAttribute("aria-hidden", "true");
-    item.appendChild(dot);
-    const sr = document.createElement("span");
-    sr.className = "sr-only";
-    item.appendChild(sr);
-    state.track.appendChild(item);
-    while (state.track.children.length > state.limit) {
-      state.track.removeChild(state.track.firstElementChild);
-    }
-  }
-  const dot = item.querySelector(".consigne-history__dot");
-  if (!dot) {
-    return;
-  }
-  const previousStatus = item.dataset.status || "na";
-  dot.classList.remove(`consigne-row__dot--${previousStatus}`);
-  dot.classList.add(`consigne-row__dot--${status}`);
-  item.dataset.status = status;
-  item.dataset.placeholder = "0";
-  const dateIso = item.dataset.dateIso;
+  const dateIso = item?.dataset?.dateIso;
   let date = null;
   if (dateIso) {
     const info = parseHistoryTimelineDateInfo(dateIso);
@@ -8028,12 +8121,31 @@ function updateConsigneHistoryTimeline(row, status) {
     date = info?.date || null;
   }
   const title = buildHistoryTimelineTitle(date, todayKey, status);
-  if (title) {
-    item.title = title;
-    const sr = item.querySelector(".sr-only");
-    if (sr) {
-      sr.textContent = title;
-    }
+  const labels = buildHistoryTimelineLabels(date, todayKey);
+  if (!item) {
+    item = document.createElement("div");
+    item.className = "consigne-history__item";
+    item.setAttribute("role", "listitem");
+    state.track.appendChild(item);
+  }
+  const point = {
+    dayKey: todayKey,
+    date,
+    status,
+    title,
+    srLabel: title,
+    label: labels.label,
+    weekdayLabel: labels.weekday,
+    isPlaceholder: false,
+  };
+  applyConsigneHistoryPoint(item, point);
+  state.track.dataset.historyMode = "day";
+  state.hasDayTimeline = true;
+  if (state.container) {
+    state.container.hidden = false;
+  }
+  while (state.track.children.length > state.limit) {
+    state.track.removeChild(state.track.firstElementChild);
   }
 }
 
