@@ -8687,11 +8687,48 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   if (!state || !state.track) {
     return;
   }
-  const todayKey = typeof Schema?.todayKey === "function" ? Schema.todayKey() : null;
-  if (!todayKey) {
+  const resolveStateDayKey = () => {
+    if (typeof options.dayKey === "string" && options.dayKey.trim()) {
+      return options.dayKey.trim();
+    }
+    if (typeof state.resolveDayKey === "function") {
+      try {
+        const resolved = state.resolveDayKey();
+        if (typeof resolved === "string" && resolved.trim()) {
+          return resolved.trim();
+        }
+      } catch (_) {}
+    }
+    if (row?.dataset?.dayKey) {
+      const fromDataset = row.dataset.dayKey.trim();
+      if (fromDataset) {
+        return fromDataset;
+      }
+    }
+    if (typeof state.dayKey === "string" && state.dayKey.trim()) {
+      return state.dayKey.trim();
+    }
+    if (typeof Schema?.todayKey === "function") {
+      const today = Schema.todayKey();
+      if (typeof today === "string" && today.trim()) {
+        return today.trim();
+      }
+    }
+    return null;
+  };
+  const dayKey = resolveStateDayKey();
+  if (!dayKey) {
     return;
   }
-  const selector = `[data-history-day="${escapeTimelineSelector(todayKey)}"]`;
+  state.dayKey = dayKey;
+  if (row) {
+    if (dayKey) {
+      row.dataset.dayKey = dayKey;
+    } else {
+      delete row.dataset.dayKey;
+    }
+  }
+  const selector = `[data-history-day="${escapeTimelineSelector(dayKey)}"]`;
   let item = state.track.querySelector(selector);
   const dateIso = item?.dataset?.dateIso;
   let date = null;
@@ -8700,7 +8737,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     date = info?.date || null;
   }
   if (!date) {
-    const info = parseHistoryTimelineDateInfo(todayKey);
+    const info = parseHistoryTimelineDateInfo(dayKey);
     date = info?.date || null;
   }
   const existingDetails = item?._historyDetails || null;
@@ -8709,11 +8746,11 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   const providedNote = typeof options.note === "string" ? options.note : null;
   const derivedNote = providedNote || extractTextualNote(effectiveValue);
   const practiceMode = typeof consigne?.mode === "string" && consigne.mode.trim().toLowerCase() === "practice";
-  const iterationIndex = practiceMode ? practiceIterationIndexFromKey(todayKey) : null;
+  const iterationIndex = practiceMode ? practiceIterationIndexFromKey(dayKey) : null;
   const iterationNumber = iterationIndex != null ? iterationIndex + 1 : existingDetails?.iterationNumber ?? null;
   const iterationLabel = existingDetails?.iterationLabel || (iterationNumber != null ? `Itération ${iterationNumber}` : "");
   const record = {
-    dayKey: todayKey,
+    dayKey,
     date,
     status,
     value: effectiveValue,
@@ -8731,12 +8768,12 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     item.setAttribute("role", "listitem");
     state.track.insertBefore(item, state.track.firstElementChild || null);
   }
-  const fallbackTitle = buildHistoryTimelineTitle(date, todayKey, status);
-  const fallbackLabels = buildHistoryTimelineLabels(date, todayKey);
+  const fallbackTitle = buildHistoryTimelineTitle(date, dayKey, status);
+  const fallbackLabels = buildHistoryTimelineLabels(date, dayKey);
   const point =
     formatConsigneHistoryPoint(record, consigne) ||
     {
-      dayKey: todayKey,
+      dayKey,
       date,
       status,
       title: iterationLabel
@@ -8749,11 +8786,11 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       weekdayLabel: iterationLabel ? "" : fallbackLabels.weekday,
       isPlaceholder: false,
       details: {
-        dayKey: todayKey || "",
+        dayKey: dayKey || "",
         date,
         label: iterationLabel || fallbackLabels.label || "",
         weekdayLabel: iterationLabel ? "" : fallbackLabels.weekday || "",
-        fullDateLabel: iterationLabel || fallbackLabels.label || todayKey || "",
+        fullDateLabel: iterationLabel || fallbackLabels.label || dayKey || "",
         status,
         statusLabel: STATUS_LABELS[status] || "",
         valueHtml: "",
@@ -8779,7 +8816,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   }
 }
 
-function setupConsigneHistoryTimeline(row, consigne, ctx) {
+function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
   if (!row || !consigne) {
     return;
   }
@@ -8788,7 +8825,28 @@ function setupConsigneHistoryTimeline(row, consigne, ctx) {
   if (!container || !track) {
     return;
   }
-  const state = { track, container, hasDayTimeline: false, limit: CONSIGNE_HISTORY_TIMELINE_DAY_COUNT };
+  let explicitDayKey = "";
+  if (typeof options.dayKey === "string") {
+    const trimmed = options.dayKey.trim();
+    if (trimmed) {
+      explicitDayKey = trimmed;
+    }
+  }
+  if (!explicitDayKey && row?.dataset?.dayKey) {
+    const trimmedDataset = row.dataset.dayKey.trim();
+    if (trimmedDataset) {
+      explicitDayKey = trimmedDataset;
+    }
+  }
+  const resolveDayKey = typeof options.resolveDayKey === "function" ? options.resolveDayKey : null;
+  const state = {
+    track,
+    container,
+    hasDayTimeline: false,
+    limit: CONSIGNE_HISTORY_TIMELINE_DAY_COUNT,
+    dayKey: explicitDayKey,
+    resolveDayKey,
+  };
   CONSIGNE_HISTORY_ROW_STATE.set(row, state);
   const initialPoints = buildConsigneHistoryTimeline([], consigne);
   state.hasDayTimeline = renderConsigneHistoryTimeline(row, initialPoints);
@@ -8853,6 +8911,8 @@ function setupConsigneHistoryTimeline(row, consigne, ctx) {
     updateConsigneHistoryTimeline(row, status, {
       consigne,
       value: event?.detail?.value,
+      note: event?.detail?.note,
+      dayKey: event?.detail?.dayKey,
     });
   });
 }
@@ -8938,8 +8998,9 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
     const isAnswered = status !== "na";
     mark.classList.toggle("consigne-row__mark--checked", isAnswered);
   }
+  let textualNote = "";
   if (live) {
-    const textualNote = extractTextualNote(valueForStatus);
+    textualNote = extractTextualNote(valueForStatus);
     const isNoteStatus = status === "note";
     const baseHasValue = (() => {
       if (skipFlag) return true;
@@ -8982,7 +9043,13 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
   }
   if (typeof CustomEvent === "function") {
     row.dispatchEvent(new CustomEvent("consigne-status-changed", {
-      detail: { status, consigne, value: rawValue },
+      detail: {
+        status,
+        consigne,
+        value: rawValue,
+        note: textualNote,
+        dayKey: row?.dataset?.dayKey || null,
+      },
     }));
   }
 }
@@ -13882,6 +13949,11 @@ async function renderDaily(ctx, root, opts = {}) {
       row.removeAttribute("data-consigne-id");
     }
     row.dataset.priorityTone = tone;
+    if (typeof dayKey === "string" && dayKey) {
+      row.dataset.dayKey = dayKey;
+    } else {
+      delete row.dataset.dayKey;
+    }
     if (isChild) {
       row.classList.add("consigne-row--child");
       if (item.parentId) {
@@ -13949,7 +14021,7 @@ async function renderDaily(ctx, root, opts = {}) {
         }
       } catch (_) {}
     }
-    setupConsigneHistoryTimeline(row, item, ctx, { mode: "daily" });
+    setupConsigneHistoryTimeline(row, item, ctx, { mode: "daily", dayKey });
     const previousSummary = normalizeSummaryMetadataInput(previous);
     if (previousSummary) {
       setConsigneSummaryMetadata(row, previousSummary);
