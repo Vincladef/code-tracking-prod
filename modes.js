@@ -7747,6 +7747,15 @@ function buildHistoryTimelineLabels(date, fallbackKey) {
         weekday: formatHistoryWeekdayLabel(info.date),
       };
     }
+    if (typeof fallbackKey === "string") {
+      const sessionMatch = fallbackKey.match(/session-(\d+)/i);
+      if (sessionMatch) {
+        const sessionNumber = Number.parseInt(sessionMatch[1], 10);
+        if (Number.isFinite(sessionNumber) && sessionNumber > 0) {
+          return { label: `Itération ${sessionNumber}`, weekday: "" };
+        }
+      }
+    }
     return { label: fallbackKey, weekday: "" };
   }
   return { label: "", weekday: "" };
@@ -7808,6 +7817,117 @@ function parseHistoryTimelineDateInfo(value) {
   return { date: normalized, timestamp: raw.getTime() };
 }
 
+function normalizeHistoryChecklistFlag(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+    if (["1", "true", "vrai", "oui", "yes", "ok", "done", "fait"].includes(normalized)) return true;
+    if (["0", "false", "faux", "non", "no", "off"].includes(normalized)) return false;
+    const numeric = Number(normalized);
+    if (!Number.isNaN(numeric)) {
+      return numeric !== 0;
+    }
+    return false;
+  }
+  return Boolean(value);
+}
+
+function parseHistoryJsonCandidate(raw) {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch (_) {
+    return null;
+  }
+}
+
+function coerceHistoryChecklistLabels(source) {
+  if (!source) return null;
+  if (Array.isArray(source)) {
+    const labels = source
+      .map((item) => {
+        if (typeof item === "string") return item.trim();
+        if (item == null) return "";
+        return String(item).trim();
+      })
+      .filter((item) => item);
+    return labels.length ? labels : null;
+  }
+  if (typeof source === "string") {
+    const parsed = parseHistoryJsonCandidate(source);
+    if (parsed != null) {
+      return coerceHistoryChecklistLabels(parsed);
+    }
+    return source.trim() ? [source.trim()] : null;
+  }
+  if (typeof source === "object") {
+    if (Array.isArray(source.labels)) {
+      return coerceHistoryChecklistLabels(source.labels);
+    }
+    if (Array.isArray(source.items)) {
+      return coerceHistoryChecklistLabels(source.items);
+    }
+    if (Array.isArray(source.values)) {
+      return coerceHistoryChecklistLabels(source.values);
+    }
+  }
+  return null;
+}
+
+function coerceHistoryChecklistStructure(input) {
+  if (input == null) return null;
+  if (Array.isArray(input)) {
+    return { items: input.map((item) => normalizeHistoryChecklistFlag(item)) };
+  }
+  if (typeof input === "string") {
+    const parsed = parseHistoryJsonCandidate(input);
+    if (parsed != null) {
+      return coerceHistoryChecklistStructure(parsed);
+    }
+    return null;
+  }
+  if (typeof input === "object") {
+    if (
+      Array.isArray(input.items) ||
+      Array.isArray(input.values) ||
+      Array.isArray(input.checked) ||
+      Array.isArray(input.answers)
+    ) {
+      const rawItems = input.items || input.values || input.checked || input.answers || [];
+      const rawSkipped = Array.isArray(input.skipped)
+        ? input.skipped
+        : Array.isArray(input.skipStates)
+        ? input.skipStates
+        : null;
+      const normalizedItems = rawItems.map((item) => normalizeHistoryChecklistFlag(item));
+      const normalizedStates = normalizeChecklistStateArrays(
+        { items: normalizedItems, skipped: Array.isArray(rawSkipped) ? rawSkipped : [] },
+        normalizedItems.length || undefined,
+      );
+      const labels =
+        coerceHistoryChecklistLabels(
+          input.labels || input.itemsLabels || input.titles || input.checklistLabels || input.labelsList || null,
+        ) || null;
+      const structure = { items: normalizedStates.items };
+      if (labels && labels.length) {
+        structure.labels = labels;
+      }
+      if (Array.isArray(rawSkipped) && rawSkipped.some((value) => value === true)) {
+        structure.skipped = normalizedStates.skipped;
+      }
+      return structure;
+    }
+    if (typeof input.value === "string" || Array.isArray(input.value) || typeof input.value === "object") {
+      return coerceHistoryChecklistStructure(input.value);
+    }
+  }
+  return null;
+}
+
 function resolveHistoryTimelineValue(entry, consigne) {
   if (!entry || typeof entry !== "object") return null;
   const candidateKeys = ["value", "v", "answer", "val", "score"];
@@ -7821,6 +7941,37 @@ function resolveHistoryTimelineValue(entry, consigne) {
   if (value === undefined && entry.data && typeof entry.data === "object") {
     if (Object.prototype.hasOwnProperty.call(entry.data, "value")) {
       value = entry.data.value;
+    }
+  }
+  if (consigne?.type === "checklist") {
+    const structureCandidates = [];
+    if (value !== undefined) structureCandidates.push(value);
+    structureCandidates.push(entry.items, entry.values, entry.answers, entry.checked, entry.checklist);
+    if (entry.data && typeof entry.data === "object") {
+      structureCandidates.push(
+        entry.data.items,
+        entry.data.values,
+        entry.data.answers,
+        entry.data.checked,
+        entry.data.checklist,
+      );
+    }
+    for (const candidate of structureCandidates) {
+      const structure = coerceHistoryChecklistStructure(candidate);
+      if (structure) {
+        if (!structure.labels || !structure.labels.length) {
+          const labelCandidates = [entry.labels, entry.itemsLabels, entry.checklistLabels, entry.labelsList];
+          for (const labelCandidate of labelCandidates) {
+            const parsedLabels = coerceHistoryChecklistLabels(labelCandidate);
+            if (parsedLabels && parsedLabels.length) {
+              structure.labels = parsedLabels;
+              break;
+            }
+          }
+        }
+        value = structure;
+        break;
+      }
     }
   }
   if (typeof value === "string") {
@@ -7896,9 +8047,44 @@ function formatConsigneHistoryPoint(record, consigne) {
   const dayKey = record.dayKey || null;
   const date = record.date instanceof Date && !Number.isNaN(record.date.getTime()) ? record.date : null;
   const status = record.status || "na";
-  const title = buildHistoryTimelineTitle(date, dayKey, status);
+  const iterationIndex = Number.isFinite(record.iterationIndex) ? record.iterationIndex : null;
+  const iterationNumber = Number.isFinite(record.iterationNumber) ? record.iterationNumber : null;
+  const rawIterationLabel =
+    typeof record.iterationLabel === "string" && record.iterationLabel.trim()
+      ? record.iterationLabel.trim()
+      : iterationNumber != null
+      ? `Itération ${iterationNumber}`
+      : "";
+  const modeSource = typeof consigne?.mode === "string" ? consigne.mode : null;
+  const normalizedMode = typeof modeSource === "string" ? modeSource.trim().toLowerCase() : "";
+  const isPractice = normalizedMode === "practice" || iterationIndex !== null || /session-/i.test(dayKey || "");
+  const baseTitle = buildHistoryTimelineTitle(date, dayKey, status);
+  const statusLabel = STATUS_LABELS[status] || "";
+  const title = rawIterationLabel
+    ? statusLabel
+      ? `${rawIterationLabel} — ${statusLabel}`
+      : rawIterationLabel
+    : baseTitle;
   const labels = buildHistoryTimelineLabels(date, dayKey);
-  const fullDateLabel = date ? formatHistoryDayFullLabel(date) : labels.label || dayKey || "";
+  let labelText = labels.label;
+  let weekdayText = labels.weekday;
+  if (rawIterationLabel) {
+    labelText = rawIterationLabel;
+    weekdayText = "";
+  }
+  const fullDateLabel = (() => {
+    if (date) {
+      const formatted = formatHistoryDayFullLabel(date);
+      if (rawIterationLabel && formatted && formatted !== rawIterationLabel) {
+        return `${rawIterationLabel} — ${formatted}`;
+      }
+      return formatted || rawIterationLabel || labels.label || dayKey || "";
+    }
+    if (rawIterationLabel) {
+      return rawIterationLabel;
+    }
+    return labels.label || dayKey || "";
+  })();
   let valueHtml = "";
   let valueText = "";
   if (consigne) {
@@ -7914,20 +8100,29 @@ function formatConsigneHistoryPoint(record, consigne) {
   const noteSource = typeof record.note === "string" ? record.note : extractTextualNote(record.note);
   const note = typeof noteSource === "string" ? noteSource.trim() : "";
   const hasContent = Boolean(valueHtml || valueText || note);
+  const srText = (() => {
+    if (rawIterationLabel) {
+      return rawIterationLabel;
+    }
+    if (fullDateLabel) {
+      return fullDateLabel;
+    }
+    return title;
+  })();
   return {
     dayKey,
     date,
     status,
     title,
-    srLabel: title,
-    label: labels.label,
-    weekdayLabel: labels.weekday,
+    srLabel: srText || title,
+    label: labelText,
+    weekdayLabel: weekdayText,
     isPlaceholder: Boolean(record.isPlaceholder),
     details: {
       dayKey: dayKey || "",
       date,
-      label: labels.label || "",
-      weekdayLabel: labels.weekday || "",
+      label: labelText || "",
+      weekdayLabel: weekdayText || "",
       fullDateLabel: fullDateLabel || "",
       status,
       statusLabel: STATUS_LABELS[status] || "",
@@ -7936,6 +8131,10 @@ function formatConsigneHistoryPoint(record, consigne) {
       note,
       hasContent,
       rawValue: record.value,
+      iterationIndex: iterationIndex,
+      iterationNumber: iterationNumber,
+      iterationLabel: rawIterationLabel,
+      isPractice,
       timestamp:
         typeof record.timestamp === "number"
           ? record.timestamp
@@ -8068,7 +8267,7 @@ function isSummaryHistoryEntry(entry) {
   return false;
 }
 
-function resolveHistoryTimelineKey(entry) {
+function resolveHistoryTimelineKeyBase(entry) {
   if (!entry || typeof entry !== "object") {
     return { dayKey: null, date: null, timestamp: null };
   }
@@ -8107,6 +8306,12 @@ function resolveHistoryTimelineKey(entry) {
     entry.updated_at,
     entry.recordedAt,
     entry.recorded_at,
+    entry.sessionDate,
+    entry.session_date,
+    entry.sessionDayKey,
+    entry.session_day_key,
+    entry.iterationDate,
+    entry.iteration_date,
   ];
   for (const candidate of dateCandidates) {
     const info = parseHistoryTimelineDateInfo(candidate);
@@ -8121,6 +8326,114 @@ function resolveHistoryTimelineKey(entry) {
   return { dayKey: null, date: null, timestamp: null };
 }
 
+function parseFiniteNumber(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function practiceIterationIndexFromKey(key) {
+  if (typeof key !== "string") {
+    return null;
+  }
+  const match = key.match(/session-(\d+)/i);
+  if (!match) {
+    return null;
+  }
+  const parsed = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return Math.max(0, parsed - 1);
+}
+
+function extractPracticeIterationIndex(entry, dayKey) {
+  const indexCandidates = [
+    parseFiniteNumber(entry?.iterationIndex ?? entry?.iteration_index),
+    parseFiniteNumber(entry?.sessionIndex ?? entry?.session_index),
+  ];
+  for (const candidate of indexCandidates) {
+    if (candidate !== null) {
+      return candidate;
+    }
+  }
+  const numberCandidates = [
+    parseFiniteNumber(entry?.iterationNumber ?? entry?.iteration_number),
+    parseFiniteNumber(entry?.sessionNumber ?? entry?.session_number),
+  ];
+  for (const candidate of numberCandidates) {
+    if (candidate !== null) {
+      return Math.max(0, candidate - 1);
+    }
+  }
+  const fromKey = practiceIterationIndexFromKey(dayKey);
+  if (fromKey !== null) {
+    return fromKey;
+  }
+  return null;
+}
+
+function resolveHistoryTimelineKey(entry, consigne) {
+  const base = resolveHistoryTimelineKeyBase(entry);
+  const modeSource = typeof consigne?.mode === "string" ? consigne.mode : entry?.mode;
+  const normalizedMode = typeof modeSource === "string" ? modeSource.trim().toLowerCase() : "";
+  if (normalizedMode === "practice") {
+    const fallbackKey =
+      base.dayKey ||
+      entry?.historyKey ||
+      entry?.history_key ||
+      entry?.sessionId ||
+      entry?.session_id ||
+      entry?.date ||
+      entry?.dateKey ||
+      entry?.date_key ||
+      null;
+    if (!base.dayKey && fallbackKey) {
+      base.dayKey = String(fallbackKey);
+    }
+    const iterationIndex = extractPracticeIterationIndex(entry, base.dayKey);
+    if (iterationIndex !== null) {
+      base.iterationIndex = iterationIndex;
+      base.iterationNumber = iterationIndex + 1;
+      if (base.timestamp === null || base.timestamp === undefined) {
+        base.timestamp = iterationIndex;
+      }
+    } else {
+      base.iterationIndex = null;
+      base.iterationNumber = null;
+    }
+    if (base.timestamp === null || base.timestamp === undefined) {
+      if (base.date instanceof Date && !Number.isNaN(base.date.getTime())) {
+        base.timestamp = base.date.getTime();
+      }
+    }
+    const labelCandidates = [
+      entry?.iterationLabel,
+      entry?.iteration_label,
+      entry?.sessionLabel,
+      entry?.session_label,
+    ];
+    let resolvedLabel = "";
+    for (const candidate of labelCandidates) {
+      if (typeof candidate === "string" && candidate.trim()) {
+        resolvedLabel = candidate.trim();
+        break;
+      }
+    }
+    if (!resolvedLabel && base.iterationNumber != null) {
+      resolvedLabel = `Itération ${base.iterationNumber}`;
+    }
+    base.iterationLabel = resolvedLabel;
+  } else {
+    base.iterationIndex = null;
+    base.iterationNumber = null;
+    base.iterationLabel = "";
+  }
+  return base;
+}
+
 function buildConsigneHistoryTimeline(entries, consigne) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -8129,14 +8442,24 @@ function buildConsigneHistoryTimeline(entries, consigne) {
     entries.forEach((entry) => {
       if (!entry || typeof entry !== "object") return;
       if (isSummaryHistoryEntry(entry)) return;
-      const { dayKey, date, timestamp } = resolveHistoryTimelineKey(entry);
+      const keyInfo = resolveHistoryTimelineKey(entry, consigne);
+      const { dayKey, date, timestamp, iterationIndex, iterationNumber, iterationLabel } = keyInfo || {};
       if (!dayKey || !(date instanceof Date) || Number.isNaN(date.getTime())) {
-        return;
+        if (!dayKey) {
+          return;
+        }
       }
       const value = resolveHistoryTimelineValue(entry, consigne);
       const note = resolveHistoryTimelineNote(entry);
       const status = dotColor(consigne?.type, value, consigne) || "na";
-      const effectiveTimestamp = typeof timestamp === "number" ? timestamp : date.getTime();
+      const effectiveTimestamp =
+        typeof timestamp === "number"
+          ? timestamp
+          : date instanceof Date && !Number.isNaN(date.getTime())
+          ? date.getTime()
+          : typeof iterationIndex === "number"
+          ? iterationIndex
+          : today.getTime();
       const existing = dayMap.get(dayKey);
       if (!existing || effectiveTimestamp >= existing.timestamp) {
         dayMap.set(dayKey, {
@@ -8145,6 +8468,9 @@ function buildConsigneHistoryTimeline(entries, consigne) {
           timestamp: effectiveTimestamp,
           value,
           note,
+          iterationIndex: typeof iterationIndex === "number" ? iterationIndex : null,
+          iterationNumber: typeof iterationNumber === "number" ? iterationNumber : null,
+          iterationLabel: typeof iterationLabel === "string" ? iterationLabel : "",
         });
       }
     });
@@ -8158,12 +8484,17 @@ function buildConsigneHistoryTimeline(entries, consigne) {
         ? record.timestamp
         : record?.date instanceof Date && !Number.isNaN(record.date.getTime())
           ? record.date.getTime()
-          : today.getTime(),
+          : typeof record?.iterationIndex === "number"
+            ? record.iterationIndex
+            : today.getTime(),
       value: record?.value,
       note: record?.note || "",
+      iterationIndex: typeof record?.iterationIndex === "number" ? record.iterationIndex : null,
+      iterationNumber: typeof record?.iterationNumber === "number" ? record.iterationNumber : null,
+      iterationLabel: typeof record?.iterationLabel === "string" ? record.iterationLabel : "",
     }))
-    .sort((a, b) => a.timestamp - b.timestamp);
-  const limited = sortedRecords.slice(-CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
+    .sort((a, b) => b.timestamp - a.timestamp);
+  const limited = sortedRecords.slice(0, CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
   return limited
     .map((record) =>
       formatConsigneHistoryPoint(
@@ -8175,6 +8506,9 @@ function buildConsigneHistoryTimeline(entries, consigne) {
           note: record.note,
           timestamp: record.timestamp,
           isPlaceholder: false,
+          iterationIndex: record.iterationIndex,
+          iterationNumber: record.iterationNumber,
+          iterationLabel: record.iterationLabel,
         },
         consigne,
       ),
@@ -8374,20 +8708,28 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   const effectiveValue = options.value !== undefined ? options.value : existingDetails?.rawValue ?? null;
   const providedNote = typeof options.note === "string" ? options.note : null;
   const derivedNote = providedNote || extractTextualNote(effectiveValue);
+  const practiceMode = typeof consigne?.mode === "string" && consigne.mode.trim().toLowerCase() === "practice";
+  const iterationIndex = practiceMode ? practiceIterationIndexFromKey(todayKey) : null;
+  const iterationNumber = iterationIndex != null ? iterationIndex + 1 : existingDetails?.iterationNumber ?? null;
+  const iterationLabel = existingDetails?.iterationLabel || (iterationNumber != null ? `Itération ${iterationNumber}` : "");
   const record = {
     dayKey: todayKey,
     date,
     status,
     value: effectiveValue,
     note: derivedNote || existingDetails?.note || "",
-    timestamp: existingDetails?.timestamp || (date ? date.getTime() : Date.now()),
+    timestamp:
+      existingDetails?.timestamp || (date ? date.getTime() : iterationIndex != null ? iterationIndex : Date.now()),
     isPlaceholder: false,
+    iterationIndex: iterationIndex != null ? iterationIndex : existingDetails?.iterationIndex ?? null,
+    iterationNumber,
+    iterationLabel,
   };
   if (!item) {
     item = document.createElement("div");
     item.className = "consigne-history__item";
     item.setAttribute("role", "listitem");
-    state.track.appendChild(item);
+    state.track.insertBefore(item, state.track.firstElementChild || null);
   }
   const fallbackTitle = buildHistoryTimelineTitle(date, todayKey, status);
   const fallbackLabels = buildHistoryTimelineLabels(date, todayKey);
@@ -8397,11 +8739,34 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       dayKey: todayKey,
       date,
       status,
-      title: fallbackTitle,
-      srLabel: fallbackTitle,
-      label: fallbackLabels.label,
-      weekdayLabel: fallbackLabels.weekday,
+      title: iterationLabel
+        ? STATUS_LABELS[status]
+          ? `${iterationLabel} — ${STATUS_LABELS[status]}`
+          : iterationLabel
+        : fallbackTitle,
+      srLabel: iterationLabel || fallbackTitle,
+      label: iterationLabel || fallbackLabels.label,
+      weekdayLabel: iterationLabel ? "" : fallbackLabels.weekday,
       isPlaceholder: false,
+      details: {
+        dayKey: todayKey || "",
+        date,
+        label: iterationLabel || fallbackLabels.label || "",
+        weekdayLabel: iterationLabel ? "" : fallbackLabels.weekday || "",
+        fullDateLabel: iterationLabel || fallbackLabels.label || todayKey || "",
+        status,
+        statusLabel: STATUS_LABELS[status] || "",
+        valueHtml: "",
+        valueText: "",
+        note: derivedNote || existingDetails?.note || "",
+        hasContent: Boolean(derivedNote || (existingDetails?.note ?? "")),
+        rawValue: record.value,
+        iterationIndex: record.iterationIndex ?? null,
+        iterationNumber: record.iterationNumber ?? null,
+        iterationLabel: iterationLabel || "",
+        isPractice: practiceMode,
+        timestamp: record.timestamp,
+      },
     };
   applyConsigneHistoryPoint(item, point);
   state.track.dataset.historyMode = "day";
@@ -8410,7 +8775,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     state.container.hidden = false;
   }
   while (state.track.children.length > state.limit) {
-    state.track.removeChild(state.track.firstElementChild);
+    state.track.removeChild(state.track.lastElementChild);
   }
 }
 
