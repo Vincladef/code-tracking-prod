@@ -8380,8 +8380,33 @@ function resolveHistoryTimelineKey(entry, consigne) {
   const modeSource = typeof consigne?.mode === "string" ? consigne.mode : entry?.mode;
   const normalizedMode = typeof modeSource === "string" ? modeSource.trim().toLowerCase() : "";
   if (normalizedMode === "practice") {
+    const initialDayKey = base.dayKey;
+    const sessionKeyCandidates = [
+      entry?.sessionId,
+      entry?.session_id,
+      entry?.historyKey,
+      entry?.history_key,
+      entry?.id,
+      entry?.date,
+      entry?.dateKey,
+      entry?.date_key,
+    ];
+    let sessionKey = "";
+    for (const candidate of sessionKeyCandidates) {
+      if (typeof candidate !== "string") {
+        continue;
+      }
+      const trimmed = candidate.trim();
+      if (!trimmed) {
+        continue;
+      }
+      if (/session-/i.test(trimmed)) {
+        sessionKey = trimmed;
+        break;
+      }
+    }
     const fallbackKey =
-      base.dayKey ||
+      initialDayKey ||
       entry?.historyKey ||
       entry?.history_key ||
       entry?.sessionId ||
@@ -8390,10 +8415,13 @@ function resolveHistoryTimelineKey(entry, consigne) {
       entry?.dateKey ||
       entry?.date_key ||
       null;
-    if (!base.dayKey && fallbackKey) {
+    if (sessionKey) {
+      base.dayKey = sessionKey;
+    } else if (!base.dayKey && fallbackKey) {
       base.dayKey = String(fallbackKey);
     }
-    const iterationIndex = extractPracticeIterationIndex(entry, base.dayKey);
+    const iterationSourceKey = sessionKey || base.dayKey || fallbackKey;
+    const iterationIndex = extractPracticeIterationIndex(entry, iterationSourceKey);
     if (iterationIndex !== null) {
       base.iterationIndex = iterationIndex;
       base.iterationNumber = iterationIndex + 1;
