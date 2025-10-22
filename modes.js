@@ -7690,6 +7690,8 @@ function historyStatusFromAverage(type, values) {
 
 const CONSIGNE_HISTORY_TIMELINE_DAY_COUNT = 21;
 const CONSIGNE_HISTORY_ROW_STATE = new WeakMap();
+const CONSIGNE_HISTORY_SCROLL_MIN_STEP = 160;
+const CONSIGNE_HISTORY_SCROLL_EPSILON = 2;
 const CONSIGNE_HISTORY_DAY_LABEL_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
 const CONSIGNE_HISTORY_WEEKDAY_LABEL_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "short" });
 const CONSIGNE_HISTORY_DAY_FULL_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
@@ -8684,6 +8686,105 @@ function applyConsigneHistoryPoint(item, point) {
   }
 }
 
+function computeConsigneHistoryScrollStep(viewport) {
+  if (!viewport) {
+    return CONSIGNE_HISTORY_SCROLL_MIN_STEP;
+  }
+  const width = viewport.clientWidth || 0;
+  if (width <= 0) {
+    return CONSIGNE_HISTORY_SCROLL_MIN_STEP;
+  }
+  const ratioStep = Math.round(width * 0.8);
+  return Math.max(CONSIGNE_HISTORY_SCROLL_MIN_STEP, ratioStep);
+}
+
+function updateConsigneHistoryNavState(state) {
+  if (!state) {
+    return;
+  }
+  const { viewport, navPrev, navNext, container } = state;
+  if (!viewport || (!navPrev && !navNext)) {
+    return;
+  }
+  const containerHidden = container?.hidden === true;
+  const scrollWidth = viewport.scrollWidth || 0;
+  const clientWidth = viewport.clientWidth || 0;
+  const maxScroll = Math.max(0, scrollWidth - clientWidth);
+  const hasOverflow = !containerHidden && maxScroll > CONSIGNE_HISTORY_SCROLL_EPSILON;
+  const scrollLeft = viewport.scrollLeft || 0;
+  const atStart = scrollLeft <= CONSIGNE_HISTORY_SCROLL_EPSILON;
+  const atEnd = scrollLeft >= maxScroll - CONSIGNE_HISTORY_SCROLL_EPSILON;
+  if (navPrev) {
+    navPrev.hidden = !hasOverflow;
+    navPrev.disabled = !hasOverflow || atStart;
+  }
+  if (navNext) {
+    navNext.hidden = !hasOverflow;
+    navNext.disabled = !hasOverflow || atEnd;
+  }
+}
+
+function setupConsigneHistoryNavigation(state) {
+  if (!state) {
+    return;
+  }
+  const { viewport, navPrev, navNext } = state;
+  state.updateNavState = () => updateConsigneHistoryNavState(state);
+  if (!viewport) {
+    return;
+  }
+  const handleScroll = () => state.updateNavState();
+  viewport.addEventListener("scroll", handleScroll, { passive: true });
+  state.viewportScrollHandler = handleScroll;
+  if (navPrev) {
+    navPrev.addEventListener("click", (event) => {
+      event.preventDefault();
+      const step = computeConsigneHistoryScrollStep(viewport);
+      try {
+        viewport.scrollBy({ left: -step, behavior: "smooth" });
+      } catch (_) {
+        viewport.scrollLeft = Math.max(0, viewport.scrollLeft - step);
+      }
+      state.updateNavState();
+    });
+  }
+  if (navNext) {
+    navNext.addEventListener("click", (event) => {
+      event.preventDefault();
+      const step = computeConsigneHistoryScrollStep(viewport);
+      try {
+        viewport.scrollBy({ left: step, behavior: "smooth" });
+      } catch (_) {
+        const maxScroll = Math.max(0, (viewport.scrollWidth || 0) - (viewport.clientWidth || 0));
+        viewport.scrollLeft = Math.min(viewport.scrollLeft + step, maxScroll);
+      }
+      state.updateNavState();
+    });
+  }
+  if (typeof ResizeObserver === "function") {
+    try {
+      const resizeObserver = new ResizeObserver(() => state.updateNavState());
+      resizeObserver.observe(viewport);
+      if (state.track) {
+        resizeObserver.observe(state.track);
+      }
+      state.resizeObserver = resizeObserver;
+    } catch (_) {}
+  }
+  state.updateNavState();
+}
+
+function scheduleConsigneHistoryNavUpdate(state) {
+  if (!state?.updateNavState) {
+    return;
+  }
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(state.updateNavState);
+  } else {
+    setTimeout(state.updateNavState, 0);
+  }
+}
+
 function renderConsigneHistoryTimeline(row, points) {
   const container = row?.querySelector?.("[data-consigne-history]");
   const track = row?.querySelector?.("[data-consigne-history-track]");
@@ -8842,6 +8943,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   while (state.track.children.length > state.limit) {
     state.track.removeChild(state.track.lastElementChild);
   }
+  scheduleConsigneHistoryNavUpdate(state);
 }
 
 function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
@@ -8852,6 +8954,17 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
   const track = row.querySelector("[data-consigne-history-track]");
   if (!container || !track) {
     return;
+  }
+  const previousState = CONSIGNE_HISTORY_ROW_STATE.get(row);
+  if (previousState) {
+    try {
+      previousState.resizeObserver?.disconnect?.();
+    } catch (_) {}
+    if (previousState.viewport && previousState.viewportScrollHandler) {
+      try {
+        previousState.viewport.removeEventListener("scroll", previousState.viewportScrollHandler);
+      } catch (_) {}
+    }
   }
   let explicitDayKey = "";
   if (typeof options.dayKey === "string") {
@@ -8867,17 +8980,25 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     }
   }
   const resolveDayKey = typeof options.resolveDayKey === "function" ? options.resolveDayKey : null;
+  const viewport = row.querySelector("[data-consigne-history-viewport]") || container;
+  const navPrev = row.querySelector("[data-consigne-history-prev]") || null;
+  const navNext = row.querySelector("[data-consigne-history-next]") || null;
   const state = {
     track,
     container,
+    viewport,
+    navPrev,
+    navNext,
     hasDayTimeline: false,
     limit: CONSIGNE_HISTORY_TIMELINE_DAY_COUNT,
     dayKey: explicitDayKey,
     resolveDayKey,
   };
+  setupConsigneHistoryNavigation(state);
   CONSIGNE_HISTORY_ROW_STATE.set(row, state);
   const initialPoints = buildConsigneHistoryTimeline([], consigne);
   state.hasDayTimeline = renderConsigneHistoryTimeline(row, initialPoints);
+  scheduleConsigneHistoryNavUpdate(state);
   if (!ctx?.db || !ctx?.user?.uid || !consigne?.id || typeof Schema?.loadConsigneHistory !== "function") {
     return;
   }
@@ -8888,11 +9009,13 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       }
       const points = buildConsigneHistoryTimeline(entries, consigne);
       state.hasDayTimeline = renderConsigneHistoryTimeline(row, points);
+      scheduleConsigneHistoryNavUpdate(state);
     })
     .catch((error) => {
       try {
         modesLogger?.warn?.("consigne.history.timeline", error);
       } catch (_) {}
+      scheduleConsigneHistoryNavUpdate(state);
     });
   const handleHistoryActivation = (event) => {
     const isKeyboard = event.type === "keydown";
@@ -12577,7 +12700,11 @@ async function renderPractice(ctx, root, _opts = {}) {
         </div>
         </div>
         <div class="consigne-history" data-consigne-history hidden>
-          <div class="consigne-history__track" data-consigne-history-track role="list"></div>
+          <button type="button" class="consigne-history__nav" data-consigne-history-prev aria-label="Faire défiler l’historique vers la gauche" hidden><span aria-hidden="true">&lsaquo;</span></button>
+          <div class="consigne-history__viewport" data-consigne-history-viewport>
+            <div class="consigne-history__track" data-consigne-history-track role="list"></div>
+          </div>
+          <button type="button" class="consigne-history__nav" data-consigne-history-next aria-label="Faire défiler l’historique vers la droite" hidden><span aria-hidden="true">&rsaquo;</span></button>
         </div>
         <div data-consigne-input-holder hidden></div>
       `;
@@ -14021,7 +14148,11 @@ async function renderDaily(ctx, root, opts = {}) {
         </div>
       </div>
       <div class="consigne-history" data-consigne-history hidden>
-        <div class="consigne-history__track" data-consigne-history-track role="list"></div>
+        <button type="button" class="consigne-history__nav" data-consigne-history-prev aria-label="Faire défiler l’historique vers la gauche" hidden><span aria-hidden="true">&lsaquo;</span></button>
+        <div class="consigne-history__viewport" data-consigne-history-viewport>
+          <div class="consigne-history__track" data-consigne-history-track role="list"></div>
+        </div>
+        <button type="button" class="consigne-history__nav" data-consigne-history-next aria-label="Faire défiler l’historique vers la droite" hidden><span aria-hidden="true">&rsaquo;</span></button>
       </div>
       <div data-consigne-input-holder hidden></div>
     `;
