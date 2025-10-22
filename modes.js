@@ -2437,6 +2437,36 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           normalizedValue = baseValue;
         }
       }
+      const createdAtCandidates = [
+        entry.createdAt,
+        entry.created_at,
+        entry.updatedAt,
+        entry.updated_at,
+        entry.recordedAt,
+        entry.recorded_at,
+        entry.pageDate,
+        entry.page_date,
+        entry.pageDateIso,
+        entry.page_date_iso,
+        entry.dateIso,
+        entry.date_iso,
+        entry.timestamp,
+        entry.ts,
+        entry.dayKey,
+        entry.day_key,
+        entry.dateKey,
+        entry.date_key,
+        entry.date,
+      ];
+      let createdAt = null;
+      for (const candidate of createdAtCandidates) {
+        if (!candidate) continue;
+        const parsed = parseResponseDate(candidate);
+        if (parsed) {
+          createdAt = parsed;
+          break;
+        }
+      }
       return {
         value: normalizedValue,
         note:
@@ -2447,7 +2477,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           entry.obs ??
           entry.observation ??
           "",
-        createdAt: parseResponseDate(entry.createdAt || entry.updatedAt || null),
+        createdAt,
       };
     }
 
@@ -7831,6 +7861,193 @@ function resolveHistoryTimelineValue(entry, consigne) {
   return value;
 }
 
+function resolveHistoryTimelineNote(entry) {
+  if (!entry || typeof entry !== "object") {
+    return "";
+  }
+  const direct = extractTextualNote(entry);
+  if (direct) {
+    return direct;
+  }
+  if (entry.data && typeof entry.data === "object") {
+    const nested = extractTextualNote(entry.data);
+    if (nested) {
+      return nested;
+    }
+  }
+  const fallbackKeys = ["memo", "observation", "obs", "remarkText", "remark_text"];
+  for (const key of fallbackKeys) {
+    const raw = entry[key];
+    if (typeof raw !== "string") {
+      continue;
+    }
+    const trimmed = raw.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return "";
+}
+
+function formatConsigneHistoryPoint(record, consigne) {
+  if (!record) {
+    return null;
+  }
+  const dayKey = record.dayKey || null;
+  const date = record.date instanceof Date && !Number.isNaN(record.date.getTime()) ? record.date : null;
+  const status = record.status || "na";
+  const title = buildHistoryTimelineTitle(date, dayKey, status);
+  const labels = buildHistoryTimelineLabels(date, dayKey);
+  const fullDateLabel = date ? formatHistoryDayFullLabel(date) : labels.label || dayKey || "";
+  let valueHtml = "";
+  let valueText = "";
+  if (consigne) {
+    const html = formatConsigneValue(consigne.type, record.value, { mode: "html", consigne });
+    const text = formatConsigneValue(consigne.type, record.value, { consigne });
+    if (typeof html === "string" && html !== "—") {
+      valueHtml = html.trim();
+    }
+    if (typeof text === "string" && text !== "—") {
+      valueText = text.trim();
+    }
+  }
+  const noteSource = typeof record.note === "string" ? record.note : extractTextualNote(record.note);
+  const note = typeof noteSource === "string" ? noteSource.trim() : "";
+  const hasContent = Boolean(valueHtml || valueText || note);
+  return {
+    dayKey,
+    date,
+    status,
+    title,
+    srLabel: title,
+    label: labels.label,
+    weekdayLabel: labels.weekday,
+    isPlaceholder: Boolean(record.isPlaceholder),
+    details: {
+      dayKey: dayKey || "",
+      date,
+      label: labels.label || "",
+      weekdayLabel: labels.weekday || "",
+      fullDateLabel: fullDateLabel || "",
+      status,
+      statusLabel: STATUS_LABELS[status] || "",
+      valueHtml,
+      valueText,
+      note,
+      hasContent,
+      rawValue: record.value,
+      timestamp:
+        typeof record.timestamp === "number"
+          ? record.timestamp
+          : date instanceof Date && !Number.isNaN(date.getTime())
+          ? date.getTime()
+          : null,
+    },
+  };
+}
+
+function openConsigneHistoryPointDialog(consigne, details) {
+  if (!details) {
+    return;
+  }
+  const consigneName =
+    consigne?.text || consigne?.titre || consigne?.name || consigne?.label || consigne?.id || "Consigne";
+  const fullDateLabel = details.fullDateLabel || "";
+  const fallbackLabel = details.label || details.dayKey || "";
+  const headerDate = fullDateLabel || fallbackLabel;
+  const status = details.status || "na";
+  const statusLabel = details.statusLabel || STATUS_LABELS[status] || "";
+  const rawHtml = typeof details.valueHtml === "string" ? details.valueHtml.trim() : "";
+  const rawText = typeof details.valueText === "string" ? details.valueText.trim() : "";
+  const textMarkup = rawText ? escapeHtml(rawText).replace(/\n/g, "<br>") : "";
+  const valueContent = rawHtml || textMarkup;
+  const note = typeof details.note === "string" ? details.note.trim() : "";
+  const hasValue = Boolean(valueContent);
+  const hasNote = Boolean(note);
+  const valueSection = hasValue
+    ? `<section class="space-y-2" data-history-dialog-section><div class="history-dialog__value history-panel__value" data-status="${status}"><span class="history-panel__value-text">${valueContent}</span></div></section>`
+    : "";
+  const noteSection = hasNote
+    ? `<section class="space-y-2" data-history-dialog-note><h3 class="text-sm font-semibold text-slate-600">Note</h3><p class="whitespace-pre-line text-[15px] text-slate-700">${escapeHtml(note)}</p></section>`
+    : "";
+  const emptySection = !hasValue && !hasNote
+    ? '<p class="text-[15px] text-[var(--muted)]">Aucune réponse enregistrée pour ce jour.</p>'
+    : "";
+  const statusMarkup = statusLabel
+    ? `<p class="flex items-center gap-2 text-sm text-slate-600"><span class="consigne-row__dot consigne-row__dot--${status}" aria-hidden="true"></span>${escapeHtml(statusLabel)}</p>`
+    : "";
+  const headerDateMarkup = headerDate
+    ? `<p class="text-sm text-slate-500">${escapeHtml(headerDate)}</p>`
+    : "";
+  const dialogHtml = `
+    <div class="space-y-5" data-history-dialog-root>
+      <header class="space-y-1">
+        ${headerDateMarkup}
+        <h2 class="text-lg font-semibold">${escapeHtml(consigneName)}</h2>
+        ${statusMarkup}
+      </header>
+      <div class="space-y-4" data-history-dialog-content>
+        ${valueSection}
+        ${noteSection}
+        ${emptySection}
+      </div>
+      <div class="flex justify-end">
+        <button type="button" class="btn" data-history-dialog-close>Fermer</button>
+      </div>
+    </div>
+  `;
+  const overlay = modal(dialogHtml);
+  if (!overlay) {
+    return;
+  }
+  const modalContent = overlay.querySelector("[data-modal-content]");
+  if (modalContent) {
+    modalContent.setAttribute("role", "dialog");
+    modalContent.setAttribute("aria-modal", "true");
+    const heading = modalContent.querySelector("h2");
+    const content = modalContent.querySelector("[data-history-dialog-content]");
+    const uniqueId = `consigne-history-dialog-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    if (heading && !heading.id) {
+      heading.id = `${uniqueId}-title`;
+    }
+    if (heading?.id) {
+      modalContent.setAttribute("aria-labelledby", heading.id);
+    } else {
+      modalContent.setAttribute("aria-label", escapeHtml(consigneName));
+    }
+    if (content && !content.id) {
+      content.id = `${uniqueId}-content`;
+    }
+    if (content?.id) {
+      modalContent.setAttribute("aria-describedby", content.id);
+    } else {
+      modalContent.removeAttribute("aria-describedby");
+    }
+  }
+  const closeBtn = overlay.querySelector("[data-history-dialog-close]");
+  const focusTarget = closeBtn || modalContent?.querySelector("button, [href], input, textarea, select, [tabindex]:not([tabindex='-1'])");
+  try {
+    focusTarget?.focus({ preventScroll: true });
+  } catch (_) {
+    focusTarget?.focus?.();
+  }
+  const handleKeyDown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      overlay.remove();
+    }
+  };
+  document.addEventListener("keydown", handleKeyDown, true);
+  const originalRemove = overlay.remove.bind(overlay);
+  overlay.remove = () => {
+    document.removeEventListener("keydown", handleKeyDown, true);
+    originalRemove();
+  };
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => overlay.remove());
+  }
+}
+
 function isSummaryHistoryEntry(entry) {
   if (!entry || typeof entry !== "object") return false;
   const summaryFlags = [entry.isSummary, entry.is_summary, entry.summary];
@@ -7917,6 +8134,7 @@ function buildConsigneHistoryTimeline(entries, consigne) {
         return;
       }
       const value = resolveHistoryTimelineValue(entry, consigne);
+      const note = resolveHistoryTimelineNote(entry);
       const status = dotColor(consigne?.type, value, consigne) || "na";
       const effectiveTimestamp = typeof timestamp === "number" ? timestamp : date.getTime();
       const existing = dayMap.get(dayKey);
@@ -7925,6 +8143,8 @@ function buildConsigneHistoryTimeline(entries, consigne) {
           status,
           date,
           timestamp: effectiveTimestamp,
+          value,
+          note,
         });
       }
     });
@@ -7939,23 +8159,27 @@ function buildConsigneHistoryTimeline(entries, consigne) {
         : record?.date instanceof Date && !Number.isNaN(record.date.getTime())
           ? record.date.getTime()
           : today.getTime(),
+      value: record?.value,
+      note: record?.note || "",
     }))
     .sort((a, b) => a.timestamp - b.timestamp);
   const limited = sortedRecords.slice(-CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
-  return limited.map((record) => {
-    const title = buildHistoryTimelineTitle(record.date, record.dayKey, record.status);
-    const labels = buildHistoryTimelineLabels(record.date, record.dayKey);
-    return {
-      dayKey: record.dayKey,
-      date: record.date,
-      status: record.status,
-      title,
-      srLabel: title,
-      label: labels.label,
-      weekdayLabel: labels.weekday,
-      isPlaceholder: false,
-    };
-  });
+  return limited
+    .map((record) =>
+      formatConsigneHistoryPoint(
+        {
+          dayKey: record.dayKey,
+          date: record.date,
+          status: record.status,
+          value: record.value,
+          note: record.note,
+          timestamp: record.timestamp,
+          isPlaceholder: false,
+        },
+        consigne,
+      ),
+    )
+    .filter(Boolean);
 }
 
 function escapeTimelineSelector(value) {
@@ -8042,6 +8266,7 @@ function applyConsigneHistoryPoint(item, point) {
   const status = point.status || "na";
   item.dataset.status = status;
   item.dataset.placeholder = point.isPlaceholder ? "1" : "0";
+  item.tabIndex = 0;
   const dot = ensureConsigneHistoryDot(item);
   if (dot) {
     dot.className = `consigne-history__dot consigne-row__dot consigne-row__dot--${status}`;
@@ -8066,10 +8291,34 @@ function applyConsigneHistoryPoint(item, point) {
     }
     meta.hidden = !point.label && !point.weekdayLabel;
   }
+  const details = point.details || null;
+  if (details) {
+    item._historyDetails = { ...details };
+    item.dataset.historyHasDetails = details.hasContent ? "1" : "0";
+    item.setAttribute("aria-haspopup", "dialog");
+  } else {
+    delete item._historyDetails;
+    item.dataset.historyHasDetails = "0";
+    item.setAttribute("aria-haspopup", "dialog");
+  }
   if (point.title) {
     item.title = point.title;
   } else {
     item.removeAttribute("title");
+  }
+  const ariaParts = [];
+  const fullLabel = details?.fullDateLabel || point.title || "";
+  if (fullLabel) {
+    ariaParts.push(fullLabel);
+  }
+  const statusLabel = details?.statusLabel || STATUS_LABELS[status] || "";
+  if (statusLabel) {
+    ariaParts.push(statusLabel);
+  }
+  if (ariaParts.length) {
+    item.setAttribute("aria-label", ariaParts.join(" — "));
+  } else {
+    item.removeAttribute("aria-label");
   }
 }
 
@@ -8099,7 +8348,7 @@ function renderConsigneHistoryTimeline(row, points) {
   return true;
 }
 
-function updateConsigneHistoryTimeline(row, status) {
+function updateConsigneHistoryTimeline(row, status, options = {}) {
   const state = CONSIGNE_HISTORY_ROW_STATE.get(row);
   if (!state || !state.track) {
     return;
@@ -8120,24 +8369,40 @@ function updateConsigneHistoryTimeline(row, status) {
     const info = parseHistoryTimelineDateInfo(todayKey);
     date = info?.date || null;
   }
-  const title = buildHistoryTimelineTitle(date, todayKey, status);
-  const labels = buildHistoryTimelineLabels(date, todayKey);
+  const existingDetails = item?._historyDetails || null;
+  const consigne = options.consigne || null;
+  const effectiveValue = options.value !== undefined ? options.value : existingDetails?.rawValue ?? null;
+  const providedNote = typeof options.note === "string" ? options.note : null;
+  const derivedNote = providedNote || extractTextualNote(effectiveValue);
+  const record = {
+    dayKey: todayKey,
+    date,
+    status,
+    value: effectiveValue,
+    note: derivedNote || existingDetails?.note || "",
+    timestamp: existingDetails?.timestamp || (date ? date.getTime() : Date.now()),
+    isPlaceholder: false,
+  };
   if (!item) {
     item = document.createElement("div");
     item.className = "consigne-history__item";
     item.setAttribute("role", "listitem");
     state.track.appendChild(item);
   }
-  const point = {
-    dayKey: todayKey,
-    date,
-    status,
-    title,
-    srLabel: title,
-    label: labels.label,
-    weekdayLabel: labels.weekday,
-    isPlaceholder: false,
-  };
+  const fallbackTitle = buildHistoryTimelineTitle(date, todayKey, status);
+  const fallbackLabels = buildHistoryTimelineLabels(date, todayKey);
+  const point =
+    formatConsigneHistoryPoint(record, consigne) ||
+    {
+      dayKey: todayKey,
+      date,
+      status,
+      title: fallbackTitle,
+      srLabel: fallbackTitle,
+      label: fallbackLabels.label,
+      weekdayLabel: fallbackLabels.weekday,
+      isPlaceholder: false,
+    };
   applyConsigneHistoryPoint(item, point);
   state.track.dataset.historyMode = "day";
   state.hasDayTimeline = true;
@@ -8178,12 +8443,52 @@ function setupConsigneHistoryTimeline(row, consigne, ctx) {
         modesLogger?.warn?.("consigne.history.timeline", error);
       } catch (_) {}
     });
+  const handleHistoryActivation = (event) => {
+    const isKeyboard = event.type === "keydown";
+    if (isKeyboard && event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") {
+      return;
+    }
+    const target = event.target.closest(".consigne-history__item");
+    if (!target || !state.track.contains(target)) {
+      return;
+    }
+    if (isKeyboard) {
+      event.preventDefault();
+    }
+    let details = target._historyDetails ? { ...target._historyDetails } : null;
+    if (!details) {
+      const rawIso = target.dataset.dateIso || target.dataset.historyDay || null;
+      const dateInfo = parseHistoryTimelineDateInfo(rawIso);
+      const fallbackPoint = formatConsigneHistoryPoint(
+        {
+          dayKey: target.dataset.historyDay || null,
+          date: dateInfo?.date || null,
+          status: target.dataset.status || "na",
+          value: null,
+          note: "",
+          timestamp: dateInfo?.timestamp || Date.now(),
+          isPlaceholder: target.dataset.placeholder === "1",
+        },
+        consigne,
+      );
+      details = fallbackPoint?.details ? { ...fallbackPoint.details } : null;
+    }
+    if (!details) {
+      return;
+    }
+    openConsigneHistoryPointDialog(consigne, details);
+  };
+  state.track.addEventListener("click", handleHistoryActivation);
+  state.track.addEventListener("keydown", handleHistoryActivation);
   row.addEventListener("consigne-status-changed", (event) => {
     const status = event?.detail?.status;
     if (typeof status !== "string" || !status) {
       return;
     }
-    updateConsigneHistoryTimeline(row, status);
+    updateConsigneHistoryTimeline(row, status, {
+      consigne,
+      value: event?.detail?.value,
+    });
   });
 }
 

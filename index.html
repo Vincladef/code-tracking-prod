@@ -1168,10 +1168,16 @@
       color:var(--consigne-history-text, #0f172a);
       min-width:4.1rem;
       transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
+      cursor:pointer;
+      outline:none;
     }
     .consigne-history__item:hover {
       transform:translateY(-1px);
       box-shadow:0 12px 24px rgba(15,23,42,.12);
+    }
+    .consigne-history__item:focus-visible {
+      outline:3px solid rgba(59,130,246,.55);
+      outline-offset:2px;
     }
     .consigne-history__item[data-placeholder="1"] {
       opacity:.5;
@@ -1218,6 +1224,9 @@
       --consigne-history-bg:rgba(226,232,240,.55);
       --consigne-history-text:#0f172a;
       --consigne-history-shadow:rgba(148,163,184,.16);
+    }
+    .history-dialog__value {
+      width:100%;
     }
     .consigne-history__dot.consigne-row__dot {
       width:.6rem;
