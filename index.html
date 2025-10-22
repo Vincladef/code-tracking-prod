@@ -925,6 +925,8 @@
       flex-direction:column;
       gap:.24rem;
       padding:.32rem 0;
+      width:100%;
+      min-width:0;
       --consigne-status-bg:transparent;
       --consigne-status-border:rgba(148,163,184,.18);
       --consigne-status-text:#0f172a;
@@ -963,6 +965,8 @@
       align-items:flex-start;
       justify-content:space-between;
       gap:.35rem;
+      width:100%;
+      min-width:0;
     }
     .consigne-row__main {
       display:flex;
@@ -1143,6 +1147,8 @@
       overflow-x:auto;
       -webkit-overflow-scrolling:touch;
       padding:.35rem .15rem .35rem 0;
+      width:100%;
+      max-width:100%;
     }
     .consigne-history__track {
       display:flex;
@@ -1246,6 +1252,7 @@
       font-weight:600;
       letter-spacing:.02em;
       color:inherit;
+      word-break:break-word;
     }
     .consigne-history__weekday {
       font-size:.65rem;
