@@ -562,6 +562,8 @@ const LIKERT6_LABELS = {
   no_answer: "Pas de réponse",
 };
 
+const CONSIGNE_ARCHIVE_DELAY_VALUE = "__archive__";
+
 const NOTE_IGNORED_VALUES = new Set(["no_answer"]);
 
 const MONTANT_NUMBER_FORMATTER = new Intl.NumberFormat("fr-FR", {
@@ -3677,6 +3679,7 @@ function consigneActions() {
         ${actionBtn("Modifier", "js-edit")}
         ${actionBtn("Décaler", "js-delay")}
         ${actionBtn("Activer la répétition espacée", "js-sr-toggle")}
+        ${actionBtn("Archiver", "js-archive")}
         ${actionBtn("Supprimer", "js-del text-red-600")}
       </div>
     </div>
@@ -9786,7 +9789,8 @@ function attachConsigneEditor(row, consigne, options = {}) {
       .map((value) => Number(value))
       .filter((value) => Number.isFinite(value) && value > 0);
     const uniqueAmounts = Array.from(new Set(numericAmounts)).sort((a, b) => a - b);
-    if (!uniqueAmounts.length) return null;
+    const allowArchive = rawDelayOptions.allowArchive === true && typeof rawDelayOptions.onArchive === "function";
+    if (!uniqueAmounts.length && !allowArchive) return null;
     const label = typeof rawDelayOptions.label === "string" && rawDelayOptions.label.trim()
       ? rawDelayOptions.label.trim()
       : "Ajouter un délai";
@@ -9803,6 +9807,12 @@ function attachConsigneEditor(row, consigne, options = {}) {
       ? rawDelayOptions.getSrEnabled
       : () => true;
     const idBase = `${consigne?.id ?? "consigne"}-${Date.now()}`;
+    const archiveLabel = typeof rawDelayOptions.archiveLabel === "string" && rawDelayOptions.archiveLabel.trim()
+      ? rawDelayOptions.archiveLabel.trim()
+      : "Archiver la consigne";
+    const archiveValue = allowArchive
+      ? String(rawDelayOptions.archiveValue || CONSIGNE_ARCHIVE_DELAY_VALUE)
+      : "";
     return {
       selectId: `consigne-delay-${idBase}`,
       amounts: uniqueAmounts,
@@ -9812,6 +9822,10 @@ function attachConsigneEditor(row, consigne, options = {}) {
       disabledHint,
       applyDelay: applyDelayFn,
       getSrEnabled,
+      allowArchive,
+      archiveLabel,
+      archiveValue,
+      onArchive: typeof rawDelayOptions.onArchive === "function" ? rawDelayOptions.onArchive : null,
     };
   })();
   const summaryToggleLabel =
@@ -9924,6 +9938,11 @@ function attachConsigneEditor(row, consigne, options = {}) {
           `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="sr-toggle" data-enabled="${childState.srEnabled ? "1" : "0"}">${srLabel}</button>`
         );
       }
+      if (typeof childState.onArchive === "function") {
+        actionButtons.push(
+          `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="archive">Archiver</button>`
+        );
+      }
       if (typeof childState.onDelete === "function") {
         actionButtons.push(
           `<button type="button" class="${dangerMenuItemClass}" role="menuitem" data-child-action="delete">Supprimer</button>`
@@ -9988,6 +10007,11 @@ function attachConsigneEditor(row, consigne, options = {}) {
             ${delayConfig.amounts
               .map((amount) => `<option value="${amount}">${amount} itération${amount > 1 ? "s" : ""}</option>`)
               .join("")}
+            ${delayConfig.allowArchive
+              ? `<optgroup label="Actions">
+                  <option value="${escapeHtml(delayConfig.archiveValue)}" data-consigne-editor-archive-option>🗄️ ${escapeHtml(delayConfig.archiveLabel)}</option>
+                </optgroup>`
+              : ""}
           </select>
           ${delayConfig.helper ? `<span class="practice-editor__delay-note">${escapeHtml(delayConfig.helper)}</span>` : ""}
           <span class="practice-editor__delay-helper" data-consigne-editor-delay-helper hidden>${escapeHtml(delayConfig.disabledHint)}</span>
@@ -10325,6 +10349,30 @@ function attachConsigneEditor(row, consigne, options = {}) {
           srBtn.setAttribute("aria-disabled", "true");
         }
       }
+      const archiveBtn = node.querySelector('[data-child-action="archive"]');
+      if (archiveBtn) {
+        if (typeof childState.onArchive === "function") {
+          archiveBtn.addEventListener("click", async (event) => {
+            event.preventDefault();
+            closeMenu({ focus: false });
+            archiveBtn.disabled = true;
+            try {
+              const result = await childState.onArchive({ event, close: closeOverlay, consigne: childState.consigne, row: childState.row });
+              if (result === false && overlay.isConnected) {
+                archiveBtn.disabled = false;
+              }
+            } catch (err) {
+              console.error(err);
+              if (overlay.isConnected) {
+                archiveBtn.disabled = false;
+              }
+            }
+          });
+        } else {
+          archiveBtn.disabled = true;
+          archiveBtn.setAttribute("aria-disabled", "true");
+        }
+      }
       const deleteBtn = node.querySelector('[data-child-action="delete"]');
       if (deleteBtn) {
         if (typeof childState.onDelete === "function") {
@@ -10359,6 +10407,51 @@ function attachConsigneEditor(row, consigne, options = {}) {
       delaySelect = overlay.querySelector("[data-consigne-editor-delay]");
       delayHelper = overlay.querySelector("[data-consigne-editor-delay-helper]");
       updateDelayAvailability();
+      if (
+        delayConfig.allowArchive &&
+        delayConfig.archiveValue &&
+        delaySelect &&
+        typeof delayConfig.onArchive === "function"
+      ) {
+        const archiveValue = delayConfig.archiveValue;
+        delaySelect.addEventListener("change", async (event) => {
+          if (!delaySelect) return;
+          if (delaySelect.value !== archiveValue) {
+            return;
+          }
+          event.preventDefault();
+          const revertSelection = () => {
+            if (!overlay.isConnected || !delaySelect) return;
+            delaySelect.value = "";
+            delaySelect.disabled = false;
+            updateDelayAvailability();
+          };
+          if (delaySelect.disabled) {
+            revertSelection();
+            return;
+          }
+          delaySelect.disabled = true;
+          try {
+            const result = await delayConfig.onArchive({ consigne, row, close: closeOverlay });
+            if (result === false) {
+              revertSelection();
+              return;
+            }
+          } catch (error) {
+            try {
+              modesLogger?.warn?.("consigne.delay.archive", error);
+            } catch (_) {}
+            revertSelection();
+            return;
+          }
+          if (overlay.isConnected) {
+            delaySelect.value = "";
+            delaySelect.disabled = false;
+            updateDelayAvailability();
+            closeOverlay();
+          }
+        });
+      }
     }
     const defaultSummaryLabel = summaryDefaultLabel;
     const updateSummaryControlState = () => {
@@ -10376,6 +10469,13 @@ function attachConsigneEditor(row, consigne, options = {}) {
     updateSummaryControlState();
     const readSelectedDelayAmount = () => {
       if (!delayConfig || !delaySelect || delaySelect.disabled) {
+        return 0;
+      }
+      if (
+        delayConfig.allowArchive &&
+        delayConfig.archiveValue &&
+        delaySelect.value === delayConfig.archiveValue
+      ) {
         return 0;
       }
       const raw = Number(delaySelect.value);
@@ -12660,6 +12760,36 @@ async function renderPractice(ctx, root, _opts = {}) {
     autosaveDayKey || "today",
   ].map((part) => String(part)).join(":");
 
+  const archiveConsigneWithRefresh = async (consigne, { close } = {}) => {
+    if (!consigne || !consigne.id) {
+      return false;
+    }
+    const safeLabel = consigne.text || consigne.titre || "cette consigne";
+    const confirmed = confirm(
+      `Archiver « ${safeLabel} » ?\nTu pourras la retrouver dans les réponses archivées.`
+    );
+    if (!confirmed) {
+      return false;
+    }
+    try {
+      await Schema.archiveConsigne(ctx.db, ctx.user.uid, consigne.id);
+      if (typeof close === "function") {
+        try {
+          close();
+        } catch (error) {
+          console.warn("practice.archive.close", error);
+        }
+      }
+      showToast("Consigne archivée.");
+      renderPractice(ctx, root);
+      return true;
+    } catch (error) {
+      console.error(error);
+      showToast("Impossible d'archiver la consigne.");
+      return false;
+    }
+  };
+
   const card = document.createElement("section");
   card.className = "card space-y-4 p-3 sm:p-4";
   card.innerHTML = `
@@ -12870,6 +13000,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       const bH = row.querySelector(".js-histo");
       const bE = row.querySelector(".js-edit");
       const bD = row.querySelector(".js-del");
+      const bA = row.querySelector(".js-archive");
       bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c, { source: "practice" }); };
       bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
       bD.onclick = async (e) => {
@@ -12881,6 +13012,14 @@ async function renderPractice(ctx, root, _opts = {}) {
           renderPractice(ctx, root);
         }
       };
+      if (bA) {
+        bA.onclick = async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          closeConsigneActionMenuFromNode(bA);
+          await archiveConsigneWithRefresh(c);
+        };
+      }
       let srEnabled = c?.srEnabled !== false;
       const delayBtn = row.querySelector(".js-delay");
       const updateDelayState = (enabled) => {
@@ -12989,6 +13128,10 @@ async function renderPractice(ctx, root, _opts = {}) {
           disabledHint: "Active la répétition espacée pour décaler.",
           getSrEnabled: () => srEnabled,
           applyDelay: applyDelayFromEditor,
+          allowArchive: true,
+          archiveLabel: "Archiver la consigne",
+          archiveValue: CONSIGNE_ARCHIVE_DELAY_VALUE,
+          onArchive: ({ close } = {}) => archiveConsigneWithRefresh(c, { close }),
         };
       }
       row.__practiceEditorConfig = editorConfig;
@@ -13047,6 +13190,7 @@ async function renderPractice(ctx, root, _opts = {}) {
             renderPractice(ctx, root);
             return true;
           },
+          onArchive: ({ close } = {}) => archiveConsigneWithRefresh(child, { close }),
           onToggleSr: async (next) => {
             try {
               await Schema.updateConsigne(ctx.db, ctx.user.uid, child.id, { srEnabled: next });
@@ -14690,12 +14834,152 @@ async function renderDaily(ctx, root, opts = {}) {
 
 function renderHistory() {}
 
+async function openPracticeArchiveViewer(ctx) {
+  if (!ctx?.db || !ctx?.user?.uid) {
+    showToast("Connecte-toi pour accéder aux archives.");
+    return;
+  }
+  const overlay = modal(`
+    <div class="space-y-6" data-practice-archive-modal>
+      <header class="space-y-1">
+        <h2 class="text-xl font-semibold">Réponses archivées</h2>
+        <p class="text-sm text-slate-600">Consignes de l’onglet Pratique mises de côté.</p>
+      </header>
+      <div class="space-y-3" data-practice-archive-list>
+        <div class="text-sm text-[var(--muted)]">Chargement…</div>
+      </div>
+      <div class="flex justify-end">
+        <button type="button" class="btn" data-practice-archive-close>Fermer</button>
+      </div>
+    </div>
+  `);
+  const dialog = overlay.querySelector("[data-modal-content]");
+  const heading = overlay.querySelector("h2");
+  if (dialog && heading) {
+    if (!heading.id) {
+      heading.id = `practice-archive-title-${Date.now()}`;
+    }
+    dialog.setAttribute("aria-labelledby", heading.id);
+  }
+  const closeBtn = overlay.querySelector("[data-practice-archive-close]");
+  closeBtn?.addEventListener("click", () => overlay.remove());
+  const list = overlay.querySelector("[data-practice-archive-list]");
+  const showEmpty = () => {
+    if (list) {
+      list.innerHTML = "<div class=\"text-sm text-[var(--muted)]\">Aucune consigne archivée.</div>";
+    }
+  };
+  const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+  const normalizeDate = (value) => {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    if (typeof value?.toDate === "function") {
+      try {
+        return value.toDate();
+      } catch (_) {
+        return null;
+      }
+    }
+    if (typeof value === "string") {
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+    return null;
+  };
+  let archivedItems = [];
+  try {
+    archivedItems = await Schema.listArchivedConsignes(ctx.db, ctx.user.uid, "practice");
+  } catch (error) {
+    console.error("practice.archives.load", error);
+    if (list) {
+      list.innerHTML = "<div class=\"text-sm text-red-600\">Impossible de charger les archives.</div>";
+    }
+    return;
+  }
+  if (!list) {
+    return;
+  }
+  if (!archivedItems.length) {
+    showEmpty();
+  } else {
+    const sorted = archivedItems
+      .slice()
+      .sort((a, b) => {
+        const catA = (a.category || "").localeCompare(b.category || "");
+        if (catA !== 0) return catA;
+        return (a.text || a.titre || "").localeCompare(b.text || b.titre || "");
+      });
+    const itemsMarkup = sorted
+      .map((consigne) => {
+        const title = consigne.text || consigne.titre || consigne.name || consigne.id || "Consigne";
+        const category = consigne.category || "Sans catégorie";
+        const archivedDate = normalizeDate(consigne.archivedAt);
+        const archivedLabel = archivedDate ? dateFormatter.format(archivedDate) : null;
+        const noteParts = [];
+        if (category) {
+          noteParts.push(`<span class=\"rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600\">${escapeHtml(category)}</span>`);
+        }
+        if (archivedLabel) {
+          noteParts.push(`<span class=\"text-xs text-slate-500\">Archivée le ${escapeHtml(archivedLabel)}</span>`);
+        }
+        return `
+          <article class="space-y-3 rounded-xl border border-slate-200 p-3" data-practice-archive-entry data-consigne-id="${escapeHtml(consigne.id)}">
+            <header class="flex flex-wrap items-start justify-between gap-3">
+              <div class="space-y-1">
+                <h3 class="font-medium text-slate-800">${escapeHtml(title)}</h3>
+                ${noteParts.length ? `<div class="flex flex-wrap gap-2">${noteParts.join("")}</div>` : ""}
+              </div>
+              <button type="button" class="btn btn-primary" data-practice-archive-restore>Restaurer</button>
+            </header>
+            ${consigne.description ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(consigne.description)}</p>` : ""}
+          </article>
+        `;
+      })
+      .join("");
+    list.innerHTML = itemsMarkup;
+  }
+  list.addEventListener("click", async (event) => {
+    const restoreBtn = event.target?.closest?.("[data-practice-archive-restore]");
+    if (!restoreBtn) return;
+    const entry = restoreBtn.closest("[data-practice-archive-entry]");
+    if (!entry) return;
+    const consigneId = entry.getAttribute("data-consigne-id");
+    if (!consigneId) return;
+    restoreBtn.disabled = true;
+    try {
+      await Schema.unarchiveConsigne(ctx.db, ctx.user.uid, consigneId);
+      showToast("Consigne restaurée.");
+      entry.remove();
+      if (!list.querySelector("[data-practice-archive-entry]")) {
+        showEmpty();
+      }
+      if (ctx.route && String(ctx.route).startsWith("#/practice")) {
+        const viewRoot = document.getElementById("view-root");
+        if (viewRoot) {
+          renderPractice(ctx, viewRoot);
+        }
+      }
+    } catch (error) {
+      console.error("practice.archives.restore", error);
+      restoreBtn.disabled = false;
+      showToast("Impossible de restaurer la consigne.");
+    }
+  });
+  requestAnimationFrame(() => {
+    closeBtn?.focus?.();
+  });
+}
+
 Modes.openCategoryDashboard = window.openCategoryDashboard;
 Modes.openConsigneForm = openConsigneForm;
 Modes.openHistory = openHistory;
 Modes.renderPractice = renderPractice;
 Modes.renderDaily = renderDaily;
 Modes.renderHistory = renderHistory;
+Modes.openPracticeArchiveViewer = openPracticeArchiveViewer;
 Modes.attachConsignesDragDrop = window.attachConsignesDragDrop;
 Modes.attachDailyCategoryDragDrop = window.attachDailyCategoryDragDrop;
 Modes.inputForType = inputForType;

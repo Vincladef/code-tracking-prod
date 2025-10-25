@@ -2151,6 +2151,7 @@
     trigger: document.getElementById("user-actions-trigger"),
     panel: document.getElementById("user-actions-panel"),
     notif: document.getElementById("user-actions-notifications"),
+    archives: document.getElementById("user-actions-archives"),
     install: document.getElementById("install-app-button"),
   };
 
@@ -2237,6 +2238,21 @@
     if (!targetUid) return;
     handleNotificationToggle(targetUid, userActions.notif, { interactive: true });
     closeUserActionsMenu();
+  });
+
+  userActions.archives?.addEventListener("click", () => {
+    closeUserActionsMenu();
+    try {
+      const opener = window.Modes?.openPracticeArchiveViewer;
+      if (typeof opener === "function") {
+        opener(ctx);
+      }
+    } catch (error) {
+      console.error("user-actions:archives", error);
+      if (typeof window.Modes?.showToast === "function") {
+        window.Modes.showToast("Impossible d’ouvrir les archives.");
+      }
+    }
   });
 
   if (userActions.install) {
