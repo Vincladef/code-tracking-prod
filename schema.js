@@ -2416,6 +2416,10 @@ async function upsertObjective(db, uid, data, objectifId = null) {
   if (data?.notifyOnTarget !== undefined) {
     payload.notifyOnTarget = data.notifyOnTarget !== false;
   }
+  if (data?.notifyChannel !== undefined) {
+    const rawChannel = typeof data.notifyChannel === "string" ? data.notifyChannel.trim() : "";
+    payload.notifyChannel = rawChannel || null;
+  }
   if (data?.notifyAt !== undefined) {
     payload.notifyAt = data.notifyAt || null;
   }
