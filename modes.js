@@ -9771,7 +9771,49 @@ function attachConsigneEditor(row, consigne, options = {}) {
   const childConsignes = Array.isArray(options.childConsignes)
     ? options.childConsignes.filter((item) => item && item.consigne)
     : [];
-    const summaryControlsEnabled = options.summaryControlsEnabled === true;
+  const summaryControlsEnabled = options.summaryControlsEnabled === true;
+  const rawDelayOptions = options.delayOptions && typeof options.delayOptions === "object"
+    ? options.delayOptions
+    : null;
+  const delayConfig = (() => {
+    if (!rawDelayOptions) return null;
+    const applyDelayFn = typeof rawDelayOptions.applyDelay === "function"
+      ? rawDelayOptions.applyDelay
+      : null;
+    if (!applyDelayFn) return null;
+    const rawAmounts = Array.isArray(rawDelayOptions.amounts) ? rawDelayOptions.amounts : [];
+    const numericAmounts = rawAmounts
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const uniqueAmounts = Array.from(new Set(numericAmounts)).sort((a, b) => a - b);
+    if (!uniqueAmounts.length) return null;
+    const label = typeof rawDelayOptions.label === "string" && rawDelayOptions.label.trim()
+      ? rawDelayOptions.label.trim()
+      : "Ajouter un délai";
+    const placeholder = typeof rawDelayOptions.placeholder === "string" && rawDelayOptions.placeholder.trim()
+      ? rawDelayOptions.placeholder.trim()
+      : "Aucun délai";
+    const helper = typeof rawDelayOptions.helper === "string" && rawDelayOptions.helper.trim()
+      ? rawDelayOptions.helper.trim()
+      : "";
+    const disabledHint = typeof rawDelayOptions.disabledHint === "string" && rawDelayOptions.disabledHint.trim()
+      ? rawDelayOptions.disabledHint.trim()
+      : "Active la répétition espacée pour décaler.";
+    const getSrEnabled = typeof rawDelayOptions.getSrEnabled === "function"
+      ? rawDelayOptions.getSrEnabled
+      : () => true;
+    const idBase = `${consigne?.id ?? "consigne"}-${Date.now()}`;
+    return {
+      selectId: `consigne-delay-${idBase}`,
+      amounts: uniqueAmounts,
+      label,
+      placeholder,
+      helper,
+      disabledHint,
+      applyDelay: applyDelayFn,
+      getSrEnabled,
+    };
+  })();
   const summaryToggleLabel =
     typeof options.summaryToggleLabel === "string" && options.summaryToggleLabel.trim()
       ? options.summaryToggleLabel.trim()
@@ -9937,6 +9979,19 @@ function attachConsigneEditor(row, consigne, options = {}) {
       .join("") +
       `<div class="practice-editor__summary-menu-divider" role="separator"></div>
         <button type="button" class="practice-editor__summary-menu-item practice-editor__summary-menu-item--clear" role="menuitem" data-summary-option="clear">Réponse standard</button>`;
+    const delayControlMarkup = delayConfig
+      ? `<div class="practice-editor__delay" data-consigne-editor-delay-root>
+          <label for="${escapeHtml(delayConfig.selectId)}" class="practice-editor__delay-label">${escapeHtml(delayConfig.label)}</label>
+          <select id="${escapeHtml(delayConfig.selectId)}" class="practice-editor__delay-select" data-consigne-editor-delay>
+            <option value="">${escapeHtml(delayConfig.placeholder)}</option>
+            ${delayConfig.amounts
+              .map((amount) => `<option value="${amount}">+${amount} itération${amount > 1 ? "s" : ""}</option>`)
+              .join("")}
+          </select>
+          ${delayConfig.helper ? `<span class="practice-editor__delay-note">${escapeHtml(delayConfig.helper)}</span>` : ""}
+          <span class="practice-editor__delay-helper" data-consigne-editor-delay-helper hidden>${escapeHtml(delayConfig.disabledHint)}</span>
+        </div>`
+      : "";
     const summaryControlMarkup =
       requiresValidation && summaryControlsEnabled
         ? `<div class="practice-editor__summary" data-consigne-editor-summary-root>
@@ -9958,8 +10013,12 @@ function attachConsigneEditor(row, consigne, options = {}) {
       : `<div class="practice-editor__actions-buttons">
           <button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>
         </div>`;
+    const sideControls = [delayControlMarkup, summaryControlMarkup].filter(Boolean);
+    const sideControlsMarkup = sideControls.length
+      ? `<div class="practice-editor__actions-controls">${sideControls.join("")}</div>`
+      : "";
     const actionsMarkup = `<footer class="practice-editor__actions">
-        ${summaryControlMarkup}
+        ${sideControlsMarkup}
         ${primaryActionsMarkup}
       </footer>`;
     const markup = `
@@ -9986,6 +10045,37 @@ function attachConsigneEditor(row, consigne, options = {}) {
     overlay.querySelectorAll("textarea").forEach((textarea) => {
       autoGrowTextarea(textarea);
     });
+    let delayRoot = null;
+    let delaySelect = null;
+    let delayHelper = null;
+    const updateDelayAvailability = () => {
+      if (!delayConfig || !delayRoot || !delaySelect) {
+        return;
+      }
+      let srEnabled = true;
+      try {
+        srEnabled = delayConfig.getSrEnabled ? !!delayConfig.getSrEnabled(consigne, row) : true;
+      } catch (error) {
+        try {
+          modesLogger?.debug?.("consigne.delay.sr-state", error);
+        } catch (_) {}
+        srEnabled = true;
+      }
+      if (srEnabled) {
+        delaySelect.disabled = false;
+        delayRoot.removeAttribute("aria-disabled");
+        if (delayHelper) {
+          delayHelper.hidden = true;
+        }
+      } else {
+        delaySelect.value = "";
+        delaySelect.disabled = true;
+        delayRoot.setAttribute("aria-disabled", "true");
+        if (delayHelper) {
+          delayHelper.hidden = false;
+        }
+      }
+    };
     const uniqueIdBase = `${Date.now()}-${Math.round(Math.random() * 10000)}`;
     const dialogNode = variant === "drawer" ? overlay.querySelector("aside") : overlay.firstElementChild;
     if (dialogNode) {
@@ -10257,6 +10347,12 @@ function attachConsigneEditor(row, consigne, options = {}) {
     const summaryToggle = summaryRoot?.querySelector("[data-consigne-editor-summary-toggle]");
     const summaryMenu = summaryRoot?.querySelector("[data-consigne-editor-summary-menu]");
     const summaryLabelEl = summaryRoot?.querySelector("[data-consigne-editor-summary-label]");
+    if (delayConfig) {
+      delayRoot = overlay.querySelector("[data-consigne-editor-delay-root]");
+      delaySelect = overlay.querySelector("[data-consigne-editor-delay]");
+      delayHelper = overlay.querySelector("[data-consigne-editor-delay-helper]");
+      updateDelayAvailability();
+    }
     const defaultSummaryLabel = summaryDefaultLabel;
     const updateSummaryControlState = () => {
       if (!summaryRoot || !summaryLabelEl) return;
@@ -10271,6 +10367,16 @@ function attachConsigneEditor(row, consigne, options = {}) {
       }
     };
     updateSummaryControlState();
+    const readSelectedDelayAmount = () => {
+      if (!delayConfig || !delaySelect || delaySelect.disabled) {
+        return 0;
+      }
+      const raw = Number(delaySelect.value);
+      if (!Number.isFinite(raw) || raw <= 0) {
+        return 0;
+      }
+      return Math.round(raw);
+    };
     const commitResponse = ({ summary = null, close = true, requireValueForSummary = false } = {}) => {
       if (consigne.type === "checklist") {
         const selectorId = String(consigne.id ?? "");
@@ -10322,8 +10428,21 @@ function attachConsigneEditor(row, consigne, options = {}) {
       if (typeof options.onSubmit === "function") {
         options.onSubmit(newValue, { childValues: childValueMap, summary });
       }
+      const selectedDelayAmount = readSelectedDelayAmount();
       if (close) {
         closeOverlay();
+      }
+      if (selectedDelayAmount > 0 && delayConfig?.applyDelay) {
+        if (delaySelect) {
+          delaySelect.value = "";
+        }
+        Promise.resolve()
+          .then(() => delayConfig.applyDelay(selectedDelayAmount, { consigne, row }))
+          .catch((error) => {
+            try {
+              modesLogger?.warn?.("consigne.delay.apply", error);
+            } catch (_) {}
+          });
       }
       return true;
     };
@@ -12822,7 +12941,49 @@ async function renderPractice(ctx, root, _opts = {}) {
           },
         },
       }));
+      const applyDelayFromEditor = async (rawAmount) => {
+        const numeric = Number(rawAmount);
+        const rounded = Math.round(numeric);
+        if (!Number.isFinite(numeric) || rounded < 1) {
+          return false;
+        }
+        if (!srEnabled) {
+          showToast("Active la répétition espacée pour utiliser le décalage.");
+          return false;
+        }
+        if (!ctx?.db || !ctx?.user?.uid) {
+          return false;
+        }
+        try {
+          await Schema.delayConsigne({
+            db: ctx.db,
+            uid: ctx.user.uid,
+            consigne: c,
+            mode: "practice",
+            amount: rounded,
+            sessionIndex,
+          });
+          showToast(`Consigne décalée de ${rounded} itération${rounded > 1 ? "s" : ""}.`);
+          await renderPractice(ctx, root);
+          return true;
+        } catch (err) {
+          console.error(err);
+          showToast("Impossible de décaler la consigne.");
+          return false;
+        }
+      };
       const editorConfig = { variant: "modal", ...(editorOptions || {}) };
+      if (!editorConfig.delayOptions) {
+        editorConfig.delayOptions = {
+          amounts: [1, 3, 5, 10],
+          label: "Ajouter un délai",
+          placeholder: "Aucun délai",
+          helper: "Appliqué après validation.",
+          disabledHint: "Active la répétition espacée pour décaler.",
+          getSrEnabled: () => srEnabled,
+          applyDelay: applyDelayFromEditor,
+        };
+      }
       if (!deferEditor) {
         attachConsigneEditor(row, c, editorConfig);
       }

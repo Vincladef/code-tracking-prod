@@ -1977,8 +1977,18 @@
       pointer-events:none;
     }
     .practice-editor__actions{ position:sticky; bottom:0; display:flex; align-items:center; justify-content:flex-end; gap:.5rem; padding:1rem 0 0; margin-top:1.25rem; border-top:1px solid #e2e8f0; background:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%); }
+    .practice-editor__actions-controls{ margin-right:auto; display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
     .practice-editor__actions-buttons{ display:flex; align-items:center; gap:.5rem; }
-    .practice-editor__summary{ margin-right:auto; position:relative; display:flex; align-items:center; }
+    .practice-editor__summary{ position:relative; display:flex; align-items:center; }
+    .practice-editor__delay{ display:flex; flex-direction:column; align-items:flex-start; gap:.2rem; font-size:.75rem; color:#475569; min-width:0; }
+    .practice-editor__delay-label{ font-size:.7rem; font-weight:600; color:#475569; }
+    .practice-editor__delay-select{ border:1px solid #E2E8F0; border-radius:.6rem; padding:.35rem .55rem; font-size:.85rem; color:#334155; background:#fff; }
+    .practice-editor__delay-select:focus-visible{ outline:2px solid rgba(59,130,246,0.4); outline-offset:2px; }
+    .practice-editor__delay-note{ font-size:.7rem; color:#94a3b8; }
+    .practice-editor__delay-helper{ font-size:.68rem; color:#94a3b8; display:none; }
+    .practice-editor__delay[aria-disabled="true"] .practice-editor__delay-select{ opacity:.6; cursor:not-allowed; }
+    .practice-editor__delay[aria-disabled="true"] .practice-editor__delay-note{ display:none; }
+    .practice-editor__delay[aria-disabled="true"] .practice-editor__delay-helper{ display:block; }
     .practice-editor__summary-toggle{ display:inline-flex; align-items:center; gap:.45rem; font-size:.9rem; }
     .practice-editor__summary[data-summary-selected="1"] .practice-editor__summary-toggle{ color:#5b21b6; font-weight:600; }
     .practice-editor__summary-menu{ position:absolute; bottom:calc(100% + .5rem); left:0; min-width:14rem; padding:.5rem; border-radius:.75rem; border:1px solid rgba(148,163,184,0.35); background:#fff; box-shadow:0 16px 32px rgba(15,23,42,0.18); display:flex; flex-direction:column; gap:.25rem; z-index:60; }
