@@ -10509,12 +10509,20 @@ function attachConsigneEditor(row, consigne, options = {}) {
         return false;
       }
       const childValueEntries = [];
+      const childAnswerItems = [];
       childConsignes.forEach((childState) => {
         const childValue = readConsigneCurrentValue(childState.consigne, overlay);
         if (childState.row) {
           setConsigneRowValue(childState.row, childState.consigne, childValue);
         }
         childValueEntries.push([childState.consigne?.id, childValue]);
+        if (childState.consigne && childState.consigne.id != null) {
+          childAnswerItems.push({
+            consigne: childState.consigne,
+            row: childState.row || null,
+            value: childValue,
+          });
+        }
       });
       updateParentChildAnsweredFlag();
       setConsigneRowValue(row, consigne, newValue);
@@ -10538,7 +10546,16 @@ function attachConsigneEditor(row, consigne, options = {}) {
           delaySelect.value = "";
         }
         Promise.resolve()
-          .then(() => delayConfig.applyDelay(selectedDelayAmount, { consigne, row }))
+          .then(() =>
+            delayConfig.applyDelay(selectedDelayAmount, {
+              consigne,
+              row,
+              value: newValue,
+              summary,
+              childValues: childValueMap,
+              childAnswers: childAnswerItems,
+            })
+          )
           .catch((error) => {
             try {
               modesLogger?.warn?.("consigne.delay.apply", error);
@@ -13262,7 +13279,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           },
         },
       }));
-      const applyDelayFromEditor = async (rawAmount) => {
+      const applyDelayFromEditor = async (rawAmount, context = {}) => {
         const numeric = Number(rawAmount);
         const rounded = Math.round(numeric);
         if (!Number.isFinite(numeric) || rounded < 1) {
@@ -13274,6 +13291,64 @@ async function renderPractice(ctx, root, _opts = {}) {
         }
         if (!ctx?.db || !ctx?.user?.uid) {
           return false;
+        }
+        const answersToPersist = [];
+        const rawSessionIndex = Number(sessionIndex);
+        const normalizedSessionIndex = Number.isFinite(rawSessionIndex) ? rawSessionIndex : 0;
+        const sessionNumber = normalizedSessionIndex + 1;
+        const sessionId = `session-${String(sessionNumber).padStart(4, "0")}`;
+        const pushAnswer = (targetConsigne, targetRow, rawValue, extraSummary = null) => {
+          if (!targetConsigne || targetConsigne.id == null) {
+            return;
+          }
+          if (rawValue === undefined) {
+            return;
+          }
+          const hostRow = targetRow || row;
+          const normalizedValue = normalizeConsigneValueForPersistence(
+            targetConsigne,
+            hostRow,
+            rawValue,
+          );
+          const hasContent = hasValueForConsigne(targetConsigne, normalizedValue);
+          if (!hasContent) {
+            return;
+          }
+          const answer = {
+            consigne: targetConsigne,
+            value: normalizedValue,
+            sessionIndex: normalizedSessionIndex,
+            sessionNumber,
+            sessionId,
+          };
+          const normalizedSummary =
+            extraSummary && typeof extraSummary === "object"
+              ? normalizeSummaryMetadataInput(extraSummary)
+              : null;
+          if (normalizedSummary) {
+            Object.assign(answer, normalizedSummary);
+          }
+          answersToPersist.push(answer);
+        };
+        if (context && Object.prototype.hasOwnProperty.call(context, "value")) {
+          pushAnswer(consigne, row, context.value, context.summary || null);
+        }
+        if (Array.isArray(context?.childAnswers)) {
+          context.childAnswers.forEach((entry) => {
+            if (!entry || typeof entry !== "object") {
+              return;
+            }
+            pushAnswer(entry.consigne, entry.row || null, entry.value);
+          });
+        }
+        if (answersToPersist.length) {
+          try {
+            await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answersToPersist);
+          } catch (error) {
+            console.error("practice.delay.save", error);
+            showToast("Impossible d'enregistrer la réponse avant de décaler.");
+            return false;
+          }
         }
         try {
           const state = await Schema.delayConsigne({
