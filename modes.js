@@ -12706,6 +12706,8 @@ async function renderPractice(ctx, root, _opts = {}) {
   const container = document.createElement("div");
   container.className = "space-y-4";
   container.classList.add("w-full", "max-w-4xl", "mx-auto");
+  container.dataset.practiceContainer = "1";
+  container.__practiceCtx = ctx;
   root.appendChild(container);
 
   const currentHash = ctx.route || window.location.hash || "#/practice";
@@ -12786,6 +12788,7 @@ async function renderPractice(ctx, root, _opts = {}) {
 
   const card = document.createElement("section");
   card.className = "card space-y-4 p-3 sm:p-4";
+  card.dataset.practiceRoot = "1";
   card.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-2">
@@ -12888,6 +12891,7 @@ async function renderPractice(ctx, root, _opts = {}) {
   const summaryConsignes = sortConsignesForDisplay(categoryConsignes);
 
   const sessionIndex = await Schema.countPracticeSessions(ctx.db, ctx.user.uid);
+  container.dataset.practiceSessionIndex = String(Number(sessionIndex) || 0);
   const visible = [];
   const hidden = [];
   for (const c of orderSorted) {
@@ -12908,8 +12912,185 @@ async function renderPractice(ctx, root, _opts = {}) {
   const visibleConsignes = filterConsignesByParentVisibility(visible, hiddenParentIds);
 
   const form = card.querySelector("#practice-form");
+  const PRACTICE_EMPTY_HTML =
+    '<div class="rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]">Aucune consigne visible pour cette itération.</div>';
+
+  const escapeHiddenId = (value) => {
+    if (!value && value !== 0) return "";
+    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+      return CSS.escape(String(value));
+    }
+    return String(value).replace(/"/g, '\\"');
+  };
+
+  const updatePracticeHiddenCounts = () => {
+    const box = container.querySelector("[data-practice-hidden-box]");
+    if (!box) return;
+    const list = box.querySelector("[data-practice-hidden-list]");
+    const title = box.querySelector("[data-practice-hidden-title]");
+    const items = list ? list.querySelectorAll("[data-practice-hidden-item]") : [];
+    const count = items.length;
+    if (title) {
+      title.textContent = `Masquées par répétition espacée (${count})`;
+    }
+    if (!count) {
+      box.remove();
+    }
+  };
+
+  const ensurePracticeHiddenBox = () => {
+    let box = container.querySelector("[data-practice-hidden-box]");
+    if (box) {
+      return box;
+    }
+    box = document.createElement("div");
+    box.className = "card p-3 space-y-2";
+    box.dataset.practiceHiddenBox = "1";
+    const title = document.createElement("div");
+    title.className = "font-medium";
+    title.dataset.practiceHiddenTitle = "1";
+    box.appendChild(title);
+    const list = document.createElement("ul");
+    list.className = "text-sm text-[var(--muted)] space-y-1";
+    list.dataset.practiceHiddenList = "1";
+    box.appendChild(list);
+    box.addEventListener("click", async (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const ctxRef = container.__practiceCtx;
+      if (!ctxRef || !ctxRef.db || !ctxRef.user?.uid) {
+        return;
+      }
+      const item = target.closest("[data-practice-hidden-item]");
+      if (!item) {
+        return;
+      }
+      const historyTrigger = target.closest(".js-histo-hidden");
+      const resetTrigger = target.closest(".js-reset-sr");
+      if (historyTrigger) {
+        const consigneData = item.__consigneData;
+        if (consigneData) {
+          openHistory(ctxRef, consigneData, { source: "practice" });
+        }
+        return;
+      }
+      if (resetTrigger) {
+        const id = resetTrigger.dataset.id || item.dataset.consigneId || "";
+        if (!id) {
+          return;
+        }
+        try {
+          await Schema.resetSRForConsigne(ctxRef.db, ctxRef.user.uid, id);
+          item.remove();
+          updatePracticeHiddenCounts();
+          showToast("Répétition espacée réinitialisée.");
+        } catch (error) {
+          console.error("practice.hidden.reset", error);
+          showToast("Impossible de réinitialiser la répétition espacée.");
+        }
+      }
+    });
+    container.appendChild(box);
+    return box;
+  };
+
+  const createPracticeHiddenItem = (consigne, remaining) => {
+    const item = document.createElement("li");
+    item.className = "flex items-center justify-between gap-2";
+    item.dataset.practiceHiddenItem = "1";
+    if (consigne?.id != null) {
+      const stringId = String(consigne.id);
+      item.dataset.consigneId = stringId;
+    }
+    item.__consigneData = consigne || null;
+    const label = document.createElement("span");
+    const safeLabel = consigne?.text || consigne?.titre || "cette consigne";
+    label.innerHTML = `<span class="font-medium text-slate-600">${escapeHtml(safeLabel)}</span> — revient dans ${remaining} itération(s)`;
+    const actions = document.createElement("span");
+    actions.className = "flex items-center gap-1";
+    const historyBtn = document.createElement("button");
+    historyBtn.type = "button";
+    historyBtn.className = "btn btn-ghost text-xs js-histo-hidden";
+    historyBtn.dataset.id = consigne?.id || "";
+    historyBtn.textContent = "Historique";
+    const resetBtn = document.createElement("button");
+    resetBtn.type = "button";
+    resetBtn.className = "btn btn-ghost text-xs js-reset-sr";
+    resetBtn.dataset.id = consigne?.id || "";
+    resetBtn.textContent = "Réinitialiser";
+    actions.appendChild(historyBtn);
+    actions.appendChild(resetBtn);
+    item.appendChild(label);
+    item.appendChild(actions);
+    return item;
+  };
+
+  const appendPracticeHiddenConsigne = (consigne, remaining) => {
+    if (!consigne) return;
+    const box = ensurePracticeHiddenBox();
+    const list = box.querySelector("[data-practice-hidden-list]");
+    if (!list) return;
+    if (consigne.id != null) {
+      const selector = `[data-practice-hidden-item][data-consigne-id="${escapeHiddenId(consigne.id)}"]`;
+      const existing = list.querySelector(selector);
+      if (existing) {
+        existing.remove();
+      }
+    }
+    const item = createPracticeHiddenItem(consigne, remaining);
+    list.appendChild(item);
+    updatePracticeHiddenCounts();
+  };
+
+  const removePracticeConsigneRow = (targetRow) => {
+    if (!targetRow) return;
+    const cardRoot = targetRow.closest("[data-practice-root]");
+    const containerForm = cardRoot ? cardRoot.querySelector("#practice-form") : form;
+    const group = targetRow.closest(".consigne-group");
+    if (group) {
+      group.remove();
+    } else {
+      targetRow.remove();
+    }
+    if (cardRoot) {
+      const lowDetails = cardRoot.querySelectorAll(".daily-category__low");
+      lowDetails.forEach((detailsEl) => {
+        const nested = detailsEl.querySelector(".daily-category__items--nested");
+        const groupCount = nested ? nested.querySelectorAll(".consigne-group").length : 0;
+        if (!groupCount) {
+          detailsEl.remove();
+        } else {
+          const summary = detailsEl.querySelector(".daily-category__low-summary");
+          if (summary) {
+            summary.textContent = `Priorité basse (${groupCount})`;
+          }
+        }
+      });
+    }
+    const hasRemaining = (cardRoot || form)?.querySelector?.(".consigne-group");
+    if (!hasRemaining && containerForm) {
+      containerForm.innerHTML = PRACTICE_EMPTY_HTML;
+    }
+  };
+
+  const handlePracticeConsigneDelayed = (consigne, targetRow, delayState) => {
+    if (!targetRow) return;
+    removePracticeConsigneRow(targetRow);
+    const state = delayState || {};
+    const baseIndex = Number(container.dataset.practiceSessionIndex || sessionIndex || 0);
+    const nextAllowed = Number(state.nextAllowedIndex ?? 0);
+    if (Number.isFinite(nextAllowed)) {
+      const remaining = Math.max(0, nextAllowed - baseIndex);
+      appendPracticeHiddenConsigne(consigne, remaining);
+    } else {
+      updatePracticeHiddenCounts();
+    }
+  };
+
   if (!visibleConsignes.length) {
-    form.innerHTML = `<div class="rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]">Aucune consigne visible pour cette itération.</div>`;
+    form.innerHTML = PRACTICE_EMPTY_HTML;
   } else {
     form.innerHTML = "";
 
@@ -13045,7 +13226,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           const amount = rounded;
           delayBtn.disabled = true;
           try {
-            await Schema.delayConsigne({
+            const state = await Schema.delayConsigne({
               db: ctx.db,
               uid: ctx.user.uid,
               consigne: c,
@@ -13054,7 +13235,7 @@ async function renderPractice(ctx, root, _opts = {}) {
               sessionIndex,
             });
             showToast(`Consigne décalée de ${amount} itération${amount > 1 ? "s" : ""}.`);
-            renderPractice(ctx, root);
+            handlePracticeConsigneDelayed(c, row, state);
           } catch (err) {
             console.error(err);
             showToast("Impossible de décaler la consigne.");
@@ -13095,7 +13276,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           return false;
         }
         try {
-          await Schema.delayConsigne({
+          const state = await Schema.delayConsigne({
             db: ctx.db,
             uid: ctx.user.uid,
             consigne: c,
@@ -13104,7 +13285,7 @@ async function renderPractice(ctx, root, _opts = {}) {
             sessionIndex,
           });
           showToast(`Consigne décalée de ${rounded} itération${rounded > 1 ? "s" : ""}.`);
-          await renderPractice(ctx, root);
+          handlePracticeConsigneDelayed(c, row, state);
           return true;
         } catch (err) {
           console.error(err);
@@ -13235,32 +13416,21 @@ async function renderPractice(ctx, root, _opts = {}) {
   }
 
   if (hidden.length) {
-    const box = document.createElement("div");
-    box.className = "card p-3 space-y-2";
-    box.innerHTML = `<div class="font-medium">Masquées par répétition espacée (${hidden.length})</div>
-  <ul class="text-sm text-[var(--muted)] space-y-1">
-    ${hidden.map(h => `
-      <li class="flex items-center justify-between gap-2">
-        <span><span class="font-medium text-slate-600">${escapeHtml(h.c.text)}</span> — revient dans ${h.remaining} itération(s)</span>
-        <span class="flex items-center gap-1">
-          <button type="button" class="btn btn-ghost text-xs js-histo-hidden" data-id="${h.c.id}">Historique</button>
-          <button type="button" class="btn btn-ghost text-xs js-reset-sr" data-id="${h.c.id}">Réinitialiser</button>
-        </span>
-      </li>`).join("")}
-  </ul>`;
-    container.appendChild(box);
-
-    box.addEventListener("click", async (e) => {
-      const id = e.target?.dataset?.id;
-      if (!id) return;
-      if (e.target.classList.contains("js-histo-hidden")) {
-        const c = hidden.find((x) => x.c.id === id)?.c;
-        if (c) openHistory(ctx, c, { source: "practice" });
-      } else if (e.target.classList.contains("js-reset-sr")) {
-        await Schema.resetSRForConsigne(ctx.db, ctx.user.uid, id);
-        renderPractice(ctx, root);
-      }
-    });
+    const box = ensurePracticeHiddenBox();
+    const list = box.querySelector("[data-practice-hidden-list]");
+    if (list) {
+      list.innerHTML = "";
+      hidden.forEach((entry) => {
+        const item = createPracticeHiddenItem(entry.c, entry.remaining);
+        list.appendChild(item);
+      });
+      updatePracticeHiddenCounts();
+    }
+  } else {
+    const existing = container.querySelector("[data-practice-hidden-box]");
+    if (existing) {
+      existing.remove();
+    }
   }
 
   const saveBtn = card.querySelector("#save");
