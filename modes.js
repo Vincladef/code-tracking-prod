@@ -9986,7 +9986,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
           <select id="${escapeHtml(delayConfig.selectId)}" class="practice-editor__delay-select" data-consigne-editor-delay>
             <option value="">${escapeHtml(delayConfig.placeholder)}</option>
             ${delayConfig.amounts
-              .map((amount) => `<option value="${amount}">+${amount} itération${amount > 1 ? "s" : ""}</option>`)
+              .map((amount) => `<option value="${amount}">${amount} itération${amount > 1 ? "s" : ""}</option>`)
               .join("")}
           </select>
           ${delayConfig.helper ? `<span class="practice-editor__delay-note">${escapeHtml(delayConfig.helper)}</span>` : ""}
@@ -12979,8 +12979,8 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (!editorConfig.delayOptions) {
         editorConfig.delayOptions = {
           amounts: [1, 3, 5, 10, 15, 20],
-          label: "Ajouter un délai",
-          placeholder: "Aucun délai",
+          label: "Revoir dans",
+          placeholder: "Sans délai",
           helper: "Appliqué après validation.",
           disabledHint: "Active la répétition espacée pour décaler.",
           getSrEnabled: () => srEnabled,
