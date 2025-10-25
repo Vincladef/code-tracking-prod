@@ -7798,6 +7798,21 @@ function parseHistoryTimelineDateInfo(value) {
     if (!trimmed) {
       return null;
     }
+    if (/^\d{1,2}[\/-]\d{1,2}$/.test(trimmed)) {
+      return null;
+    }
+    const dayFirstMatch = /^([0-9]{1,2})[\/-]([0-9]{1,2})[\/-]([0-9]{2,4})$/.exec(trimmed);
+    if (dayFirstMatch) {
+      const day = Number(dayFirstMatch[1]);
+      const month = Number(dayFirstMatch[2]);
+      const year = Number(dayFirstMatch[3].length === 2 ? `20${dayFirstMatch[3]}` : dayFirstMatch[3]);
+      if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+        const candidate = new Date(year, (month || 1) - 1, day || 1);
+        if (!Number.isNaN(candidate.getTime())) {
+          raw = candidate;
+        }
+      }
+    }
     if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
       const [yearStr, monthStr, dayStr] = trimmed.split("-");
       const year = Number(yearStr);
@@ -15333,5 +15348,6 @@ if (typeof module !== "undefined" && module.exports) {
     setConsigneSkipState,
     normalizeConsigneValueForPersistence,
     normalizeMontantValue,
+    parseHistoryTimelineDateInfo,
   };
 }
