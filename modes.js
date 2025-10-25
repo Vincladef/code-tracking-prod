@@ -2656,52 +2656,60 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           const accentStyle = stat.accentStrong
             ? ` style="--history-accent:${stat.accentStrong}; --history-soft:${stat.accentSoft}; --history-border:${stat.accentBorder};"`
             : "";
-          const entries = (stat.entries || [])
-            .slice()
-            .reverse()
-            .map((entry) => {
-              const meta = iterationMetaByKey.get(entry.date) || null;
-              let pointIndex = Number.isInteger(meta?.index) ? meta.index : -1;
-              if (pointIndex === -1) {
-                pointIndex = stat.timeline.findIndex((point) => point.dateIso === entry.date);
-              }
-              if (pointIndex < 0) return "";
-              const statusKind = dotColor(stat.type, entry.value);
-              const statusLabel = statusLabels[statusKind] || "Valeur";
-              const dateLabel = meta?.fullLabel || meta?.label || entry.date;
-              const relativeLabel = formatRelativeDate(meta?.dateObj || entry.date);
-              const valueText = formatConsigneValue(stat.type, entry.value, { consigne: stat.consigne });
-              const valueHtml = formatConsigneValue(stat.type, entry.value, { mode: "html", consigne: stat.consigne });
-              const normalizedValue = valueText == null ? "" : String(valueText).trim();
-              const hasValue = normalizedValue && normalizedValue !== "—";
-              const fallbackValue = stat.type === "info" ? "" : "—";
-              const safeValue = hasValue ? valueHtml : escapeHtml(fallbackValue);
-              const noteMarkup = entry.note && entry.note.trim()
-                ? `<span class="practice-dashboard__history-note">${escapeHtml(entry.note)}</span>`
-                : "";
-              const relativeMarkup = relativeLabel
-                ? `<span class="practice-dashboard__history-date-sub">${escapeHtml(relativeLabel)}</span>`
-                : "";
-              return `
-                <li class="practice-dashboard__history-item">
-                  <button type="button" class="practice-dashboard__history-entry" data-entry data-consigne="${stat.id}" data-index="${pointIndex}">
-                    <span class="practice-dashboard__history-entry-main">
-                      <span class="practice-dashboard__history-dot practice-dashboard__history-dot--${statusKind}" aria-hidden="true"></span>
-                      <span class="practice-dashboard__history-entry-text">
-                        <span class="practice-dashboard__history-value">${safeValue}</span>
-                        ${noteMarkup}
-                      </span>
+          const reversedEntries = (stat.entries || []).slice().reverse();
+          const isTextConsigne = stat.type === "long" || stat.type === "short";
+          const entries = [];
+          reversedEntries.forEach((entry) => {
+            const meta = iterationMetaByKey.get(entry.date) || null;
+            let pointIndex = Number.isInteger(meta?.index) ? meta.index : -1;
+            if (pointIndex === -1) {
+              pointIndex = stat.timeline.findIndex((point) => point.dateIso === entry.date);
+            }
+            if (pointIndex < 0) return;
+            const rawValue = entry.value;
+            const isSkipped = rawValue && typeof rawValue === "object" && rawValue.skipped === true;
+            if (isTextConsigne && isSkipped) {
+              return;
+            }
+            const statusKind = dotColor(stat.type, rawValue);
+            const statusLabel = statusLabels[statusKind] || "Valeur";
+            const dateLabel = meta?.fullLabel || meta?.label || entry.date;
+            const relativeLabel = formatRelativeDate(meta?.dateObj || entry.date);
+            const valueText = formatConsigneValue(stat.type, rawValue, { consigne: stat.consigne });
+            const normalizedValue = valueText == null ? "" : String(valueText).trim();
+            const noteText = entry.note ? entry.note.trim() : "";
+            const hasValue = normalizedValue && normalizedValue !== "—";
+            if (isTextConsigne && !hasValue && !noteText) {
+              return;
+            }
+            const valueHtml = formatConsigneValue(stat.type, rawValue, { mode: "html", consigne: stat.consigne });
+            const fallbackValue = stat.type === "info" ? "" : "—";
+            const safeValue = hasValue ? valueHtml : escapeHtml(fallbackValue);
+            const noteMarkup = noteText
+              ? `<span class="practice-dashboard__history-note">${escapeHtml(noteText)}</span>`
+              : "";
+            const relativeMarkup = relativeLabel
+              ? `<span class="practice-dashboard__history-date-sub">${escapeHtml(relativeLabel)}</span>`
+              : "";
+            entries.push(`
+              <li class="practice-dashboard__history-item">
+                <button type="button" class="practice-dashboard__history-entry" data-entry data-consigne="${stat.id}" data-index="${pointIndex}">
+                  <span class="practice-dashboard__history-entry-main">
+                    <span class="practice-dashboard__history-dot practice-dashboard__history-dot--${statusKind}" aria-hidden="true"></span>
+                    <span class="practice-dashboard__history-entry-text">
+                      <span class="practice-dashboard__history-value">${safeValue}</span>
+                      ${noteMarkup}
                     </span>
-                    <span class="practice-dashboard__history-date">
-                      <span class="practice-dashboard__history-date-main">${escapeHtml(dateLabel)}</span>
-                      ${relativeMarkup}
-                    </span>
-                    <span class="sr-only">${escapeHtml(statusLabel)}</span>
-                  </button>
-                </li>
-              `;
-            })
-            .filter(Boolean);
+                  </span>
+                  <span class="practice-dashboard__history-date">
+                    <span class="practice-dashboard__history-date-main">${escapeHtml(dateLabel)}</span>
+                    ${relativeMarkup}
+                  </span>
+                  <span class="sr-only">${escapeHtml(statusLabel)}</span>
+                </button>
+              </li>
+            `);
+          });
           const entriesMarkup = entries.length
             ? `<ol class="practice-dashboard__history-list">${entries.join("")}</ol>`
             : '<p class="practice-dashboard__empty">Aucune entrée enregistrée pour le moment.</p>';
@@ -2718,8 +2726,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           const commentMarkup = stat.lastCommentRaw && stat.lastCommentRaw.trim()
             ? `<p class="practice-dashboard__history-last-note"><span class="practice-dashboard__history-last-note-label">Dernier commentaire :</span> ${escapeHtml(stat.commentDisplay)}</p>`
             : "";
-          const totalEntries = stat.totalEntries || 0;
-          const entriesLabel = totalEntries > 1 ? `${totalEntries} entrées` : `${totalEntries} entrée`;
+          const displayedEntries = entries.length;
+          const entriesLabel = displayedEntries > 1 ? `${displayedEntries} entrées` : `${displayedEntries} entrée`;
           const typeChip = stat.typeLabel ? `<span class="practice-dashboard__chip">${escapeHtml(stat.typeLabel)}</span>` : "";
           const lastValueText = stat.lastFormatted || "";
           const hasLastValue = lastValueText && lastValueText.trim() && lastValueText !== "—";
