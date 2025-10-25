@@ -9979,8 +9979,9 @@ function attachConsigneEditor(row, consigne, options = {}) {
       .join("") +
       `<div class="practice-editor__summary-menu-divider" role="separator"></div>
         <button type="button" class="practice-editor__summary-menu-item practice-editor__summary-menu-item--clear" role="menuitem" data-summary-option="clear">Réponse standard</button>`;
+    const delayTitleAttr = delayConfig?.helper ? ` title="${escapeHtml(delayConfig.helper)}"` : "";
     const delayControlMarkup = delayConfig
-      ? `<div class="practice-editor__delay" data-consigne-editor-delay-root>
+      ? `<div class="practice-editor__delay practice-editor__delay--inline" data-consigne-editor-delay-root${delayTitleAttr}>
           <label for="${escapeHtml(delayConfig.selectId)}" class="practice-editor__delay-label">${escapeHtml(delayConfig.label)}</label>
           <select id="${escapeHtml(delayConfig.selectId)}" class="practice-editor__delay-select" data-consigne-editor-delay>
             <option value="">${escapeHtml(delayConfig.placeholder)}</option>
@@ -10006,14 +10007,16 @@ function attachConsigneEditor(row, consigne, options = {}) {
         : "";
     const primaryActionsMarkup = requiresValidation
       ? `<div class="practice-editor__actions-buttons">
+          ${delayControlMarkup}
           <button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>
           <button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>
           <button type="button" class="btn btn-primary" data-consigne-editor-validate>${escapeHtml(validateButtonLabel)}</button>
         </div>`
       : `<div class="practice-editor__actions-buttons">
+          ${delayControlMarkup}
           <button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>
         </div>`;
-    const sideControls = [delayControlMarkup, summaryControlMarkup].filter(Boolean);
+    const sideControls = [summaryControlMarkup].filter(Boolean);
     const sideControlsMarkup = sideControls.length
       ? `<div class="practice-editor__actions-controls">${sideControls.join("")}</div>`
       : "";
@@ -12975,7 +12978,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       const editorConfig = { variant: "modal", ...(editorOptions || {}) };
       if (!editorConfig.delayOptions) {
         editorConfig.delayOptions = {
-          amounts: [1, 3, 5, 10],
+          amounts: [1, 3, 5, 10, 15, 20],
           label: "Ajouter un délai",
           placeholder: "Aucun délai",
           helper: "Appliqué après validation.",
