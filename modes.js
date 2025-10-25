@@ -8481,6 +8481,22 @@ function buildConsigneHistoryTimeline(entries, consigne) {
       }
       const value = resolveHistoryTimelineValue(entry, consigne);
       const note = resolveHistoryTimelineNote(entry);
+      const hasNote = typeof note === "string" && note.trim().length > 0;
+      const isSkipOnly = (() => {
+        if (!value) return false;
+        if (typeof value === "object" && value.skipped === true) {
+          return true;
+        }
+        if (typeof value === "string") {
+          const normalized = value.trim().toLowerCase();
+          if (!normalized) return false;
+          return normalized === "passée" || normalized === "passee";
+        }
+        return false;
+      })();
+      if (isSkipOnly && !hasNote) {
+        return;
+      }
       const status = dotColor(consigne?.type, value, consigne) || "na";
       const effectiveTimestamp =
         typeof timestamp === "number"
