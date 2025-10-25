@@ -12991,6 +12991,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           applyDelay: applyDelayFromEditor,
         };
       }
+      row.__practiceEditorConfig = editorConfig;
       if (!deferEditor) {
         attachConsigneEditor(row, c, editorConfig);
       }
@@ -13062,10 +13063,14 @@ async function renderPractice(ctx, root, _opts = {}) {
         };
         return config;
       });
-      attachConsigneEditor(parentCard, group.consigne, {
+      const inheritedEditorConfig =
+        (parentCard && parentCard.__practiceEditorConfig) || {};
+      const editorConfig = {
+        ...inheritedEditorConfig,
         variant: "modal",
         childConsignes: childConfigs,
-      });
+      };
+      attachConsigneEditor(parentCard, group.consigne, editorConfig);
       target.appendChild(wrapper);
     };
 
