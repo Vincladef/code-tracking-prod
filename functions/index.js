@@ -684,6 +684,85 @@ function objectiveDueDateIso(objective) {
   return dateIso;
 }
 
+function normalizeNotifyChannel(value) {
+  if (value == null) return "push";
+  const raw = String(value).trim().toLowerCase();
+  if (!raw) return "push";
+  if (raw === "email" || raw === "mail") return "email";
+  if (raw === "both" || raw === "push+email" || raw === "email+push" || raw === "all") {
+    return "both";
+  }
+  if (raw === "none" || raw === "off" || raw === "disabled") {
+    return "none";
+  }
+  return "push";
+}
+
+function includesPushChannel(channel) {
+  return channel === "push" || channel === "both";
+}
+
+function includesEmailChannel(channel) {
+  return channel === "email" || channel === "both";
+}
+
+async function objectivesDueOn(
+  uid,
+  context,
+  { fetchObjectivesByMonth: fetcher, fetchObjectivesByReminder: reminderFetcher } = {}
+) {
+  if (!uid || !context) return [];
+
+  const baseMonthKey = toStringOrNull(context?.dateIso)?.slice(0, 7);
+  const monthKey = baseMonthKey || monthKeyFromDate(context.selectedDate);
+  const previousMonth = monthKey ? shiftMonthKey(monthKey, -1) : null;
+  const targetMonths = new Set();
+  if (monthKey) {
+    targetMonths.add(monthKey);
+  }
+  if (previousMonth && previousMonth !== monthKey) {
+    targetMonths.add(previousMonth);
+  }
+
+  const fetch = typeof fetcher === "function" ? fetcher : fetchObjectivesByMonth;
+  const fetchReminder =
+    typeof reminderFetcher === "function" ? reminderFetcher : fetchObjectivesByReminder;
+
+  const objectiveMap = new Map();
+
+  for (const key of targetMonths) {
+    const rows = await fetch(uid, key);
+    for (const row of rows) {
+      if (!row || !row.id) continue;
+      objectiveMap.set(row.id, row);
+    }
+  }
+
+  const reminderIso = toStringOrNull(context?.dateIso);
+  if (reminderIso) {
+    const reminderRows = await fetchReminder(uid, reminderIso);
+    for (const row of reminderRows) {
+      if (!row || !row.id) continue;
+      objectiveMap.set(row.id, row);
+    }
+  }
+
+  const due = [];
+
+  for (const objective of objectiveMap.values()) {
+    if (!objective || objective.notifyOnTarget === false) continue;
+    const channel = normalizeNotifyChannel(objective.notifyChannel);
+    if (channel === "none") continue;
+    const iso = objectiveDueDateIso(objective);
+    if (!iso) continue;
+    if (iso === context.dateIso) {
+      due.push({ objective, dueIso: iso, channel });
+    }
+  }
+
+  return due;
+}
+
 async function fetchObjectivesByMonth(uid, monthKey) {
   if (!uid || !monthKey) return [];
   try {
@@ -725,54 +804,10 @@ async function fetchObjectivesByReminder(uid, dateIso, fields = REMINDER_DATE_FI
 async function countObjectivesDueToday(
   uid,
   context,
-  { fetchObjectivesByMonth: fetcher, fetchObjectivesByReminder: reminderFetcher } = {}
+  services = {}
 ) {
-  const baseMonthKey = toStringOrNull(context?.dateIso)?.slice(0, 7);
-  const monthKey = baseMonthKey || monthKeyFromDate(context.selectedDate);
-  const previousMonth = monthKey ? shiftMonthKey(monthKey, -1) : null;
-  const targetMonths = new Set();
-  if (monthKey) {
-    targetMonths.add(monthKey);
-  }
-  if (previousMonth && previousMonth !== monthKey) {
-    targetMonths.add(previousMonth);
-  }
-
-  const fetch = typeof fetcher === "function" ? fetcher : fetchObjectivesByMonth;
-  const fetchReminder =
-    typeof reminderFetcher === "function" ? reminderFetcher : fetchObjectivesByReminder;
-
-  const objectiveMap = new Map();
-
-  for (const key of targetMonths) {
-    const rows = await fetch(uid, key);
-    for (const row of rows) {
-      if (!row || !row.id) continue;
-      objectiveMap.set(row.id, row);
-    }
-  }
-
-  const reminderIso = toStringOrNull(context?.dateIso);
-  if (reminderIso) {
-    const reminderRows = await fetchReminder(uid, reminderIso);
-    for (const row of reminderRows) {
-      if (!row || !row.id) continue;
-      objectiveMap.set(row.id, row);
-    }
-  }
-
-  const objectives = Array.from(objectiveMap.values());
-
-  let count = 0;
-  for (const objective of objectives) {
-    if (objective.notifyOnTarget === false) continue;
-    const iso = objectiveDueDateIso(objective);
-    if (!iso) continue;
-    if (iso === context.dateIso) {
-      count += 1;
-    }
-  }
-  return count;
+  const due = await objectivesDueOn(uid, context, services);
+  return due.filter((item) => includesPushChannel(item.channel)).length;
 }
 
 function extractFirstName(profile = {}) {
@@ -955,6 +990,10 @@ exports.onObjectiveWrite = functions
       const beforeNotify = beforeData ? Boolean(beforeData.notifyOnTarget) : false;
       const notifyActivated = afterNotify && !beforeNotify;
 
+      const channel = normalizeNotifyChannel(afterData.notifyChannel);
+      const wantsPush = includesPushChannel(channel);
+      const wantsEmail = includesEmailChannel(channel);
+
       const reminderIso = (value) => {
         const dateValue = toDate(value);
         if (dateValue) {
@@ -980,6 +1019,11 @@ exports.onObjectiveWrite = functions
         return;
       }
 
+      if (!wantsPush && !wantsEmail) {
+        functions.logger.debug("onObjectiveWrite:skip", { ...logContext, reason: "no_channel" });
+        return;
+      }
+
       if (!notifyActivated && !dateUpdatedToToday) {
         if (isDueToday) {
           functions.logger.info("onObjectiveWrite:alreadyNotified", { ...logContext, reason: "no_trigger" });
@@ -998,26 +1042,20 @@ exports.onObjectiveWrite = functions
         return;
       }
 
-      const tokens = await fetchTokensForUid(uid);
-      if (!tokens.length) {
-        functions.logger.info("onObjectiveWrite:noTokens", logContext);
-        return;
+      const dueObjectives = await objectivesDueOn(uid, currentContext);
+      const pushObjectives = dueObjectives.filter((item) => includesPushChannel(item.channel));
+      const emailObjectives = dueObjectives.filter((item) => includesEmailChannel(item.channel));
+
+      let tokens = [];
+      if (wantsPush) {
+        tokens = await fetchTokensForUid(uid);
       }
 
-      const objectiveCount = await countObjectivesDueToday(uid, currentContext);
-      if (objectiveCount < 1) {
-        functions.logger.info("onObjectiveWrite:alreadyNotified", {
-          ...logContext,
-          reason: "no_objectives_due",
-        });
-        return;
-      }
-
-      let firstName = "";
+      let profileData = null;
       try {
         const profileSnap = await db.collection("u").doc(uid).get();
         if (profileSnap.exists) {
-          firstName = extractFirstName(profileSnap.data() || {});
+          profileData = profileSnap.data() || {};
         }
       } catch (error) {
         functions.logger.warn("onObjectiveWrite:profile:error", {
@@ -1026,13 +1064,71 @@ exports.onObjectiveWrite = functions
         });
       }
 
-      const result = await sendReminder(uid, tokens, 0, objectiveCount, currentContext, firstName);
-      functions.logger.info("onObjectiveWrite:sent", {
-        ...logContext,
-        successCount: result.successCount,
-        failureCount: result.failureCount,
-        invalidTokens: result.invalidTokens?.length || 0,
-      });
+      const firstName = extractFirstName(profileData || {});
+      const displayName = profileData?.displayName || profileData?.name || firstName || "";
+      const profileEmail = toStringOrNull(profileData?.email);
+
+      if (wantsPush) {
+        if (!tokens.length) {
+          functions.logger.info("onObjectiveWrite:noTokens", logContext);
+        } else if (pushObjectives.length < 1) {
+          functions.logger.info("onObjectiveWrite:alreadyNotified", {
+            ...logContext,
+            reason: "no_objectives_due",
+          });
+        } else {
+          const result = await sendReminder(
+            uid,
+            tokens,
+            0,
+            pushObjectives.length,
+            currentContext,
+            firstName,
+          );
+          functions.logger.info("onObjectiveWrite:sent", {
+            ...logContext,
+            successCount: result.successCount,
+            failureCount: result.failureCount,
+            invalidTokens: result.invalidTokens?.length || 0,
+          });
+        }
+      }
+
+      if (wantsEmail && emailObjectives.length > 0) {
+        const mailSettings = resolveMailSettings();
+        if (!mailSettings) {
+          functions.logger.warn("onObjectiveWrite:email:configMissing", logContext);
+        } else if (!profileEmail) {
+          functions.logger.warn("onObjectiveWrite:email:noAddress", logContext);
+        } else {
+          try {
+            const payload = buildGoalReminderEmail({
+              firstName,
+              displayName,
+              objectives: emailObjectives.map((item) => ({ id: item.objective?.id, ...item.objective })),
+              context: currentContext,
+              link: buildUserDailyLink(uid, currentContext.dateIso),
+            });
+            await sendSmtpEmail({
+              ...mailSettings,
+              to: profileEmail,
+              subject: payload.subject,
+              text: payload.text,
+              html: payload.html,
+            });
+            functions.logger.info("onObjectiveWrite:email:sent", {
+              ...logContext,
+              to: profileEmail,
+              objectives: emailObjectives.length,
+            });
+          } catch (mailError) {
+            functions.logger.error("onObjectiveWrite:email:error", {
+              ...logContext,
+              error: mailError?.message || String(mailError),
+            });
+          }
+        }
+      }
     } catch (error) {
       functions.logger.error("onObjectiveWrite:error", {
         ...logContext,
@@ -1315,14 +1411,33 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
   functions.logger.info("sendDailyReminders:start", context);
 
   const tokensByUid = await collectPushTokens();
+  const mailSettings = resolveMailSettings();
   const results = [];
 
-  for (const [uid, tokens] of tokensByUid.entries()) {
+  const profileMap = new Map();
+  try {
+    const profileSnap = await db.collection("u").get();
+    profileSnap.forEach((doc) => {
+      profileMap.set(doc.id, doc.data() || {});
+    });
+  } catch (profileListError) {
+    functions.logger.warn("sendDailyReminders:profileList:error", { error: profileListError });
+  }
+
+  const candidateUids = new Set();
+  tokensByUid.forEach((_, uid) => candidateUids.add(uid));
+  profileMap.forEach((_, uid) => candidateUids.add(uid));
+
+  for (const uid of candidateUids) {
+    const tokens = tokensByUid.get(uid) || [];
     const entry = {
       uid,
       tokens: tokens.length,
       visibleCount: 0,
       objectiveCount: 0,
+      totalObjectiveCount: 0,
+      pushObjectiveCount: 0,
+      emailObjectiveCount: 0,
       sent: 0,
       failed: 0,
       invalidTokens: [],
@@ -1331,6 +1446,12 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
       error: null,
       firstName: "",
       displayName: "",
+      emailStatus: "pending",
+      emailReason: null,
+      emailRecipient: null,
+      emailError: null,
+      weeklyReminder: 0,
+      monthlyReminder: 0,
       link: buildUserDailyLink(uid, context.dateIso),
     };
 
@@ -1360,29 +1481,49 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
         monthly: monthlyReminder,
       };
 
-      let firstName = "";
-      let displayName = "";
-      try {
-        const profileSnap = await db.collection("u").doc(uid).get();
-        if (profileSnap.exists) {
-          const profileData = profileSnap.data() || {};
-          firstName = extractFirstName(profileData);
-          displayName = profileData.displayName || profileData.name || firstName || "";
+      let profileData = profileMap.get(uid) || null;
+      if (!profileData) {
+        try {
+          const profileSnap = await db.collection("u").doc(uid).get();
+          if (profileSnap.exists) {
+            profileData = profileSnap.data() || {};
+            profileMap.set(uid, profileData);
+          }
+        } catch (profileError) {
+          functions.logger.warn("sendDailyReminders:profile:error", { uid, error: profileError });
         }
-      } catch (profileError) {
-        functions.logger.warn("sendDailyReminders:profile:error", { uid, error: profileError });
       }
+
+      const firstName = extractFirstName(profileData || {});
+      const displayName = profileData?.displayName || profileData?.name || firstName || "";
+      const profileEmail = toStringOrNull(profileData?.email);
 
       entry.firstName = firstName;
       entry.displayName = displayName;
+      entry.emailRecipient = profileEmail || null;
 
       entry.visibleCount = await countVisibleConsignes(uid, context);
-      entry.objectiveCount = await countObjectivesDueToday(uid, context);
+      const dueObjectives = await objectivesDueOn(uid, context);
+      const pushObjectives = dueObjectives.filter((item) => includesPushChannel(item.channel));
+      const emailObjectives = dueObjectives.filter((item) => includesEmailChannel(item.channel));
+
+      entry.objectiveCount = pushObjectives.length;
+      entry.pushObjectiveCount = pushObjectives.length;
+      entry.emailObjectiveCount = emailObjectives.length;
+      entry.totalObjectiveCount = dueObjectives.length;
       entry.weeklyReminder = summaryFlags.weekly ? 1 : 0;
       entry.monthlyReminder = summaryFlags.monthly ? 1 : 0;
 
       const hasSummaryReminder = summaryFlags.weekly || summaryFlags.monthly;
-      if (entry.visibleCount < 1 && entry.objectiveCount < 1 && !hasSummaryReminder) {
+      const hasPushContent = entry.visibleCount > 0 || entry.pushObjectiveCount > 0 || hasSummaryReminder;
+      const hasEmailContent = entry.emailObjectiveCount > 0;
+
+      if (!hasEmailContent) {
+        entry.emailStatus = "skipped";
+        entry.emailReason = "no_email_objectives";
+      }
+
+      if (!hasPushContent && !hasEmailContent) {
         entry.status = "skipped";
         entry.reason = "no_visible_items";
         functions.logger.debug("sendDailyReminders:skip", { uid, reason: "no_visible_items" });
@@ -1390,37 +1531,97 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
         continue;
       }
 
-      if (!tokens.length) {
-        entry.status = "skipped";
-        entry.reason = "no_tokens";
-        functions.logger.debug("sendDailyReminders:skip", { uid, reason: "no_tokens" });
-        results.push(entry);
-        continue;
+      if (hasPushContent) {
+        if (!tokens.length) {
+          entry.status = "skipped";
+          entry.reason = "no_tokens";
+          functions.logger.debug("sendDailyReminders:skip", { uid, reason: "no_tokens" });
+        } else {
+          const response = await sendReminder(
+            uid,
+            tokens,
+            entry.visibleCount,
+            entry.pushObjectiveCount,
+            context,
+            firstName,
+            summaryFlags,
+          );
+
+          entry.sent = response.successCount;
+          entry.failed = response.failureCount;
+          entry.invalidTokens = response.invalidTokens || [];
+
+          if (entry.sent > 0 && entry.failed > 0) {
+            entry.status = "partial";
+          } else if (entry.sent > 0) {
+            entry.status = "sent";
+          } else if (entry.failed > 0) {
+            entry.status = "failed";
+          } else {
+            entry.status = "skipped";
+            entry.reason = entry.reason || "no_messages";
+          }
+        }
+      } else if (hasEmailContent) {
+        entry.status = "email_only";
+        entry.reason = "email_only";
       }
 
-      const response = await sendReminder(
-        uid,
-        tokens,
-        entry.visibleCount,
-        entry.objectiveCount,
-        context,
-        firstName,
-        summaryFlags,
-      );
+      if (hasEmailContent) {
+        if (!mailSettings) {
+          entry.emailStatus = "skipped";
+          entry.emailReason = "mail_config_missing";
+          functions.logger.warn("sendDailyReminders:email:configMissing", { uid });
+        } else if (!profileEmail) {
+          entry.emailStatus = "skipped";
+          entry.emailReason = "no_email_address";
+          functions.logger.warn("sendDailyReminders:email:noAddress", { uid });
+        } else {
+          try {
+            const payload = buildGoalReminderEmail({
+              firstName,
+              displayName,
+              objectives: emailObjectives.map((item) => ({ id: item.objective?.id, ...item.objective })),
+              context,
+              link: entry.link,
+            });
+            await sendSmtpEmail({
+              ...mailSettings,
+              to: profileEmail,
+              subject: payload.subject,
+              text: payload.text,
+              html: payload.html,
+            });
+            entry.emailStatus = "sent";
+            entry.emailReason = null;
+            functions.logger.info("sendDailyReminders:email:sent", {
+              uid,
+              to: profileEmail,
+              objectives: emailObjectives.length,
+            });
+          } catch (emailError) {
+            entry.emailStatus = "error";
+            entry.emailReason = emailError?.message || String(emailError);
+            entry.emailError = emailError?.message || String(emailError);
+            functions.logger.error("sendDailyReminders:email:error", {
+              uid,
+              error: emailError?.message || String(emailError),
+            });
+          }
+        }
+      }
 
-      entry.sent = response.successCount;
-      entry.failed = response.failureCount;
-      entry.invalidTokens = response.invalidTokens || [];
-
-      if (entry.sent > 0 && entry.failed > 0) {
-        entry.status = "partial";
-      } else if (entry.sent > 0) {
-        entry.status = "sent";
-      } else if (entry.failed > 0) {
-        entry.status = "failed";
-      } else {
-        entry.status = "skipped";
-        entry.reason = entry.reason || "no_messages";
+      if (!hasPushContent && hasEmailContent) {
+        if (entry.emailStatus === "sent") {
+          entry.status = "email_only";
+          entry.reason = "email_only";
+        } else if (entry.emailStatus === "error") {
+          entry.status = "error";
+          entry.reason = "email_error";
+        } else if (entry.emailStatus === "skipped") {
+          entry.status = "skipped";
+          entry.reason = entry.emailReason || "email_skipped";
+        }
       }
 
       results.push(entry);
@@ -1555,6 +1756,112 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function formatEmailDateLabel(context) {
+  if (!context) return "";
+  if (context.selectedDate instanceof Date && !Number.isNaN(context.selectedDate.getTime?.())) {
+    return context.selectedDate.toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }
+  const fromIso = toDate(context.dateIso);
+  if (fromIso) {
+    return fromIso.toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }
+  return String(context.dateIso || "");
+}
+
+function formatWeekRangeLabel(monthKey, weekIndex) {
+  const range = weekDateRange(monthKey, weekIndex);
+  if (!range?.start || !range?.end) {
+    return `Semaine ${weekIndex}`;
+  }
+  const startLabel = range.start.toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+  const endLabel = range.end.toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+  return `Semaine du ${startLabel} au ${endLabel}`;
+}
+
+function formatMonthLabelForObjective(monthKey) {
+  const parsed = parseMonthKey(monthKey);
+  if (!parsed) return monthKey || "";
+  const date = new Date(parsed.year, parsed.month - 1, 1);
+  const label = date.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  if (!label) return monthKey || "";
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function describeObjectiveForEmail(objective = {}) {
+  const title = objective.titre || objective.title || "Objectif";
+  const meta = [];
+  if (objective.type === "hebdo") {
+    const weekIndex = objective.weekOfMonth || objective.weekIndex || 1;
+    meta.push(formatWeekRangeLabel(objective.monthKey, weekIndex));
+  } else if (objective.type === "mensuel") {
+    const monthLabel = formatMonthLabelForObjective(objective.monthKey);
+    if (monthLabel) {
+      meta.push(`Mensuel — ${monthLabel}`);
+    }
+  }
+  if (meta.length) {
+    return `${title} — ${meta.join(" — ")}`;
+  }
+  return title;
+}
+
+function buildGoalReminderEmail({ firstName, displayName, objectives, context, link } = {}) {
+  const dateLabelRaw = formatEmailDateLabel(context);
+  const formattedDate = dateLabelRaw
+    ? dateLabelRaw.charAt(0).toUpperCase() + dateLabelRaw.slice(1)
+    : String(context?.dateIso || "aujourd’hui");
+  const safeObjectives = Array.isArray(objectives)
+    ? objectives.filter(Boolean)
+    : [];
+  const subjectPrefix = safeObjectives.length > 1 ? "Rappel objectifs" : "Rappel objectif";
+  const subject = `${subjectPrefix} — ${formattedDate}`;
+
+  const greetingName = firstName || displayName || "";
+  const greeting = greetingName ? `Bonjour ${greetingName},` : "Bonjour,";
+  const intro = safeObjectives.length > 1
+    ? `Voici tes objectifs à réaliser le ${formattedDate} :`
+    : `Voici ton objectif à réaliser le ${formattedDate} :`;
+
+  const textLines = [greeting, "", intro];
+  safeObjectives.forEach((objective) => {
+    textLines.push(`- ${describeObjectiveForEmail(objective)}`);
+  });
+  if (link) {
+    textLines.push("", `Accède à ton espace : ${link}`);
+  }
+  textLines.push("", "Bonne journée !");
+  const text = textLines.join("\n");
+
+  const htmlParts = [];
+  htmlParts.push(`<p>${escapeHtml(greeting)}</p>`);
+  htmlParts.push(`<p>${escapeHtml(intro)}</p>`);
+  htmlParts.push("<ul>");
+  safeObjectives.forEach((objective) => {
+    htmlParts.push(`<li>${escapeHtml(describeObjectiveForEmail(objective))}</li>`);
+  });
+  htmlParts.push("</ul>");
+  if (link) {
+    const safeLink = escapeHtml(link);
+    htmlParts.push(`<p><a href="${safeLink}">Ouvrir mon suivi</a></p>`);
+  }
+  htmlParts.push(
+    `<p style="margin-top:16px;font-size:12px;color:#64748b;">Email automatique généré par sendDailyReminders.</p>`
+  );
+  const html = htmlParts.join("");
+
+  return { subject, text, html };
+}
+
 function statusLabel(status) {
   switch (status) {
     case "sent":
@@ -1565,6 +1872,8 @@ function statusLabel(status) {
       return "Échec";
     case "skipped":
       return "Aucun envoi";
+    case "email_only":
+      return "Email uniquement";
     case "error":
       return "Erreur";
     default:
@@ -1588,6 +1897,24 @@ function describeEntryNotes(entry) {
   }
   if (entry.error) {
     notes.push(entry.error);
+  }
+  if (entry.emailStatus === "sent") {
+    if (entry.emailRecipient) {
+      notes.push(`Email envoyé à ${entry.emailRecipient}`);
+    } else {
+      notes.push("Email envoyé");
+    }
+  }
+  if (entry.emailStatus === "skipped") {
+    if (entry.emailReason === "mail_config_missing") {
+      notes.push("Config email manquante");
+    } else if (entry.emailReason === "no_email_address") {
+      notes.push("Pas d’adresse email");
+    }
+  }
+  if (entry.emailStatus === "error") {
+    const detail = entry.emailReason || entry.emailError || "Erreur email";
+    notes.push(`Email erreur: ${detail}`);
   }
   return notes.join(" · ");
 }
