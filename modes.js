@@ -8057,8 +8057,6 @@ function formatConsigneHistoryPoint(record, consigne) {
   const rawIterationLabel =
     typeof record.iterationLabel === "string" && record.iterationLabel.trim()
       ? record.iterationLabel.trim()
-      : iterationNumber != null
-      ? `Itération ${iterationNumber}`
       : "";
   const modeSource = typeof consigne?.mode === "string" ? consigne.mode : null;
   const normalizedMode = typeof modeSource === "string" ? modeSource.trim().toLowerCase() : "";
