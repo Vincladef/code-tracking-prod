@@ -43,6 +43,25 @@ function toStringOrNull(value, { trim = true } = {}) {
   return trimmed.length ? trimmed : null;
 }
 
+function extractEmailList(profile) {
+  const source = profile && typeof profile === "object" ? profile : {};
+  const seen = new Set();
+  const emails = [];
+  const push = (value) => {
+    const email = toStringOrNull(value);
+    if (!email) return;
+    const key = email.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    emails.push(email);
+  };
+  if (Array.isArray(source.emails)) {
+    source.emails.forEach(push);
+  }
+  push(source.email);
+  return emails;
+}
+
 function uniqueTokens(input = []) {
   const list = Array.isArray(input) ? input : [input];
   const seen = new Set();
@@ -1066,7 +1085,8 @@ exports.onObjectiveWrite = functions
 
       const firstName = extractFirstName(profileData || {});
       const displayName = profileData?.displayName || profileData?.name || firstName || "";
-      const profileEmail = toStringOrNull(profileData?.email);
+      const profileEmails = extractEmailList(profileData);
+      const primaryEmail = profileEmails[0] || null;
 
       if (wantsPush) {
         if (!tokens.length) {
@@ -1098,7 +1118,7 @@ exports.onObjectiveWrite = functions
         const mailSettings = resolveMailSettings();
         if (!mailSettings) {
           functions.logger.warn("onObjectiveWrite:email:configMissing", logContext);
-        } else if (!profileEmail) {
+        } else if (!primaryEmail) {
           functions.logger.warn("onObjectiveWrite:email:noAddress", logContext);
         } else {
           try {
@@ -1111,14 +1131,14 @@ exports.onObjectiveWrite = functions
             });
             await sendSmtpEmail({
               ...mailSettings,
-              to: profileEmail,
+              to: profileEmails,
               subject: payload.subject,
               text: payload.text,
               html: payload.html,
             });
             functions.logger.info("onObjectiveWrite:email:sent", {
               ...logContext,
-              to: profileEmail,
+              to: profileEmails,
               objectives: emailObjectives.length,
             });
           } catch (mailError) {
@@ -1449,6 +1469,7 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
       emailStatus: "pending",
       emailReason: null,
       emailRecipient: null,
+      emailRecipients: [],
       emailError: null,
       weeklyReminder: 0,
       monthlyReminder: 0,
@@ -1496,11 +1517,13 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
 
       const firstName = extractFirstName(profileData || {});
       const displayName = profileData?.displayName || profileData?.name || firstName || "";
-      const profileEmail = toStringOrNull(profileData?.email);
+      const profileEmails = extractEmailList(profileData);
+      const primaryEmail = profileEmails[0] || null;
 
       entry.firstName = firstName;
       entry.displayName = displayName;
-      entry.emailRecipient = profileEmail || null;
+      entry.emailRecipients = profileEmails;
+      entry.emailRecipient = profileEmails.length ? profileEmails.join(", ") : null;
 
       entry.visibleCount = await countVisibleConsignes(uid, context);
       const dueObjectives = await objectivesDueOn(uid, context);
@@ -1572,7 +1595,7 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
           entry.emailStatus = "skipped";
           entry.emailReason = "mail_config_missing";
           functions.logger.warn("sendDailyReminders:email:configMissing", { uid });
-        } else if (!profileEmail) {
+        } else if (!primaryEmail) {
           entry.emailStatus = "skipped";
           entry.emailReason = "no_email_address";
           functions.logger.warn("sendDailyReminders:email:noAddress", { uid });
@@ -1587,7 +1610,7 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
             });
             await sendSmtpEmail({
               ...mailSettings,
-              to: profileEmail,
+              to: profileEmails,
               subject: payload.subject,
               text: payload.text,
               html: payload.html,
@@ -1596,7 +1619,7 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
             entry.emailReason = null;
             functions.logger.info("sendDailyReminders:email:sent", {
               uid,
-              to: profileEmail,
+              to: profileEmails,
               objectives: emailObjectives.length,
             });
           } catch (emailError) {

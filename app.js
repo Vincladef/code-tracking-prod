@@ -2770,6 +2770,26 @@
     return "u-" + Math.random().toString(36).slice(2, 10);
   }
 
+  const parseEmailInput = (value) => {
+    if (!value) return { emails: [], invalid: null };
+    const tokens = String(value)
+      .split(/[\n,;]+/)
+      .map((token) => token.trim())
+      .filter(Boolean);
+    const seen = new Set();
+    const emails = [];
+    for (const token of tokens) {
+      if (!/^.+@.+\..+$/.test(token)) {
+        return { emails: [], invalid: token };
+      }
+      const normalized = token.toLowerCase();
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      emails.push(token);
+    }
+    return { emails, invalid: null };
+  };
+
   function renderAdmin(db) {
     // Hide the sidebar in admin mode
     const sidebar = document.getElementById("sidebar");
@@ -2798,7 +2818,7 @@
               <p class="text-sm text-[var(--muted)]">Ajoutez rapidement une nouvelle fiche depuis votre téléphone.</p>
             </div>
             <input type="text" id="new-user-name" placeholder="Nom de l’utilisateur" required class="w-full" />
-            <input type="email" id="new-user-email" placeholder="Email de l’utilisateur (optionnel)" class="w-full" inputmode="email" autocomplete="email" />
+            <input type="text" id="new-user-email" placeholder="Emails de l’utilisateur (séparés par des virgules, optionnel)" class="w-full" inputmode="email" autocomplete="email" />
             <button class="btn btn-primary w-full sm:w-auto" type="submit">Créer l’utilisateur</button>
           </form>
           <section class="card p-4 space-y-3">
@@ -2833,7 +2853,11 @@
         const name = input?.value?.trim();
         const emailInput = document.getElementById("new-user-email");
         const emailValue = emailInput?.value?.trim();
-        const email = emailValue ? emailValue : "";
+        const { emails, invalid } = parseEmailInput(emailValue || "");
+        if (invalid) {
+          alert(`Adresse email invalide: ${invalid}`);
+          return;
+        }
         if (!name) return;
         appLog("admin:newUser:submit", { name });
         const uid = newUid();
@@ -2842,7 +2866,12 @@
             name: name,
             displayName: name,
             createdAt: new Date().toISOString(),
-            ...(email ? { email } : {})
+            ...(emails.length
+              ? {
+                  email: emails[0],
+                  emails,
+                }
+              : {}),
           });
           if (input) input.value = "";
           if (emailInput) emailInput.value = "";
@@ -2871,6 +2900,26 @@
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+    const normalizeEmails = (data) => {
+      const seen = new Set();
+      const result = [];
+      const pushEmail = (value) => {
+        if (typeof value !== "string") return;
+        const trimmed = value.trim();
+        if (!trimmed) return;
+        const key = trimmed.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        result.push(trimmed);
+      };
+      if (Array.isArray(data?.emails)) {
+        data.emails.forEach(pushEmail);
+      }
+      if (typeof data?.email === "string") {
+        pushEmail(data.email);
+      }
+      return result;
+    };
     try {
       const ss = await appFirestore.getDocs(appFirestore.collection(db, "u"));
       const items = [];
@@ -2879,11 +2928,18 @@
         const data = d.data();
         const uid = d.id;
         const displayName = data.displayName || data.name || "(sans nom)";
-        const rawEmail = typeof data.email === "string" ? data.email.trim() : "";
+        const emails = normalizeEmails(data);
         appLog("admin:users:load:item", { uid, displayName });
         const safeName = escapeHtml(displayName);
         const safeUid = escapeHtml(uid);
-        const safeEmail = escapeHtml(rawEmail);
+        const emailLinks = emails
+          .map((value) => {
+            const safeValue = escapeHtml(value);
+            const href = `mailto:${encodeURIComponent(value)}`;
+            return `<a class="text-[var(--accent)]" href="${href}">${safeValue}</a>`;
+          })
+          .join("<br />");
+        const encodedEmails = encodeURIComponent(JSON.stringify(emails));
         const encodedUid = encodeURIComponent(uid);
         const link = `${location.origin}${location.pathname}#/u/${encodedUid}/daily`;
         uids.push(uid);
@@ -2893,9 +2949,9 @@
               <div class="font-semibold text-base">${safeName}</div>
               <div class="text-xs text-[var(--muted)] break-all">UID&nbsp;: ${safeUid}</div>
               <div class="text-xs text-[var(--muted)] break-all">
-                Email&nbsp;:
-                ${rawEmail
-                  ? `<a class="text-[var(--accent)]" href="mailto:${encodeURIComponent(rawEmail)}">${safeEmail}</a>`
+                Email${emails.length > 1 ? "s" : ""}&nbsp;:
+                ${emails.length
+                  ? emailLinks
                   : '<span class="italic">Non renseigné</span>'}
               </div>
             </div>
@@ -2909,9 +2965,9 @@
               <button type="button"
                       class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
                       data-uid="${safeUid}"
-                      data-email="${safeEmail}"
+                      data-emails="${encodedEmails}"
                       data-action="email"
-                      title="Mettre à jour l’adresse email de ${safeName}">✉️ Email</button>
+                      title="Mettre à jour les adresses email de ${safeName}">✉️ Emails</button>
               <button type="button"
                       class="btn btn-ghost text-sm inline-flex justify-center w-full sm:w-auto"
                       data-uid="${safeUid}"
@@ -2952,36 +3008,54 @@
             return;
           }
           if (action === "email") {
-            const currentEmail = actionTarget.dataset.email || "";
-            appLog("admin:users:email:prompt", { uid, currentEmail });
-            const nextEmail = prompt("Adresse email de l’utilisateur :", currentEmail);
-            if (nextEmail === null) {
+            let currentEmails = [];
+            try {
+              currentEmails = actionTarget.dataset.emails
+                ? JSON.parse(decodeURIComponent(actionTarget.dataset.emails))
+                : [];
+            } catch (error) {
+              console.warn("admin:users:email:dataset:error", error);
+              currentEmails = [];
+            }
+            const currentLabel = currentEmails.join(", ");
+            appLog("admin:users:email:prompt", { uid, currentEmails });
+            const nextEmailInput = prompt(
+              "Adresses email de l’utilisateur (séparées par des virgules ou des retours à la ligne) :",
+              currentLabel
+            );
+            if (nextEmailInput === null) {
               appLog("admin:users:email:cancelled", { uid });
               return;
             }
-            const trimmedEmail = nextEmail.trim();
-            if (trimmedEmail && !/^.+@.+\..+$/.test(trimmedEmail)) {
-              appLog("admin:users:email:invalid", { uid });
-              alert("Adresse email invalide.");
+            const { emails: parsedEmails, invalid } = parseEmailInput(nextEmailInput);
+            if (invalid) {
+              appLog("admin:users:email:invalid", { uid, invalid });
+              alert(`Adresse email invalide: ${invalid}`);
               return;
             }
             try {
               const userRef = appFirestore.doc(db, "u", uid);
-              const payload = trimmedEmail
-                ? { email: trimmedEmail }
+              const hasEmails = parsedEmails.length > 0;
+              const deleteField =
+                typeof appFirestore.deleteField === "function"
+                  ? appFirestore.deleteField()
+                  : null;
+              const payload = hasEmails
+                ? {
+                    email: parsedEmails[0],
+                    emails: parsedEmails,
+                  }
                 : {
-                    email:
-                      typeof appFirestore.deleteField === "function"
-                        ? appFirestore.deleteField()
-                        : null,
+                    email: deleteField,
+                    emails: deleteField,
                   };
               await appFirestore.setDoc(userRef, payload, { merge: true });
-              appLog("admin:users:email:write", { uid, nextEmail: trimmedEmail || null });
+              appLog("admin:users:email:write", { uid, nextEmails: parsedEmails });
               await loadUsers(db);
             } catch (error) {
               console.error("admin:users:email:error", error);
               appLog("admin:users:email:error", { uid, message: error?.message || String(error) });
-              alert("Impossible de mettre à jour l’adresse email.");
+              alert("Impossible de mettre à jour les adresses email.");
             }
             return;
           }

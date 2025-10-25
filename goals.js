@@ -493,9 +493,29 @@
       if (raw === "both" || raw === "push+email" || raw === "email+push") return "both";
       return "push";
     })();
-    const profileEmailRaw = typeof ctx?.profile?.email === "string" ? ctx.profile.email.trim() : "";
-    const profileEmail = profileEmailRaw;
-    const hasProfileEmail = /@/.test(profileEmailRaw);
+    const profileEmails = (() => {
+      const source = ctx?.profile || {};
+      const seen = new Set();
+      const result = [];
+      const pushEmail = (value) => {
+        if (typeof value !== "string") return;
+        const trimmed = value.trim();
+        if (!trimmed) return;
+        const key = trimmed.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        result.push(trimmed);
+      };
+      if (Array.isArray(source.emails)) {
+        source.emails.forEach(pushEmail);
+      }
+      if (typeof source.email === "string") {
+        pushEmail(source.email);
+      }
+      return result;
+    })();
+    const profileEmail = profileEmails[0] || "";
+    const hasProfileEmail = profileEmails.length > 0;
     const monthLabel = (() => {
       const [y, m] = monthKey.split("-").map(Number);
       if (!Number.isFinite(y) || !Number.isFinite(m)) return monthKey;
@@ -888,7 +908,7 @@
         return;
       }
       if (hasProfileEmail) {
-        notifyEmailWarning.textContent = `Envoi à ${profileEmail}.`;
+        notifyEmailWarning.textContent = `Envoi à ${profileEmails.join(", ")}.`;
       } else {
         notifyEmailWarning.textContent = "Ajoute une adresse email dans l’admin pour recevoir ce rappel.";
       }
