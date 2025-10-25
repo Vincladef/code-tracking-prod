@@ -11191,10 +11191,66 @@ function renderHistoryChart(data, { type, mode } = {}) {
     return { y, label };
   });
 
-  const xAxisLabels = coords
-    .map((point) => {
+  const approxCharWidth = 7.5;
+  const minLabelWidth = 52;
+  const labelPadding = 10;
+  const labelEntries = coords
+    .map((point, index) => {
       const label = point.axisLabel;
-      if (!label) return "";
+      if (!label) return null;
+      const estimatedWidth = Math.max(minLabelWidth, label.length * approxCharWidth);
+      return { index, point, label, width: estimatedWidth };
+    })
+    .filter(Boolean);
+
+  const visibleLabelEntries = [];
+  for (const entry of labelEntries) {
+    if (!visibleLabelEntries.length) {
+      visibleLabelEntries.push(entry);
+      continue;
+    }
+    const previous = visibleLabelEntries[visibleLabelEntries.length - 1];
+    const minGap = (previous.width + entry.width) / 2 + labelPadding;
+    if (entry.point.x - previous.point.x >= minGap) {
+      visibleLabelEntries.push(entry);
+    }
+  }
+
+  const lastEntry = labelEntries[labelEntries.length - 1];
+  if (lastEntry && !visibleLabelEntries.some((entry) => entry.index === lastEntry.index)) {
+    let inserted = false;
+    for (let i = visibleLabelEntries.length - 1; i >= 0; i -= 1) {
+      const candidate = visibleLabelEntries[i];
+      const minGap = (candidate.width + lastEntry.width) / 2 + labelPadding;
+      if (lastEntry.point.x - candidate.point.x >= minGap) {
+        visibleLabelEntries.splice(i + 1, visibleLabelEntries.length - i - 1, lastEntry);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) {
+      const firstEntry = visibleLabelEntries[0] || labelEntries[0];
+      if (firstEntry) {
+        const minGapEnds = (firstEntry.width + lastEntry.width) / 2 + labelPadding;
+        if (lastEntry.point.x - firstEntry.point.x >= minGapEnds) {
+          visibleLabelEntries.length = 0;
+          visibleLabelEntries.push(firstEntry, lastEntry);
+        } else {
+          visibleLabelEntries.length = 0;
+          visibleLabelEntries.push(lastEntry);
+        }
+      } else {
+        visibleLabelEntries.push(lastEntry);
+      }
+    }
+  }
+
+  const visibleLabelIndices = new Set(visibleLabelEntries.map((entry) => entry.index));
+
+  const xAxisLabels = coords
+    .map((point, index) => {
+      const label = point.axisLabel;
+      if (!label || !visibleLabelIndices.has(index)) return "";
       return `<text class="history-chart__axis-label history-chart__axis-label--x" x="${point.x.toFixed(2)}" y="${(chartHeight - paddingBottom + 32).toFixed(2)}">${escapeHtml(
         label
       )}</text>`;
