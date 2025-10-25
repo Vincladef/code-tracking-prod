@@ -10005,17 +10005,17 @@ function attachConsigneEditor(row, consigne, options = {}) {
           </div>
         </div>`
         : "";
-    const primaryActionsMarkup = requiresValidation
-      ? `<div class="practice-editor__actions-buttons">
-          ${delayControlMarkup}
-          <button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>
-          <button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>
-          <button type="button" class="btn btn-primary" data-consigne-editor-validate>${escapeHtml(validateButtonLabel)}</button>
-        </div>`
-      : `<div class="practice-editor__actions-buttons">
-          ${delayControlMarkup}
-          <button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>
-        </div>`;
+    const primaryButtons = requiresValidation
+      ? [
+          '<button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>',
+          '<button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>',
+          `<button type="button" class="btn btn-primary" data-consigne-editor-validate>${escapeHtml(validateButtonLabel)}</button>`,
+        ]
+      : ['<button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>'];
+    if (delayControlMarkup) {
+      primaryButtons.push(delayControlMarkup);
+    }
+    const primaryActionsMarkup = `<div class="practice-editor__actions-buttons">${primaryButtons.join("\n          ")}</div>`;
     const sideControls = [summaryControlMarkup].filter(Boolean);
     const sideControlsMarkup = sideControls.length
       ? `<div class="practice-editor__actions-controls">${sideControls.join("")}</div>`
