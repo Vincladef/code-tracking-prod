@@ -7787,31 +7787,45 @@ function parseHistoryTimelineDateInfo(value) {
     raw = new Date(value.getTime());
   } else if (typeof value?.toDate === "function") {
     try {
-      raw = value.toDate();
+      const viaToDate = value.toDate();
+      if (viaToDate instanceof Date && !Number.isNaN(viaToDate.getTime())) {
+        raw = new Date(viaToDate.getTime());
+      }
     } catch (_) {
       raw = null;
     }
-  } else if (typeof value === "number") {
-    raw = new Date(value);
-  } else if (typeof value === "string") {
+  }
+  if (!raw && typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) {
       return null;
     }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-      const [yearStr, monthStr, dayStr] = trimmed.split("-");
-      const year = Number(yearStr);
-      const month = Number(monthStr);
-      const day = Number(dayStr);
+    if (/^\d{1,2}[\/-]\d{1,2}$/.test(trimmed)) {
+      return null;
+    }
+    const dayFirstMatch = /^([0-9]{1,2})[\/-]([0-9]{1,2})[\/-]([0-9]{2,4})$/.exec(trimmed);
+    if (dayFirstMatch) {
+      const day = Number(dayFirstMatch[1]);
+      const month = Number(dayFirstMatch[2]);
+      const year = Number(dayFirstMatch[3].length === 2 ? `20${dayFirstMatch[3]}` : dayFirstMatch[3]);
       if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
-        raw = new Date(year, (month || 1) - 1, day || 1);
+        const candidate = new Date(year, (month || 1) - 1, day || 1);
+        if (!Number.isNaN(candidate.getTime())) {
+          raw = candidate;
+        }
       }
     }
     if (!raw) {
-      const parsed = new Date(trimmed);
-      if (!Number.isNaN(parsed.getTime())) {
-        raw = parsed;
+      const numeric = Number(trimmed);
+      if (Number.isFinite(numeric)) {
+        raw = fallbackAsDate(numeric);
       }
+    }
+  }
+  if (!raw) {
+    const fallback = fallbackAsDate(value);
+    if (fallback instanceof Date && !Number.isNaN(fallback.getTime())) {
+      raw = new Date(fallback.getTime());
     }
   }
   if (!raw || Number.isNaN(raw.getTime())) {
@@ -11492,22 +11506,136 @@ function getRecentResponsesStore() {
   return null;
 }
 
+const MILLIS_EPOCH_THRESHOLD = Date.UTC(2000, 0, 1);
+
+function normalizeDateInstance(date) {
+  if (!(date instanceof Date)) {
+    return null;
+  }
+  const time = date.getTime();
+  if (!Number.isFinite(time) || time <= 0 || time < MILLIS_EPOCH_THRESHOLD) {
+    return null;
+  }
+  return new Date(time);
+}
+
+function fallbackAsDate(value) {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return normalizeDateInstance(value);
+  }
+  if (typeof value.toDate === "function") {
+    try {
+      const viaToDate = value.toDate();
+      const normalized = normalizeDateInstance(viaToDate);
+      if (normalized) {
+        return normalized;
+      }
+    } catch (error) {
+      modesLogger?.debug?.("ui.history.asDate.toDate", error);
+    }
+  }
+  if (typeof value.toMillis === "function") {
+    try {
+      const millis = value.toMillis();
+      if (Number.isFinite(millis)) {
+        return fallbackAsDate(millis);
+      }
+    } catch (error) {
+      modesLogger?.debug?.("ui.history.asDate.toMillis", error);
+    }
+  }
+  if (typeof value === "object") {
+    const seconds =
+      typeof value.seconds === "number"
+        ? value.seconds
+        : typeof value._seconds === "number"
+        ? value._seconds
+        : null;
+    if (seconds && Number.isFinite(seconds)) {
+      const nanosRaw =
+        typeof value.nanoseconds === "number"
+          ? value.nanoseconds
+          : typeof value._nanoseconds === "number"
+          ? value._nanoseconds
+          : 0;
+      const nanos = Number.isFinite(nanosRaw) ? nanosRaw : 0;
+      const millis = seconds * 1000 + Math.floor(nanos / 1e6);
+      if (millis > 0) {
+        return fallbackAsDate(millis);
+      }
+    }
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const normalized = value < 1e12 ? value * 1000 : value;
+    if (!Number.isFinite(normalized) || normalized <= 0) {
+      return null;
+    }
+    const date = new Date(normalized);
+    return normalizeDateInstance(date);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) {
+      return fallbackAsDate(numeric);
+    }
+    const parsed = new Date(trimmed);
+    return normalizeDateInstance(parsed);
+  }
+  return null;
+}
+
+function asDate(value) {
+  const util = window?.DateUtils?.asDate;
+  if (typeof util === "function") {
+    try {
+      const resolved = util(value);
+      if (resolved instanceof Date && !Number.isNaN(resolved.getTime())) {
+        return new Date(resolved.getTime());
+      }
+      if (resolved == null) {
+        return null;
+      }
+      if (typeof resolved === "number" && Number.isFinite(resolved)) {
+        const viaNumber = new Date(resolved);
+        return Number.isNaN(viaNumber.getTime()) ? null : viaNumber;
+      }
+      if (typeof resolved === "string") {
+        const viaString = new Date(resolved);
+        return Number.isNaN(viaString.getTime()) ? null : viaString;
+      }
+    } catch (error) {
+      modesLogger?.debug?.("ui.history.asDate.external", error);
+    }
+  }
+  return fallbackAsDate(value);
+}
+
+function firstValidDate(candidates) {
+  if (!Array.isArray(candidates)) {
+    return null;
+  }
+  for (const candidate of candidates) {
+    const date = asDate(candidate);
+    if (date instanceof Date && !Number.isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  return null;
+}
+
 function parseHistoryDateInput(value) {
   if (!value) {
     return null;
   }
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
-  }
-  if (typeof value.toDate === "function") {
-    try {
-      const parsedViaTimestamp = value.toDate();
-      if (parsedViaTimestamp instanceof Date && !Number.isNaN(parsedViaTimestamp.getTime())) {
-        return parsedViaTimestamp;
-      }
-    } catch (error) {
-      modesLogger?.debug?.("ui.history.date.parse", error);
-    }
   }
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -11520,19 +11648,19 @@ function parseHistoryDateInput(value) {
     }
     const numeric = Number(trimmed);
     if (Number.isFinite(numeric)) {
-      const fromNumber = new Date(numeric);
-      if (!Number.isNaN(fromNumber.getTime())) {
+      const fromNumber = asDate(numeric);
+      if (fromNumber instanceof Date && !Number.isNaN(fromNumber.getTime())) {
         return fromNumber;
       }
+    }
+    if (!/\d{4}/.test(trimmed)) {
+      return null;
     }
     const parsed = new Date(trimmed);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-  return null;
+  const normalized = asDate(value);
+  return normalized instanceof Date && !Number.isNaN(normalized.getTime()) ? normalized : null;
 }
 
 function resolveHistoryEntryDate(row) {
@@ -11547,16 +11675,62 @@ function resolveHistoryEntryDate(row) {
     row.pageDateISO,
     row.dayKey,
     row.day_key,
+    row.date,
     row.createdAt,
+    row.created_at,
+    row.recordedAt,
+    row.recorded_at,
     row.updatedAt,
+    row.updated_at,
   ];
-  for (const candidate of candidates) {
-    const parsed = parseHistoryDateInput(candidate);
-    if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
-      return parsed;
-    }
+  return firstValidDate(candidates.map((candidate) => parseHistoryDateInput(candidate) || candidate));
+}
+
+function resolveHistorySortTime(row) {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+  const primary = resolveHistoryEntryDate(row);
+  if (primary instanceof Date && !Number.isNaN(primary.getTime())) {
+    return primary.getTime();
+  }
+  const fallback = firstValidDate([
+    row?.createdAt,
+    row?.created_at,
+    row?.recordedAt,
+    row?.recorded_at,
+    row?.updatedAt,
+    row?.updated_at,
+  ]);
+  if (fallback instanceof Date && !Number.isNaN(fallback.getTime())) {
+    return fallback.getTime();
   }
   return null;
+}
+
+function compareHistoryRowsDesc(a, b) {
+  const aTime = resolveHistorySortTime(a);
+  const bTime = resolveHistorySortTime(b);
+  const aValid = Number.isFinite(aTime);
+  const bValid = Number.isFinite(bTime);
+  if (aValid && bValid && aTime !== bTime) {
+    return bTime - aTime;
+  }
+  if (aValid && !bValid) {
+    return -1;
+  }
+  if (!aValid && bValid) {
+    return 1;
+  }
+  if (aValid && bValid) {
+    return 0;
+  }
+  const aId = historyRowIdentity(a);
+  const bId = historyRowIdentity(b);
+  if (aId || bId) {
+    return String(bId || "").localeCompare(String(aId || ""));
+  }
+  return 0;
 }
 
 function historyRowIdentity(row) {
@@ -11608,29 +11782,12 @@ function mergeRowsWithRecent(rows, consigneId) {
     pending.push(entry);
   });
   if (pending.length) {
-    pending.sort((a, b) => {
-      const aDate = resolveHistoryEntryDate(a);
-      const bDate = resolveHistoryEntryDate(b);
-      const aTime = aDate instanceof Date ? aDate.getTime() : new Date(a?.createdAt || 0).getTime();
-      const bTime = bDate instanceof Date ? bDate.getTime() : new Date(b?.createdAt || 0).getTime();
-      return bTime - aTime;
-    });
+    pending.sort(compareHistoryRowsDesc);
     store.set(consigneId, pending.slice(0, 10));
   } else {
     store.delete(consigneId);
   }
-  merged.sort((a, b) => {
-    const aDate = resolveHistoryEntryDate(a);
-    const bDate = resolveHistoryEntryDate(b);
-    const aTime = aDate instanceof Date ? aDate.getTime() : 0;
-    const bTime = bDate instanceof Date ? bDate.getTime() : 0;
-    if (aTime === bTime) {
-      const aFallback = new Date(a?.createdAt || 0).getTime();
-      const bFallback = new Date(b?.createdAt || 0).getTime();
-      return bFallback - aFallback;
-    }
-    return bTime - aTime;
-  });
+  merged.sort(compareHistoryRowsDesc);
   return merged;
 }
 
@@ -11766,20 +11923,8 @@ async function openHistory(ctx, consigne, options = {}) {
   }
 
   function parseDateForDaily(value) {
-    if (!value) return null;
-    if (value instanceof Date) {
-      return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
-    }
-    if (typeof value.toDate === "function") {
-      try {
-        const parsed = value.toDate();
-        return Number.isNaN(parsed?.getTime?.()) ? null : parsed;
-      } catch (error) {
-        modesLogger.warn("ui.history.daily.parse", error);
-      }
-    }
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+    const parsed = asDate(value);
+    return parsed instanceof Date && !Number.isNaN(parsed.getTime()) ? parsed : null;
   }
 
   function resolveDayKey(row, createdAt) {
@@ -11796,13 +11941,14 @@ async function openHistory(ctx, consigne, options = {}) {
       return Schema?.dayKeyFromDate ? Schema.dayKeyFromDate(rawDay) : "";
     }
     if (typeof rawDay === "number" && Number.isFinite(rawDay)) {
-      const fromNumber = new Date(rawDay);
-      if (!Number.isNaN(fromNumber.getTime())) {
+      const fromNumber = asDate(rawDay);
+      if (fromNumber instanceof Date && !Number.isNaN(fromNumber.getTime())) {
         return Schema?.dayKeyFromDate ? Schema.dayKeyFromDate(fromNumber) : "";
       }
     }
-    if (createdAt instanceof Date && Schema?.dayKeyFromDate) {
-      return Schema.dayKeyFromDate(createdAt);
+    const parsedCreatedAt = asDate(createdAt);
+    if (parsedCreatedAt instanceof Date && !Number.isNaN(parsedCreatedAt.getTime())) {
+      return Schema?.dayKeyFromDate ? Schema.dayKeyFromDate(parsedCreatedAt) : "";
     }
     return "";
   }
@@ -12174,20 +12320,23 @@ async function openHistory(ctx, consigne, options = {}) {
 
   const list = rows
     .map((r, index) => {
-      const createdAtSource = r.createdAt?.toDate?.() ?? r.createdAt ?? r.updatedAt ?? null;
-      let recordedAt = createdAtSource ? new Date(createdAtSource) : null;
-      if (recordedAt && Number.isNaN(recordedAt.getTime())) {
-        recordedAt = null;
-      }
+      const recordedAt = firstValidDate([
+        r.createdAt,
+        r.created_at,
+        r.recordedAt,
+        r.recorded_at,
+        r.updatedAt,
+        r.updated_at,
+      ]);
       const primaryDate = resolveHistoryEntryDate(r);
       const dayKey = resolveDayKey(r, primaryDate || recordedAt);
       const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
-      const displayDate = dayDate || primaryDate || recordedAt;
-      const iso = displayDate && !Number.isNaN(displayDate.getTime()) ? displayDate.toISOString() : "";
-      const dateText = displayDate && !Number.isNaN(displayDate.getTime())
+      const displayDate = firstValidDate([dayDate, primaryDate, recordedAt]);
+      const iso = displayDate instanceof Date ? displayDate.toISOString() : "";
+      const dateText = displayDate instanceof Date
         ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
         : "Date inconnue";
-      const relative = displayDate ? relativeLabel(displayDate) : "";
+      const relative = displayDate instanceof Date ? relativeLabel(displayDate) : "";
       const formattedText = formatConsigneValue(consigne.type, r.value, { consigne });
       const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html", consigne });
       const status = dotColor(consigne.type, r.value, consigne) || "na";
@@ -12280,12 +12429,12 @@ async function openHistory(ctx, consigne, options = {}) {
           checklistBadgeMarkup = `<span class="${badgeClasses.join(" ")}">${escapeHtml(`${pct}%`)}</span>`;
         }
       }
-      if (displayDate && numericValue !== null && !Number.isNaN(numericValue)) {
+      if (displayDate instanceof Date && numericValue !== null && !Number.isNaN(numericValue)) {
         chartPoints.push({
           date: displayDate,
-        value: chartValue,
-        progress: montantDetails?.progress ?? null,
-        isSummary: Boolean(summaryInfo.isSummary),
+          value: chartValue,
+          progress: montantDetails?.progress ?? null,
+          isSummary: Boolean(summaryInfo.isSummary),
           summaryScope: summaryInfo.scope || "",
           isBilan: Boolean(summaryInfo.isBilan),
           recordedAt: recordedAt instanceof Date && !Number.isNaN(recordedAt?.getTime?.()) ? recordedAt : null,
@@ -12481,11 +12630,8 @@ async function openHistory(ctx, consigne, options = {}) {
       showToast("Impossible d’identifier la date de cette réponse.");
       return;
     }
-    const createdAtSource = row.createdAt?.toDate?.() ?? row.createdAt ?? row.updatedAt ?? null;
-    let createdAt = createdAtSource ? new Date(createdAtSource) : null;
-    if (createdAt && Number.isNaN(createdAt.getTime())) {
-      createdAt = null;
-    }
+    const createdAtSource = row.createdAt ?? row.updatedAt ?? null;
+    const createdAt = asDate(createdAtSource);
     const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
     const displayDate = dayDate || createdAt;
     const dateLabel = displayDate && !Number.isNaN(displayDate.getTime())
@@ -15333,5 +15479,6 @@ if (typeof module !== "undefined" && module.exports) {
     setConsigneSkipState,
     normalizeConsigneValueForPersistence,
     normalizeMontantValue,
+    parseHistoryTimelineDateInfo,
   };
 }
