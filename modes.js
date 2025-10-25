@@ -10031,18 +10031,12 @@ function attachConsigneEditor(row, consigne, options = {}) {
         : "";
     const primaryButtons = requiresValidation
       ? [
+          delayControlMarkup,
           '<button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>',
           '<button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>',
           `<button type="button" class="btn btn-primary" data-consigne-editor-validate>${escapeHtml(validateButtonLabel)}</button>`,
-        ]
+        ].filter(Boolean)
       : ['<button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>'];
-    if (delayControlMarkup) {
-      const validateButtonIndex = primaryButtons.findIndex((markup) =>
-        markup.includes('data-consigne-editor-validate')
-      );
-      const insertIndex = validateButtonIndex >= 0 ? validateButtonIndex : primaryButtons.length;
-      primaryButtons.splice(insertIndex, 0, delayControlMarkup);
-    }
     const primaryActionsMarkup = `<div class="practice-editor__actions-buttons">${primaryButtons.join("\n          ")}</div>`;
     const sideControls = [summaryControlMarkup].filter(Boolean);
     const sideControlsMarkup = sideControls.length
