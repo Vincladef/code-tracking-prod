@@ -7757,7 +7757,7 @@ function buildHistoryTimelineLabels(date, fallbackKey) {
       if (sessionMatch) {
         const sessionNumber = Number.parseInt(sessionMatch[1], 10);
         if (Number.isFinite(sessionNumber) && sessionNumber > 0) {
-          return { label: `Itération ${sessionNumber}`, weekday: "" };
+          return { label: String(sessionNumber), weekday: "" };
         }
       }
     }
@@ -8378,6 +8378,30 @@ function extractPracticeIterationIndex(entry, dayKey) {
   return null;
 }
 
+function sanitizeIterationLabel(label, iterationNumber) {
+  if (typeof label !== "string") {
+    return "";
+  }
+  const trimmed = label.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (iterationNumber == null) {
+    return trimmed;
+  }
+  let normalized = trimmed;
+  if (typeof normalized.normalize === "function") {
+    normalized = normalized.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+  normalized = normalized.replace(/[^0-9a-zA-Z°\s]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  const numberPattern = String(iterationNumber);
+  const defaultPattern = new RegExp(`^iteration(?:\s+n[°o])?\s+0*${numberPattern}$`);
+  if (defaultPattern.test(normalized)) {
+    return "";
+  }
+  return trimmed;
+}
+
 function resolveHistoryTimelineKey(entry, consigne) {
   const base = resolveHistoryTimelineKeyBase(entry);
   const modeSource = typeof consigne?.mode === "string" ? consigne.mode : entry?.mode;
@@ -8453,10 +8477,8 @@ function resolveHistoryTimelineKey(entry, consigne) {
         break;
       }
     }
-    if (!resolvedLabel && base.iterationNumber != null) {
-      resolvedLabel = `Itération ${base.iterationNumber}`;
-    }
-    base.iterationLabel = resolvedLabel;
+    const sanitizedLabel = sanitizeIterationLabel(resolvedLabel, base.iterationNumber);
+    base.iterationLabel = sanitizedLabel;
   } else {
     base.iterationIndex = null;
     base.iterationNumber = null;
@@ -8894,7 +8916,11 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   const practiceMode = typeof consigne?.mode === "string" && consigne.mode.trim().toLowerCase() === "practice";
   const iterationIndex = practiceMode ? practiceIterationIndexFromKey(dayKey) : null;
   const iterationNumber = iterationIndex != null ? iterationIndex + 1 : existingDetails?.iterationNumber ?? null;
-  const iterationLabel = existingDetails?.iterationLabel || (iterationNumber != null ? `Itération ${iterationNumber}` : "");
+  let iterationLabel = typeof options.iterationLabel === "string" ? options.iterationLabel : "";
+  if (!iterationLabel && typeof existingDetails?.iterationLabel === "string") {
+    iterationLabel = existingDetails.iterationLabel;
+  }
+  iterationLabel = sanitizeIterationLabel(iterationLabel, iterationNumber);
   const record = {
     dayKey,
     date,
