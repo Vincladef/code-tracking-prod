@@ -10013,7 +10013,11 @@ function attachConsigneEditor(row, consigne, options = {}) {
         ]
       : ['<button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>'];
     if (delayControlMarkup) {
-      primaryButtons.push(delayControlMarkup);
+      const validateButtonIndex = primaryButtons.findIndex((markup) =>
+        markup.includes('data-consigne-editor-validate')
+      );
+      const insertIndex = validateButtonIndex >= 0 ? validateButtonIndex : primaryButtons.length;
+      primaryButtons.splice(insertIndex, 0, delayControlMarkup);
     }
     const primaryActionsMarkup = `<div class="practice-editor__actions-buttons">${primaryButtons.join("\n          ")}</div>`;
     const sideControls = [summaryControlMarkup].filter(Boolean);
