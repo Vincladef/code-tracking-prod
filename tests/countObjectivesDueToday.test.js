@@ -85,4 +85,28 @@ describe("countObjectivesDueToday", () => {
     expect(fetcher).toHaveBeenCalledWith("user", monthKey);
     expect(reminderFetcher).toHaveBeenCalledWith("user", context.dateIso);
   });
+
+  test("ignores email-only objectives when counting push reminders", async () => {
+    const context = parisContext(new Date("2024-07-15T08:00:00.000Z"));
+    const monthKey = context.dateIso.slice(0, 7);
+
+    const fetcher = makeFetcher({
+      [monthKey]: [
+        { id: "push", notifyAt: "2024-07-15", notifyChannel: "push" },
+        { id: "email", notifyAt: "2024-07-15", notifyChannel: "email" },
+        { id: "both", notifyAt: "2024-07-15", notifyChannel: "both" },
+      ],
+    });
+
+    const reminderFetcher = jest.fn(async () => []);
+
+    const count = await countObjectivesDueToday("user", context, {
+      fetchObjectivesByMonth: fetcher,
+      fetchObjectivesByReminder: reminderFetcher,
+    });
+
+    expect(count).toBe(2);
+    expect(fetcher).toHaveBeenCalledWith("user", monthKey);
+    expect(reminderFetcher).toHaveBeenCalledWith("user", context.dateIso);
+  });
 });

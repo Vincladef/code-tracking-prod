@@ -476,6 +476,8 @@ function hydrateConsigne(doc) {
     ephemeral: data.ephemeral === true,
     ephemeralDurationDays: normalizePositiveInteger(data.ephemeralDurationDays),
     ephemeralDurationIterations: normalizePositiveInteger(data.ephemeralDurationIterations),
+    archived: data.archived === true,
+    archivedAt: data.archivedAt || null,
   };
 }
 
@@ -982,6 +984,9 @@ async function persistResponsesToHistory(db, uid, responses) {
       "context",
       "moduleId",
       "category",
+      "sessionId",
+      "sessionIndex",
+      "sessionNumber",
       "mode",
       "type",
       "dayKey",
@@ -1300,7 +1305,7 @@ async function listConsignesByMode(db, uid, mode) {
 }
 
 // --- Nouvelles collections /u/{uid}/... ---
-async function fetchConsignes(db, uid, mode) {
+async function fetchConsignes(db, uid, mode, options = {}) {
   const qy = query(
     col(db, uid, "consignes"),
     where("mode", "==", mode),
@@ -1308,7 +1313,11 @@ async function fetchConsignes(db, uid, mode) {
     orderBy("priority")
   );
   const ss = await getDocs(qy);
-  return ss.docs.map((d) => hydrateConsigne(d));
+  const consignes = ss.docs.map((d) => hydrateConsigne(d));
+  if (options && options.includeArchived === true) {
+    return consignes;
+  }
+  return consignes.filter((consigne) => consigne.archived !== true);
 }
 
 async function listChildConsignes(db, uid, parentId) {
@@ -1319,7 +1328,76 @@ async function listChildConsignes(db, uid, parentId) {
     where("active", "==", true)
   );
   const snap = await getDocs(qy);
-  return snap.docs.map((d) => hydrateConsigne(d));
+  return snap.docs
+    .map((d) => hydrateConsigne(d))
+    .filter((consigne) => consigne.archived !== true);
+}
+
+async function listArchivedConsignes(db, uid, mode) {
+  const qy = query(
+    col(db, uid, "consignes"),
+    where("mode", "==", mode),
+    where("active", "==", true),
+    where("archived", "==", true)
+  );
+  const snap = await getDocs(qy);
+  return snap.docs.map((docSnap) => hydrateConsigne(docSnap));
+}
+
+async function cascadeArchiveState(db, uid, parentId, { archived, timestamp, visited = new Set() }) {
+  if (!db || !uid || !parentId) {
+    return;
+  }
+  if (visited.has(parentId)) {
+    return;
+  }
+  visited.add(parentId);
+  let childrenSnap;
+  try {
+    childrenSnap = await getDocs(query(col(db, uid, "consignes"), where("parentId", "==", parentId)));
+  } catch (error) {
+    console.warn("archiveConsigne:children", error);
+    return;
+  }
+  const tasks = childrenSnap.docs.map(async (docSnap) => {
+    if (!docSnap) return;
+    const childId = docSnap.id;
+    if (!childId || visited.has(childId)) {
+      return;
+    }
+    const payload = archived
+      ? { archived: true, archivedAt: timestamp || serverTimestamp(), updatedAt: timestamp || serverTimestamp() }
+      : { archived: false, archivedAt: null, updatedAt: timestamp || serverTimestamp() };
+    try {
+      await updateDoc(docSnap.ref, payload);
+    } catch (error) {
+      console.warn("archiveConsigne:updateChild", { archived, parentId, childId, error });
+    }
+    await cascadeArchiveState(db, uid, childId, { archived, timestamp, visited });
+  });
+  await Promise.all(tasks);
+}
+
+async function archiveConsigne(db, uid, id) {
+  const ref = docIn(db, uid, "consignes", id);
+  const timestamp = serverTimestamp();
+  await updateDoc(ref, {
+    archived: true,
+    archivedAt: timestamp,
+    updatedAt: timestamp,
+  });
+  await cascadeArchiveState(db, uid, id, { archived: true, timestamp, visited: new Set() });
+}
+
+async function unarchiveConsigne(db, uid, id) {
+  const ref = docIn(db, uid, "consignes", id);
+  const timestamp = serverTimestamp();
+  await updateDoc(ref, {
+    archived: false,
+    archivedAt: null,
+    updatedAt: timestamp,
+  });
+  await cascadeArchiveState(db, uid, id, { archived: false, timestamp, visited: new Set() });
 }
 
 async function addConsigne(db, uid, payload) {
@@ -1342,6 +1420,8 @@ async function addConsigne(db, uid, payload) {
     ephemeral: payload.ephemeral === true,
     ephemeralDurationDays: normalizePositiveInteger(payload.ephemeralDurationDays),
     ephemeralDurationIterations: normalizePositiveInteger(payload.ephemeralDurationIterations),
+    archived: false,
+    archivedAt: null,
     createdAt: serverTimestamp()
   });
   return ref;
@@ -2336,6 +2416,10 @@ async function upsertObjective(db, uid, data, objectifId = null) {
   if (data?.notifyOnTarget !== undefined) {
     payload.notifyOnTarget = data.notifyOnTarget !== false;
   }
+  if (data?.notifyChannel !== undefined) {
+    const rawChannel = typeof data.notifyChannel === "string" ? data.notifyChannel.trim() : "";
+    payload.notifyChannel = rawChannel || null;
+  }
   if (data?.notifyAt !== undefined) {
     payload.notifyAt = data.notifyAt || null;
   }
@@ -2866,11 +2950,14 @@ Object.assign(Schema, {
   listConsignesByMode,
   fetchConsignes,
   listChildConsignes,
+  listArchivedConsignes,
   addConsigne,
   logConsigneHistoryEntry,
   updateConsigne,
   updateConsigneOrder,
   softDeleteConsigne,
+  archiveConsigne,
+  unarchiveConsigne,
   saveResponse,
   fetchHistory,
   fetchResponsesForConsigne,

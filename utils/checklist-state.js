@@ -659,10 +659,17 @@
         selectedIds: [],
         skippedIds: [],
         answers: {},
+        checklistValue: null,
+        value: null,
       };
     }
     if (!payloadKey && payload.dateKey !== expected) {
-      return { ...payload, dateKey: expected };
+      return {
+        ...payload,
+        dateKey: expected,
+        checklistValue: null,
+        value: null,
+      };
     }
     return payload;
   }
@@ -1500,7 +1507,7 @@
           selected: Array.isArray(lastPayload.selectedIds) ? lastPayload.selectedIds.length : 0,
           hasAnswers: Boolean(lastPayload.answers && Object.keys(lastPayload.answers).length),
         });
-        saved = lastPayload;
+        saved = sanitizeLoadedPayload(lastPayload, requestedKey);
       }
       const optionsHash = root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
       // On restaure l'état complet si disponible
