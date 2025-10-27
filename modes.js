@@ -8288,7 +8288,29 @@ function resolveHistoryTimelineKeyBase(entry) {
   if (!entry || typeof entry !== "object") {
     return { dayKey: null, date: null, timestamp: null };
   }
-  const keyCandidates = [
+
+  const keyCandidates = [];
+  const dateCandidates = [];
+
+  const addCandidate = (bucket, value, source) => {
+    if (value === undefined || value === null) {
+      return;
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return;
+      }
+      bucket.push({ value: trimmed, source });
+      return;
+    }
+    bucket.push({ value, source });
+  };
+
+  const addKeyCandidate = (value, source = "entry") => addCandidate(keyCandidates, value, source);
+  const addDateCandidate = (value, source = "entry") => addCandidate(dateCandidates, value, source);
+
+  [
     entry.dayKey,
     entry.day_key,
     entry.date,
@@ -8300,21 +8322,17 @@ function resolveHistoryTimelineKeyBase(entry) {
     entry.page_date_iso,
     entry.periodKey,
     entry.period_key,
-  ];
-  for (const candidate of keyCandidates) {
-    if (!candidate) continue;
-    const info = parseHistoryTimelineDateInfo(candidate);
-    if (!info) continue;
-    const dayKey = typeof Schema?.dayKeyFromDate === "function"
-      ? Schema.dayKeyFromDate(info.date)
-      : typeof candidate === "string"
-      ? String(candidate).trim()
-      : info.date.toISOString().slice(0, 10);
-    if (dayKey) {
-      return { dayKey, date: info.date, timestamp: info.timestamp };
-    }
-  }
-  const dateCandidates = [
+  ].forEach((value) => addKeyCandidate(value, "field"));
+
+  [
+    entry.id,
+    entry.documentId,
+    entry.document_id,
+    entry.docId,
+    entry.doc_id,
+  ].forEach((value) => addKeyCandidate(value, "docId"));
+
+  [
     entry.pageDate,
     entry.page_date,
     entry.createdAt,
@@ -8329,17 +8347,122 @@ function resolveHistoryTimelineKeyBase(entry) {
     entry.session_day_key,
     entry.iterationDate,
     entry.iteration_date,
-  ];
-  for (const candidate of dateCandidates) {
-    const info = parseHistoryTimelineDateInfo(candidate);
-    if (!info) continue;
-    const dayKey = typeof Schema?.dayKeyFromDate === "function"
+    entry.timestamp,
+    entry.eventAt,
+    entry.event_at,
+  ].forEach((value) => addDateCandidate(value, "field"));
+
+  const nestedSources = [entry.payload, entry.metadata, entry.details, entry.context, entry.data];
+  nestedSources.forEach((source) => {
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      return;
+    }
+    [
+      source.dayKey,
+      source.day_key,
+      source.dateKey,
+      source.date_key,
+      source.dateIso,
+      source.date_iso,
+      source.date,
+      source.historyDay,
+      source.history_day,
+      source.periodKey,
+      source.period_key,
+      source.pageDateIso,
+      source.page_date_iso,
+    ].forEach((value) => addKeyCandidate(value, "nested"));
+
+    [
+      source.pageDate,
+      source.page_date,
+      source.createdAt,
+      source.created_at,
+      source.updatedAt,
+      source.updated_at,
+      source.recordedAt,
+      source.recorded_at,
+      source.timestamp,
+      source.eventAt,
+      source.event_at,
+    ].forEach((value) => addDateCandidate(value, "nested"));
+  });
+
+  const consider = (acc, candidate, weightBase) => {
+    const info = parseHistoryTimelineDateInfo(candidate.value);
+    if (!info || !(info.date instanceof Date) || Number.isNaN(info.date.getTime())) {
+      return acc;
+    }
+    const derivedDayKey = typeof Schema?.dayKeyFromDate === "function"
       ? Schema.dayKeyFromDate(info.date)
       : info.date.toISOString().slice(0, 10);
-    if (dayKey) {
-      return { dayKey, date: info.date, timestamp: info.timestamp };
+    if (!derivedDayKey) {
+      return acc;
     }
+    const timestamp = typeof info.timestamp === "number" ? info.timestamp : info.date.getTime();
+    let weight = weightBase;
+    if (typeof candidate.value === "string") {
+      if (/^\d{4}-\d{2}-\d{2}/.test(candidate.value)) {
+        weight += 2;
+      } else if (/^session-/i.test(candidate.value)) {
+        weight += 1;
+      } else if (/^\d{1,2}[\/\-]\d{1,2}$/.test(candidate.value)) {
+        weight -= 3;
+      }
+    }
+    if (timestamp && timestamp > Date.UTC(2005, 0, 1)) {
+      weight += 1;
+    }
+    acc.push({
+      dayKey: derivedDayKey,
+      date: info.date,
+      timestamp,
+      weight,
+    });
+    return acc;
+  };
+
+  const scoredCandidates = [];
+  const seen = new Set();
+  keyCandidates.forEach((candidate) => {
+    const marker = typeof candidate.value === "string" ? `key:${candidate.value}` : candidate.value;
+    if (seen.has(marker)) {
+      return;
+    }
+    seen.add(marker);
+    consider(scoredCandidates, candidate, candidate.source === "docId" ? 6 : candidate.source === "nested" ? 5 : 4);
+  });
+
+  const seenDates = new Set();
+  dateCandidates.forEach((candidate) => {
+    const marker = typeof candidate.value === "string" ? `date:${candidate.value}` : candidate.value;
+    if (seenDates.has(marker)) {
+      return;
+    }
+    seenDates.add(marker);
+    consider(scoredCandidates, candidate, candidate.source === "nested" ? 7 : 8);
+  });
+
+  if (scoredCandidates.length) {
+    scoredCandidates.sort((a, b) => {
+      if (b.weight !== a.weight) {
+        return b.weight - a.weight;
+      }
+      const at = typeof a.timestamp === "number" ? a.timestamp : -Infinity;
+      const bt = typeof b.timestamp === "number" ? b.timestamp : -Infinity;
+      if (bt !== at) {
+        return bt - at;
+      }
+      return b.dayKey.localeCompare(a.dayKey);
+    });
+    const best = scoredCandidates[0];
+    return {
+      dayKey: best.dayKey,
+      date: best.date,
+      timestamp: typeof best.timestamp === "number" ? best.timestamp : best.date.getTime(),
+    };
   }
+
   return { dayKey: null, date: null, timestamp: null };
 }
 
@@ -12999,7 +13122,7 @@ async function renderPractice(ctx, root, _opts = {}) {
     autosaveDayKey || "today",
   ].map((part) => String(part)).join(":");
 
-  const archiveConsigneWithRefresh = async (consigne, { close } = {}) => {
+  async function archiveConsigneWithRefresh(consigne, { close, row } = {}) {
     if (!consigne || !consigne.id) {
       return false;
     }
@@ -13019,15 +13142,32 @@ async function renderPractice(ctx, root, _opts = {}) {
           console.warn("practice.archive.close", error);
         }
       }
+      const fallbackRow = row && row instanceof Element ? row : findPracticeConsigneRowById(consigne.id, container);
+      if (fallbackRow) {
+        const isChildRow = fallbackRow.classList.contains("consigne-row--child") && !fallbackRow.classList.contains("consigne-row--parent");
+        removePracticeConsigneRow(fallbackRow, { removeGroup: !isChildRow });
+        if (isChildRow) {
+          const parentCard = fallbackRow.closest(".consigne-row--parent");
+          if (parentCard && parentCard.__practiceEditorConfig) {
+            const childConsignes = Array.isArray(parentCard.__practiceEditorConfig.childConsignes)
+              ? parentCard.__practiceEditorConfig.childConsignes
+              : [];
+            parentCard.__practiceEditorConfig.childConsignes = childConsignes.filter((childCfg) => {
+              const childId = childCfg?.consigne?.id ?? childCfg?.id;
+              return String(childId) !== String(consigne.id);
+            });
+          }
+        }
+      }
+      removePracticeHiddenConsigne(consigne.id, container);
       showToast("Consigne archivée.");
-      renderPractice(ctx, root);
       return true;
     } catch (error) {
       console.error(error);
       showToast("Impossible d'archiver la consigne.");
       return false;
     }
-  };
+  }
 
   const card = document.createElement("section");
   card.className = "card space-y-4 p-3 sm:p-4";
@@ -13166,6 +13306,32 @@ async function renderPractice(ctx, root, _opts = {}) {
     return String(value).replace(/"/g, '\\"');
   };
 
+  function findPracticeConsigneRowById(consigneId, scopeRoot) {
+    if (consigneId == null) {
+      return null;
+    }
+    const rootEl = scopeRoot || container || document;
+    const selector = `[data-consigne-id="${escapeHiddenId(consigneId)}"]`;
+    return rootEl.querySelector(selector);
+  }
+
+  function removePracticeHiddenConsigne(consigneId, scopeRoot) {
+    if (consigneId == null) {
+      return;
+    }
+    const box = (scopeRoot || container)?.querySelector?.("[data-practice-hidden-box]");
+    if (!box) return;
+    const list = box.querySelector("[data-practice-hidden-list]");
+    if (!list) return;
+    const selector = `[data-practice-hidden-item][data-consigne-id="${escapeHiddenId(consigneId)}"]`;
+    const item = list.querySelector(selector);
+    if (!item) {
+      return;
+    }
+    item.remove();
+    updatePracticeHiddenCounts();
+  }
+
   const updatePracticeHiddenCounts = () => {
     const box = container.querySelector("[data-practice-hidden-box]");
     if (!box) return;
@@ -13287,15 +13453,25 @@ async function renderPractice(ctx, root, _opts = {}) {
     updatePracticeHiddenCounts();
   };
 
-  const removePracticeConsigneRow = (targetRow) => {
+  function removePracticeConsigneRow(targetRow, { removeGroup = true } = {}) {
     if (!targetRow) return;
     const cardRoot = targetRow.closest("[data-practice-root]");
     const containerForm = cardRoot ? cardRoot.querySelector("#practice-form") : form;
     const group = targetRow.closest(".consigne-group");
-    if (group) {
+    if (group && removeGroup) {
       group.remove();
     } else {
       targetRow.remove();
+      if (group && !removeGroup) {
+        const childRows = group.querySelectorAll(".consigne-row--child:not(.consigne-row--parent)");
+        if (!childRows.length) {
+          // Si aucun enfant restant, laisser uniquement la consigne parent visible.
+          const parentRow = group.querySelector(".consigne-row--parent");
+          if (!parentRow) {
+            group.remove();
+          }
+        }
+      }
     }
     if (cardRoot) {
       const lowDetails = cardRoot.querySelectorAll(".daily-category__low");
@@ -13316,7 +13492,7 @@ async function renderPractice(ctx, root, _opts = {}) {
     if (!hasRemaining && containerForm) {
       containerForm.innerHTML = PRACTICE_EMPTY_HTML;
     }
-  };
+  }
 
   const handlePracticeConsigneDelayed = (consigne, targetRow, delayState) => {
     if (!targetRow) return;
@@ -13435,7 +13611,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           e.preventDefault();
           e.stopPropagation();
           closeConsigneActionMenuFromNode(bA);
-          await archiveConsigneWithRefresh(c);
+          await archiveConsigneWithRefresh(c, { row });
         };
       }
       let srEnabled = c?.srEnabled !== false;
@@ -13504,6 +13680,7 @@ async function renderPractice(ctx, root, _opts = {}) {
             }
           },
         },
+        archive: () => archiveConsigneWithRefresh(c, { row }),
       }));
       const applyDelayFromEditor = async (rawAmount, context = {}) => {
         const numeric = Number(rawAmount);
@@ -13607,7 +13784,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           allowArchive: true,
           archiveLabel: "Archiver la consigne",
           archiveValue: CONSIGNE_ARCHIVE_DELAY_VALUE,
-          onArchive: ({ close } = {}) => archiveConsigneWithRefresh(c, { close }),
+          onArchive: ({ close } = {}) => archiveConsigneWithRefresh(c, { close, row }),
         };
       }
       row.__practiceEditorConfig = editorConfig;
@@ -13666,7 +13843,7 @@ async function renderPractice(ctx, root, _opts = {}) {
             renderPractice(ctx, root);
             return true;
           },
-          onArchive: ({ close } = {}) => archiveConsigneWithRefresh(child, { close }),
+          onArchive: ({ close } = {}) => archiveConsigneWithRefresh(child, { close, row: childRow }),
           onToggleSr: async (next) => {
             try {
               await Schema.updateConsigne(ctx.db, ctx.user.uid, child.id, { srEnabled: next });
@@ -15480,5 +15657,8 @@ if (typeof module !== "undefined" && module.exports) {
     normalizeConsigneValueForPersistence,
     normalizeMontantValue,
     parseHistoryTimelineDateInfo,
+    __test__: {
+      resolveHistoryTimelineKeyBase,
+    },
   };
 }
