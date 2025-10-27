@@ -487,6 +487,35 @@
     let weekOfMonth = Number(goal?.weekOfMonth || initial.weekOfMonth || 1);
     const typeInitial = goal?.type || initial.type || "hebdo";
     const notificationsInitial = goal?.notifyOnTarget !== false;
+    const notifyChannelInitial = (() => {
+      const raw = (goal?.notifyChannel || initial.notifyChannel || "").toLowerCase();
+      if (raw === "email" || raw === "mail") return "email";
+      if (raw === "both" || raw === "push+email" || raw === "email+push") return "both";
+      return "push";
+    })();
+    const profileEmails = (() => {
+      const source = ctx?.profile || {};
+      const seen = new Set();
+      const result = [];
+      const pushEmail = (value) => {
+        if (typeof value !== "string") return;
+        const trimmed = value.trim();
+        if (!trimmed) return;
+        const key = trimmed.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        result.push(trimmed);
+      };
+      if (Array.isArray(source.emails)) {
+        source.emails.forEach(pushEmail);
+      }
+      if (typeof source.email === "string") {
+        pushEmail(source.email);
+      }
+      return result;
+    })();
+    const profileEmail = profileEmails[0] || "";
+    const hasProfileEmail = profileEmails.length > 0;
     const monthLabel = (() => {
       const [y, m] = monthKey.split("-").map(Number);
       if (!Number.isFinite(y) || !Number.isFinite(m)) return monthKey;
@@ -649,6 +678,15 @@
               )}">
               <p class="goal-reminder__hint goal-hint" data-notify-default></p>
             </div>
+            <div class="goal-reminder" data-reminder-channel>
+              <label class="goal-label goal-reminder__label" for="goal-notify-channel">Canal d’envoi</label>
+              <select id="goal-notify-channel" name="notifyChannel" class="goal-input goal-reminder__input">
+                <option value="push" ${notifyChannelInitial === "push" ? "selected" : ""}>Notification dans l’app</option>
+                <option value="email" ${notifyChannelInitial === "email" ? "selected" : ""}>Email</option>
+                <option value="both" ${notifyChannelInitial === "both" ? "selected" : ""}>Notification + email</option>
+              </select>
+              <p class="goal-reminder__hint goal-hint" data-email-warning hidden></p>
+            </div>
           </div>
           <div class="goal-field goal-linker" data-goal-linker>
             <span class="goal-label">Consignes associées</span>
@@ -694,7 +732,10 @@
     const weekButtons = form.querySelectorAll("#week-picker [data-w]");
     const notifyCheckbox = form.querySelector("[name=notifyOnTarget]");
     const notifyDateInput = form.querySelector("[name=notifyAt]");
+    const notifyChannelSelect = form.querySelector("[name=notifyChannel]");
+    const notifyChannelWrap = form.querySelector("[data-reminder-channel]");
     const notifyDefaultHint = form.querySelector("[data-notify-default]");
+    const notifyEmailWarning = form.querySelector("[data-email-warning]");
     const linkerPanel = form.querySelector("[data-linker-panel]");
     const linkerToggle = form.querySelector("[data-linker-toggle]");
     const linkerSummaryEl = form.querySelector("[data-linker-summary]");
@@ -857,6 +898,23 @@
       notifyDateDirty = (notifyDateInput.value || "") !== (theoreticalIso || "");
     };
 
+    const updateEmailWarning = () => {
+      if (!notifyEmailWarning) return;
+      const channel = notifyChannelSelect?.value || "push";
+      const needsEmail = channel === "email" || channel === "both";
+      if (!needsEmail) {
+        notifyEmailWarning.hidden = true;
+        notifyEmailWarning.textContent = "";
+        return;
+      }
+      if (hasProfileEmail) {
+        notifyEmailWarning.textContent = `Envoi à ${profileEmails.join(", ")}.`;
+      } else {
+        notifyEmailWarning.textContent = "Ajoute une adresse email dans l’admin pour recevoir ce rappel.";
+      }
+      notifyEmailWarning.hidden = false;
+    };
+
     const updateNotificationEnabledState = () => {
       const enabled = notifyCheckbox?.checked !== false;
       if (notifyDateInput) {
@@ -864,6 +922,18 @@
       }
       if (notifyDefaultHint) {
         notifyDefaultHint.classList.toggle("is-disabled", !enabled);
+      }
+      if (notifyChannelSelect) {
+        notifyChannelSelect.disabled = !enabled;
+      }
+      if (notifyChannelWrap) {
+        notifyChannelWrap.classList.toggle("is-disabled", !enabled);
+      }
+      if (notifyEmailWarning) {
+        notifyEmailWarning.classList.toggle("is-disabled", !enabled);
+      }
+      if (enabled) {
+        updateEmailWarning();
       }
     };
 
@@ -910,6 +980,12 @@
       });
     }
 
+    if (notifyChannelSelect) {
+      notifyChannelSelect.addEventListener("change", () => {
+        updateEmailWarning();
+      });
+    }
+
     weekButtons.forEach((btn) => {
       const value = Number(btn.dataset.w || "1");
       if (value === weekOfMonth) {
@@ -930,6 +1006,7 @@
 
     updateNotifyDefault();
     updateNotificationEnabledState();
+    updateEmailWarning();
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -941,6 +1018,7 @@
       const description = form.querySelector("[name=description]").value.trim();
       const type = typeSelect.value;
       const notifyOnTarget = notifyCheckbox?.checked !== false;
+      const notifyChannel = notifyChannelSelect?.value || "push";
       const notifyAtRaw = (notifyDateInput?.value || "").trim();
       let notifyAt = null;
       const goalConfig = currentGoalConfig();
@@ -968,6 +1046,7 @@
         type,
         monthKey,
         notifyOnTarget,
+        notifyChannel: notifyOnTarget ? notifyChannel : null,
         notifyAt: notifyAt || null,
       };
       if (type === "hebdo") {
