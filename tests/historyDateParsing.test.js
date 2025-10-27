@@ -57,7 +57,9 @@ global.Schema = {
   },
 };
 
-const { parseHistoryTimelineDateInfo } = require("../modes.js");
+const modes = require("../modes.js");
+const { parseHistoryTimelineDateInfo } = modes;
+const { resolveHistoryTimelineKeyBase } = modes.__test__ || {};
 
 (function runTests() {
   const noYear = parseHistoryTimelineDateInfo("01/01");
@@ -111,6 +113,46 @@ const { parseHistoryTimelineDateInfo } = require("../modes.js");
   const sentinelTimestamp = { seconds: 0, nanoseconds: 0 };
   const fromSentinel = parseHistoryTimelineDateInfo(sentinelTimestamp);
   assert.strictEqual(fromSentinel, null, "Server timestamp sentinels must be ignored");
+
+  if (typeof resolveHistoryTimelineKeyBase === "function") {
+    const entryWithDocId = {
+      id: "2024-10-22",
+      date: "01/01",
+      value: "ok",
+    };
+    const keyInfo = resolveHistoryTimelineKeyBase(entryWithDocId);
+    assert(keyInfo, "resolveHistoryTimelineKeyBase should return an object");
+    assert.strictEqual(keyInfo.dayKey, "2024-10-22", "Document id must be used as a fallback day key");
+    assert(keyInfo.date instanceof Date, "Fallback using document id should yield a Date instance");
+    assert.strictEqual(keyInfo.date.getFullYear(), 2024);
+    assert.strictEqual(keyInfo.date.getMonth(), 9);
+    assert.strictEqual(keyInfo.date.getDate(), 22);
+
+    const preferCreatedAt = resolveHistoryTimelineKeyBase({
+      dayKey: "2024-01-01",
+      createdAt: new Date("2024-10-22T09:05:00.000Z"),
+    });
+    assert(preferCreatedAt, "resolveHistoryTimelineKeyBase should resolve entries with createdAt fallback");
+    assert.strictEqual(preferCreatedAt.dayKey, "2024-10-22");
+    assert.strictEqual(preferCreatedAt.date.getUTCFullYear(), 2024);
+    assert.strictEqual(preferCreatedAt.date.getUTCMonth(), 9);
+    assert.strictEqual(preferCreatedAt.date.getUTCDate(), 22);
+
+    const preferNestedTimestamp = resolveHistoryTimelineKeyBase({
+      dayKey: "2024-01-01",
+      payload: {
+        createdAt: { seconds: 1729641600, nanoseconds: 0 },
+      },
+      metadata: {
+        sessionDayKey: "session-0010",
+      },
+    });
+    assert(preferNestedTimestamp, "resolveHistoryTimelineKeyBase should leverage nested timestamps");
+    assert.strictEqual(preferNestedTimestamp.dayKey, "2024-10-23");
+    assert.strictEqual(preferNestedTimestamp.date.getUTCFullYear(), 2024);
+    assert.strictEqual(preferNestedTimestamp.date.getUTCMonth(), 9);
+    assert.strictEqual(preferNestedTimestamp.date.getUTCDate(), 23);
+  }
 
   console.log("History date parsing test passed.");
 })();
