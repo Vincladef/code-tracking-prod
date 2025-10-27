@@ -1,3 +1,7 @@
 - [x] Add regression test capturing history date fallback when entry has ISO date hidden in createdAt but dayKey as 01/01
 - [x] Extend history timeline key resolution to use doc id and nested date fields
 - [x] Run test suite to confirm fix
+- [x] Investigate practice history cards showing 01/01 despite recorded dates in history
+- [x] Ensure practice consigne timeline orders dates newest to oldest consistently
+- [x] Fix underlying timeline key/date resolution and update tests
+- [ ] Verify practice UI displays correct labels and order

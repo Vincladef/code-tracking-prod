@@ -8291,7 +8291,8 @@ function resolveHistoryTimelineKeyBase(entry) {
 
   const keyCandidates = [];
   const dateCandidates = [];
-  const addCandidate = (bucket, value) => {
+
+  const addCandidate = (bucket, value, source) => {
     if (value === undefined || value === null) {
       return;
     }
@@ -8300,14 +8301,14 @@ function resolveHistoryTimelineKeyBase(entry) {
       if (!trimmed) {
         return;
       }
-      bucket.push(trimmed);
+      bucket.push({ value: trimmed, source });
       return;
     }
-    bucket.push(value);
+    bucket.push({ value, source });
   };
 
-  const addKeyCandidate = (value) => addCandidate(keyCandidates, value);
-  const addDateCandidate = (value) => addCandidate(dateCandidates, value);
+  const addKeyCandidate = (value, source = "entry") => addCandidate(keyCandidates, value, source);
+  const addDateCandidate = (value, source = "entry") => addCandidate(dateCandidates, value, source);
 
   [
     entry.dayKey,
@@ -8321,7 +8322,7 @@ function resolveHistoryTimelineKeyBase(entry) {
     entry.page_date_iso,
     entry.periodKey,
     entry.period_key,
-  ].forEach(addKeyCandidate);
+  ].forEach((value) => addKeyCandidate(value, "field"));
 
   [
     entry.id,
@@ -8329,7 +8330,7 @@ function resolveHistoryTimelineKeyBase(entry) {
     entry.document_id,
     entry.docId,
     entry.doc_id,
-  ].forEach(addKeyCandidate);
+  ].forEach((value) => addKeyCandidate(value, "docId"));
 
   [
     entry.pageDate,
@@ -8349,7 +8350,7 @@ function resolveHistoryTimelineKeyBase(entry) {
     entry.timestamp,
     entry.eventAt,
     entry.event_at,
-  ].forEach(addDateCandidate);
+  ].forEach((value) => addDateCandidate(value, "field"));
 
   const nestedSources = [entry.payload, entry.metadata, entry.details, entry.context, entry.data];
   nestedSources.forEach((source) => {
@@ -8370,9 +8371,8 @@ function resolveHistoryTimelineKeyBase(entry) {
       source.period_key,
       source.pageDateIso,
       source.page_date_iso,
-    ].forEach(addKeyCandidate);
+    ].forEach((value) => addKeyCandidate(value, "nested"));
 
-    // Capture nested timestamps (Firestore payloads often keep them in metadata fields).
     [
       source.pageDate,
       source.page_date,
@@ -8385,44 +8385,84 @@ function resolveHistoryTimelineKeyBase(entry) {
       source.timestamp,
       source.eventAt,
       source.event_at,
-    ].forEach(addDateCandidate);
+    ].forEach((value) => addDateCandidate(value, "nested"));
   });
 
-  const seenKeyCandidates = new Set();
-  for (const candidate of keyCandidates) {
-    const marker = typeof candidate === "string" ? `s:${candidate}` : candidate;
-    if (seenKeyCandidates.has(marker)) {
-      continue;
+  const consider = (acc, candidate, weightBase) => {
+    const info = parseHistoryTimelineDateInfo(candidate.value);
+    if (!info || !(info.date instanceof Date) || Number.isNaN(info.date.getTime())) {
+      return acc;
     }
-    seenKeyCandidates.add(marker);
-    const info = parseHistoryTimelineDateInfo(candidate);
-    if (!info) continue;
-    const dayKey = typeof Schema?.dayKeyFromDate === "function"
+    const derivedDayKey = typeof Schema?.dayKeyFromDate === "function"
       ? Schema.dayKeyFromDate(info.date)
-      : typeof candidate === "string"
-      ? String(candidate).trim()
       : info.date.toISOString().slice(0, 10);
-    if (dayKey) {
-      return { dayKey, date: info.date, timestamp: info.timestamp };
+    if (!derivedDayKey) {
+      return acc;
     }
+    const timestamp = typeof info.timestamp === "number" ? info.timestamp : info.date.getTime();
+    let weight = weightBase;
+    if (typeof candidate.value === "string") {
+      if (/^\d{4}-\d{2}-\d{2}/.test(candidate.value)) {
+        weight += 2;
+      } else if (/^session-/i.test(candidate.value)) {
+        weight += 1;
+      } else if (/^\d{1,2}[\/\-]\d{1,2}$/.test(candidate.value)) {
+        weight -= 3;
+      }
+    }
+    if (timestamp && timestamp > Date.UTC(2005, 0, 1)) {
+      weight += 1;
+    }
+    acc.push({
+      dayKey: derivedDayKey,
+      date: info.date,
+      timestamp,
+      weight,
+    });
+    return acc;
+  };
+
+  const scoredCandidates = [];
+  const seen = new Set();
+  keyCandidates.forEach((candidate) => {
+    const marker = typeof candidate.value === "string" ? `key:${candidate.value}` : candidate.value;
+    if (seen.has(marker)) {
+      return;
+    }
+    seen.add(marker);
+    consider(scoredCandidates, candidate, candidate.source === "docId" ? 6 : candidate.source === "nested" ? 5 : 4);
+  });
+
+  const seenDates = new Set();
+  dateCandidates.forEach((candidate) => {
+    const marker = typeof candidate.value === "string" ? `date:${candidate.value}` : candidate.value;
+    if (seenDates.has(marker)) {
+      return;
+    }
+    seenDates.add(marker);
+    consider(scoredCandidates, candidate, candidate.source === "nested" ? 7 : 8);
+  });
+
+  if (scoredCandidates.length) {
+    scoredCandidates.sort((a, b) => {
+      if (b.weight !== a.weight) {
+        return b.weight - a.weight;
+      }
+      const at = typeof a.timestamp === "number" ? a.timestamp : -Infinity;
+      const bt = typeof b.timestamp === "number" ? b.timestamp : -Infinity;
+      if (bt !== at) {
+        return bt - at;
+      }
+      return b.dayKey.localeCompare(a.dayKey);
+    });
+    const best = scoredCandidates[0];
+    return {
+      dayKey: best.dayKey,
+      date: best.date,
+      timestamp: typeof best.timestamp === "number" ? best.timestamp : best.date.getTime(),
+    };
   }
 
-  const seenDateCandidates = new Set();
-  for (const candidate of dateCandidates) {
-    const marker = typeof candidate === "string" ? `s:${candidate}` : candidate;
-    if (seenDateCandidates.has(marker)) {
-      continue;
-    }
-    seenDateCandidates.add(marker);
-    const info = parseHistoryTimelineDateInfo(candidate);
-    if (!info) continue;
-    const dayKey = typeof Schema?.dayKeyFromDate === "function"
-      ? Schema.dayKeyFromDate(info.date)
-      : info.date.toISOString().slice(0, 10);
-    if (dayKey) {
-      return { dayKey, date: info.date, timestamp: info.timestamp };
-    }
-  }
   return { dayKey: null, date: null, timestamp: null };
 }
 
