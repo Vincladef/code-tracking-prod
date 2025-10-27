@@ -13122,7 +13122,7 @@ async function renderPractice(ctx, root, _opts = {}) {
     autosaveDayKey || "today",
   ].map((part) => String(part)).join(":");
 
-  const archiveConsigneWithRefresh = async (consigne, { close } = {}) => {
+  async function archiveConsigneWithRefresh(consigne, { close, row } = {}) {
     if (!consigne || !consigne.id) {
       return false;
     }
@@ -13142,15 +13142,32 @@ async function renderPractice(ctx, root, _opts = {}) {
           console.warn("practice.archive.close", error);
         }
       }
+      const fallbackRow = row && row instanceof Element ? row : findPracticeConsigneRowById(consigne.id, container);
+      if (fallbackRow) {
+        const isChildRow = fallbackRow.classList.contains("consigne-row--child") && !fallbackRow.classList.contains("consigne-row--parent");
+        removePracticeConsigneRow(fallbackRow, { removeGroup: !isChildRow });
+        if (isChildRow) {
+          const parentCard = fallbackRow.closest(".consigne-row--parent");
+          if (parentCard && parentCard.__practiceEditorConfig) {
+            const childConsignes = Array.isArray(parentCard.__practiceEditorConfig.childConsignes)
+              ? parentCard.__practiceEditorConfig.childConsignes
+              : [];
+            parentCard.__practiceEditorConfig.childConsignes = childConsignes.filter((childCfg) => {
+              const childId = childCfg?.consigne?.id ?? childCfg?.id;
+              return String(childId) !== String(consigne.id);
+            });
+          }
+        }
+      }
+      removePracticeHiddenConsigne(consigne.id, container);
       showToast("Consigne archivée.");
-      renderPractice(ctx, root);
       return true;
     } catch (error) {
       console.error(error);
       showToast("Impossible d'archiver la consigne.");
       return false;
     }
-  };
+  }
 
   const card = document.createElement("section");
   card.className = "card space-y-4 p-3 sm:p-4";
@@ -13289,6 +13306,32 @@ async function renderPractice(ctx, root, _opts = {}) {
     return String(value).replace(/"/g, '\\"');
   };
 
+  function findPracticeConsigneRowById(consigneId, scopeRoot) {
+    if (consigneId == null) {
+      return null;
+    }
+    const rootEl = scopeRoot || container || document;
+    const selector = `[data-consigne-id="${escapeHiddenId(consigneId)}"]`;
+    return rootEl.querySelector(selector);
+  }
+
+  function removePracticeHiddenConsigne(consigneId, scopeRoot) {
+    if (consigneId == null) {
+      return;
+    }
+    const box = (scopeRoot || container)?.querySelector?.("[data-practice-hidden-box]");
+    if (!box) return;
+    const list = box.querySelector("[data-practice-hidden-list]");
+    if (!list) return;
+    const selector = `[data-practice-hidden-item][data-consigne-id="${escapeHiddenId(consigneId)}"]`;
+    const item = list.querySelector(selector);
+    if (!item) {
+      return;
+    }
+    item.remove();
+    updatePracticeHiddenCounts();
+  }
+
   const updatePracticeHiddenCounts = () => {
     const box = container.querySelector("[data-practice-hidden-box]");
     if (!box) return;
@@ -13410,15 +13453,25 @@ async function renderPractice(ctx, root, _opts = {}) {
     updatePracticeHiddenCounts();
   };
 
-  const removePracticeConsigneRow = (targetRow) => {
+  function removePracticeConsigneRow(targetRow, { removeGroup = true } = {}) {
     if (!targetRow) return;
     const cardRoot = targetRow.closest("[data-practice-root]");
     const containerForm = cardRoot ? cardRoot.querySelector("#practice-form") : form;
     const group = targetRow.closest(".consigne-group");
-    if (group) {
+    if (group && removeGroup) {
       group.remove();
     } else {
       targetRow.remove();
+      if (group && !removeGroup) {
+        const childRows = group.querySelectorAll(".consigne-row--child:not(.consigne-row--parent)");
+        if (!childRows.length) {
+          // Si aucun enfant restant, laisser uniquement la consigne parent visible.
+          const parentRow = group.querySelector(".consigne-row--parent");
+          if (!parentRow) {
+            group.remove();
+          }
+        }
+      }
     }
     if (cardRoot) {
       const lowDetails = cardRoot.querySelectorAll(".daily-category__low");
@@ -13439,7 +13492,7 @@ async function renderPractice(ctx, root, _opts = {}) {
     if (!hasRemaining && containerForm) {
       containerForm.innerHTML = PRACTICE_EMPTY_HTML;
     }
-  };
+  }
 
   const handlePracticeConsigneDelayed = (consigne, targetRow, delayState) => {
     if (!targetRow) return;
@@ -13558,7 +13611,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           e.preventDefault();
           e.stopPropagation();
           closeConsigneActionMenuFromNode(bA);
-          await archiveConsigneWithRefresh(c);
+          await archiveConsigneWithRefresh(c, { row });
         };
       }
       let srEnabled = c?.srEnabled !== false;
@@ -13627,6 +13680,7 @@ async function renderPractice(ctx, root, _opts = {}) {
             }
           },
         },
+        archive: () => archiveConsigneWithRefresh(c, { row }),
       }));
       const applyDelayFromEditor = async (rawAmount, context = {}) => {
         const numeric = Number(rawAmount);
@@ -13730,7 +13784,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           allowArchive: true,
           archiveLabel: "Archiver la consigne",
           archiveValue: CONSIGNE_ARCHIVE_DELAY_VALUE,
-          onArchive: ({ close } = {}) => archiveConsigneWithRefresh(c, { close }),
+          onArchive: ({ close } = {}) => archiveConsigneWithRefresh(c, { close, row }),
         };
       }
       row.__practiceEditorConfig = editorConfig;
@@ -13789,7 +13843,7 @@ async function renderPractice(ctx, root, _opts = {}) {
             renderPractice(ctx, root);
             return true;
           },
-          onArchive: ({ close } = {}) => archiveConsigneWithRefresh(child, { close }),
+          onArchive: ({ close } = {}) => archiveConsigneWithRefresh(child, { close, row: childRow }),
           onToggleSr: async (next) => {
             try {
               await Schema.updateConsigne(ctx.db, ctx.user.uid, child.id, { srEnabled: next });

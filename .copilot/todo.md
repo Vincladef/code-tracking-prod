@@ -1,3 +1,7 @@
+- [ ] Investigate archive action to avoid full page reload
+- [ ] Update archive handler to perform in-place update without refreshing
+- [ ] Add regression test ensuring active edits persist after archiving
+- [ ] Verify UI archiving flow works without disrupting current page state
 - [x] Add regression test capturing history date fallback when entry has ISO date hidden in createdAt but dayKey as 01/01
 - [x] Extend history timeline key resolution to use doc id and nested date fields
 - [x] Run test suite to confirm fix
