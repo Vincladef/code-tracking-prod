@@ -8288,7 +8288,28 @@ function resolveHistoryTimelineKeyBase(entry) {
   if (!entry || typeof entry !== "object") {
     return { dayKey: null, date: null, timestamp: null };
   }
-  const keyCandidates = [
+
+  const keyCandidates = [];
+  const dateCandidates = [];
+  const addCandidate = (bucket, value) => {
+    if (value === undefined || value === null) {
+      return;
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return;
+      }
+      bucket.push(trimmed);
+      return;
+    }
+    bucket.push(value);
+  };
+
+  const addKeyCandidate = (value) => addCandidate(keyCandidates, value);
+  const addDateCandidate = (value) => addCandidate(dateCandidates, value);
+
+  [
     entry.dayKey,
     entry.day_key,
     entry.date,
@@ -8300,21 +8321,17 @@ function resolveHistoryTimelineKeyBase(entry) {
     entry.page_date_iso,
     entry.periodKey,
     entry.period_key,
-  ];
-  for (const candidate of keyCandidates) {
-    if (!candidate) continue;
-    const info = parseHistoryTimelineDateInfo(candidate);
-    if (!info) continue;
-    const dayKey = typeof Schema?.dayKeyFromDate === "function"
-      ? Schema.dayKeyFromDate(info.date)
-      : typeof candidate === "string"
-      ? String(candidate).trim()
-      : info.date.toISOString().slice(0, 10);
-    if (dayKey) {
-      return { dayKey, date: info.date, timestamp: info.timestamp };
-    }
-  }
-  const dateCandidates = [
+  ].forEach(addKeyCandidate);
+
+  [
+    entry.id,
+    entry.documentId,
+    entry.document_id,
+    entry.docId,
+    entry.doc_id,
+  ].forEach(addKeyCandidate);
+
+  [
     entry.pageDate,
     entry.page_date,
     entry.createdAt,
@@ -8329,8 +8346,74 @@ function resolveHistoryTimelineKeyBase(entry) {
     entry.session_day_key,
     entry.iterationDate,
     entry.iteration_date,
-  ];
+    entry.timestamp,
+    entry.eventAt,
+    entry.event_at,
+  ].forEach(addDateCandidate);
+
+  const nestedSources = [entry.payload, entry.metadata, entry.details, entry.context, entry.data];
+  nestedSources.forEach((source) => {
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      return;
+    }
+    [
+      source.dayKey,
+      source.day_key,
+      source.dateKey,
+      source.date_key,
+      source.dateIso,
+      source.date_iso,
+      source.date,
+      source.historyDay,
+      source.history_day,
+      source.periodKey,
+      source.period_key,
+      source.pageDateIso,
+      source.page_date_iso,
+    ].forEach(addKeyCandidate);
+
+    // Capture nested timestamps (Firestore payloads often keep them in metadata fields).
+    [
+      source.pageDate,
+      source.page_date,
+      source.createdAt,
+      source.created_at,
+      source.updatedAt,
+      source.updated_at,
+      source.recordedAt,
+      source.recorded_at,
+      source.timestamp,
+      source.eventAt,
+      source.event_at,
+    ].forEach(addDateCandidate);
+  });
+
+  const seenKeyCandidates = new Set();
+  for (const candidate of keyCandidates) {
+    const marker = typeof candidate === "string" ? `s:${candidate}` : candidate;
+    if (seenKeyCandidates.has(marker)) {
+      continue;
+    }
+    seenKeyCandidates.add(marker);
+    const info = parseHistoryTimelineDateInfo(candidate);
+    if (!info) continue;
+    const dayKey = typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(info.date)
+      : typeof candidate === "string"
+      ? String(candidate).trim()
+      : info.date.toISOString().slice(0, 10);
+    if (dayKey) {
+      return { dayKey, date: info.date, timestamp: info.timestamp };
+    }
+  }
+
+  const seenDateCandidates = new Set();
   for (const candidate of dateCandidates) {
+    const marker = typeof candidate === "string" ? `s:${candidate}` : candidate;
+    if (seenDateCandidates.has(marker)) {
+      continue;
+    }
+    seenDateCandidates.add(marker);
     const info = parseHistoryTimelineDateInfo(candidate);
     if (!info) continue;
     const dayKey = typeof Schema?.dayKeyFromDate === "function"
@@ -15480,5 +15563,8 @@ if (typeof module !== "undefined" && module.exports) {
     normalizeConsigneValueForPersistence,
     normalizeMontantValue,
     parseHistoryTimelineDateInfo,
+    __test__: {
+      resolveHistoryTimelineKeyBase,
+    },
   };
 }
