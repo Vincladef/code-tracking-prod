@@ -71,6 +71,69 @@
     return formatDateInputValue(parsed);
   }
 
+  function shortDowLabelFromIso(iso) {
+    if (!iso || typeof iso !== "string" || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(iso)) {
+      return "";
+    }
+    const [y, m, d] = iso.split("-").map(Number);
+    const date = new Date(y, (m || 1) - 1, d || 1);
+    if (Number.isNaN(date.getTime())) return "";
+    const dow = date.toLocaleDateString("fr-FR", { weekday: "short" });
+    const dd = String(date.getDate()).padStart(2, "0");
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    return `${dow} ${dd}/${mm}`; // ex: lun. 28/10
+  }
+
+  function isEmailEnabled(goal) {
+    if (!goal || goal.notifyOnTarget === false) return false;
+    const raw = String(goal.notifyChannel || "").toLowerCase();
+    return raw === "email" || raw === "both" || raw === "email+push" || raw === "push+email";
+  }
+
+  function applyGoalRowMeta(row, goal) {
+    if (!row || !goal) return;
+    // Date pill + tooltip on calendar
+    const notifyIso = isoValueFromAny(goal?.notifyAt || "");
+    const theoretical = computeTheoreticalGoalDate(goal);
+    const theoreticalIso = formatDateInputValue(theoretical);
+    const effectiveIso = notifyIso || theoreticalIso || "";
+    const dateBtn = row.querySelector("[data-open-date]");
+    const datePill = row.querySelector("[data-date-pill]");
+    const prettyFull = (() => {
+      if (!effectiveIso) return "Configurer le rappel";
+      const [y, m, d] = effectiveIso.split("-").map(Number);
+      const dt = new Date(y, (m || 1) - 1, d || 1);
+      return dt.toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+    })();
+    const shortLabel = shortDowLabelFromIso(effectiveIso) || "—";
+    if (dateBtn) {
+      dateBtn.title = `Jour du rappel: ${prettyFull}`;
+    }
+    if (datePill) {
+      datePill.textContent = shortLabel;
+      datePill.setAttribute("aria-label", prettyFull);
+      datePill.title = prettyFull;
+    }
+    // Mail indicator
+    const mail = row.querySelector("[data-mail-pill]");
+    if (mail) {
+      const active = isEmailEnabled(goal);
+      mail.textContent = active ? "📧✓" : "📧";
+      mail.title = active ? "Email activé" : "Email désactivé";
+      if (active) mail.setAttribute("data-active", "1"); else mail.removeAttribute("data-active");
+    }
+    // Subtitle in case type/week changed
+    const subtitleEl = row.querySelector(".goal-title__subtitle");
+    if (subtitleEl) {
+      subtitleEl.textContent = typeLabel(goal, goal.monthKey);
+    }
+    // Title text
+    const titleText = row.querySelector(".goal-title__text");
+    if (titleText && goal.titre) {
+      titleText.textContent = goal.titre;
+    }
+  }
+
   function parseMonthKey(monthKey) {
     const [yearStr, monthStr] = String(monthKey || "").split("-");
     const year = Number(yearStr);
@@ -366,18 +429,16 @@
       const row = document.createElement("div");
       row.className = "goal-row goal-row--editable";
       row.style.position = "relative";
+      if (goal?.id) {
+        row.dataset.goalId = String(goal.id);
+      }
       const subtitle = subtitleOverride || typeLabel(goal, goal.monthKey);
       // Effective reminder date label
       const notifyIso = isoValueFromAny(goal?.notifyAt || "");
       const theoretical = computeTheoreticalGoalDate(goal);
       const theoreticalIso = formatDateInputValue(theoretical);
       const effectiveIso = notifyIso || theoreticalIso || "";
-      const effectiveLabel = (() => {
-        if (!effectiveIso) return "Configurer le rappel";
-        const parts = effectiveIso.split("-").map(Number);
-        const d = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
-        return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
-      })();
+      const effectiveLabel = shortDowLabelFromIso(effectiveIso) || "—";
 
       row.innerHTML = `
         <div class="goal-title" style="display:flex; align-items:center; gap:8px;">
@@ -386,7 +447,9 @@
             <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
           </button>
           <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
-            <button type="button" class="btn btn-ghost" data-open-date title="Jour du rappel: ${escapeHtml(effectiveLabel)}">📅</button>
+            <button type="button" class="btn btn-ghost" data-open-date title="Jour du rappel">📅</button>
+            <span class="goal-date-pill text-xs muted" data-date-pill>${escapeHtml(effectiveLabel)}</span>
+            <span class="goal-mail-pill text-xs" data-mail-pill title="${isEmailEnabled(goal) ? "Email activé" : "Email désactivé"}">${isEmailEnabled(goal) ? "📧✓" : "📧"}</span>
             <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
           </div>
         </div>
@@ -496,6 +559,9 @@
           toggleDatePopover(row, goal, dateBtn);
         });
       }
+
+      // Apply meta to ensure latest labels/titles
+      applyGoalRowMeta(row, goal);
 
       return row;
     };
@@ -745,11 +811,13 @@
       };
       const c = lastCtx;
       try {
-        await Schema.upsertObjective(c?.db, c?.user?.uid, payload, null);
-        // Refresh month
-        if (lastMount && c) {
-          renderGoals(c, lastMount);
-        }
+        const id = await Schema.upsertObjective(c?.db, c?.user?.uid, payload, null);
+        const created = { id, ...payload };
+        // Replace inline creator with a proper row (no page reload)
+        const parent = row.parentElement;
+        const subtitle = typeLabel(created, monthKey);
+        const realRow = createGoalRow(created, subtitle);
+        row.replaceWith(realRow);
       } catch (err) {
         goalsLogger.error('goals.inlineCreate.save', err);
         alert("Impossible de créer l’objectif.");
@@ -1403,9 +1471,41 @@
             }
           }
         }
+        // Local DOM update instead of full page reload
         close();
-        if (lastMount) {
-          renderGoals(ctx, lastMount);
+        const monthBox = document.querySelector('.goal-month');
+        const existingRow = document.querySelector(`[data-goal-id="${objectiveId}"]`);
+        const updatedGoal = { id: objectiveId, ...data };
+        if (existingRow) {
+          // If week/type grouping changed within same month, move row
+          const currentMonthKey = monthBox?.dataset?.month || updatedGoal.monthKey;
+          const targetIsWeekly = updatedGoal.type === 'hebdo';
+          if (targetIsWeekly) {
+            const weekList = document.querySelector(`.goal-week[data-week="${updatedGoal.weekOfMonth || 1}"] .goal-list`)
+              || document.querySelector(`.goal-week [data-week="${updatedGoal.weekOfMonth || 1}"]`)?.parentElement?.nextElementSibling;
+            if (weekList && existingRow.parentElement !== weekList) {
+              weekList.appendChild(existingRow);
+            }
+          } else {
+            const monthlyList = document.querySelector('.goal-monthly .goal-list');
+            if (monthlyList && existingRow.parentElement !== monthlyList) {
+              monthlyList.appendChild(existingRow);
+            }
+          }
+          applyGoalRowMeta(existingRow, updatedGoal);
+        } else {
+          // New objective created via modal; try to insert in the right list
+          const subtitle = typeLabel(updatedGoal, updatedGoal.monthKey);
+          const node = createGoalRow(updatedGoal, subtitle);
+          if (updatedGoal.type === 'hebdo') {
+            const weekList = document.querySelector(`.goal-week[data-week="${updatedGoal.weekOfMonth || 1}"] .goal-list`);
+            if (weekList) weekList.prepend(node);
+            else monthBox?.appendChild(node);
+          } else {
+            const monthlyList = document.querySelector('.goal-monthly .goal-list');
+            if (monthlyList) monthlyList.prepend(node);
+            else monthBox?.appendChild(node);
+          }
         }
       } catch (err) {
         goalsLogger.error("goals.save.error", err);
@@ -1484,10 +1584,10 @@
       try {
         await Schema.upsertObjective(c.db, c.user.uid, payload, goal.id);
         pop.setAttribute('hidden', '');
-        // Refresh this month to update labels/tooltips
-        if (lastMount) {
-          renderGoals(c, lastMount);
-        }
+        // Update current row locally
+        goal.notifyAt = picked || goal.notifyAt || null;
+        goal.notifyOnTarget = payload.notifyOnTarget !== false;
+        applyGoalRowMeta(row, goal);
       } catch (err) {
         goalsLogger.error('goals.quickDate.save', err);
         alert("Impossible de mettre à jour le jour du rappel.");
