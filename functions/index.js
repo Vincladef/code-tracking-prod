@@ -1603,12 +1603,16 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
           functions.logger.warn("sendDailyReminders:email:noAddress", { uid });
         } else {
           try {
+            // Choisir le jour à afficher/lier d’après les objectifs (unique si possible)
+            const emailObjs = emailObjectives.map((item) => ({ id: item.objective?.id, ...item.objective }));
+            const uniqueIsos = Array.from(new Set(emailObjs.map((o) => objectiveDueDateIso(o)).filter(Boolean)));
+            const mailIso = uniqueIsos.length === 1 ? uniqueIsos[0] : context.dateIso;
             const payload = buildGoalReminderEmail({
               firstName,
               displayName,
-              objectives: emailObjectives.map((item) => ({ id: item.objective?.id, ...item.objective })),
+              objectives: emailObjs,
               context,
-              link: entry.link,
+              link: buildUserDailyLink(uid, mailIso),
             });
             await sendSmtpEmail({
               ...mailSettings,
@@ -1890,9 +1894,24 @@ function describeObjectiveForEmail(objective = {}) {
 }
 
 function buildGoalReminderEmail({ firstName, displayName, objectives, context, link } = {}) {
-  // Date courte DD/MM/YYYY
+  // Date courte JJ/MM/AAAA basée sur le jour du rappel de l’objectif
+  const safeObjectives = Array.isArray(objectives) ? objectives.filter(Boolean) : [];
+  const chooseIsoFromObjectives = () => {
+    if (!safeObjectives.length) return null;
+    const isos = Array.from(
+      new Set(
+        safeObjectives
+          .map((o) => objectiveDueDateIso(o))
+          .filter((iso) => typeof iso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(iso))
+      )
+    );
+    if (safeObjectives.length === 1 && isos.length >= 1) return isos[0];
+    if (isos.length === 1) return isos[0];
+    return toStringOrNull(context?.dateIso);
+  };
+  const isoForMail = chooseIsoFromObjectives();
   const formattedDate = (() => {
-    const iso = toStringOrNull(context?.dateIso);
+    const iso = toStringOrNull(isoForMail) || toStringOrNull(context?.dateIso);
     if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
       const [y, m, d] = iso.split("-");
       return `${d}/${m}/${y}`;
@@ -1906,7 +1925,6 @@ function buildGoalReminderEmail({ firstName, displayName, objectives, context, l
     }
     return "aujourd’hui";
   })();
-  const safeObjectives = Array.isArray(objectives) ? objectives.filter(Boolean) : [];
 
   // Objet concis avec la date entre parenthèses
   const titleOnly = (o) => toStringOrNull(o?.titre) || toStringOrNull(o?.title) || toStringOrNull(o?.name) || "Objectif";

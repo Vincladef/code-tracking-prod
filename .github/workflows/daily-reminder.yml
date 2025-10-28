@@ -478,11 +478,20 @@ jobs:
 
                   const dueObjectives = await objectivesDueOn(uid, ctx);
                   const titles = dueObjectives.map(titleOnly);
-                  const date = (ctx && ctx.selectedDate instanceof Date) ? ctx.selectedDate : new Date();
-                  const dd = String(date.getDate()).padStart(2,'0');
-                  const mm = String(date.getMonth()+1).padStart(2,'0');
-                  const yyyy = date.getFullYear();
-                  const formatted = `${dd}/${mm}/${yyyy}`;
+                  const dueIsos = Array.from(new Set(dueObjectives.map(o => objectiveDueDateIso(o)).filter(Boolean)));
+                  const chosenIso = titles.length === 1 && dueIsos.length >= 1
+                    ? dueIsos[0]
+                    : (dueIsos.length === 1 ? dueIsos[0] : ctx.dateIso);
+                  const parts = typeof chosenIso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(chosenIso)
+                    ? chosenIso.split('-')
+                    : null;
+                  const formatted = parts ? `${parts[2]}/${parts[1]}/${parts[0]}` : (()=>{
+                    const date = (ctx && ctx.selectedDate instanceof Date) ? ctx.selectedDate : new Date();
+                    const dd = String(date.getDate()).padStart(2,'0');
+                    const mm = String(date.getMonth()+1).padStart(2,'0');
+                    const yyyy = date.getFullYear();
+                    return `${dd}/${mm}/${yyyy}`;
+                  })();
                   const subjectPrefix = titles.length>1 ? 'Rappel objectifs' : 'Rappel objectif';
                   // Objet concis: date entre parenthèses
                   let subject = `${subjectPrefix} (${formatted})`;
@@ -490,7 +499,7 @@ jobs:
                   const greeting = firstName? `Bonjour ${firstName},` : 'Bonjour,';
                   const intro = titles.length>1? `Voici tes objectifs à réaliser le ${formatted} :` : `Voici ton objectif à réaliser le ${formatted} :`;
                   // Lien vers l’onglet Journalier (présente consignes + objectifs du jour)
-                  const emailLink = `https://vincladef.github.io/code-tracking-prod/#/daily?u=${encodeURIComponent(uid)}&d=${ctx.dateIso}`;
+                  const emailLink = `https://vincladef.github.io/code-tracking-prod/#/daily?u=${encodeURIComponent(uid)}&d=${encodeURIComponent(chosenIso)}`;
                   const lines=[greeting,'',intro, ...titles.map(t=>`- ${t}`), '', `Accède à ton espace : ${emailLink}`,'','Bonne journée !'];
                   const text = lines.join('\n');
                   const list = titles.map(t=>`<li>${t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</li>`).join('');

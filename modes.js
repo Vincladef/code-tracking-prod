@@ -15417,13 +15417,51 @@ async function renderDaily(ctx, root, opts = {}) {
               <span class="consigne-row__title">${escapeHtml(title)}</span>
             </button>
           </div>
-          <div class="consigne-row__meta"></div>
+          <div class="consigne-row__meta">
+            <span class="consigne-row__status" data-status="na">
+              <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+              <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
+              <span class="sr-only" data-status-live aria-live="polite"></span>
+            </span>
+          </div>
         </div>`;
 
       const openBtn = row.querySelector('[data-objective-open]');
       const currentDayIso = typeof Schema?.dayKeyFromDate === "function"
         ? Schema.dayKeyFromDate(selectedDate)
         : (selectedDate && selectedDate.toISOString ? selectedDate.toISOString().slice(0,10) : "");
+
+      // Utilitaire statut couleur comme les consignes
+      const applyObjectiveStatus = (val) => {
+        const statusHolder = row.querySelector('[data-status]');
+        const dot = row.querySelector('[data-status-dot]');
+        const mark = row.querySelector('[data-status-mark]');
+        const live = row.querySelector('[data-status-live]');
+        const n = val == null ? null : Number(val);
+        let status = 'na';
+        if (Number.isFinite(n) && n > 0) {
+          if (n >= 5) status = 'ok-strong';
+          else if (n === 4) status = 'ok-soft';
+          else if (n === 3) status = 'mid';
+          else if (n === 2) status = 'ko-soft';
+          else status = 'ko-strong';
+        }
+        row.dataset.status = status;
+        if (statusHolder) {
+          statusHolder.dataset.status = status;
+          statusHolder.setAttribute('data-status', status);
+        }
+        if (dot) {
+          dot.className = `consigne-row__dot consigne-row__dot--${status}`;
+        }
+        if (mark) {
+          mark.classList.toggle('consigne-row__mark--checked', status !== 'na');
+        }
+        if (live) {
+          const labels = { 'ok-strong': 'Très positif', 'ok-soft': 'Plutôt positif', mid: 'Intermédiaire', 'ko-soft': 'Plutôt négatif', 'ko-strong': 'Très négatif', note: 'Réponse notée', na: 'Sans donnée' };
+          live.textContent = `${labels[status] || 'Valeur'}`;
+        }
+      };
 
       // Ouvre une modale pour répondre à l'objectif (même logique que les consignes)
       if (openBtn) {
@@ -15471,6 +15509,7 @@ async function renderDaily(ctx, root, opts = {}) {
             const val = raw === '' ? null : Number(raw);
             try {
               await Schema.saveObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso, val);
+              applyObjectiveStatus(val);
               showToast('Réponse enregistrée.');
               close();
             } catch (err) {
@@ -15482,6 +15521,20 @@ async function renderDaily(ctx, root, opts = {}) {
       }
 
       stack.appendChild(row);
+
+      // Initialiser le statut visuel depuis la valeur existante
+      (async () => {
+        try {
+          const existing = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso);
+          if (existing && existing.v !== undefined && existing.v !== null) {
+            applyObjectiveStatus(existing.v);
+          } else {
+            applyObjectiveStatus(null);
+          }
+        } catch (e) {
+          try { modesLogger?.warn?.('daily.objectivesDue.initStatus', e); } catch (_) {}
+        }
+      })();
     });
 
     // Mettre la section en tête de grille
