@@ -228,6 +228,117 @@
 
     const toneClasses = ["goal-row--positive", "goal-row--neutral", "goal-row--negative", "goal-row--none"];
 
+    const startInlineTitleEdit = (row, goal) => {
+      if (!row || !goal) return;
+      if (row.classList.contains("is-editing")) return;
+      row.classList.add("is-editing");
+      const titleWrap = row.querySelector(".goal-title");
+      const textEl = row.querySelector(".goal-title__text");
+      const subtitleEl = row.querySelector(".goal-title__subtitle");
+      if (!titleWrap || !textEl) return;
+
+      const original = textEl.textContent || "";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "goal-input goal-input--inline";
+      input.value = original;
+      input.placeholder = "Titre de l’objectif";
+
+      const actions = document.createElement("div");
+      actions.className = "goal-inline-actions";
+      const btnSave = document.createElement("button");
+      btnSave.type = "button";
+      btnSave.className = "btn btn-primary btn-compact";
+      btnSave.textContent = "Enregistrer";
+      const btnCancel = document.createElement("button");
+      btnCancel.type = "button";
+      btnCancel.className = "btn btn-ghost btn-compact";
+      btnCancel.textContent = "Annuler";
+      actions.appendChild(btnSave);
+      actions.appendChild(btnCancel);
+
+      // Replace content with editor
+      const editContainer = document.createElement("div");
+      editContainer.className = "goal-inline-editor";
+      editContainer.appendChild(input);
+      editContainer.appendChild(actions);
+      titleWrap.innerHTML = "";
+      titleWrap.appendChild(editContainer);
+
+      const finish = () => {
+        row.classList.remove("is-editing");
+        // restore original UI without reflowing the whole month
+        titleWrap.innerHTML = `
+          <button type="button" class="goal-title__button" data-edit-goal>
+            <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
+            <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(typeLabel(goal, goal.monthKey))}</span>
+          </button>
+          <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⋯</button>
+        `;
+        const editButton = titleWrap.querySelector("[data-edit-goal]");
+        if (editButton) {
+          editButton.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            startInlineTitleEdit(row, goal);
+          });
+        }
+        const advBtn = titleWrap.querySelector("[data-open-advanced]");
+        if (advBtn) {
+          advBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openGoalForm(ctx, goal);
+          });
+        }
+      };
+
+      const doSave = async () => {
+        const titre = input.value.trim();
+        if (!titre) {
+          input.focus();
+          return;
+        }
+        try {
+          await Schema.upsertObjective(
+            ctx.db,
+            ctx.user.uid,
+            {
+              titre,
+              type: goal.type,
+              monthKey: goal.monthKey,
+              ...(goal.type === "hebdo" ? { weekOfMonth: goal.weekOfMonth || 1 } : {}),
+            },
+            goal.id
+          );
+          goal.titre = titre; // update local
+          finish();
+          if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+            window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+          }
+        } catch (err) {
+          goalsLogger.error("goals.inlineEdit.save", err);
+          alert("Impossible d'enregistrer le titre de l’objectif.");
+        }
+      };
+
+      btnSave.addEventListener("click", doSave);
+      btnCancel.addEventListener("click", () => finish());
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          doSave();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          finish();
+        }
+      });
+      setTimeout(() => {
+        input.focus();
+        try { input.select(); } catch (_e) {}
+      }, 0);
+    };
+
     const createGoalRow = (goal, subtitleOverride = null) => {
       const row = document.createElement("div");
       row.className = "goal-row goal-row--editable";
@@ -238,6 +349,7 @@
             <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
             <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
           </button>
+          <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⋯</button>
         </div>
         <div class="goal-quick">
           <select class="select-compact">
@@ -319,21 +431,22 @@
       };
       hydrateSavedValue();
 
-      const openEditor = () => openGoalForm(ctx, goal);
-
       const editButton = row.querySelector("[data-edit-goal]");
       if (editButton) {
         editButton.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          openEditor();
+          startInlineTitleEdit(row, goal);
         });
       }
-
-      row.addEventListener("click", (event) => {
-        if (event.target.closest(".goal-quick")) return;
-        openEditor();
-      });
+      const advBtn = row.querySelector("[data-open-advanced]");
+      if (advBtn) {
+        advBtn.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openGoalForm(ctx, goal);
+        });
+      }
 
       return row;
     };
@@ -361,8 +474,9 @@
       `;
       box.appendChild(headerRow);
 
+      // Inline creator for monthly objectives
       headerRow.querySelector("[data-add-month]").addEventListener("click", () => {
-        openGoalForm(ctx, null, { type: "mensuel", monthKey });
+        ensureMonthlyInlineCreator(box, monthKey);
       });
 
       const weeks = Schema.weeksOf(monthKey);
@@ -387,7 +501,7 @@
         weekBlocks.push(weekBox);
 
         header.querySelector("[data-week]").addEventListener("click", () => {
-          openGoalForm(ctx, null, { type: "hebdo", monthKey, weekOfMonth: week });
+          ensureWeeklyInlineCreator(list, monthKey, week);
         });
       });
 
@@ -408,6 +522,7 @@
         monthlyBlock.innerHTML = `<div class="goal-monthly__title">Objectifs du mois</div>`;
         const monthlyList = document.createElement("div");
         monthlyList.className = "goal-list";
+        monthlyList.dataset.monthList = monthKey;
         monthlyGoals.forEach((goal) => {
           hasContent = true;
           monthlyList.appendChild(createGoalRow(goal, typeLabel(goal, monthKey)));
@@ -423,6 +538,7 @@
         const weekNumber = Number(goal.weekOfMonth || 1);
         const list = containers.get(weekNumber);
         if (!list) return;
+        list.dataset.weekList = `${monthKey}:${weekNumber}`;
         hasContent = true;
         const range = Schema.weekDateRange(monthKey, weekNumber);
         list.appendChild(createGoalRow(goal, range?.label || typeLabel(goal, monthKey)));
@@ -480,6 +596,115 @@
     if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
       window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
     }
+  }
+
+  // Inline creators
+  function ensureMonthlyInlineCreator(monthBox, monthKey) {
+    if (!monthBox) return;
+    const monthlyList = monthBox.querySelector('.goal-monthly .goal-list');
+    if (!monthlyList) {
+      // Create monthly block if missing (no content yet)
+      const monthlyBlock = document.createElement('div');
+      monthlyBlock.className = 'goal-monthly';
+      monthlyBlock.innerHTML = `<div class="goal-monthly__title">Objectifs du mois</div>`;
+      const list = document.createElement('div');
+      list.className = 'goal-list';
+      list.dataset.monthList = monthKey;
+      monthlyBlock.appendChild(list);
+      monthBox.insertBefore(monthlyBlock, monthBox.firstChild.nextSibling);
+    }
+    const list = monthBox.querySelector('.goal-monthly .goal-list');
+    if (!list) return;
+    if (list.querySelector('[data-inline-new]')) {
+      const input = list.querySelector('[data-inline-new] input');
+      if (input) input.focus();
+      return;
+    }
+    const row = buildInlineCreatorRow({ type: 'mensuel', monthKey });
+    list.prepend(row);
+  }
+
+  function ensureWeeklyInlineCreator(weekList, monthKey, weekOfMonth) {
+    if (!weekList) return;
+    if (weekList.querySelector('[data-inline-new]')) {
+      const input = weekList.querySelector('[data-inline-new] input');
+      if (input) input.focus();
+      return;
+    }
+    const row = buildInlineCreatorRow({ type: 'hebdo', monthKey, weekOfMonth });
+    weekList.prepend(row);
+  }
+
+  function buildInlineCreatorRow(config) {
+    const { type, monthKey, weekOfMonth } = config || {};
+    const row = document.createElement('div');
+    row.className = 'goal-row goal-row--editable goal-row--new';
+    row.dataset.inlineNew = '1';
+    const subtitle = type === 'hebdo'
+      ? (Schema.weekDateRange(monthKey, weekOfMonth || 1)?.label || `Semaine ${weekOfMonth || 1}`)
+      : 'Mensuel';
+    row.innerHTML = `
+      <div class="goal-title">
+        <div class="goal-inline-editor">
+          <input type="text" class="goal-input goal-input--inline" placeholder="Nouvel objectif…" aria-label="Titre de l’objectif">
+          <div class="goal-inline-actions">
+            <button type="button" class="btn btn-primary btn-compact" data-save>Enregistrer</button>
+            <button type="button" class="btn btn-ghost btn-compact" data-cancel>Annuler</button>
+          </div>
+        </div>
+        <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
+      </div>
+      <div class="goal-quick muted text-xs">Création rapide</div>
+    `;
+    const input = row.querySelector('input');
+    const btnSave = row.querySelector('[data-save]');
+    const btnCancel = row.querySelector('[data-cancel]');
+
+    const doCancel = () => row.remove();
+    const doSave = async () => {
+      const titre = (input.value || '').trim();
+      if (!titre) {
+        input.focus();
+        return;
+      }
+      const theoreticalDate = (() => {
+        const d = computeTheoreticalGoalDate({ type, monthKey, weekOfMonth });
+        return formatDateInputValue(d) || null;
+      })();
+      const payload = {
+        titre,
+        type,
+        monthKey,
+        ...(type === 'hebdo' ? { weekOfMonth: weekOfMonth || 1 } : {}),
+        notifyOnTarget: true,
+        notifyChannel: 'push',
+        notifyAt: theoreticalDate,
+      };
+      try {
+        await Schema.upsertObjective(ctx.db, ctx.user.uid, payload, null);
+        // Refresh month
+        if (lastMount) {
+          renderGoals(ctx, lastMount);
+        }
+      } catch (err) {
+        goalsLogger.error('goals.inlineCreate.save', err);
+        alert("Impossible de créer l’objectif.");
+      }
+    };
+
+    btnSave.addEventListener('click', doSave);
+    btnCancel.addEventListener('click', doCancel);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        doSave();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        doCancel();
+      }
+    });
+    setTimeout(() => { try { input.focus(); } catch (_) {} }, 0);
+    return row;
   }
 
   async function openGoalForm(ctx, goal = null, initial = {}) {
