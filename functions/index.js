@@ -1890,10 +1890,22 @@ function describeObjectiveForEmail(objective = {}) {
 }
 
 function buildGoalReminderEmail({ firstName, displayName, objectives, context, link } = {}) {
-  const dateLabelRaw = formatEmailDateLabel(context);
-  const formattedDate = dateLabelRaw
-    ? dateLabelRaw.charAt(0).toUpperCase() + dateLabelRaw.slice(1)
-    : String(context?.dateIso || "aujourd’hui");
+  // Date courte DD/MM/YYYY
+  const formattedDate = (() => {
+    const iso = toStringOrNull(context?.dateIso);
+    if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+      const [y, m, d] = iso.split("-");
+      return `${d}/${m}/${y}`;
+    }
+    const d = context?.selectedDate instanceof Date ? context.selectedDate : null;
+    if (d && !Number.isNaN(d.getTime())) {
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const yyyy = d.getFullYear();
+      return `${dd}/${mm}/${yyyy}`;
+    }
+    return "aujourd’hui";
+  })();
   const safeObjectives = Array.isArray(objectives) ? objectives.filter(Boolean) : [];
 
   // Objet concis avec la date entre parenthèses

@@ -504,8 +504,10 @@ jobs:
                   const dueObjectives = await objectivesDueOn(uid, ctx);
                   const titles = dueObjectives.map(describeObjectiveForEmail);
                   const date = (ctx && ctx.selectedDate instanceof Date) ? ctx.selectedDate : new Date();
-                  const dateLabel = date.toLocaleDateString('fr-FR',{ weekday:'long', day:'numeric', month:'long', year:'numeric' });
-                  const formatted = dateLabel.charAt(0).toUpperCase()+dateLabel.slice(1);
+                  const dd = String(date.getDate()).padStart(2,'0');
+                  const mm = String(date.getMonth()+1).padStart(2,'0');
+                  const yyyy = date.getFullYear();
+                  const formatted = `${dd}/${mm}/${yyyy}`;
                   const subjectPrefix = titles.length>1 ? 'Rappel objectifs' : 'Rappel objectif';
                   // Objet concis: date entre parenthèses
                   let subject = `${subjectPrefix} (${formatted})`;
