@@ -1129,7 +1129,7 @@ exports.onObjectiveWrite = functions
               displayName,
               objectives: emailObjectives.map((item) => ({ id: item.objective?.id, ...item.objective })),
               context: currentContext,
-                  link: buildUserGoalsLink(uid, currentContext.dateIso),
+                  link: buildUserDailyLink(uid, currentContext.dateIso),
             });
             await sendSmtpEmail({
               ...mailSettings,
@@ -1475,7 +1475,7 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
       emailError: null,
       weeklyReminder: 0,
       monthlyReminder: 0,
-  link: buildUserGoalsLink(uid, context.dateIso),
+  link: buildUserDailyLink(uid, context.dateIso),
     };
 
     try {
@@ -1894,17 +1894,19 @@ function buildGoalReminderEmail({ firstName, displayName, objectives, context, l
   const formattedDate = dateLabelRaw
     ? dateLabelRaw.charAt(0).toUpperCase() + dateLabelRaw.slice(1)
     : String(context?.dateIso || "aujourd’hui");
-  const safeObjectives = Array.isArray(objectives)
-    ? objectives.filter(Boolean)
-    : [];
+  const safeObjectives = Array.isArray(objectives) ? objectives.filter(Boolean) : [];
+
+  // Objet concis avec la date entre parenthèses
   const subjectPrefix = safeObjectives.length > 1 ? "Rappel objectifs" : "Rappel objectif";
-  // Inclure le titre si un seul objectif
-  let subject = `${subjectPrefix} — ${formattedDate}`;
+  let subject;
   if (safeObjectives.length === 1) {
     const onlyTitle = describeObjectiveForEmail(safeObjectives[0]);
-    subject = `${subjectPrefix} — ${onlyTitle} — ${formattedDate}`;
+    subject = `${subjectPrefix} — ${onlyTitle} (${formattedDate})`;
+  } else {
+    subject = `${subjectPrefix} (${formattedDate})`;
   }
 
+  // Corps texte
   const greetingName = firstName || displayName || "";
   const greeting = greetingName ? `Bonjour ${greetingName},` : "Bonjour,";
   const intro = safeObjectives.length > 1
@@ -1921,22 +1923,26 @@ function buildGoalReminderEmail({ firstName, displayName, objectives, context, l
   textLines.push("", "Bonne journée !");
   const text = textLines.join("\n");
 
-  const htmlParts = [];
-  htmlParts.push(`<p>${escapeHtml(greeting)}</p>`);
-  htmlParts.push(`<p>${escapeHtml(intro)}</p>`);
-  htmlParts.push("<ul>");
-  safeObjectives.forEach((objective) => {
-    htmlParts.push(`<li>${escapeHtml(describeObjectiveForEmail(objective))}</li>`);
-  });
-  htmlParts.push("</ul>");
-  if (link) {
-    const safeLink = escapeHtml(link);
-    htmlParts.push(`<p><a href="${safeLink}">Ouvrir mon suivi</a></p>`);
+  // HTML plus esthétique avec un bouton
+  const safeLink = link ? escapeHtml(link) : null;
+  let html = "";
+  html += `<div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:16px;line-height:1.5;color:#0f172a;">`;
+  html += `<p>${escapeHtml(greeting)}</p>`;
+  html += `<p>${escapeHtml(intro)}</p>`;
+  if (safeObjectives.length) {
+    html += `<ul style="padding-left:20px;margin:0 0 12px 0;">`;
+    safeObjectives.forEach((objective) => {
+      html += `<li>${escapeHtml(describeObjectiveForEmail(objective))}</li>`;
+    });
+    html += `</ul>`;
   }
-  htmlParts.push(
-    `<p style="margin-top:16px;font-size:12px;color:#64748b;">Email automatique généré par sendDailyReminders.</p>`
-  );
-  const html = htmlParts.join("");
+  if (safeLink) {
+    html += `<p style="margin:16px 0 0 0;">`;
+    html += `<a href="${safeLink}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:10px;box-shadow:0 1px 2px rgba(15,23,42,0.08);">Ouvrir mon suivi</a>`;
+    html += `</p>`;
+  }
+  html += `<p style="margin-top:16px;font-size:12px;color:#64748b;">Email automatique généré par sendDailyReminders.</p>`;
+  html += `</div>`;
 
   return { subject, text, html };
 }

@@ -507,15 +507,25 @@ jobs:
                   const dateLabel = date.toLocaleDateString('fr-FR',{ weekday:'long', day:'numeric', month:'long', year:'numeric' });
                   const formatted = dateLabel.charAt(0).toUpperCase()+dateLabel.slice(1);
                   const subjectPrefix = titles.length>1 ? 'Rappel objectifs' : 'Rappel objectif';
-                  let subject = `${subjectPrefix} — ${formatted}`;
-                  if (titles.length === 1) subject = `${subjectPrefix} — ${titles[0]} — ${formatted}`;
+                  // Objet concis: date entre parenthèses
+                  let subject = `${subjectPrefix} (${formatted})`;
+                  if (titles.length === 1) subject = `${subjectPrefix} — ${titles[0]} (${formatted})`;
                   const greeting = firstName? `Bonjour ${firstName},` : 'Bonjour,';
                   const intro = titles.length>1? `Voici tes objectifs à réaliser le ${formatted} :` : `Voici ton objectif à réaliser le ${formatted} :`;
-                  const emailLink = `https://vincladef.github.io/code-tracking-prod/#/u/${encodeURIComponent(uid)}/goals?d=${ctx.dateIso}`;
+                  // Lien vers l’onglet Journalier (présente consignes + objectifs du jour)
+                  const emailLink = `https://vincladef.github.io/code-tracking-prod/#/daily?u=${encodeURIComponent(uid)}&d=${ctx.dateIso}`;
                   const lines=[greeting,'',intro, ...titles.map(t=>`- ${t}`), '', `Accède à ton espace : ${emailLink}`,'','Bonne journée !'];
                   const text = lines.join('\n');
                   const list = titles.map(t=>`<li>${t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</li>`).join('');
-                  const html = [`<p>${greeting}</p>`,`<p>${intro}</p>`,`<ul>${list}</ul>`,`<p><a href="${emailLink}">Ouvrir mon suivi</a></p>`].join('');
+                  const html = [
+                    `<div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:16px;line-height:1.5;color:#0f172a;">`,
+                    `<p>${greeting}</p>`,
+                    `<p>${intro}</p>`,
+                    `<ul style="padding-left:20px;margin:0 0 12px 0;">${list}</ul>`,
+                    `<p style=\"margin:16px 0 0 0;\"><a href=\"${emailLink}\" style=\"display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:10px;box-shadow:0 1px 2px rgba(15,23,42,0.08);\">Ouvrir mon suivi</a></p>`,
+                    `<p style=\"margin-top:16px;font-size:12px;color:#64748b;\">Email automatique programmé (workflow GitHub Actions).</p>`,
+                    `</div>`
+                  ].join('');
 
                   // Minimal SMTP client (LOGIN) comme dans functions/index.js
                   const recipients = profileEmails;
