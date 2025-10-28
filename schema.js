@@ -2502,6 +2502,11 @@ async function upsertObjective(db, uid, data, objectifId = null) {
     payload.notifyAt = data.notifyAt || null;
   }
 
+  if (data?.archived !== undefined) {
+    payload.archived = data.archived === true;
+    payload.archivedAt = data.archived === true ? (data.archivedAt || serverTimestamp()) : null;
+  }
+
   await setDoc(ref, payload, { merge: true });
   return ref.id;
 }
