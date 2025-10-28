@@ -15408,13 +15408,58 @@ async function renderDaily(ctx, root, opts = {}) {
       const row = document.createElement("div");
       row.className = "consigne-row priority-surface priority-surface-medium";
       row.dataset.objectiveId = String(obj?.id || "");
+
+      const fieldId = `obj-${String(obj?.id || Math.random()).replace(/[^a-zA-Z0-9_-]/g, "")}`;
       row.innerHTML = `
         <div class="consigne-row__header">
           <div class="consigne-row__main">
             <div class="consigne-row__title">${escapeHtml(title)}</div>
           </div>
-          <div class="consigne-row__meta"></div>
+          <div class="consigne-row__meta">
+            <label for="${fieldId}" class="sr-only">Réponse</label>
+            <select id="${fieldId}" class="practice-editor__select">
+              <option value="">—</option>
+              <option value="5">Oui</option>
+              <option value="4">Plutôt oui</option>
+              <option value="3">Neutre</option>
+              <option value="2">Plutôt non</option>
+              <option value="1">Non</option>
+              <option value="0">Pas de réponse</option>
+            </select>
+          </div>
         </div>`;
+
+      const select = row.querySelector(`#${fieldId}`);
+      const currentDayIso = typeof Schema?.dayKeyFromDate === "function"
+        ? Schema.dayKeyFromDate(selectedDate)
+        : (selectedDate && selectedDate.toISOString ? selectedDate.toISOString().slice(0,10) : "");
+
+      // Préremplir avec la valeur pour ce jour si présente
+      (async () => {
+        try {
+          const existing = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso);
+          if (existing && existing.v !== undefined && existing.v !== null) {
+            const raw = String(existing.v);
+            if (select.value !== raw) {
+              select.value = raw;
+            }
+          }
+        } catch (e) {
+          try { modesLogger?.warn?.("daily.objectivesDue.prefill", e); } catch (_) {}
+        }
+      })();
+
+      select.addEventListener("change", async () => {
+        const val = select.value === "" ? null : Number(select.value);
+        try {
+          await Schema.saveObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso, val);
+          showToast("Réponse enregistrée.");
+        } catch (err) {
+          console.error("objective.entry.save", err);
+          showToast("Impossible d’enregistrer la réponse.");
+        }
+      });
+
       stack.appendChild(row);
     });
 
