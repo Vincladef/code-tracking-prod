@@ -344,14 +344,26 @@
     const createGoalRow = (goal, subtitleOverride = null) => {
       const row = document.createElement("div");
       row.className = "goal-row goal-row--editable";
+      row.style.position = "relative";
       const subtitle = subtitleOverride || typeLabel(goal, goal.monthKey);
+      // Effective reminder date label
+      const notifyIso = isoValueFromAny(goal?.notifyAt || "");
+      const theoretical = computeTheoreticalGoalDate(goal);
+      const theoreticalIso = formatDateInputValue(theoretical);
+      const effectiveIso = notifyIso || theoreticalIso || "";
+      const effectiveLabel = (() => {
+        if (!effectiveIso) return "Configurer le rappel";
+        const parts = effectiveIso.split("-").map(Number);
+        const d = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
+        return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+      })();
+
       row.innerHTML = `
         <div class="goal-title">
           <button type="button" class="goal-title__button" data-edit-goal>
             <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
             <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
           </button>
-          <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
         </div>
         <div class="goal-quick">
           <select class="select-compact">
@@ -363,6 +375,10 @@
             <option value="1">Non</option>
             <option value="0">Pas de réponse</option>
           </select>
+        </div>
+        <div class="goal-actions" style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+          <button type="button" class="btn btn-ghost" data-open-date title="Jour du rappel: ${escapeHtml(effectiveLabel)}">📅</button>
+          <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
         </div>
       `;
       const select = row.querySelector("select");
@@ -447,6 +463,16 @@
           event.preventDefault();
           event.stopPropagation();
           openGoalForm(ctx, goal);
+        });
+      }
+
+      // Quick date popover
+      const dateBtn = row.querySelector("[data-open-date]");
+      if (dateBtn) {
+        dateBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleDatePopover(row, goal, dateBtn);
         });
       }
 
@@ -649,29 +675,27 @@
       <div class="goal-title">
         <div class="goal-inline-editor">
           <input type="text" class="goal-input goal-input--inline" placeholder="Nouvel objectif…" aria-label="Titre de l’objectif">
-          <div class="goal-inline-actions">
-            <button type="button" class="btn btn-ghost btn-compact" data-calendar title="Jour du rappel">📅</button>
-            <button type="button" class="btn btn-ghost btn-compact" data-advanced title="Options avancées">⋯</button>
-            <button type="button" class="btn btn-primary btn-compact" data-save>Enregistrer</button>
-            <button type="button" class="btn btn-ghost btn-compact" data-cancel>Annuler</button>
-          </div>
         </div>
         <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
       </div>
       <div class="goal-quick muted text-xs" data-inline-meta>
         <span data-when-label></span>
-        <span class="sep">•</span>
-        <span>Création rapide</span>
-        <div class="goal-inline-date" data-date-wrap hidden>
-          <label class="goal-label text-xs" for="inline-notify-date">Jour du rappel</label>
-          <input id="inline-notify-date" type="date" class="goal-input goal-input--inline-date">
-        </div>
+      </div>
+      <div class="goal-actions" style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+        <button type="button" class="btn btn-ghost btn-compact" data-calendar title="Jour du rappel">📅</button>
+        <button type="button" class="btn btn-ghost btn-compact" data-advanced title="Options avancées">⚙️</button>
+        <button type="button" class="btn btn-primary btn-compact" data-save>Enregistrer</button>
+        <button type="button" class="btn btn-ghost btn-compact" data-cancel>Annuler</button>
+      </div>
+      <div class="goal-inline-date" data-date-wrap hidden style="position:absolute; right:8px; top:36px; background:var(--card, #fff); border:1px solid var(--muted,#ccc); border-radius:8px; padding:8px; box-shadow:0 6px 24px rgba(0,0,0,0.08); z-index:30;">
+        <label class="goal-label text-xs" for="inline-notify-date">Jour du rappel</label>
+        <input id="inline-notify-date" type="date" class="goal-input goal-input--inline-date">
       </div>
     `;
     const input = row.querySelector('input');
     const btnSave = row.querySelector('[data-save]');
     const btnCancel = row.querySelector('[data-cancel]');
-    const btnCal = row.querySelector('[data-calendar]');
+  const btnCal = row.querySelector('[data-calendar]');
     const btnAdv = row.querySelector('[data-advanced]');
     const whenLabel = row.querySelector('[data-when-label]');
     const dateWrap = row.querySelector('[data-date-wrap]');
@@ -1392,6 +1416,71 @@
     }
   }
 
+  // Small helper: quick date popover for existing rows
+  function toggleDatePopover(row, goal, anchorBtn) {
+    if (!row || !goal) return;
+    let pop = row.querySelector('[data-popover-date]');
+    if (pop) {
+      const isHidden = pop.hasAttribute('hidden');
+      if (isHidden) pop.removeAttribute('hidden');
+      else pop.setAttribute('hidden', '');
+      const inputEl = pop.querySelector('input[type=date]');
+      if (!isHidden && inputEl) {
+        try { inputEl.focus(); } catch (_) {}
+      }
+      return;
+    }
+    // Build it
+    pop = document.createElement('div');
+    pop.dataset.popoverDate = '1';
+    pop.setAttribute('role', 'dialog');
+    pop.style.position = 'absolute';
+    pop.style.right = '8px';
+    pop.style.top = '36px';
+    pop.style.background = 'var(--card, #fff)';
+    pop.style.border = '1px solid var(--muted, #ccc)';
+    pop.style.borderRadius = '8px';
+    pop.style.padding = '8px';
+    pop.style.boxShadow = '0 6px 24px rgba(0,0,0,0.08)';
+    pop.style.zIndex = '30';
+    const range = computeGoalDateRange(goal);
+    const initial = isoValueFromAny(goal?.notifyAt || '') || formatDateInputValue(computeTheoreticalGoalDate(goal)) || '';
+    pop.innerHTML = `
+      <div class="text-xs muted" style="margin-bottom:4px;">Jour du rappel</div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="date" class="goal-input" ${range?.start ? `min="${escapeHtml(formatDateInputValue(range.start))}"` : ''} ${range?.end ? `max="${escapeHtml(formatDateInputValue(range.end))}"` : ''} value="${escapeHtml(initial)}">
+        <button type="button" class="btn btn-primary btn-compact" data-apply>OK</button>
+      </div>
+    `;
+    row.appendChild(pop);
+    const input = pop.querySelector('input[type=date]');
+    const apply = pop.querySelector('[data-apply]');
+    const saveDate = async () => {
+      const c = lastCtx;
+      if (!c) return;
+      const picked = (input?.value || '').trim();
+      const payload = picked ? { notifyAt: picked, notifyOnTarget: true } : {};
+      try {
+        await Schema.upsertObjective(c.db, c.user.uid, payload, goal.id);
+        pop.setAttribute('hidden', '');
+        // Refresh this month to update labels/tooltips
+        if (lastMount) {
+          renderGoals(c, lastMount);
+        }
+      } catch (err) {
+        goalsLogger.error('goals.quickDate.save', err);
+        alert("Impossible de mettre à jour le jour du rappel.");
+      }
+    };
+    apply.addEventListener('click', saveDate);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); saveDate(); }
+      if (e.key === 'Escape') { e.preventDefault(); pop.setAttribute('hidden',''); }
+    });
+    setTimeout(() => { try { input.focus(); } catch (_) {} }, 0);
+  }
+
   GoalsNS.renderGoals = renderGoals;
   GoalsNS.openGoalForm = openGoalForm;
+  GoalsNS.toggleDatePopover = toggleDatePopover;
 })();
