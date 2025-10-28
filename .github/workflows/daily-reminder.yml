@@ -24,18 +24,27 @@ jobs:
           npm -y init >/dev/null 2>&1 || true
           npm install firebase-admin@^12
 
-      - name: Send daily reminders (Firestore + FCM)
+      - name: Send daily reminders (Firestore + FCM + Email)
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          MAIL_CONFIG_JSON: ${{ secrets.MAIL_CONFIG_JSON }}
         run: |
           node - <<'NODE'
           const admin = require("firebase-admin");
+          const tls = require('tls');
 
           // ---- init Admin SDK avec le secret GitHub ----
           const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
           admin.initializeApp({ credential: admin.credential.cert(sa) });
           const db = admin.firestore();
           const messaging = admin.messaging();
+
+          // ---- SMTP settings from MAIL_CONFIG_JSON ----
+          let SMTP = null;
+          try {
+            const raw = process.env.MAIL_CONFIG_JSON;
+            if (raw) SMTP = JSON.parse(raw);
+          } catch {}
 
           // ---- helpers date/jour & SR (même logique que ton app) ----
           const DAY_NORMALIZE = { dim:"DIM", lun:"LUN", mar:"MAR", mer:"MER", jeu:"JEU", ven:"VEN", sam:"SAM" };
@@ -294,6 +303,16 @@ jobs:
             return parts[0];
           }
 
+          function extractEmailList(profile){
+            const source = profile && typeof profile === 'object' ? profile : {};
+            const seen = new Set();
+            const emails = [];
+            const push = (v)=>{ const e = (v==null?null:String(v).trim()); if(!e) return; const k=e.toLowerCase(); if(seen.has(k)) return; seen.add(k); emails.push(e); };
+            if (Array.isArray(source.emails)) source.emails.forEach(push);
+            push(source.email);
+            return emails;
+          }
+
           function isInvalidToken(code){
             return code === "messaging/registration-token-not-registered" ||
                    code === "messaging/invalid-registration-token";
@@ -375,6 +394,7 @@ jobs:
             const tokensByUid = await collectTokensByUid();
 
             let totalSent = 0;
+            const emailResults = [];
             for (const [uid, tokSet] of tokensByUid.entries()){
               const tokens = Array.from(tokSet);
               const visibleCount = await countVisibleDaily(uid, ctx);
@@ -387,10 +407,11 @@ jobs:
               const profSnap = await db.doc(`u/${uid}`).get();
               const prof = profSnap.exists ? (profSnap.data() || {}) : {};
               const firstName = extractFirstName(prof);
+              const profileEmails = extractEmailList(prof);
               const userName = prof.name || prof.displayName || prof.slug || "toi";
               const title = firstName ? `${firstName}, rappel du jour 👋` : "Rappel du jour 👋";
               const body = buildReminderBody(firstName, visibleCount, objectiveCount);
-              const link = "https://vincladef.github.io/code-tracking-prod/#/daily";
+              const fcmLink = "https://vincladef.github.io/code-tracking-prod/#/daily";
 
               const message = {
                 tokens,
@@ -399,7 +420,7 @@ jobs:
                   body
                 },
                 webpush: {
-                  fcmOptions: { link }
+                  fcmOptions: { link: fcmLink }
                 },
                 data: {
                   user: String(userName),
@@ -410,7 +431,7 @@ jobs:
                   day: ctx.dayLabel,
                   body,
                   title,
-                  link
+                  link: fcmLink
                 }
               };
 
@@ -422,8 +443,120 @@ jobs:
                 }
               });
               console.log(`uid=${uid} -> sent=${res.successCount}, failed=${res.failureCount}, visible=${visibleCount}, objectives=${objectiveCount}`);
+
+              // ---- Email (si config SMTP et au moins un objectif) ----
+              if (SMTP && Array.isArray(profileEmails) && profileEmails.length && objectiveCount > 0){
+                try {
+                  // Titre simple pour chaque objectif (sans méta semaine/mois)
+                  const titleOnly = (o) => (o && (o.titre || o.title || o.name)) || 'Objectif';
+                  async function objectivesDueOn(uid, ctx){
+                    const baseMonthKey = (String(ctx?.dateIso||'').slice(0,7));
+                    const monthKey = baseMonthKey || monthKeyFromDate(ctx.selectedDate);
+                    const previousMonth = monthKey ? shiftMonthKey(monthKey, -1) : null;
+                    const targetMonths = new Set();
+                    if (monthKey) targetMonths.add(monthKey);
+                    if (previousMonth && previousMonth !== monthKey) targetMonths.add(previousMonth);
+                    const map = new Map();
+                    for (const key of targetMonths){
+                      const rows = await fetchObjectivesByMonth(uid, key);
+                      for (const row of rows){ if (!row || !row.id) continue; map.set(row.id, row); }
+                    }
+                    const reminderIso = String(ctx?.dateIso||'') || null;
+                    if (reminderIso){
+                      const rows = await fetchObjectivesByReminder(uid, reminderIso);
+                      for (const row of rows){ if (!row || !row.id) continue; map.set(row.id, row); }
+                    }
+                    const due = [];
+                    for (const obj of map.values()){
+                      if (obj?.notifyOnTarget === false) continue;
+                      const iso = objectiveDueDateIso(obj);
+                      if (!iso) continue;
+                      if (iso === ctx.dateIso) due.push(obj);
+                    }
+                    return due;
+                  }
+
+                  const dueObjectives = await objectivesDueOn(uid, ctx);
+                  const titles = dueObjectives.map(titleOnly);
+                  const dueIsos = Array.from(new Set(dueObjectives.map(o => objectiveDueDateIso(o)).filter(Boolean)));
+                  const chosenIso = titles.length === 1 && dueIsos.length >= 1
+                    ? dueIsos[0]
+                    : (dueIsos.length === 1 ? dueIsos[0] : ctx.dateIso);
+                  const isoParts = typeof chosenIso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(chosenIso)
+                    ? chosenIso.split('-')
+                    : null;
+                  const formatted = isoParts ? `${isoParts[2]}/${isoParts[1]}/${isoParts[0]}` : (()=>{
+                    const date = (ctx && ctx.selectedDate instanceof Date) ? ctx.selectedDate : new Date();
+                    const dd = String(date.getDate()).padStart(2,'0');
+                    const mm = String(date.getMonth()+1).padStart(2,'0');
+                    const yyyy = date.getFullYear();
+                    return `${dd}/${mm}/${yyyy}`;
+                  })();
+                  const subjectPrefix = titles.length>1 ? 'Rappel objectifs' : 'Rappel objectif';
+                  // Objet concis: date entre parenthèses
+                  let subject = `${subjectPrefix} (${formatted})`;
+                  if (titles.length === 1) subject = `${subjectPrefix} — ${titles[0]} (${formatted})`;
+                  const greeting = firstName? `Bonjour ${firstName},` : 'Bonjour,';
+                  const intro = titles.length>1? `Voici tes objectifs à réaliser le ${formatted} :` : `Voici ton objectif à réaliser le ${formatted} :`;
+                  // Lien vers l’onglet Journalier (présente consignes + objectifs du jour)
+                  const emailLink = `https://vincladef.github.io/code-tracking-prod/#/daily?u=${encodeURIComponent(uid)}&d=${encodeURIComponent(chosenIso)}`;
+                  const lines=[greeting,'',intro, ...titles.map(t=>`- ${t}`), '', `Accède à ton espace : ${emailLink}`,'','Bonne journée !'];
+                  const text = lines.join('\n');
+                  const list = titles.map(t=>`<li>${t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</li>`).join('');
+                  const html = [
+                    `<div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:16px;line-height:1.5;color:#0f172a;">`,
+                    `<p>${greeting}</p>`,
+                    `<p>${intro}</p>`,
+                    `<ul style="padding-left:20px;margin:0 0 12px 0;">${list}</ul>`,
+                    `<p style=\"margin:16px 0 0 0;\"><a href=\"${emailLink}\" style=\"display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:10px;box-shadow:0 1px 2px rgba(15,23,42,0.08);\">Ouvrir mon suivi</a></p>`,
+                    `<p style=\"margin-top:16px;font-size:12px;color:#64748b;\">Email automatique programmé (workflow GitHub Actions).</p>`,
+                    `</div>`
+                  ].join('');
+
+                  // Minimal SMTP client (LOGIN) comme dans functions/index.js
+                  const recipients = profileEmails;
+                  const socket = await new Promise((resolve, reject) => {
+                    const c = tls.connect({ host: SMTP.host, port: Number(SMTP.port)||465, rejectUnauthorized: true }, () => { c.setEncoding('utf8'); c.removeListener('error', onErr); resolve(c); });
+                    const onErr = (e)=>reject(e); c.once('error', onErr);
+                  });
+                  const wait = ()=> new Promise((res,rej)=>{ let buf=''; const onData=(ch)=>{ buf+=ch.toString(); const lines=buf.split(/\r?\n/).filter(Boolean); if(!lines.length) return; const last=lines[lines.length-1]; const m=last.match(/^(\d{3})([ -])/); if(!m) return; if(m[2]==='-') return; socket.removeListener('data',onData); res({ code:Number(m[1]), lines});}; const onErr=(e)=>{ socket.removeListener('data',onData); rej(e);}; socket.on('data',onData); socket.on('error',onErr); });
+                  const send = async (cmd, allow=[])=>{ socket.write(cmd+'\r\n'); const r=await wait(); if (!(r.code<400 && (!allow.length || allow.includes(r.code)))) throw new Error('SMTP failed '+cmd+' => '+r.code); return r; };
+                  await wait();
+                  await send(`EHLO ${SMTP.host}`);
+                  if (SMTP.user && SMTP.pass){ await send('AUTH LOGIN',[334]); await send(Buffer.from(SMTP.user).toString('base64'),[334]); await send(Buffer.from(SMTP.pass).toString('base64'),[235]); }
+                  const extractAddress = (v)=>{ const s=String(v||''); const m=s.match(/<([^>]+)>/); const addr=m?m[1]:s; return addr.replace(/^mailto:/i,'').trim(); };
+                  const envelopeFrom = extractAddress(SMTP.from);
+                  await send(`MAIL FROM:<${envelopeFrom}>`);
+                  for (const r of recipients){ const rcpt = extractAddress(r); await send(`RCPT TO:<${rcpt}>`,[250,251]); }
+                  await send('DATA',[354]);
+                  const boundary = '=_gh_'+Date.now();
+                  const headers = [
+                    `From: ${SMTP.from}`,
+                    `To: ${recipients.join(', ')}`,
+                    `Subject: ${subject}`,
+                    'MIME-Version: 1.0',
+                    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+                    `Date: ${new Date().toUTCString()}`
+                  ];
+                  const parts = [
+                    `--${boundary}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${text}\r\n`,
+                    `--${boundary}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${html}\r\n`,
+                    `--${boundary}--\r\n`
+                  ];
+                  socket.write(headers.join('\r\n')+'\r\n\r\n'+parts.join('')+'\r\n.\r\n');
+                  const final = await wait();
+                  if (final.code>=400) throw new Error('SMTP delivery failed '+final.code);
+                  await send('QUIT',[221]);
+                  socket.end();
+                  emailResults.push({ uid, to: profileEmails, ok: true });
+                  console.log(`email uid=${uid} -> to=${profileEmails.join(',')}`);
+                } catch(e){
+                  emailResults.push({ uid, ok: false, error: e?.message });
+                  console.error('email error uid='+uid, e?.message);
+                }
+              }
             }
-            console.log("done: sent", totalSent);
+            console.log("done: push sent", totalSent);
           }
 
           main().catch(e => { console.error("fatal", e); process.exit(1); });

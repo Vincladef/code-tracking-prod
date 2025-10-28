@@ -1,6 +1,8 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const tls = require("tls");
+const fs = require("fs");
+const path = require("path");
 const { buildReminderBody } = require("./reminder");
 
 admin.initializeApp();
@@ -1127,7 +1129,7 @@ exports.onObjectiveWrite = functions
               displayName,
               objectives: emailObjectives.map((item) => ({ id: item.objective?.id, ...item.objective })),
               context: currentContext,
-              link: buildUserDailyLink(uid, currentContext.dateIso),
+                  link: buildUserDailyLink(uid, currentContext.dateIso),
             });
             await sendSmtpEmail({
               ...mailSettings,
@@ -1473,7 +1475,7 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
       emailError: null,
       weeklyReminder: 0,
       monthlyReminder: 0,
-      link: buildUserDailyLink(uid, context.dateIso),
+  link: buildUserDailyLink(uid, context.dateIso),
     };
 
     try {
@@ -1601,12 +1603,16 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
           functions.logger.warn("sendDailyReminders:email:noAddress", { uid });
         } else {
           try {
+            // Choisir le jour à afficher/lier d’après les objectifs (unique si possible)
+            const emailObjs = emailObjectives.map((item) => ({ id: item.objective?.id, ...item.objective }));
+            const uniqueIsos = Array.from(new Set(emailObjs.map((o) => objectiveDueDateIso(o)).filter(Boolean)));
+            const mailIso = uniqueIsos.length === 1 ? uniqueIsos[0] : context.dateIso;
             const payload = buildGoalReminderEmail({
               firstName,
               displayName,
-              objectives: emailObjectives.map((item) => ({ id: item.objective?.id, ...item.objective })),
+              objectives: emailObjs,
               context,
-              link: entry.link,
+              link: buildUserDailyLink(uid, mailIso),
             });
             await sendSmtpEmail({
               ...mailSettings,
@@ -1720,47 +1726,96 @@ exports.sendDailyRemindersScheduled = functions
   });
 
 function resolveMailSettings() {
-  const config = functions.config();
-  const mail = config?.mail || {};
-  const host = toStringOrNull(mail.host);
-  const from = toStringOrNull(mail.from);
+  // 1) Variables d’environnement (déployées via Secrets CI ou Secret Manager)
+  const envHost = toStringOrNull(process.env.MAIL_HOST);
+  const envFrom = toStringOrNull(process.env.MAIL_FROM);
+  const envPortRaw = Number(process.env.MAIL_PORT);
+  const envSecureRaw = toStringOrNull(process.env.MAIL_SECURE);
+  const envUser = toStringOrNull(process.env.MAIL_USER) || toStringOrNull(process.env.GMAIL_USER);
+  const envPass = toStringOrNull(process.env.MAIL_PASS) || toStringOrNull(process.env.GMAIL_APP_PASS);
+  const envReject = toStringOrNull(process.env.MAIL_REJECT_UNAUTHORIZED);
+
+  // 2) functions.config() (si présent)
+  const config = functions.config?.() || {};
+  const cfgMail = config.mail || {};
+
+  // 3) Fallback fichier déployé avec la fonction (généré par la CI)
+  //    Chemins candidats dans le dossier des fonctions
+  let fileMail = {};
+  try {
+    const candidates = [
+      path.join(__dirname, "mail.runtime.json"),
+      path.join(__dirname, ".mail.runtime.json"),
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        try {
+          fileMail = JSON.parse(fs.readFileSync(p, "utf8"));
+          break;
+        } catch (e) {
+          functions.logger.warn("mail:runtime:file:parse", { path: p, error: e?.message });
+        }
+      }
+    }
+  } catch (e) {
+    functions.logger.debug("mail:runtime:file:error", { error: e?.message });
+  }
+
+  const host = envHost || toStringOrNull(cfgMail.host) || toStringOrNull(fileMail.host);
+  const from = envFrom || toStringOrNull(cfgMail.from) || toStringOrNull(fileMail.from);
   if (!host || !from) {
     return null;
   }
 
-  const rawPort = Number(mail.port);
-  const port = Number.isFinite(rawPort) && rawPort > 0 ? rawPort : 465;
-  const secure =
-    mail.secure === true ||
-    mail.secure === "true" ||
-    mail.secure === 1 ||
-    mail.secure === "1" ||
-    port === 465;
-  const user = toStringOrNull(mail.user);
-  const pass = toStringOrNull(mail.pass);
+  const rawPortFrom = Number.isFinite(envPortRaw) && envPortRaw > 0
+    ? envPortRaw
+    : Number(cfgMail.port ?? fileMail.port);
+  const port = Number.isFinite(rawPortFrom) && rawPortFrom > 0 ? rawPortFrom : 465;
+  const secureEnv = envSecureRaw != null && ["1", "true", "yes", "on"].includes(String(envSecureRaw).toLowerCase());
+  const secureCfg = cfgMail.secure === true || cfgMail.secure === "true" || cfgMail.secure === 1 || cfgMail.secure === "1";
+  const secureFile = fileMail.secure === true || fileMail.secure === "true" || fileMail.secure === 1 || fileMail.secure === "1";
+  const secure = secureEnv || secureCfg || secureFile || port === 465;
+  const user = envUser || toStringOrNull(cfgMail.user) || toStringOrNull(fileMail.user);
+  const pass = envPass || toStringOrNull(cfgMail.pass) || toStringOrNull(fileMail.pass);
   const rejectUnauthorized = !(
-    mail.reject_unauthorized === false ||
-    mail.reject_unauthorized === "false" ||
-    mail.rejectUnauthorized === false ||
-    mail.rejectUnauthorized === "false"
+    envReject === "false" || envReject === "0" ||
+    cfgMail.reject_unauthorized === false || cfgMail.reject_unauthorized === "false" ||
+    cfgMail.rejectUnauthorized === false || cfgMail.rejectUnauthorized === "false" ||
+    fileMail.reject_unauthorized === false || fileMail.reject_unauthorized === "false" ||
+    fileMail.rejectUnauthorized === false || fileMail.rejectUnauthorized === "false"
   );
 
-  return {
-    host,
-    port,
-    secure,
-    user,
-    pass,
-    from,
-    rejectUnauthorized,
-  };
+  return { host, port, secure, user, pass, from, rejectUnauthorized };
 }
 
 function resolveSummaryRecipients() {
-  const config = functions.config();
-  const summaryRaw = toStringOrNull(config?.summary?.recipients);
-  const mailRaw = toStringOrNull(config?.mail?.recipients);
-  const combined = summaryRaw || mailRaw;
+  // Env d’abord
+  const envSummary = toStringOrNull(process.env.SUMMARY_RECIPIENTS);
+  const envMail = toStringOrNull(process.env.MAIL_RECIPIENTS);
+  // Puis functions.config()
+  const config = functions.config?.() || {};
+  const cfgSummary = toStringOrNull(config?.summary?.recipients);
+  const cfgMail = toStringOrNull(config?.mail?.recipients);
+  // Puis fichier runtime (mêmes clés)
+  let fileSummary = null;
+  let fileMail = null;
+  try {
+    const candidates = [
+      path.join(__dirname, "mail.runtime.json"),
+      path.join(__dirname, ".mail.runtime.json"),
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        const json = JSON.parse(fs.readFileSync(p, "utf8"));
+        fileSummary = toStringOrNull(json?.summary?.recipients);
+        fileMail = toStringOrNull(json?.mail?.recipients) || toStringOrNull(json?.recipients);
+        break;
+      }
+    }
+  } catch (e) {
+    // silencieux
+  }
+  const combined = envSummary || cfgSummary || envMail || cfgMail || fileSummary || fileMail;
   if (!combined) {
     return [...SUMMARY_FALLBACK_RECIPIENTS];
   }
@@ -1839,16 +1894,50 @@ function describeObjectiveForEmail(objective = {}) {
 }
 
 function buildGoalReminderEmail({ firstName, displayName, objectives, context, link } = {}) {
-  const dateLabelRaw = formatEmailDateLabel(context);
-  const formattedDate = dateLabelRaw
-    ? dateLabelRaw.charAt(0).toUpperCase() + dateLabelRaw.slice(1)
-    : String(context?.dateIso || "aujourd’hui");
-  const safeObjectives = Array.isArray(objectives)
-    ? objectives.filter(Boolean)
-    : [];
-  const subjectPrefix = safeObjectives.length > 1 ? "Rappel objectifs" : "Rappel objectif";
-  const subject = `${subjectPrefix} — ${formattedDate}`;
+  // Date courte JJ/MM/AAAA basée sur le jour du rappel de l’objectif
+  const safeObjectives = Array.isArray(objectives) ? objectives.filter(Boolean) : [];
+  const chooseIsoFromObjectives = () => {
+    if (!safeObjectives.length) return null;
+    const isos = Array.from(
+      new Set(
+        safeObjectives
+          .map((o) => objectiveDueDateIso(o))
+          .filter((iso) => typeof iso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(iso))
+      )
+    );
+    if (safeObjectives.length === 1 && isos.length >= 1) return isos[0];
+    if (isos.length === 1) return isos[0];
+    return toStringOrNull(context?.dateIso);
+  };
+  const isoForMail = chooseIsoFromObjectives();
+  const formattedDate = (() => {
+    const iso = toStringOrNull(isoForMail) || toStringOrNull(context?.dateIso);
+    if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+      const [y, m, d] = iso.split("-");
+      return `${d}/${m}/${y}`;
+    }
+    const d = context?.selectedDate instanceof Date ? context.selectedDate : null;
+    if (d && !Number.isNaN(d.getTime())) {
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const yyyy = d.getFullYear();
+      return `${dd}/${mm}/${yyyy}`;
+    }
+    return "aujourd’hui";
+  })();
 
+  // Objet concis avec la date entre parenthèses
+  const titleOnly = (o) => toStringOrNull(o?.titre) || toStringOrNull(o?.title) || toStringOrNull(o?.name) || "Objectif";
+  const subjectPrefix = safeObjectives.length > 1 ? "Rappel objectifs" : "Rappel objectif";
+  let subject;
+  if (safeObjectives.length === 1) {
+    const onlyTitle = titleOnly(safeObjectives[0]);
+    subject = `${subjectPrefix} — ${onlyTitle} (${formattedDate})`;
+  } else {
+    subject = `${subjectPrefix} (${formattedDate})`;
+  }
+
+  // Corps texte
   const greetingName = firstName || displayName || "";
   const greeting = greetingName ? `Bonjour ${greetingName},` : "Bonjour,";
   const intro = safeObjectives.length > 1
@@ -1857,7 +1946,7 @@ function buildGoalReminderEmail({ firstName, displayName, objectives, context, l
 
   const textLines = [greeting, "", intro];
   safeObjectives.forEach((objective) => {
-    textLines.push(`- ${describeObjectiveForEmail(objective)}`);
+    textLines.push(`- ${titleOnly(objective)}`);
   });
   if (link) {
     textLines.push("", `Accède à ton espace : ${link}`);
@@ -1865,22 +1954,26 @@ function buildGoalReminderEmail({ firstName, displayName, objectives, context, l
   textLines.push("", "Bonne journée !");
   const text = textLines.join("\n");
 
-  const htmlParts = [];
-  htmlParts.push(`<p>${escapeHtml(greeting)}</p>`);
-  htmlParts.push(`<p>${escapeHtml(intro)}</p>`);
-  htmlParts.push("<ul>");
-  safeObjectives.forEach((objective) => {
-    htmlParts.push(`<li>${escapeHtml(describeObjectiveForEmail(objective))}</li>`);
-  });
-  htmlParts.push("</ul>");
-  if (link) {
-    const safeLink = escapeHtml(link);
-    htmlParts.push(`<p><a href="${safeLink}">Ouvrir mon suivi</a></p>`);
+  // HTML plus esthétique avec un bouton
+  const safeLink = link ? escapeHtml(link) : null;
+  let html = "";
+  html += `<div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:16px;line-height:1.5;color:#0f172a;">`;
+  html += `<p>${escapeHtml(greeting)}</p>`;
+  html += `<p>${escapeHtml(intro)}</p>`;
+  if (safeObjectives.length) {
+    html += `<ul style="padding-left:20px;margin:0 0 12px 0;">`;
+    safeObjectives.forEach((objective) => {
+      html += `<li>${escapeHtml(titleOnly(objective))}</li>`;
+    });
+    html += `</ul>`;
   }
-  htmlParts.push(
-    `<p style="margin-top:16px;font-size:12px;color:#64748b;">Email automatique généré par sendDailyReminders.</p>`
-  );
-  const html = htmlParts.join("");
+  if (safeLink) {
+    html += `<p style="margin:16px 0 0 0;">`;
+    html += `<a href="${safeLink}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:10px;box-shadow:0 1px 2px rgba(15,23,42,0.08);">Ouvrir mon suivi</a>`;
+    html += `</p>`;
+  }
+  html += `<p style="margin-top:16px;font-size:12px;color:#64748b;">Email automatique généré par sendDailyReminders.</p>`;
+  html += `</div>`;
 
   return { subject, text, html };
 }
@@ -2158,9 +2251,20 @@ async function sendSmtpEmail({ host, port, secure, user, pass, from, to, subject
       await sendSmtpCommand(socket, Buffer.from(pass).toString("base64"), { allow: [235] });
     }
 
-    await sendSmtpCommand(socket, `MAIL FROM:<${from}>`);
+    const extractAddress = (value) => {
+      const str = toStringOrNull(value);
+      if (!str) return null;
+      const m = str.match(/<([^>]+)>/);
+      const addr = m ? m[1] : str;
+      return addr.replace(/^mailto:/i, "").trim();
+    };
+
+    const envelopeFrom = extractAddress(from);
+    await sendSmtpCommand(socket, `MAIL FROM:<${envelopeFrom}>`);
     for (const recipient of recipients) {
-      await sendSmtpCommand(socket, `RCPT TO:<${recipient}>`, { allow: [250, 251] });
+      const rcpt = extractAddress(recipient);
+      if (!rcpt) continue;
+      await sendSmtpCommand(socket, `RCPT TO:<${rcpt}>`, { allow: [250, 251] });
     }
 
     await sendSmtpCommand(socket, "DATA", { allow: [354] });
@@ -2206,6 +2310,10 @@ async function sendDailySummaryEmail(context, results) {
 
 function buildUserDailyLink(uid, dateIso) {
   return `${DAILY_BASE}#/daily?u=${encodeURIComponent(uid)}&d=${dateIso}`;
+}
+
+function buildUserGoalsLink(uid, dateIso) {
+  return `${DAILY_BASE}#/u/${encodeURIComponent(uid)}/goals?d=${dateIso}`;
 }
 
 exports.__testables = {

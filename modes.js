@@ -14668,6 +14668,14 @@ async function renderDaily(ctx, root, opts = {}) {
   }
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
+  // Objectifs du jour (affichage dans l’onglet Journalier)
+  let objectivesDueToday = [];
+  try {
+    objectivesDueToday = await Schema.listObjectivesDueOn(ctx.db, ctx.user.uid, selectedDate);
+  } catch (e) {
+    try { modesLogger?.warn?.("daily.objectivesDue.load", e); } catch (_) {}
+    objectivesDueToday = [];
+  }
   const interactiveConsignes = all.filter((c) => !c.summaryOnlyScope);
   const consignes = interactiveConsignes.filter((c) => !c.days?.length || c.days.includes(currentDay));
   modesLogger.info("screen.daily.consignes", consignes.length);
@@ -15379,6 +15387,159 @@ async function renderDaily(ctx, root, opts = {}) {
     event.preventDefault();
   });
   card.appendChild(form);
+
+  // Insère une section dédiée si un ou plusieurs objectifs sont dus aujourd’hui
+  if (Array.isArray(objectivesDueToday) && objectivesDueToday.length) {
+    const section = document.createElement("section");
+    section.className = "daily-category daily-grid__item";
+    section.dataset.category = "Objectifs du jour";
+    const total = objectivesDueToday.length;
+    section.innerHTML = `
+      <div class="daily-category__header">
+        <div class="daily-category__name">Objectifs du jour</div>
+        <span class="daily-category__count">${total} objectif${total > 1 ? "s" : ""}</span>
+      </div>`;
+    const stack = document.createElement("div");
+    stack.className = "daily-category__items";
+    section.appendChild(stack);
+
+    objectivesDueToday.forEach((obj) => {
+      const title = obj?.titre || obj?.title || obj?.name || "Objectif";
+      const row = document.createElement("div");
+      row.className = "consigne-row priority-surface priority-surface-medium";
+      row.dataset.objectiveId = String(obj?.id || "");
+
+      const fieldId = `obj-${String(obj?.id || Math.random()).replace(/[^a-zA-Z0-9_-]/g, "")}`;
+      row.innerHTML = `
+        <div class="consigne-row__header">
+          <div class="consigne-row__main">
+            <button type="button" class="consigne-row__toggle" data-objective-open aria-haspopup="dialog">
+              <span class="consigne-row__title">${escapeHtml(title)}</span>
+            </button>
+          </div>
+          <div class="consigne-row__meta">
+            <span class="consigne-row__status" data-status="na">
+              <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+              <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
+              <span class="sr-only" data-status-live aria-live="polite"></span>
+            </span>
+          </div>
+        </div>`;
+
+      const openBtn = row.querySelector('[data-objective-open]');
+      const currentDayIso = typeof Schema?.dayKeyFromDate === "function"
+        ? Schema.dayKeyFromDate(selectedDate)
+        : (selectedDate && selectedDate.toISOString ? selectedDate.toISOString().slice(0,10) : "");
+
+      // Utilitaire statut couleur comme les consignes
+      const applyObjectiveStatus = (val) => {
+        const statusHolder = row.querySelector('[data-status]');
+        const dot = row.querySelector('[data-status-dot]');
+        const mark = row.querySelector('[data-status-mark]');
+        const live = row.querySelector('[data-status-live]');
+        const n = val == null ? null : Number(val);
+        let status = 'na';
+        if (Number.isFinite(n) && n > 0) {
+          if (n >= 5) status = 'ok-strong';
+          else if (n === 4) status = 'ok-soft';
+          else if (n === 3) status = 'mid';
+          else if (n === 2) status = 'ko-soft';
+          else status = 'ko-strong';
+        }
+        row.dataset.status = status;
+        if (statusHolder) {
+          statusHolder.dataset.status = status;
+          statusHolder.setAttribute('data-status', status);
+        }
+        if (dot) {
+          dot.className = `consigne-row__dot consigne-row__dot--${status}`;
+        }
+        if (mark) {
+          mark.classList.toggle('consigne-row__mark--checked', status !== 'na');
+        }
+        if (live) {
+          const labels = { 'ok-strong': 'Très positif', 'ok-soft': 'Plutôt positif', mid: 'Intermédiaire', 'ko-soft': 'Plutôt négatif', 'ko-strong': 'Très négatif', note: 'Réponse notée', na: 'Sans donnée' };
+          live.textContent = `${labels[status] || 'Valeur'}`;
+        }
+      };
+
+      // Ouvre une modale pour répondre à l'objectif (même logique que les consignes)
+      if (openBtn) {
+        openBtn.addEventListener('click', async () => {
+          let initialValue = '';
+          try {
+            const existing = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso);
+            if (existing && existing.v !== undefined && existing.v !== null) {
+              initialValue = String(existing.v);
+            }
+          } catch (e) {
+            try { modesLogger?.warn?.('daily.objectivesDue.prefill', e); } catch (_) {}
+          }
+          const content = document.createElement('div');
+          content.innerHTML = `
+            <div class="space-y-4">
+              <header class="space-y-1">
+                <h2 class="text-lg font-semibold">${escapeHtml(title)}</h2>
+                <p class="text-sm text-[var(--muted)]">Répondre à l’objectif du jour</p>
+              </header>
+              <div class="grid gap-2">
+                <label class="text-sm" for="${fieldId}">Réponse</label>
+                <select id="${fieldId}" class="practice-editor__select">
+                  <option value="" ${initialValue===''?'selected':''}>—</option>
+                  <option value="5" ${initialValue==='5'?'selected':''}>Oui</option>
+                  <option value="4" ${initialValue==='4'?'selected':''}>Plutôt oui</option>
+                  <option value="3" ${initialValue==='3'?'selected':''}>Neutre</option>
+                  <option value="2" ${initialValue==='2'?'selected':''}>Plutôt non</option>
+                  <option value="1" ${initialValue==='1'?'selected':''}>Non</option>
+                  <option value="0" ${initialValue==='0'?'selected':''}>Pas de réponse</option>
+                </select>
+              </div>
+              <div class="flex justify-end gap-2">
+                <button type="button" class="btn" data-close>Annuler</button>
+                <button type="button" class="btn btn-primary" data-save>Enregistrer</button>
+              </div>
+            </div>`;
+          const overlay = modal(content.outerHTML);
+          if (!overlay) return;
+          const close = () => overlay.remove();
+          overlay.querySelector('[data-close]')?.addEventListener('click', close);
+          overlay.querySelector('[data-save]')?.addEventListener('click', async () => {
+            const sel = overlay.querySelector(`#${CSS.escape(fieldId)}`);
+            const raw = sel ? sel.value : '';
+            const val = raw === '' ? null : Number(raw);
+            try {
+              await Schema.saveObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso, val);
+              applyObjectiveStatus(val);
+              showToast('Réponse enregistrée.');
+              close();
+            } catch (err) {
+              console.error('objective.entry.save', err);
+              showToast('Impossible d’enregistrer la réponse.');
+            }
+          });
+        });
+      }
+
+      stack.appendChild(row);
+
+      // Initialiser le statut visuel depuis la valeur existante
+      (async () => {
+        try {
+          const existing = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso);
+          if (existing && existing.v !== undefined && existing.v !== null) {
+            applyObjectiveStatus(existing.v);
+          } else {
+            applyObjectiveStatus(null);
+          }
+        } catch (e) {
+          try { modesLogger?.warn?.('daily.objectivesDue.initStatus', e); } catch (_) {}
+        }
+      })();
+    });
+
+    // Mettre la section en tête de grille
+    form.appendChild(section);
+  }
 
   if (!visibleConsignes.length) {
     const empty = document.createElement("div");

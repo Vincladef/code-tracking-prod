@@ -1768,7 +1768,7 @@
     .practice-dashboard__history-grid{
       display:grid;
       gap:1.75rem;
-      grid-template-columns:repeat(auto-fit, minmax(320px,1fr));
+      grid-template-columns:repeat(auto-fit, minmax(min(280px, 100%), 1fr));
     }
     .practice-dashboard__history-section{
       background:#fff;
@@ -1781,6 +1781,7 @@
       box-shadow:0 12px 24px rgba(15,23,42,0.08);
       border-top:4px solid var(--history-accent, rgba(99,102,241,0.4));
       background-image:linear-gradient(135deg, rgba(255,255,255,1) 0%, var(--history-soft, #f8fafc) 120%);
+      min-width:0;
     }
     .practice-dashboard__history-header{ display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:.75rem; }
     .practice-dashboard__history-heading-group{ display:flex; flex-direction:column; gap:.35rem; }

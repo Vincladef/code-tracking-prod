@@ -18,6 +18,7 @@ jobs:
     env:
       # Secrets disponibles dans le dépôt
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      MAIL_CONFIG_JSON: ${{ secrets.MAIL_CONFIG_JSON }}
       GMAIL_USER: ${{ secrets.GMAIL_USER }}
       GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
       MAIL_FROM: ${{ secrets.MAIL_FROM }}
@@ -76,49 +77,42 @@ jobs:
         with:
           project_id: ${{ steps.project.outputs.project_id }}
 
-      # Ensure the Cloud Runtime Configuration API is enabled (required for functions:config)
-      - name: Enable required Google APIs
+      # Facultatif: tentative d'activation de l'API (non bloquante si refusée)
+      - name: Ensure Google APIs (best effort, non-blocking)
         run: |
-          echo "Enabling APIs on project: $PROJECT_ID"
-          gcloud services enable runtimeconfig.googleapis.com --project "$PROJECT_ID"
+          echo "Best-effort enabling runtimeconfig on project: $PROJECT_ID"
+          gcloud services enable runtimeconfig.googleapis.com --project "$PROJECT_ID" || echo "Skip enabling API (insufficient perms or already enabled)"
 
-      - name: Set Firebase Functions config (mail/summary)
+      - name: Create runtime mail config file (no runtimeconfig API)
         shell: bash
         run: |
-          # Valeurs par défaut compatibles Gmail si non fournies
-          MAIL_HOST=${MAIL_HOST:-}
-          MAIL_PORT=${MAIL_PORT:-}
-          MAIL_SECURE=${MAIL_SECURE:-}
-          MAIL_USER=${MAIL_USER:-}
-          MAIL_PASS=${MAIL_PASS:-}
-
-          if [ -z "$MAIL_HOST" ]; then MAIL_HOST="smtp.gmail.com"; fi
-          if [ -z "$MAIL_PORT" ]; then MAIL_PORT="465"; fi
-          if [ -z "$MAIL_SECURE" ]; then MAIL_SECURE="true"; fi
-          if [ -z "$MAIL_USER" ]; then MAIL_USER="$GMAIL_USER"; fi
-          if [ -z "$MAIL_PASS" ]; then MAIL_PASS="$GMAIL_APP_PASS"; fi
-
-          # Fallback destinataires résumé: SUMMARY_RECIPIENTS -> MAIL_RECIPIENTS -> MAIL_FROM
-          SUMMARY_RECIPIENTS=${SUMMARY_RECIPIENTS:-}
-          if [ -z "$SUMMARY_RECIPIENTS" ]; then SUMMARY_RECIPIENTS="$MAIL_RECIPIENTS"; fi
-          if [ -z "$SUMMARY_RECIPIENTS" ]; then SUMMARY_RECIPIENTS="$MAIL_FROM"; fi
-
-          if [ -z "$MAIL_FROM" ]; then
-            echo "MAIL_FROM secret manquant: impossible de configurer l'expéditeur SMTP." >&2
-            exit 1
+          mkdir -p functions
+          if [ -n "${MAIL_CONFIG_JSON}" ]; then
+            echo "Using MAIL_CONFIG_JSON secret to create functions/mail.runtime.json"
+            printf '%s' "${MAIL_CONFIG_JSON}" > functions/mail.runtime.json
           else
-            echo "Configuring Functions mail settings for project $PROJECT_ID"
-            firebase functions:config:set \
-              mail.host="$MAIL_HOST" \
-              mail.port="$MAIL_PORT" \
-              mail.secure="$MAIL_SECURE" \
-              mail.user="$MAIL_USER" \
-              mail.pass="$MAIL_PASS" \
-              mail.from="$MAIL_FROM" \
-              mail.recipients="$MAIL_RECIPIENTS" \
-              summary.recipients="$SUMMARY_RECIPIENTS" \
-              --project "$PROJECT_ID"
+            # Valeurs par défaut Gmail si non fournies
+            MAIL_HOST=${MAIL_HOST:-smtp.gmail.com}
+            MAIL_PORT=${MAIL_PORT:-465}
+            MAIL_SECURE=${MAIL_SECURE:-true}
+            MAIL_USER=${MAIL_USER:-$GMAIL_USER}
+            MAIL_PASS=${MAIL_PASS:-$GMAIL_APP_PASS}
+
+            if [ -z "$MAIL_FROM" ]; then
+              echo "MAIL_FROM secret manquant: impossible de préparer la config SMTP." >&2
+              exit 1
+            fi
+
+            SUMMARY_RECIPIENTS=${SUMMARY_RECIPIENTS:-}
+            if [ -z "$SUMMARY_RECIPIENTS" ]; then SUMMARY_RECIPIENTS="$MAIL_RECIPIENTS"; fi
+            if [ -z "$SUMMARY_RECIPIENTS" ]; then SUMMARY_RECIPIENTS="$MAIL_FROM"; fi
+
+            echo "Writing functions/mail.runtime.json from individual secrets"
+            node -e "const fs=require('fs');const cfg={host:process.env.MAIL_HOST,port:String(process.env.MAIL_PORT||''),secure:String(process.env.MAIL_SECURE||''),user:process.env.MAIL_USER,pass:process.env.MAIL_PASS,from:process.env.MAIL_FROM,recipients:process.env.MAIL_RECIPIENTS||'',summary:{recipients:process.env.SUMMARY_RECIPIENTS||''}};fs.writeFileSync('functions/mail.runtime.json',JSON.stringify(cfg,null,2));console.log('Wrote functions/mail.runtime.json');"
           fi
+
+      - name: Install Functions dependencies
+        run: npm ci --prefix functions
 
       - name: Deploy Functions (using Service Account auth)
         run: firebase deploy --only functions --project "$PROJECT_ID"

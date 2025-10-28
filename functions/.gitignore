@@ -1,2 +1,4 @@
 node_modules/
 *.local
+mail.runtime.json
+.mail.runtime.json

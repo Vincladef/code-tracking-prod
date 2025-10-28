@@ -2372,6 +2372,84 @@ async function listObjectivesByMonth(db, uid, monthKey) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+function shiftMonthKey(baseKey, offset) {
+  const [yearStr, monthStr] = String(baseKey || "").split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(offset)) {
+    return baseKey || "";
+  }
+  const base = new Date(year, month - 1 + Number(offset), 1);
+  return monthKeyFromDate(base);
+}
+
+async function listObjectivesByReminderDate(db, uid, dateIso) {
+  if (!db || !uid || !dateIso) return [];
+  const q = query(collection(db, "u", uid, "objectifs"), where("notifyAt", "==", dateIso));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+function objectiveDueDateIso(objective) {
+  if (!objective) return null;
+  // Custom explicit notification date has priority
+  const custom = toDate(objective?.notifyAt ?? objective?.notifyDate ?? objective?.notificationDate);
+  if (custom) {
+    return dayKeyFromDate(custom);
+  }
+  // Theoretical date
+  const explicitEnd = toDate(objective?.endDate);
+  if (explicitEnd) {
+    const d = startOfDay(explicitEnd);
+    return dayKeyFromDate(d);
+  }
+  if (objective?.type === "hebdo") {
+    const range = weekDateRange(objective.monthKey, objective.weekOfMonth || 1);
+    if (range?.end) {
+      return dayKeyFromDate(range.end);
+    }
+  }
+  if (objective?.type === "mensuel") {
+    const range = monthRangeFromKey(objective.monthKey);
+    if (range?.end) {
+      return dayKeyFromDate(range.end);
+    }
+  }
+  const fallback = toDate(objective?.startDate);
+  if (fallback) {
+    return dayKeyFromDate(fallback);
+  }
+  return null;
+}
+
+async function listObjectivesDueOn(db, uid, dateInput) {
+  const selectedDate = startOfDay(dateInput || new Date());
+  if (!db || !uid || !selectedDate) return [];
+  const dateIso = dayKeyFromDate(selectedDate);
+  const monthKey = monthKeyFromDate(selectedDate);
+  const previousMonth = shiftMonthKey(monthKey, -1);
+  const months = new Set([monthKey]);
+  if (previousMonth && previousMonth !== monthKey) months.add(previousMonth);
+
+  // Fetch objectives for target months and those with explicit notifyAt == dateIso
+  const byMonth = await Promise.all(Array.from(months).map((key) => listObjectivesByMonth(db, uid, key)));
+  const byReminder = await listObjectivesByReminderDate(db, uid, dateIso).catch(() => []);
+
+  const map = new Map();
+  byMonth.flat().forEach((row) => { if (row && row.id) map.set(row.id, row); });
+  (byReminder || []).forEach((row) => { if (row && row.id) map.set(row.id, row); });
+
+  const due = [];
+  map.forEach((objective) => {
+    if (!objective || objective.notifyOnTarget === false) return;
+    const channelRaw = String(objective.notifyChannel || "").trim().toLowerCase();
+    if (channelRaw === "none" || channelRaw === "off" || channelRaw === "disabled") return;
+    const iso = objectiveDueDateIso(objective);
+    if (iso && iso === dateIso) due.push(objective);
+  });
+  return due;
+}
+
 async function getObjective(db, uid, objectifId) {
   const ref = doc(db, "u", uid, "objectifs", objectifId);
   const snap = await getDoc(ref);
@@ -2981,7 +3059,12 @@ Object.assign(Schema, {
   weeksOf,
   weekOfMonthFromDate,
   weekDateRange,
+  // objectifs & rappels
   listObjectivesByMonth,
+  listObjectivesByReminderDate,
+  listObjectivesDueOn,
+  objectiveDueDateIso,
+  shiftMonthKey,
   getObjective,
   upsertObjective,
   deleteObjective,
@@ -3005,6 +3088,7 @@ if (typeof module !== "undefined" && module.exports) {
     weeksOf,
     weekOfMonthFromDate,
     weekDateRange,
+    shiftMonthKey,
     loadModuleSettings,
     saveModuleSettings,
   };
