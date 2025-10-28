@@ -269,13 +269,26 @@
 
       const finish = () => {
         row.classList.remove("is-editing");
-        // restore original UI without reflowing the whole month
+        // restore compact title line with actions on the right
+        const notifyIso = isoValueFromAny(goal?.notifyAt || "");
+        const theoretical = computeTheoreticalGoalDate(goal);
+        const theoreticalIso = formatDateInputValue(theoretical);
+        const effectiveIso = notifyIso || theoreticalIso || "";
+        const effectiveLabel = (() => {
+          if (!effectiveIso) return "Configurer le rappel";
+          const parts = effectiveIso.split("-").map(Number);
+          const d = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
+          return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+        })();
         titleWrap.innerHTML = `
-          <button type="button" class="goal-title__button" data-edit-goal>
+          <button type="button" class="goal-title__button" data-edit-goal style="flex:1; text-align:left;">
             <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
             <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(typeLabel(goal, goal.monthKey))}</span>
           </button>
-          <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
+          <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
+            <button type="button" class="btn btn-ghost" data-open-date title="Jour du rappel: ${escapeHtml(effectiveLabel)}">📅</button>
+            <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
+          </div>
         `;
         const editButton = titleWrap.querySelector("[data-edit-goal]");
         if (editButton) {
@@ -291,6 +304,14 @@
             e.preventDefault();
             e.stopPropagation();
             openGoalForm(ctx, goal);
+          });
+        }
+        const dateBtn = titleWrap.querySelector("[data-open-date]");
+        if (dateBtn) {
+          dateBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleDatePopover(row, goal, dateBtn);
           });
         }
       };
@@ -359,11 +380,15 @@
       })();
 
       row.innerHTML = `
-        <div class="goal-title">
-          <button type="button" class="goal-title__button" data-edit-goal>
+        <div class="goal-title" style="display:flex; align-items:center; gap:8px;">
+          <button type="button" class="goal-title__button" data-edit-goal style="flex:1; text-align:left;">
             <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
             <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
           </button>
+          <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
+            <button type="button" class="btn btn-ghost" data-open-date title="Jour du rappel: ${escapeHtml(effectiveLabel)}">📅</button>
+            <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
+          </div>
         </div>
         <div class="goal-quick">
           <select class="select-compact">
@@ -375,10 +400,6 @@
             <option value="1">Non</option>
             <option value="0">Pas de réponse</option>
           </select>
-        </div>
-        <div class="goal-actions" style="margin-left:auto; display:flex; align-items:center; gap:8px;">
-          <button type="button" class="btn btn-ghost" data-open-date title="Jour du rappel: ${escapeHtml(effectiveLabel)}">📅</button>
-          <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
         </div>
       `;
       const select = row.querySelector("select");
@@ -672,20 +693,20 @@
       ? (Schema.weekDateRange(monthKey, weekOfMonth || 1)?.label || `Semaine ${weekOfMonth || 1}`)
       : 'Mensuel';
     row.innerHTML = `
-      <div class="goal-title">
-        <div class="goal-inline-editor">
+      <div class="goal-title" style="display:flex; align-items:center; gap:8px;">
+        <div class="goal-inline-editor" style="flex:1;">
           <input type="text" class="goal-input goal-input--inline" placeholder="Nouvel objectif…" aria-label="Titre de l’objectif">
+          <span class="goal-title__subtitle text-xs text-[var(--muted)]" style="display:block; margin-top:2px;">${escapeHtml(subtitle)}</span>
         </div>
-        <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
+        <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
+          <button type="button" class="btn btn-ghost btn-compact" data-calendar title="Jour du rappel">📅</button>
+          <button type="button" class="btn btn-ghost btn-compact" data-advanced title="Options avancées">⚙️</button>
+          <button type="button" class="btn btn-primary btn-compact" data-save>Enregistrer</button>
+          <button type="button" class="btn btn-ghost btn-compact" data-cancel>Annuler</button>
+        </div>
       </div>
       <div class="goal-quick muted text-xs" data-inline-meta>
         <span data-when-label></span>
-      </div>
-      <div class="goal-actions" style="margin-left:auto; display:flex; align-items:center; gap:8px;">
-        <button type="button" class="btn btn-ghost btn-compact" data-calendar title="Jour du rappel">📅</button>
-        <button type="button" class="btn btn-ghost btn-compact" data-advanced title="Options avancées">⚙️</button>
-        <button type="button" class="btn btn-primary btn-compact" data-save>Enregistrer</button>
-        <button type="button" class="btn btn-ghost btn-compact" data-cancel>Annuler</button>
       </div>
       <div class="goal-inline-date" data-date-wrap hidden style="position:absolute; right:8px; top:36px; background:var(--card, #fff); border:1px solid var(--muted,#ccc); border-radius:8px; padding:8px; box-shadow:0 6px 24px rgba(0,0,0,0.08); z-index:30;">
         <label class="goal-label text-xs" for="inline-notify-date">Jour du rappel</label>
