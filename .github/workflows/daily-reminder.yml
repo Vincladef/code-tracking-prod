@@ -411,7 +411,7 @@ jobs:
               const userName = prof.name || prof.displayName || prof.slug || "toi";
               const title = firstName ? `${firstName}, rappel du jour 👋` : "Rappel du jour 👋";
               const body = buildReminderBody(firstName, visibleCount, objectiveCount);
-              const link = "https://vincladef.github.io/code-tracking-prod/#/daily";
+              const fcmLink = "https://vincladef.github.io/code-tracking-prod/#/daily";
 
               const message = {
                 tokens,
@@ -420,7 +420,7 @@ jobs:
                   body
                 },
                 webpush: {
-                  fcmOptions: { link }
+                  fcmOptions: { link: fcmLink }
                 },
                 data: {
                   user: String(userName),
@@ -431,7 +431,7 @@ jobs:
                   day: ctx.dayLabel,
                   body,
                   title,
-                  link
+                  link: fcmLink
                 }
               };
 
@@ -447,55 +447,111 @@ jobs:
               // ---- Email (si config SMTP et au moins un objectif) ----
               if (SMTP && Array.isArray(profileEmails) && profileEmails.length && objectiveCount > 0){
                 try {
-                  const { subject, text, html } = (function buildGoalReminderEmail(){
-                    const dateLabel = new Date().toLocaleDateString('fr-FR',{ weekday:'long', day:'numeric', month:'long', year:'numeric' });
-                    const formatted = dateLabel.charAt(0).toUpperCase()+dateLabel.slice(1);
-                    const subject = (objectiveCount>1? 'Rappel objectifs' : 'Rappel objectif') + ' — ' + formatted;
-                    const greeting = firstName? `Bonjour ${firstName},` : 'Bonjour,';
-                    const intro = objectiveCount>1? `Voici tes objectifs à réaliser le ${formatted} :` : `Voici ton objectif à réaliser le ${formatted} :`;
-                    const lines=[greeting,'',intro,`- ${objectiveCount} objectif(s)`, '', `Accède à ton espace : ${link}`,'','Bonne journée !'];
-                    const text = lines.join('\n');
-                    const html = [`<p>${greeting}</p>`,`<p>${intro}</p>`,`<ul><li>${objectiveCount} objectif(s)</li></ul>`,`<p><a href="${link}">Ouvrir mon suivi</a></p>`].join('');
-                    return { subject, text, html };
-                  })();
+                  // Helpers pour le rendu des titres d'objectifs
+                  function formatWeekRangeLabel(monthKey, weekIndex){
+                    const range = weekDateRange(monthKey, weekIndex);
+                    if (!range || !range.start || !range.end) return `Semaine ${weekIndex}`;
+                    const startLabel = range.start.toLocaleDateString('fr-FR', { day:'numeric', month:'long' });
+                    const endLabel = range.end.toLocaleDateString('fr-FR', { day:'numeric', month:'long' });
+                    return `Semaine du ${startLabel} au ${endLabel}`;
+                  }
+                  function formatMonthLabelForObjective(monthKey){
+                    const parsed = parseMonthKey(monthKey);
+                    if(!parsed) return monthKey || '';
+                    const d = new Date(parsed.year, parsed.month-1, 1);
+                    const label = d.toLocaleDateString('fr-FR', { month:'long', year:'numeric' });
+                    return label ? label.charAt(0).toUpperCase()+label.slice(1) : (monthKey||'');
+                  }
+                  function describeObjectiveForEmail(objective){
+                    const t = objective.titre || objective.title || 'Objectif';
+                    const meta = [];
+                    if (objective.type === 'hebdo'){
+                      const w = objective.weekOfMonth || objective.weekIndex || 1;
+                      meta.push(formatWeekRangeLabel(objective.monthKey, w));
+                    } else if (objective.type === 'mensuel'){
+                      const ml = formatMonthLabelForObjective(objective.monthKey);
+                      if (ml) meta.push(`Mensuel — ${ml}`);
+                    }
+                    return meta.length ? `${t} — ${meta.join(' — ')}` : t;
+                  }
+                  async function objectivesDueOn(uid, ctx){
+                    const baseMonthKey = (String(ctx?.dateIso||'').slice(0,7));
+                    const monthKey = baseMonthKey || monthKeyFromDate(ctx.selectedDate);
+                    const previousMonth = monthKey ? shiftMonthKey(monthKey, -1) : null;
+                    const targetMonths = new Set();
+                    if (monthKey) targetMonths.add(monthKey);
+                    if (previousMonth && previousMonth !== monthKey) targetMonths.add(previousMonth);
+                    const map = new Map();
+                    for (const key of targetMonths){
+                      const rows = await fetchObjectivesByMonth(uid, key);
+                      for (const row of rows){ if (!row || !row.id) continue; map.set(row.id, row); }
+                    }
+                    const reminderIso = String(ctx?.dateIso||'') || null;
+                    if (reminderIso){
+                      const rows = await fetchObjectivesByReminder(uid, reminderIso);
+                      for (const row of rows){ if (!row || !row.id) continue; map.set(row.id, row); }
+                    }
+                    const due = [];
+                    for (const obj of map.values()){
+                      if (obj?.notifyOnTarget === false) continue;
+                      const iso = objectiveDueDateIso(obj);
+                      if (!iso) continue;
+                      if (iso === ctx.dateIso) due.push(obj);
+                    }
+                    return due;
+                  }
+
+                  const dueObjectives = await objectivesDueOn(uid, ctx);
+                  const titles = dueObjectives.map(describeObjectiveForEmail);
+                  const date = (ctx && ctx.selectedDate instanceof Date) ? ctx.selectedDate : new Date();
+                  const dateLabel = date.toLocaleDateString('fr-FR',{ weekday:'long', day:'numeric', month:'long', year:'numeric' });
+                  const formatted = dateLabel.charAt(0).toUpperCase()+dateLabel.slice(1);
+                  const subjectPrefix = titles.length>1 ? 'Rappel objectifs' : 'Rappel objectif';
+                  let subject = `${subjectPrefix} — ${formatted}`;
+                  if (titles.length === 1) subject = `${subjectPrefix} — ${titles[0]} — ${formatted}`;
+                  const greeting = firstName? `Bonjour ${firstName},` : 'Bonjour,';
+                  const intro = titles.length>1? `Voici tes objectifs à réaliser le ${formatted} :` : `Voici ton objectif à réaliser le ${formatted} :`;
+                  const emailLink = `https://vincladef.github.io/code-tracking-prod/#/u/${encodeURIComponent(uid)}/goals?d=${ctx.dateIso}`;
+                  const lines=[greeting,'',intro, ...titles.map(t=>`- ${t}`), '', `Accède à ton espace : ${emailLink}`,'','Bonne journée !'];
+                  const text = lines.join('\n');
+                  const list = titles.map(t=>`<li>${t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</li>`).join('');
+                  const html = [`<p>${greeting}</p>`,`<p>${intro}</p>`,`<ul>${list}</ul>`,`<p><a href="${emailLink}">Ouvrir mon suivi</a></p>`].join('');
 
                   // Minimal SMTP client (LOGIN) comme dans functions/index.js
-                  await (async function send(){
-                    const recipients = profileEmails;
-                    const socket = await new Promise((resolve, reject) => {
-                      const c = tls.connect({ host: SMTP.host, port: Number(SMTP.port)||465, rejectUnauthorized: true }, () => { c.setEncoding('utf8'); c.removeListener('error', onErr); resolve(c); });
-                      const onErr = (e)=>reject(e); c.once('error', onErr);
-                    });
-                    const wait = ()=> new Promise((res,rej)=>{ let buf=''; const onData=(ch)=>{ buf+=ch.toString(); const lines=buf.split(/\r?\n/).filter(Boolean); if(!lines.length) return; const last=lines[lines.length-1]; const m=last.match(/^(\d{3})([ -])/); if(!m) return; if(m[2]==='-') return; socket.removeListener('data',onData); res({ code:Number(m[1]), lines});}; const onErr=(e)=>{ socket.removeListener('data',onData); rej(e);}; socket.on('data',onData); socket.on('error',onErr); });
-                    const send = async (cmd, allow=[])=>{ socket.write(cmd+'\r\n'); const r=await wait(); if (!(r.code<400 && (!allow.length || allow.includes(r.code)))) throw new Error('SMTP failed '+cmd+' => '+r.code); return r; };
-                    await wait();
-                    await send(`EHLO ${SMTP.host}`);
-                    if (SMTP.user && SMTP.pass){ await send('AUTH LOGIN',[334]); await send(Buffer.from(SMTP.user).toString('base64'),[334]); await send(Buffer.from(SMTP.pass).toString('base64'),[235]); }
-                    const extractAddress = (v)=>{ const s=String(v||''); const m=s.match(/<([^>]+)>/); const addr=m?m[1]:s; return addr.replace(/^mailto:/i,'').trim(); };
-                    const envelopeFrom = extractAddress(SMTP.from);
-                    await send(`MAIL FROM:<${envelopeFrom}>`);
-                    for (const r of recipients){ const rcpt = extractAddress(r); await send(`RCPT TO:<${rcpt}>`,[250,251]); }
-                    await send('DATA',[354]);
-                    const boundary = '=_gh_'+Date.now();
-                    const headers = [
-                      `From: ${SMTP.from}`,
-                      `To: ${recipients.join(', ')}`,
-                      `Subject: ${subject}`,
-                      'MIME-Version: 1.0',
-                      `Content-Type: multipart/alternative; boundary="${boundary}"`,
-                      `Date: ${new Date().toUTCString()}`
-                    ];
-                    const parts = [
-                      `--${boundary}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${text}\r\n`,
-                      `--${boundary}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${html}\r\n`,
-                      `--${boundary}--\r\n`
-                    ];
-                    socket.write(headers.join('\r\n')+'\r\n\r\n'+parts.join('')+'\r\n.\r\n');
-                    const final = await wait();
-                    if (final.code>=400) throw new Error('SMTP delivery failed '+final.code);
-                    await send('QUIT',[221]);
-                    socket.end();
-                  })();
+                  const recipients = profileEmails;
+                  const socket = await new Promise((resolve, reject) => {
+                    const c = tls.connect({ host: SMTP.host, port: Number(SMTP.port)||465, rejectUnauthorized: true }, () => { c.setEncoding('utf8'); c.removeListener('error', onErr); resolve(c); });
+                    const onErr = (e)=>reject(e); c.once('error', onErr);
+                  });
+                  const wait = ()=> new Promise((res,rej)=>{ let buf=''; const onData=(ch)=>{ buf+=ch.toString(); const lines=buf.split(/\r?\n/).filter(Boolean); if(!lines.length) return; const last=lines[lines.length-1]; const m=last.match(/^(\d{3})([ -])/); if(!m) return; if(m[2]==='-') return; socket.removeListener('data',onData); res({ code:Number(m[1]), lines});}; const onErr=(e)=>{ socket.removeListener('data',onData); rej(e);}; socket.on('data',onData); socket.on('error',onErr); });
+                  const send = async (cmd, allow=[])=>{ socket.write(cmd+'\r\n'); const r=await wait(); if (!(r.code<400 && (!allow.length || allow.includes(r.code)))) throw new Error('SMTP failed '+cmd+' => '+r.code); return r; };
+                  await wait();
+                  await send(`EHLO ${SMTP.host}`);
+                  if (SMTP.user && SMTP.pass){ await send('AUTH LOGIN',[334]); await send(Buffer.from(SMTP.user).toString('base64'),[334]); await send(Buffer.from(SMTP.pass).toString('base64'),[235]); }
+                  const extractAddress = (v)=>{ const s=String(v||''); const m=s.match(/<([^>]+)>/); const addr=m?m[1]:s; return addr.replace(/^mailto:/i,'').trim(); };
+                  const envelopeFrom = extractAddress(SMTP.from);
+                  await send(`MAIL FROM:<${envelopeFrom}>`);
+                  for (const r of recipients){ const rcpt = extractAddress(r); await send(`RCPT TO:<${rcpt}>`,[250,251]); }
+                  await send('DATA',[354]);
+                  const boundary = '=_gh_'+Date.now();
+                  const headers = [
+                    `From: ${SMTP.from}`,
+                    `To: ${recipients.join(', ')}`,
+                    `Subject: ${subject}`,
+                    'MIME-Version: 1.0',
+                    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+                    `Date: ${new Date().toUTCString()}`
+                  ];
+                  const parts = [
+                    `--${boundary}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${text}\r\n`,
+                    `--${boundary}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${html}\r\n`,
+                    `--${boundary}--\r\n`
+                  ];
+                  socket.write(headers.join('\r\n')+'\r\n\r\n'+parts.join('')+'\r\n.\r\n');
+                  const final = await wait();
+                  if (final.code>=400) throw new Error('SMTP delivery failed '+final.code);
+                  await send('QUIT',[221]);
+                  socket.end();
                   emailResults.push({ uid, to: profileEmails, ok: true });
                   console.log(`email uid=${uid} -> to=${profileEmails.join(',')}`);
                 } catch(e){

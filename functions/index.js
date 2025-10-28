@@ -1129,7 +1129,7 @@ exports.onObjectiveWrite = functions
               displayName,
               objectives: emailObjectives.map((item) => ({ id: item.objective?.id, ...item.objective })),
               context: currentContext,
-              link: buildUserDailyLink(uid, currentContext.dateIso),
+                  link: buildUserGoalsLink(uid, currentContext.dateIso),
             });
             await sendSmtpEmail({
               ...mailSettings,
@@ -1475,7 +1475,7 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
       emailError: null,
       weeklyReminder: 0,
       monthlyReminder: 0,
-      link: buildUserDailyLink(uid, context.dateIso),
+  link: buildUserGoalsLink(uid, context.dateIso),
     };
 
     try {
@@ -1898,7 +1898,12 @@ function buildGoalReminderEmail({ firstName, displayName, objectives, context, l
     ? objectives.filter(Boolean)
     : [];
   const subjectPrefix = safeObjectives.length > 1 ? "Rappel objectifs" : "Rappel objectif";
-  const subject = `${subjectPrefix} — ${formattedDate}`;
+  // Inclure le titre si un seul objectif
+  let subject = `${subjectPrefix} — ${formattedDate}`;
+  if (safeObjectives.length === 1) {
+    const onlyTitle = describeObjectiveForEmail(safeObjectives[0]);
+    subject = `${subjectPrefix} — ${onlyTitle} — ${formattedDate}`;
+  }
 
   const greetingName = firstName || displayName || "";
   const greeting = greetingName ? `Bonjour ${greetingName},` : "Bonjour,";
@@ -2268,6 +2273,10 @@ async function sendDailySummaryEmail(context, results) {
 
 function buildUserDailyLink(uid, dateIso) {
   return `${DAILY_BASE}#/daily?u=${encodeURIComponent(uid)}&d=${dateIso}`;
+}
+
+function buildUserGoalsLink(uid, dateIso) {
+  return `${DAILY_BASE}#/u/${encodeURIComponent(uid)}/goals?d=${dateIso}`;
 }
 
 exports.__testables = {
