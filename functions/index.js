@@ -2209,9 +2209,20 @@ async function sendSmtpEmail({ host, port, secure, user, pass, from, to, subject
       await sendSmtpCommand(socket, Buffer.from(pass).toString("base64"), { allow: [235] });
     }
 
-    await sendSmtpCommand(socket, `MAIL FROM:<${from}>`);
+    const extractAddress = (value) => {
+      const str = toStringOrNull(value);
+      if (!str) return null;
+      const m = str.match(/<([^>]+)>/);
+      const addr = m ? m[1] : str;
+      return addr.replace(/^mailto:/i, "").trim();
+    };
+
+    const envelopeFrom = extractAddress(from);
+    await sendSmtpCommand(socket, `MAIL FROM:<${envelopeFrom}>`);
     for (const recipient of recipients) {
-      await sendSmtpCommand(socket, `RCPT TO:<${recipient}>`, { allow: [250, 251] });
+      const rcpt = extractAddress(recipient);
+      if (!rcpt) continue;
+      await sendSmtpCommand(socket, `RCPT TO:<${rcpt}>`, { allow: [250, 251] });
     }
 
     await sendSmtpCommand(socket, "DATA", { allow: [354] });
