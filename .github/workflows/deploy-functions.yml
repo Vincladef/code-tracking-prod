@@ -1,0 +1,101 @@
+name: Deploy Functions
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'functions/**'
+      - '.github/workflows/deploy-functions.yml'
+      - 'firebase.json'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # Secrets disponibles dans le dépôt
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      GMAIL_USER: ${{ secrets.GMAIL_USER }}
+      GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
+      MAIL_FROM: ${{ secrets.MAIL_FROM }}
+      # Optionnels (s’ils existent, ils override nos défauts)
+      MAIL_HOST: ${{ secrets.MAIL_HOST }}
+      MAIL_PORT: ${{ secrets.MAIL_PORT }}
+      MAIL_SECURE: ${{ secrets.MAIL_SECURE }}
+      MAIL_USER: ${{ secrets.MAIL_USER }}
+      MAIL_PASS: ${{ secrets.MAIL_PASS }}
+      MAIL_RECIPIENTS: ${{ secrets.MAIL_RECIPIENTS }}
+      SUMMARY_RECIPIENTS: ${{ secrets.SUMMARY_RECIPIENTS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Firebase CLI
+        run: npm i -g firebase-tools
+
+      - name: Show Firebase CLI version
+        run: firebase --version
+
+      - name: Authenticate with Google (Service Account)
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Derive Firebase project id from Service Account
+        id: project
+        shell: bash
+        run: |
+          PROJECT_ID=$(jq -r .project_id <<< "$FIREBASE_SERVICE_ACCOUNT")
+          if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+            echo "Unable to derive project_id from FIREBASE_SERVICE_ACCOUNT" >&2
+            exit 1
+          fi
+          echo "PROJECT_ID=$PROJECT_ID" >> "$GITHUB_ENV"
+
+      - name: Set Firebase Functions config (mail/summary)
+        shell: bash
+        run: |
+          # Valeurs par défaut compatibles Gmail si non fournies
+          MAIL_HOST=${MAIL_HOST:-}
+          MAIL_PORT=${MAIL_PORT:-}
+          MAIL_SECURE=${MAIL_SECURE:-}
+          MAIL_USER=${MAIL_USER:-}
+          MAIL_PASS=${MAIL_PASS:-}
+
+          if [ -z "$MAIL_HOST" ]; then MAIL_HOST="smtp.gmail.com"; fi
+          if [ -z "$MAIL_PORT" ]; then MAIL_PORT="465"; fi
+          if [ -z "$MAIL_SECURE" ]; then MAIL_SECURE="true"; fi
+          if [ -z "$MAIL_USER" ]; then MAIL_USER="$GMAIL_USER"; fi
+          if [ -z "$MAIL_PASS" ]; then MAIL_PASS="$GMAIL_APP_PASS"; fi
+
+          # Fallback destinataires résumé: SUMMARY_RECIPIENTS -> MAIL_RECIPIENTS -> MAIL_FROM
+          SUMMARY_RECIPIENTS=${SUMMARY_RECIPIENTS:-}
+          if [ -z "$SUMMARY_RECIPIENTS" ]; then SUMMARY_RECIPIENTS="$MAIL_RECIPIENTS"; fi
+          if [ -z "$SUMMARY_RECIPIENTS" ]; then SUMMARY_RECIPIENTS="$MAIL_FROM"; fi
+
+          if [ -z "$MAIL_FROM" ]; then
+            echo "MAIL_FROM secret manquant: configuration des mails ignorée (aucun expéditeur)." >&2
+          else
+            echo "Configuring Functions mail settings for project $PROJECT_ID"
+            firebase functions:config:set \
+              mail.host="$MAIL_HOST" \
+              mail.port="$MAIL_PORT" \
+              mail.secure="$MAIL_SECURE" \
+              mail.user="$MAIL_USER" \
+              mail.pass="$MAIL_PASS" \
+              mail.from="$MAIL_FROM" \
+              mail.recipients="$MAIL_RECIPIENTS" \
+              summary.recipients="$SUMMARY_RECIPIENTS" \
+              --project "$PROJECT_ID"
+          fi
+
+      - name: Deploy Functions (using Service Account auth)
+        run: firebase deploy --only functions --project "$PROJECT_ID"
