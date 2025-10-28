@@ -12,6 +12,11 @@
   let lastCtx = null;
   let activeReminderPopover = null;
   let detachReminderOutsideHandlers = null;
+  const goalDragState = {
+    activeId: null,
+    sourceList: null,
+    startOrder: [],
+  };
 
   function escapeHtml(str) {
     return String(str ?? "")
@@ -99,6 +104,186 @@
     return isEmailEnabled(goal) ? REMINDER_ICON_MAIL_CHECK : REMINDER_ICON_MAIL;
   }
 
+  function goalCssEscape(value) {
+    if (typeof value !== "string") return "";
+    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+      return CSS.escape(value);
+    }
+    return value.replace(/["\\]/g, "\\$&");
+  }
+
+  function selectGoalRowById(list, id) {
+    if (!list || !id) return null;
+    const escaped = goalCssEscape(id);
+    if (!escaped) return null;
+    try {
+      return list.querySelector(`[data-goal-id="${escaped}"]`);
+    } catch (_error) {
+      return list.querySelector(`[data-goal-id="${id}"]`);
+    }
+  }
+
+  function captureGoalOrder(list) {
+    if (!list) return [];
+    return Array.from(list.querySelectorAll("[data-goal-id]"))
+      .map((node) => node.dataset.goalId)
+      .filter(Boolean);
+  }
+
+  function applyOrderToList(list, orderedIds) {
+    if (!list || !Array.isArray(orderedIds)) return;
+    const nodes = orderedIds
+      .map((id) => selectGoalRowById(list, id))
+      .filter(Boolean);
+    nodes.forEach((node) => list.appendChild(node));
+  }
+
+  function bindGoalDragHandle(handle) {
+    if (!handle || handle.dataset.goalDragBound === "1") return;
+    handle.dataset.goalDragBound = "1";
+    handle.setAttribute("draggable", "true");
+    handle.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    handle.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+      }
+    });
+  }
+
+  function clearGoalDragVisuals() {
+    const list = goalDragState.sourceList;
+    if (list) {
+      list.classList.remove("goal-list--dragging");
+    }
+    if (list && goalDragState.activeId) {
+      const row = selectGoalRowById(list, goalDragState.activeId);
+      if (row) {
+        row.classList.remove("is-dragging");
+      }
+    }
+  }
+
+  async function persistGoalOrder(list, orderedIds, previousOrder = []) {
+    if (!lastCtx || !Array.isArray(orderedIds) || !orderedIds.length) return;
+    if (typeof Schema.updateObjectiveOrders !== "function") {
+      goalsLogger.warn("goals.reorder.unsupported");
+      return;
+    }
+    const updates = orderedIds
+      .map((id, index) => (id ? { id, order: (index + 1) * 1000 } : null))
+      .filter(Boolean);
+    if (!updates.length) return;
+    try {
+      await Schema.updateObjectiveOrders(lastCtx.db, lastCtx.user.uid, updates);
+    } catch (error) {
+      goalsLogger.warn("goals.reorder.save", error);
+      if (previousOrder && previousOrder.length) {
+        applyOrderToList(list, previousOrder);
+      }
+      alert("Impossible d'enregistrer l'ordre des objectifs.");
+    }
+  }
+
+  function enableGoalDragAndDrop(list) {
+    if (!list || list.dataset.goalDnd === "1") return;
+    list.dataset.goalDnd = "1";
+
+    const handleDragStart = (event) => {
+      const handle = event.target.closest("[data-goal-drag-handle]");
+      if (!handle) return;
+      const row = handle.closest("[data-goal-id]");
+      if (!row || !row.dataset.goalId) return;
+      goalDragState.activeId = row.dataset.goalId;
+      goalDragState.sourceList = list;
+      goalDragState.startOrder = captureGoalOrder(list);
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        try {
+          event.dataTransfer.setData("text/plain", goalDragState.activeId);
+        } catch (_error) {}
+      }
+      row.classList.add("is-dragging");
+      list.classList.add("goal-list--dragging");
+    };
+
+    const handleDragOver = (event) => {
+      if (!goalDragState.activeId || goalDragState.sourceList !== list) return;
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+      const overRow = event.target.closest("[data-goal-id]");
+      const draggingRow = selectGoalRowById(list, goalDragState.activeId);
+      if (!draggingRow) return;
+      if (!overRow || overRow === draggingRow) return;
+      const rect = overRow.getBoundingClientRect();
+      const before = event.clientY - rect.top < rect.height / 2;
+      if (before) {
+        list.insertBefore(draggingRow, overRow);
+      } else if (overRow.nextSibling) {
+        list.insertBefore(draggingRow, overRow.nextSibling);
+      } else {
+        list.appendChild(draggingRow);
+      }
+    };
+
+    const handleDrop = (event) => {
+      if (!goalDragState.activeId || goalDragState.sourceList !== list) return;
+      event.preventDefault();
+      const previousOrder = goalDragState.startOrder.slice();
+      clearGoalDragVisuals();
+      const nextOrder = captureGoalOrder(list);
+      const changed = JSON.stringify(nextOrder) !== JSON.stringify(previousOrder);
+      goalDragState.activeId = null;
+      goalDragState.sourceList = null;
+      goalDragState.startOrder = [];
+      if (changed) {
+        persistGoalOrder(list, nextOrder, previousOrder);
+      }
+    };
+
+    const handleDragEnd = () => {
+      if (!goalDragState.activeId || goalDragState.sourceList !== list) return;
+      const previousOrder = goalDragState.startOrder.slice();
+      clearGoalDragVisuals();
+      if (previousOrder.length) {
+        applyOrderToList(list, previousOrder);
+      }
+      goalDragState.activeId = null;
+      goalDragState.sourceList = null;
+      goalDragState.startOrder = [];
+    };
+
+    list.addEventListener("dragstart", handleDragStart);
+    list.addEventListener("dragover", handleDragOver);
+    list.addEventListener("drop", handleDrop);
+    list.addEventListener("dragend", handleDragEnd);
+  }
+
+  function compareGoals(a = {}, b = {}) {
+    const parseOrder = (value) => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : null;
+    };
+    const orderA = parseOrder(a?.order);
+    const orderB = parseOrder(b?.order);
+    if (orderA !== null && orderB !== null && orderA !== orderB) {
+      return orderA - orderB;
+    }
+    if (orderA !== null && orderB === null) return -1;
+    if (orderA === null && orderB !== null) return 1;
+    const titleA = String(a?.titre || "");
+    const titleB = String(b?.titre || "");
+    return titleA.localeCompare(titleB, "fr", { sensitivity: "base" });
+  }
+
+  function sortGoals(goals = []) {
+    return (goals || []).slice().sort(compareGoals);
+  }
+
   function detachReminderHandlers() {
     if (typeof detachReminderOutsideHandlers === "function") {
       detachReminderOutsideHandlers();
@@ -172,6 +357,10 @@
     const iconWrap = row.querySelector("[data-reminder-icon]");
     if (iconWrap) {
       iconWrap.innerHTML = reminderIconHtml(goal);
+    }
+    const dragHandle = row.querySelector("[data-goal-drag-handle]");
+    if (dragHandle) {
+      bindGoalDragHandle(dragHandle);
     }
     // No separate mail pill anymore (merged into reminder button)
     // Subtitle in case type/week changed
@@ -404,11 +593,12 @@
               <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(typeLabel(goal, goal.monthKey))}</span>
             </button>
             <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
-              <button type="button" class="btn btn-ghost goal-reminder-btn" data-open-reminder data-email-state="${emailEnabled ? "on" : "off"}" aria-pressed="${emailEnabled ? "true" : "false"}" title="Rappel par email et jour" style="display:flex; align-items:center; gap:6px;">
+              <button type="button" class="btn btn-ghost goal-reminder-btn" data-open-reminder data-email-state="${emailEnabled ? "on" : "off"}" aria-pressed="${emailEnabled ? "true" : "false"}" title="Rappel par email et jour" style="display:flex; align-items:center; gap:6px;" draggable="false">
                 <span class="goal-reminder-icon-wrap" data-reminder-icon>${reminderIconHtml(goal)}</span>
                 <span class="goal-date-pill text-xs muted" data-date-pill>${escapeHtml(effectiveLabel)}</span>
               </button>
-              <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
+              <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced draggable="false">⚙️</button>
+              <button type="button" class="btn btn-ghost goal-drag-handle" data-goal-drag-handle aria-label="Réordonner l’objectif" title="Réordonner l’objectif" draggable="true">⋮⋮</button>
             </div>
           </div>
         `;
@@ -436,6 +626,10 @@
             e.stopPropagation();
             toggleReminderPopover(row, goal, reminderBtn);
           });
+        }
+        const dragHandle = titleWrap.querySelector("[data-goal-drag-handle]");
+        if (dragHandle) {
+          bindGoalDragHandle(dragHandle);
         }
       };
 
@@ -488,6 +682,7 @@
     const createGoalRow = (goal, subtitleOverride = null) => {
       const row = document.createElement("div");
       row.className = "goal-row goal-row--editable";
+      row.classList.add("goal-row--draggable");
       row.style.position = "relative";
       if (goal?.id) {
         row.dataset.goalId = String(goal.id);
@@ -508,11 +703,12 @@
             <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
           </button>
           <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
-            <button type="button" class="btn btn-ghost goal-reminder-btn" data-open-reminder data-email-state="${emailEnabled ? "on" : "off"}" aria-pressed="${emailEnabled ? "true" : "false"}" title="Rappel par email et jour" style="display:flex; align-items:center; gap:6px;">
+            <button type="button" class="btn btn-ghost goal-reminder-btn" data-open-reminder data-email-state="${emailEnabled ? "on" : "off"}" aria-pressed="${emailEnabled ? "true" : "false"}" title="Rappel par email et jour" style="display:flex; align-items:center; gap:6px;" draggable="false">
               <span class="goal-reminder-icon-wrap" data-reminder-icon>${reminderIconHtml(goal)}</span>
               <span class="goal-date-pill text-xs muted" data-date-pill>${escapeHtml(effectiveLabel)}</span>
             </button>
-            <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
+            <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced draggable="false">⚙️</button>
+            <button type="button" class="btn btn-ghost goal-drag-handle" data-goal-drag-handle aria-label="Réordonner l’objectif" title="Réordonner l’objectif" draggable="true">⋮⋮</button>
           </div>
         </div>
         <div class="goal-quick">
@@ -681,6 +877,7 @@
         weekBox.appendChild(list);
         containers.set(week, list);
         weekBlocks.push(weekBox);
+        enableGoalDragAndDrop(list);
 
         header.querySelector("[data-week]").addEventListener("click", () => {
           ensureWeeklyInlineCreator(list, monthKey, week);
@@ -695,9 +892,7 @@
       }
 
       // Exclure les objectifs archivés
-      goals = (goals || []).filter((g) => g && g.archived !== true);
-
-      goals.sort((a, b) => (a.titre || "").localeCompare(b.titre || ""));
+      goals = sortGoals((goals || []).filter((g) => g && g.archived !== true));
 
       let hasContent = false;
       const monthlyGoals = goals.filter((goal) => goal.type !== "hebdo");
@@ -712,6 +907,7 @@
           hasContent = true;
           monthlyList.appendChild(createGoalRow(goal, typeLabel(goal, monthKey)));
         });
+        enableGoalDragAndDrop(monthlyList);
         monthlyBlock.appendChild(monthlyList);
         box.appendChild(monthlyBlock);
       }
@@ -796,10 +992,12 @@
       list.className = 'goal-list';
       list.dataset.monthList = monthKey;
       monthlyBlock.appendChild(list);
+      enableGoalDragAndDrop(list);
       monthBox.insertBefore(monthlyBlock, monthBox.firstChild.nextSibling);
     }
     const list = monthBox.querySelector('.goal-monthly .goal-list');
     if (!list) return;
+    enableGoalDragAndDrop(list);
     if (list.querySelector('[data-inline-new]')) {
       const input = list.querySelector('[data-inline-new] input');
       if (input) input.focus();
@@ -811,6 +1009,7 @@
 
   function ensureWeeklyInlineCreator(weekList, monthKey, weekOfMonth) {
     if (!weekList) return;
+    enableGoalDragAndDrop(weekList);
     if (weekList.querySelector('[data-inline-new]')) {
       const input = weekList.querySelector('[data-inline-new] input');
       if (input) input.focus();
@@ -824,6 +1023,7 @@
     const { type, monthKey, weekOfMonth } = config || {};
     const row = document.createElement('div');
     row.className = 'goal-row goal-row--editable goal-row--new';
+    row.draggable = false;
     row.dataset.inlineNew = '1';
     const dateRange = computeGoalDateRange({ type, monthKey, weekOfMonth });
     const theoreticalDate = computeTheoreticalGoalDate({ type, monthKey, weekOfMonth });

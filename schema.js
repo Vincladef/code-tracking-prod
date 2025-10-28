@@ -2365,11 +2365,35 @@ function weekDateRange(monthKey, weekIndex) {
   return { start, end, label };
 }
 
+function parseObjectiveOrder(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function compareObjectives(a = {}, b = {}) {
+  const orderA = parseObjectiveOrder(a?.order);
+  const orderB = parseObjectiveOrder(b?.order);
+  if (orderA !== null && orderB !== null && orderA !== orderB) {
+    return orderA - orderB;
+  }
+  if (orderA !== null && orderB === null) return -1;
+  if (orderA === null && orderB !== null) return 1;
+  const titleA = String(a?.titre || "");
+  const titleB = String(b?.titre || "");
+  return titleA.localeCompare(titleB, "fr", { sensitivity: "base" });
+}
+
+function sortObjectives(list = []) {
+  return (list || []).slice().sort(compareObjectives);
+}
+
 // --- Objectifs CRUD ---
 async function listObjectivesByMonth(db, uid, monthKey) {
   const q = query(collection(db, "u", uid, "objectifs"), where("monthKey", "==", monthKey));
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  rows.sort(compareObjectives);
+  return rows;
 }
 
 function shiftMonthKey(baseKey, offset) {
@@ -2387,7 +2411,9 @@ async function listObjectivesByReminderDate(db, uid, dateIso) {
   if (!db || !uid || !dateIso) return [];
   const q = query(collection(db, "u", uid, "objectifs"), where("notifyAt", "==", dateIso));
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  rows.sort(compareObjectives);
+  return rows;
 }
 
 function objectiveDueDateIso(objective) {
@@ -2448,6 +2474,7 @@ async function listObjectivesDueOn(db, uid, dateInput) {
     const iso = objectiveDueDateIso(objective);
     if (iso && iso === dateIso) due.push(objective);
   });
+  due.sort(compareObjectives);
   return due;
 }
 
@@ -2506,6 +2533,12 @@ async function upsertObjective(db, uid, data, objectifId = null) {
     if (!has("notifyChannel")) {
       payload.notifyChannel = "push";
     }
+    if (has("order")) {
+      const numericOrder = Number(input.order);
+      payload.order = Number.isFinite(numericOrder) ? numericOrder : Date.now();
+    } else {
+      payload.order = Date.now();
+    }
     payload.createdAt = serverTimestamp();
   } else {
     let nextType = null;
@@ -2531,6 +2564,12 @@ async function upsertObjective(db, uid, data, objectifId = null) {
       }
     } else if (nextType && nextType !== "hebdo") {
       payload.weekOfMonth = null;
+    }
+    if (has("order")) {
+      const numericOrder = Number(input.order);
+      if (Number.isFinite(numericOrder)) {
+        payload.order = numericOrder;
+      }
     }
   }
 
@@ -2567,6 +2606,27 @@ async function deleteObjective(db, uid, objectifId) {
   const entryContainerRef = doc(db, "u", uid, "objectiveEntries", objectifId);
   await deleteDoc(entryContainerRef);
   await deleteDoc(objectiveRef);
+}
+
+async function updateObjectiveOrders(db, uid, entries) {
+  if (!db || !uid || !Array.isArray(entries) || !entries.length) return;
+  const sanitized = entries
+    .map((entry, index) => {
+      if (!entry || !entry.id) return null;
+      const numericOrder = Number(entry.order);
+      const orderValue = Number.isFinite(numericOrder) ? numericOrder : (index + 1) * 1000;
+      return {
+        id: entry.id,
+        order: orderValue,
+      };
+    })
+    .filter(Boolean);
+  if (!sanitized.length) return;
+  await Promise.all(
+    sanitized.map(({ id, order }) =>
+      setDoc(doc(db, "u", uid, "objectifs", id), { order }, { merge: true }),
+    ),
+  );
 }
 
 // --- Lier / délier une consigne ---
@@ -3115,11 +3175,13 @@ Object.assign(Schema, {
   listObjectivesByMonth,
   listObjectivesByReminderDate,
   listObjectivesDueOn,
+  sortObjectives,
   objectiveDueDateIso,
   shiftMonthKey,
   getObjective,
   upsertObjective,
   deleteObjective,
+  updateObjectiveOrders,
   linkConsigneToObjective,
   listConsignesByObjective,
   saveObjectiveEntry,
