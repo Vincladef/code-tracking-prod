@@ -9,6 +9,7 @@
   const goalsLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
 
   let lastMount = null;
+  let lastCtx = null;
 
   function escapeHtml(str) {
     return String(str ?? "")
@@ -196,6 +197,7 @@
 
   async function renderGoals(ctx, root) {
     lastMount = root;
+    lastCtx = ctx;
     root.innerHTML = "";
 
     const section = document.createElement("section");
@@ -273,7 +275,7 @@
             <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
             <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(typeLabel(goal, goal.monthKey))}</span>
           </button>
-          <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⋯</button>
+          <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
         `;
         const editButton = titleWrap.querySelector("[data-edit-goal]");
         if (editButton) {
@@ -349,7 +351,7 @@
             <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
             <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
           </button>
-          <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⋯</button>
+          <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
         </div>
         <div class="goal-quick">
           <select class="select-compact">
@@ -648,17 +650,32 @@
         <div class="goal-inline-editor">
           <input type="text" class="goal-input goal-input--inline" placeholder="Nouvel objectif…" aria-label="Titre de l’objectif">
           <div class="goal-inline-actions">
+            <button type="button" class="btn btn-ghost btn-compact" data-calendar title="Jour du rappel">📅</button>
+            <button type="button" class="btn btn-ghost btn-compact" data-advanced title="Options avancées">⋯</button>
             <button type="button" class="btn btn-primary btn-compact" data-save>Enregistrer</button>
             <button type="button" class="btn btn-ghost btn-compact" data-cancel>Annuler</button>
           </div>
         </div>
         <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
       </div>
-      <div class="goal-quick muted text-xs">Création rapide</div>
+      <div class="goal-quick muted text-xs" data-inline-meta>
+        <span data-when-label></span>
+        <span class="sep">•</span>
+        <span>Création rapide</span>
+        <div class="goal-inline-date" data-date-wrap hidden>
+          <label class="goal-label text-xs" for="inline-notify-date">Jour du rappel</label>
+          <input id="inline-notify-date" type="date" class="goal-input goal-input--inline-date">
+        </div>
+      </div>
     `;
     const input = row.querySelector('input');
     const btnSave = row.querySelector('[data-save]');
     const btnCancel = row.querySelector('[data-cancel]');
+    const btnCal = row.querySelector('[data-calendar]');
+    const btnAdv = row.querySelector('[data-advanced]');
+    const whenLabel = row.querySelector('[data-when-label]');
+    const dateWrap = row.querySelector('[data-date-wrap]');
+    const dateInput = row.querySelector('#inline-notify-date');
 
     const doCancel = () => row.remove();
     const doSave = async () => {
@@ -678,13 +695,15 @@
         ...(type === 'hebdo' ? { weekOfMonth: weekOfMonth || 1 } : {}),
         notifyOnTarget: true,
         notifyChannel: 'push',
-        notifyAt: theoreticalDate,
+        // Only set notifyAt if user opened/modified the picker; otherwise default theoretical will be used by reminder logic
+        ...(dateInput && dateInput.value ? { notifyAt: dateInput.value } : (theoreticalDate ? { notifyAt: theoreticalDate } : {})),
       };
+      const c = lastCtx;
       try {
-        await Schema.upsertObjective(ctx.db, ctx.user.uid, payload, null);
+        await Schema.upsertObjective(c?.db, c?.user?.uid, payload, null);
         // Refresh month
-        if (lastMount) {
-          renderGoals(ctx, lastMount);
+        if (lastMount && c) {
+          renderGoals(c, lastMount);
         }
       } catch (err) {
         goalsLogger.error('goals.inlineCreate.save', err);
@@ -692,8 +711,41 @@
       }
     };
 
+    // Initialize date meta label and input bounds
+    const range = computeGoalDateRange({ type, monthKey, weekOfMonth });
+    const theoretical = computeTheoreticalGoalDate({ type, monthKey, weekOfMonth });
+    const theoreticalIso = formatDateInputValue(theoretical);
+    if (whenLabel) {
+      const pretty = theoretical ? theoretical.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '';
+      whenLabel.textContent = theoretical ? `Rappel prévu : ${pretty}` : '';
+    }
+    if (dateInput) {
+      if (range?.start) dateInput.min = formatDateInputValue(range.start);
+      if (range?.end) dateInput.max = formatDateInputValue(range.end);
+      if (theoreticalIso) dateInput.value = theoreticalIso;
+    }
+
     btnSave.addEventListener('click', doSave);
     btnCancel.addEventListener('click', doCancel);
+    if (btnCal) {
+      btnCal.addEventListener('click', (e) => {
+        e.preventDefault();
+        const open = !dateWrap || dateWrap.hidden;
+        if (dateWrap) dateWrap.hidden = !open;
+        if (open && dateInput) {
+          try { dateInput.focus(); } catch (_) {}
+        }
+      });
+    }
+    if (btnAdv) {
+      btnAdv.addEventListener('click', (e) => {
+        e.preventDefault();
+        // Open advanced modal with initial config
+        try {
+          if (lastCtx) openGoalForm(lastCtx, null, { type, monthKey, weekOfMonth });
+        } catch (_err) {}
+      });
+    }
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
