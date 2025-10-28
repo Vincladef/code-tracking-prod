@@ -1551,6 +1551,9 @@
               window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
             }
           } catch (err) {
+            goalsLogger.error("goals.archive.error", err);
+            alert("Impossible d'archiver l’objectif.");
+          }
         });
       }
     }
