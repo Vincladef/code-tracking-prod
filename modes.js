@@ -15413,52 +15413,73 @@ async function renderDaily(ctx, root, opts = {}) {
       row.innerHTML = `
         <div class="consigne-row__header">
           <div class="consigne-row__main">
-            <div class="consigne-row__title">${escapeHtml(title)}</div>
+            <button type="button" class="consigne-row__toggle" data-objective-open aria-haspopup="dialog">
+              <span class="consigne-row__title">${escapeHtml(title)}</span>
+            </button>
           </div>
-          <div class="consigne-row__meta">
-            <label for="${fieldId}" class="sr-only">Réponse</label>
-            <select id="${fieldId}" class="practice-editor__select">
-              <option value="">—</option>
-              <option value="5">Oui</option>
-              <option value="4">Plutôt oui</option>
-              <option value="3">Neutre</option>
-              <option value="2">Plutôt non</option>
-              <option value="1">Non</option>
-              <option value="0">Pas de réponse</option>
-            </select>
-          </div>
+          <div class="consigne-row__meta"></div>
         </div>`;
 
-      const select = row.querySelector(`#${fieldId}`);
+      const openBtn = row.querySelector('[data-objective-open]');
       const currentDayIso = typeof Schema?.dayKeyFromDate === "function"
         ? Schema.dayKeyFromDate(selectedDate)
         : (selectedDate && selectedDate.toISOString ? selectedDate.toISOString().slice(0,10) : "");
 
-      // Préremplir avec la valeur pour ce jour si présente
-      (async () => {
-        try {
-          const existing = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso);
-          if (existing && existing.v !== undefined && existing.v !== null) {
-            const raw = String(existing.v);
-            if (select.value !== raw) {
-              select.value = raw;
+      // Ouvre une modale pour répondre à l'objectif (même logique que les consignes)
+      if (openBtn) {
+        openBtn.addEventListener('click', async () => {
+          let initialValue = '';
+          try {
+            const existing = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso);
+            if (existing && existing.v !== undefined && existing.v !== null) {
+              initialValue = String(existing.v);
             }
+          } catch (e) {
+            try { modesLogger?.warn?.('daily.objectivesDue.prefill', e); } catch (_) {}
           }
-        } catch (e) {
-          try { modesLogger?.warn?.("daily.objectivesDue.prefill", e); } catch (_) {}
-        }
-      })();
-
-      select.addEventListener("change", async () => {
-        const val = select.value === "" ? null : Number(select.value);
-        try {
-          await Schema.saveObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso, val);
-          showToast("Réponse enregistrée.");
-        } catch (err) {
-          console.error("objective.entry.save", err);
-          showToast("Impossible d’enregistrer la réponse.");
-        }
-      });
+          const content = document.createElement('div');
+          content.innerHTML = `
+            <div class="space-y-4">
+              <header class="space-y-1">
+                <h2 class="text-lg font-semibold">${escapeHtml(title)}</h2>
+                <p class="text-sm text-[var(--muted)]">Répondre à l’objectif du jour</p>
+              </header>
+              <div class="grid gap-2">
+                <label class="text-sm" for="${fieldId}">Réponse</label>
+                <select id="${fieldId}" class="practice-editor__select">
+                  <option value="" ${initialValue===''?'selected':''}>—</option>
+                  <option value="5" ${initialValue==='5'?'selected':''}>Oui</option>
+                  <option value="4" ${initialValue==='4'?'selected':''}>Plutôt oui</option>
+                  <option value="3" ${initialValue==='3'?'selected':''}>Neutre</option>
+                  <option value="2" ${initialValue==='2'?'selected':''}>Plutôt non</option>
+                  <option value="1" ${initialValue==='1'?'selected':''}>Non</option>
+                  <option value="0" ${initialValue==='0'?'selected':''}>Pas de réponse</option>
+                </select>
+              </div>
+              <div class="flex justify-end gap-2">
+                <button type="button" class="btn" data-close>Annuler</button>
+                <button type="button" class="btn btn-primary" data-save>Enregistrer</button>
+              </div>
+            </div>`;
+          const overlay = modal(content.outerHTML);
+          if (!overlay) return;
+          const close = () => overlay.remove();
+          overlay.querySelector('[data-close]')?.addEventListener('click', close);
+          overlay.querySelector('[data-save]')?.addEventListener('click', async () => {
+            const sel = overlay.querySelector(`#${CSS.escape(fieldId)}`);
+            const raw = sel ? sel.value : '';
+            const val = raw === '' ? null : Number(raw);
+            try {
+              await Schema.saveObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso, val);
+              showToast('Réponse enregistrée.');
+              close();
+            } catch (err) {
+              console.error('objective.entry.save', err);
+              showToast('Impossible d’enregistrer la réponse.');
+            }
+          });
+        });
+      }
 
       stack.appendChild(row);
     });
