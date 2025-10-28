@@ -68,6 +68,19 @@ jobs:
             exit 1
           fi
           echo "PROJECT_ID=$PROJECT_ID" >> "$GITHUB_ENV"
+          echo "project_id=$PROJECT_ID" >> "$GITHUB_OUTPUT"
+
+      # Install gcloud CLI for API management (uses the same authenticated credentials)
+      - name: Setup gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ steps.project.outputs.project_id }}
+
+      # Ensure the Cloud Runtime Configuration API is enabled (required for functions:config)
+      - name: Enable required Google APIs
+        run: |
+          echo "Enabling APIs on project: $PROJECT_ID"
+          gcloud services enable runtimeconfig.googleapis.com --project "$PROJECT_ID"
 
       - name: Set Firebase Functions config (mail/summary)
         shell: bash
