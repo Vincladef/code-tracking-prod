@@ -97,7 +97,7 @@
     const theoretical = computeTheoreticalGoalDate(goal);
     const theoreticalIso = formatDateInputValue(theoretical);
     const effectiveIso = notifyIso || theoreticalIso || "";
-  const dateBtn = row.querySelector("[data-open-date]");
+  const dateBtn = row.querySelector("[data-open-date],[data-open-reminder]");
   const datePill = row.querySelector("[data-date-pill]");
     const prettyFull = (() => {
       if (!effectiveIso) return "Configurer le rappel";
@@ -114,14 +114,7 @@
       datePill.setAttribute("aria-label", prettyFull);
       datePill.title = prettyFull;
     }
-    // Mail indicator
-    const mail = row.querySelector("[data-mail-pill]");
-    if (mail) {
-      const active = isEmailEnabled(goal);
-      mail.textContent = active ? "📧✓" : "📧";
-      mail.title = active ? "Email activé" : "Email désactivé";
-      if (active) mail.setAttribute("data-active", "1"); else mail.removeAttribute("data-active");
-    }
+    // No separate mail pill anymore (merged into reminder button)
     // Subtitle in case type/week changed
     const subtitleEl = row.querySelector(".goal-title__subtitle");
     if (subtitleEl) {
@@ -273,22 +266,6 @@
 
     const navUpWrap = document.createElement("div");
     navUpWrap.className = "goal-nav goal-nav--up";
-    navUpWrap.innerHTML = `
-      <button type="button" class="btn btn-ghost goal-nav-button" data-nav-up title="Mois précédent" aria-label="Mois précédent">▲</button>
-    `;
-    section.appendChild(navUpWrap);
-
-    const timeline = document.createElement("div");
-    timeline.className = "goal-timeline";
-    section.appendChild(timeline);
-
-    const navDownWrap = document.createElement("div");
-    navDownWrap.className = "goal-nav goal-nav--down";
-    navDownWrap.innerHTML = `
-      <button type="button" class="btn btn-ghost goal-nav-button" data-nav-down title="Mois suivant" aria-label="Mois suivant">▼</button>
-    `;
-    section.appendChild(navDownWrap);
-
     let activeMonthKey = null;
 
     const toneClasses = ["goal-row--positive", "goal-row--neutral", "goal-row--negative", "goal-row--none"];
@@ -350,11 +327,10 @@
               <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(typeLabel(goal, goal.monthKey))}</span>
             </button>
             <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
-              <button type="button" class="btn btn-ghost" data-open-date title="Jour du rappel" style="display:flex; align-items:center; gap:6px;">
-                <span aria-hidden>📅</span>
+              <button type="button" class="btn btn-ghost" data-open-reminder title="Rappel par email et jour" style="display:flex; align-items:center; gap:6px;">
+                <span aria-hidden>�</span>
                 <span class="goal-date-pill text-xs muted" data-date-pill>${escapeHtml(effectiveLabel)}</span>
               </button>
-              <button type="button" class="btn btn-ghost" data-mail-pill>${isEmailEnabled(goal) ? "📧✓" : "�"}</button>
               <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
             </div>
           </div>
@@ -375,54 +351,13 @@
             openGoalForm(ctx, goal);
           });
         }
-        const archiveBtn = titleWrap.querySelector('[data-archive-goal]');
-        if (archiveBtn) {
-          archiveBtn.addEventListener('click', async (e) => {
+        // archive action déplacée dans le formulaire avancé
+        const reminderBtn = titleWrap.querySelector("[data-open-reminder]");
+        if (reminderBtn) {
+          reminderBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            const c = lastCtx;
-            if (!c || !goal?.id) return;
-            const ok = confirm("Archiver cet objectif ?");
-            if (!ok) return;
-            try {
-              await Schema.upsertObjective(c.db, c.user.uid, { archived: true }, goal.id);
-              const container = row.closest('.goal-row');
-              if (container) container.remove();
-              if (window.__appBadge && typeof window.__appBadge.refresh === 'function') {
-                window.__appBadge.refresh(c.user?.uid).catch(() => {});
-              }
-            } catch (err) {
-              goalsLogger.error('goals.archive', err);
-              alert("Impossible d’archiver l’objectif.");
-            }
-          });
-        }
-        const dateBtn = titleWrap.querySelector("[data-open-date]");
-        if (dateBtn) {
-          dateBtn.addEventListener("click", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            toggleDatePopover(row, goal, dateBtn);
-          });
-        }
-        const mailBtn = titleWrap.querySelector('[data-mail-pill]');
-        if (mailBtn) {
-          mailBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const c = lastCtx;
-            if (!c) return;
-            const active = isEmailEnabled(goal);
-            const nextChannel = active ? 'push' : 'both';
-            try {
-              await Schema.upsertObjective(c.db, c.user.uid, { notifyOnTarget: true, notifyChannel: nextChannel }, goal.id);
-              goal.notifyChannel = nextChannel;
-              goal.notifyOnTarget = true;
-              applyGoalRowMeta(row, goal);
-            } catch (err) {
-              goalsLogger.error('goals.mailToggle', err);
-              alert("Impossible de mettre à jour l’email.");
-            }
+            toggleReminderPopover(row, goal, reminderBtn);
           });
         }
       };
@@ -495,13 +430,11 @@
             <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
           </button>
           <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
-            <button type="button" class="btn btn-ghost" data-open-date title="Jour du rappel" style="display:flex; align-items:center; gap:6px;">
-              <span aria-hidden>📅</span>
+            <button type="button" class="btn btn-ghost" data-open-reminder title="Rappel par email et jour" style="display:flex; align-items:center; gap:6px;">
+              <span aria-hidden>�</span>
               <span class="goal-date-pill text-xs muted" data-date-pill>${escapeHtml(effectiveLabel)}</span>
             </button>
-            <button type="button" class="btn btn-ghost" data-mail-pill title="${isEmailEnabled(goal) ? "Email activé" : "Email désactivé"}">${isEmailEnabled(goal) ? "📧✓" : "📧"}</button>
             <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
-            <button type="button" class="btn btn-ghost" title="Archiver" data-archive-goal>🗑️</button>
           </div>
         </div>
         <div class="goal-quick">
@@ -601,58 +534,15 @@
         });
       }
 
-      // Archive button
-      const archiveBtn = row.querySelector('[data-archive-goal]');
-      if (archiveBtn) {
-        archiveBtn.addEventListener('click', async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const c = lastCtx;
-          if (!c || !goal?.id) return;
-          const ok = confirm("Archiver cet objectif ?");
-          if (!ok) return;
-          try {
-            await Schema.upsertObjective(c.db, c.user.uid, { archived: true }, goal.id);
-            row.remove();
-            if (window.__appBadge && typeof window.__appBadge.refresh === 'function') {
-              window.__appBadge.refresh(c.user?.uid).catch(() => {});
-            }
-          } catch (err) {
-            goalsLogger.error('goals.archive', err);
-            alert("Impossible d’archiver l’objectif.");
-          }
-        });
-      }
+      // Archive button removed from inline actions (moved into advanced modal)
 
       // Quick date popover
-      const dateBtn = row.querySelector("[data-open-date]");
-      if (dateBtn) {
-        dateBtn.addEventListener("click", (e) => {
+      const reminderBtn = row.querySelector("[data-open-reminder]");
+      if (reminderBtn) {
+        reminderBtn.addEventListener("click", (e) => {
           e.preventDefault();
           e.stopPropagation();
-          toggleDatePopover(row, goal, dateBtn);
-        });
-      }
-
-      // Toggle email inline
-      const mailBtn = row.querySelector('[data-mail-pill]');
-      if (mailBtn) {
-        mailBtn.addEventListener('click', async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const c = lastCtx;
-          if (!c) return;
-          const active = isEmailEnabled(goal);
-          const nextChannel = active ? 'push' : 'both';
-          try {
-            await Schema.upsertObjective(c.db, c.user.uid, { notifyOnTarget: true, notifyChannel: nextChannel }, goal.id);
-            goal.notifyChannel = nextChannel;
-            goal.notifyOnTarget = true;
-            applyGoalRowMeta(row, goal);
-          } catch (err) {
-            goalsLogger.error('goals.mailToggle', err);
-            alert("Impossible de mettre à jour l’email.");
-          }
+          toggleReminderPopover(row, goal, reminderBtn);
         });
       }
 
@@ -1202,7 +1092,7 @@
             </div>
           </div>
           <div class="goal-actions">
-            ${goal ? '<button type="button" class="btn btn-danger" data-delete>Supprimer</button>' : ""}
+            ${goal ? '<button type="button" class="btn btn-danger" data-delete>Supprimer</button> <button type="button" class="btn btn-ghost" data-archive>Archiver</button>' : ""}
             <button type="button" class="btn btn-ghost" data-close>Annuler</button>
             <button type="submit" class="btn btn-primary">Enregistrer</button>
           </div>
@@ -1614,9 +1504,12 @@
           }
           try {
             await Schema.deleteObjective(ctx.db, ctx.user.uid, goal.id);
+            // Mise à jour locale sans rechargement
+            const row = document.querySelector(`[data-goal-id="${goal.id}"]`);
+            if (row) row.remove();
             close();
-            if (lastMount) {
-              renderGoals(ctx, lastMount);
+            if (window.__appBadge && typeof window.__appBadge.refresh === 'function') {
+              window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
             }
           } catch (err) {
             goalsLogger.error("goals.delete.error", err);
@@ -1624,13 +1517,35 @@
           }
         });
       }
+      const archiveButton = form.querySelector("[data-archive]");
+      if (archiveButton) {
+        archiveButton.addEventListener("click", async (event) => {
+          event.preventDefault();
+          const confirmed = window.confirm("Archiver cet objectif ?");
+          if (!confirmed) {
+            return;
+          }
+          try {
+            await Schema.upsertObjective(ctx.db, ctx.user.uid, { archived: true }, goal.id);
+            const row = document.querySelector(`[data-goal-id="${goal.id}"]`);
+            if (row) row.remove();
+            close();
+            if (window.__appBadge && typeof window.__appBadge.refresh === 'function') {
+              window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+            }
+          } catch (err) {
+            goalsLogger.error("goals.archive.error", err);
+            alert("Impossible d’archiver l’objectif.");
+          }
+        });
+      }
     }
   }
 
-  // Small helper: quick date popover for existing rows
-  function toggleDatePopover(row, goal, anchorBtn) {
+  // Popover combiné: activer/désactiver email + choisir le jour du rappel
+  function toggleReminderPopover(row, goal, anchorBtn) {
     if (!row || !goal) return;
-    let pop = row.querySelector('[data-popover-date]');
+    let pop = row.querySelector('[data-popover-reminder]');
     if (pop) {
       const isHidden = pop.hasAttribute('hidden');
       if (isHidden) pop.removeAttribute('hidden');
@@ -1643,7 +1558,7 @@
     }
     // Build it
     pop = document.createElement('div');
-    pop.dataset.popoverDate = '1';
+    pop.dataset.popoverReminder = '1';
     pop.setAttribute('role', 'dialog');
     pop.style.position = 'absolute';
     pop.style.right = '8px';
@@ -1656,36 +1571,52 @@
     pop.style.zIndex = '30';
     const range = computeGoalDateRange(goal);
     const initial = isoValueFromAny(goal?.notifyAt || '') || formatDateInputValue(computeTheoreticalGoalDate(goal)) || '';
+    const emailChecked = isEmailEnabled(goal);
     pop.innerHTML = `
-      <div class="text-xs muted" style="margin-bottom:4px;">Jour du rappel</div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <input type="date" class="goal-input" ${range?.start ? `min="${escapeHtml(formatDateInputValue(range.start))}"` : ''} ${range?.end ? `max="${escapeHtml(formatDateInputValue(range.end))}"` : ''} value="${escapeHtml(initial)}">
-        <button type="button" class="btn btn-primary btn-compact" data-apply>OK</button>
+      <div style="display:flex; flex-direction:column; gap:8px; min-width: 260px;">
+        <label class="goal-checkbox" style="display:flex; gap:8px; align-items:center;">
+          <input type="checkbox" data-email ${emailChecked ? 'checked' : ''}>
+          <span>Recevoir le rappel par email</span>
+        </label>
+        <div>
+          <div class="text-xs muted" style="margin-bottom:4px;">Jour du rappel</div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="date" class="goal-input" ${range?.start ? `min="${escapeHtml(formatDateInputValue(range.start))}"` : ''} ${range?.end ? `max="${escapeHtml(formatDateInputValue(range.end))}"` : ''} value="${escapeHtml(initial)}">
+            <button type="button" class="btn btn-primary btn-compact" data-apply>OK</button>
+          </div>
+        </div>
       </div>
     `;
     row.appendChild(pop);
     const input = pop.querySelector('input[type=date]');
+    const emailToggle = pop.querySelector('[data-email]');
     const apply = pop.querySelector('[data-apply]');
-    const saveDate = async () => {
+    const saveReminder = async () => {
       const c = lastCtx;
       if (!c) return;
       const picked = (input?.value || '').trim();
-      const payload = picked ? { notifyAt: picked, notifyOnTarget: true } : {};
+      const useEmail = emailToggle?.checked === true;
+      const payload = {
+        notifyOnTarget: true,
+        notifyChannel: useEmail ? 'both' : 'push',
+        ...(picked ? { notifyAt: picked } : {}),
+      };
       try {
         await Schema.upsertObjective(c.db, c.user.uid, payload, goal.id);
         pop.setAttribute('hidden', '');
         // Update current row locally
         goal.notifyAt = picked || goal.notifyAt || null;
-        goal.notifyOnTarget = payload.notifyOnTarget !== false;
+        goal.notifyOnTarget = true;
+        goal.notifyChannel = useEmail ? 'both' : 'push';
         applyGoalRowMeta(row, goal);
       } catch (err) {
-        goalsLogger.error('goals.quickDate.save', err);
-        alert("Impossible de mettre à jour le jour du rappel.");
+        goalsLogger.error('goals.reminder.save', err);
+        alert("Impossible de mettre à jour le rappel.");
       }
     };
-    apply.addEventListener('click', saveDate);
+    apply.addEventListener('click', saveReminder);
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); saveDate(); }
+      if (e.key === 'Enter') { e.preventDefault(); saveReminder(); }
       if (e.key === 'Escape') { e.preventDefault(); pop.setAttribute('hidden',''); }
     });
     setTimeout(() => { try { input.focus(); } catch (_) {} }, 0);
@@ -1693,5 +1624,5 @@
 
   GoalsNS.renderGoals = renderGoals;
   GoalsNS.openGoalForm = openGoalForm;
-  GoalsNS.toggleDatePopover = toggleDatePopover;
+  GoalsNS.toggleReminderPopover = toggleReminderPopover;
 })();
