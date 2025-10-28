@@ -825,6 +825,14 @@
     const row = document.createElement('div');
     row.className = 'goal-row goal-row--editable goal-row--new';
     row.dataset.inlineNew = '1';
+    const dateRange = computeGoalDateRange({ type, monthKey, weekOfMonth });
+    const theoreticalDate = computeTheoreticalGoalDate({ type, monthKey, weekOfMonth });
+    const theoreticalIso = formatDateInputValue(theoreticalDate);
+    const theoreticalPretty = theoreticalDate
+      ? theoreticalDate.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+      : '';
+    const theoreticalShort = shortDowLabelFromIso(theoreticalIso) || '—';
+    const reminderBtnTitle = theoreticalPretty ? `Jour du rappel : ${theoreticalPretty}` : "Configurer le rappel";
     const subtitle = type === 'hebdo'
       ? (Schema.weekDateRange(monthKey, weekOfMonth || 1)?.label || `Semaine ${weekOfMonth || 1}`)
       : 'Mensuel';
@@ -835,7 +843,10 @@
           <span class="goal-title__subtitle text-xs text-[var(--muted)]" style="display:block; margin-top:2px;">${escapeHtml(subtitle)}</span>
         </div>
         <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
-          <button type="button" class="btn btn-ghost btn-compact" data-calendar title="Jour du rappel">📅</button>
+          <button type="button" class="btn btn-ghost goal-reminder-btn btn-compact" data-calendar data-email-state="off" aria-pressed="false" title="${escapeHtml(reminderBtnTitle)}" style="display:flex; align-items:center; gap:6px;">
+            <span class="goal-reminder-icon-wrap" data-reminder-icon>${REMINDER_ICON_MAIL}</span>
+            <span class="goal-date-pill text-xs muted" data-inline-date-pill>${escapeHtml(theoreticalShort)}</span>
+          </button>
           <button type="button" class="btn btn-ghost btn-compact" data-advanced title="Options avancées">⚙️</button>
           <button type="button" class="btn btn-primary btn-compact" data-save>Enregistrer</button>
           <button type="button" class="btn btn-ghost btn-compact" data-cancel>Annuler</button>
@@ -852,11 +863,12 @@
     const input = row.querySelector('input');
     const btnSave = row.querySelector('[data-save]');
     const btnCancel = row.querySelector('[data-cancel]');
-  const btnCal = row.querySelector('[data-calendar]');
+    const btnCal = row.querySelector('[data-calendar]');
     const btnAdv = row.querySelector('[data-advanced]');
     const whenLabel = row.querySelector('[data-when-label]');
     const dateWrap = row.querySelector('[data-date-wrap]');
     const dateInput = row.querySelector('#inline-notify-date');
+    const datePill = row.querySelector('[data-inline-date-pill]');
 
     const doCancel = () => row.remove();
     const doSave = async () => {
@@ -909,27 +921,54 @@
     };
 
     // Initialize date meta label and input bounds
-    const range = computeGoalDateRange({ type, monthKey, weekOfMonth });
-    const theoretical = computeTheoreticalGoalDate({ type, monthKey, weekOfMonth });
-    const theoreticalIso = formatDateInputValue(theoretical);
-    if (whenLabel) {
-      const pretty = theoretical ? theoretical.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '';
-      whenLabel.textContent = theoretical ? `Rappel prévu : ${pretty}` : '';
-    }
+    const prettyFromIso = (iso) => {
+      if (!iso || typeof iso !== 'string') return '';
+      const parts = iso.split('-').map(Number);
+      if (parts.length !== 3) return '';
+      const [y, m, d] = parts;
+      const dt = new Date(y, (m || 1) - 1, d || 1);
+      if (Number.isNaN(dt.getTime())) return '';
+      return dt.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+    };
+    const updateInlineDatePreview = () => {
+      const iso = dateInput?.value || theoreticalIso || '';
+      const pretty = prettyFromIso(iso);
+      const shortLabel = shortDowLabelFromIso(iso) || '—';
+      if (whenLabel) {
+        whenLabel.textContent = pretty ? `Rappel prévu : ${pretty}` : '';
+      }
+      if (datePill) {
+        datePill.textContent = shortLabel || '—';
+        if (pretty) {
+          datePill.title = pretty;
+          datePill.setAttribute('aria-label', pretty);
+        } else {
+          datePill.title = '';
+          datePill.removeAttribute('aria-label');
+        }
+      }
+      if (btnCal) {
+        btnCal.title = pretty ? `Jour du rappel : ${pretty}` : "Configurer le rappel";
+      }
+    };
     if (dateInput) {
-      if (range?.start) dateInput.min = formatDateInputValue(range.start);
-      if (range?.end) dateInput.max = formatDateInputValue(range.end);
+      if (dateRange?.start) dateInput.min = formatDateInputValue(dateRange.start);
+      if (dateRange?.end) dateInput.max = formatDateInputValue(dateRange.end);
       if (theoreticalIso) dateInput.value = theoreticalIso;
+      dateInput.addEventListener('input', updateInlineDatePreview);
+      dateInput.addEventListener('change', updateInlineDatePreview);
     }
+    updateInlineDatePreview();
 
     btnSave.addEventListener('click', doSave);
     btnCancel.addEventListener('click', doCancel);
     if (btnCal) {
       btnCal.addEventListener('click', (e) => {
         e.preventDefault();
-        const open = !dateWrap || dateWrap.hidden;
-        if (dateWrap) dateWrap.hidden = !open;
-        if (open && dateInput) {
+        if (!dateWrap) return;
+        const willOpen = dateWrap.hidden !== false;
+        dateWrap.hidden = !willOpen;
+        if (willOpen && dateInput) {
           try { dateInput.focus(); } catch (_) {}
         }
       });
