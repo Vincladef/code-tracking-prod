@@ -471,8 +471,10 @@ jobs:
                     await wait();
                     await send(`EHLO ${SMTP.host}`);
                     if (SMTP.user && SMTP.pass){ await send('AUTH LOGIN',[334]); await send(Buffer.from(SMTP.user).toString('base64'),[334]); await send(Buffer.from(SMTP.pass).toString('base64'),[235]); }
-                    await send(`MAIL FROM:<${SMTP.from}>`);
-                    for (const r of recipients){ await send(`RCPT TO:<${r}>`,[250,251]); }
+                    const extractAddress = (v)=>{ const s=String(v||''); const m=s.match(/<([^>]+)>/); const addr=m?m[1]:s; return addr.replace(/^mailto:/i,'').trim(); };
+                    const envelopeFrom = extractAddress(SMTP.from);
+                    await send(`MAIL FROM:<${envelopeFrom}>`);
+                    for (const r of recipients){ const rcpt = extractAddress(r); await send(`RCPT TO:<${rcpt}>`,[250,251]); }
                     await send('DATA',[354]);
                     const boundary = '=_gh_'+Date.now();
                     const headers = [
