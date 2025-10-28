@@ -266,9 +266,23 @@
 
     const navUpWrap = document.createElement("div");
     navUpWrap.className = "goal-nav goal-nav--up";
-    // Correction : ajout de la définition manquante
+    navUpWrap.innerHTML = `
+      <button type="button" class="goal-nav-button" data-nav-up aria-label="Mois précédent">▲</button>
+    `;
+    section.appendChild(navUpWrap);
+
+    const timeline = document.createElement("div");
+    timeline.className = "goal-timeline";
+    timeline.setAttribute("role", "region");
+    timeline.setAttribute("aria-live", "polite");
+    section.appendChild(timeline);
+
     const navDownWrap = document.createElement("div");
     navDownWrap.className = "goal-nav goal-nav--down";
+    navDownWrap.innerHTML = `
+      <button type="button" class="goal-nav-button" data-nav-down aria-label="Mois suivant">▼</button>
+    `;
+    section.appendChild(navDownWrap);
     let activeMonthKey = null;
 
     const toneClasses = ["goal-row--positive", "goal-row--neutral", "goal-row--negative", "goal-row--none"];
