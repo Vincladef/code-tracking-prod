@@ -1,6 +1,8 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const tls = require("tls");
+const fs = require("fs");
+const path = require("path");
 const { buildReminderBody } = require("./reminder");
 
 admin.initializeApp();
@@ -1720,7 +1722,7 @@ exports.sendDailyRemindersScheduled = functions
   });
 
 function resolveMailSettings() {
-  // 1) Priorité aux variables d’environnement (déployées via Secrets/CI)
+  // 1) Variables d’environnement (déployées via Secrets CI ou Secret Manager)
   const envHost = toStringOrNull(process.env.MAIL_HOST);
   const envFrom = toStringOrNull(process.env.MAIL_FROM);
   const envPortRaw = Number(process.env.MAIL_PORT);
@@ -1729,39 +1731,57 @@ function resolveMailSettings() {
   const envPass = toStringOrNull(process.env.MAIL_PASS) || toStringOrNull(process.env.GMAIL_APP_PASS);
   const envReject = toStringOrNull(process.env.MAIL_REJECT_UNAUTHORIZED);
 
-  // 2) Fallback sur functions.config()
+  // 2) functions.config() (si présent)
   const config = functions.config?.() || {};
-  const mail = config.mail || {};
-  const host = envHost || toStringOrNull(mail.host);
-  const from = envFrom || toStringOrNull(mail.from);
+  const cfgMail = config.mail || {};
+
+  // 3) Fallback fichier déployé avec la fonction (généré par la CI)
+  //    Chemins candidats dans le dossier des fonctions
+  let fileMail = {};
+  try {
+    const candidates = [
+      path.join(__dirname, "mail.runtime.json"),
+      path.join(__dirname, ".mail.runtime.json"),
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        try {
+          fileMail = JSON.parse(fs.readFileSync(p, "utf8"));
+          break;
+        } catch (e) {
+          functions.logger.warn("mail:runtime:file:parse", { path: p, error: e?.message });
+        }
+      }
+    }
+  } catch (e) {
+    functions.logger.debug("mail:runtime:file:error", { error: e?.message });
+  }
+
+  const host = envHost || toStringOrNull(cfgMail.host) || toStringOrNull(fileMail.host);
+  const from = envFrom || toStringOrNull(cfgMail.from) || toStringOrNull(fileMail.from);
   if (!host || !from) {
     return null;
   }
 
-  const rawPort = Number.isFinite(envPortRaw) && envPortRaw > 0 ? envPortRaw : Number(mail.port);
-  const port = Number.isFinite(rawPort) && rawPort > 0 ? rawPort : 465;
+  const rawPortFrom = Number.isFinite(envPortRaw) && envPortRaw > 0
+    ? envPortRaw
+    : Number(cfgMail.port ?? fileMail.port);
+  const port = Number.isFinite(rawPortFrom) && rawPortFrom > 0 ? rawPortFrom : 465;
   const secureEnv = envSecureRaw != null && ["1", "true", "yes", "on"].includes(String(envSecureRaw).toLowerCase());
-  const secureCfg = mail.secure === true || mail.secure === "true" || mail.secure === 1 || mail.secure === "1";
-  const secure = secureEnv || secureCfg || port === 465;
-  const user = envUser || toStringOrNull(mail.user);
-  const pass = envPass || toStringOrNull(mail.pass);
+  const secureCfg = cfgMail.secure === true || cfgMail.secure === "true" || cfgMail.secure === 1 || cfgMail.secure === "1";
+  const secureFile = fileMail.secure === true || fileMail.secure === "true" || fileMail.secure === 1 || fileMail.secure === "1";
+  const secure = secureEnv || secureCfg || secureFile || port === 465;
+  const user = envUser || toStringOrNull(cfgMail.user) || toStringOrNull(fileMail.user);
+  const pass = envPass || toStringOrNull(cfgMail.pass) || toStringOrNull(fileMail.pass);
   const rejectUnauthorized = !(
     envReject === "false" || envReject === "0" ||
-    mail.reject_unauthorized === false ||
-    mail.reject_unauthorized === "false" ||
-    mail.rejectUnauthorized === false ||
-    mail.rejectUnauthorized === "false"
+    cfgMail.reject_unauthorized === false || cfgMail.reject_unauthorized === "false" ||
+    cfgMail.rejectUnauthorized === false || cfgMail.rejectUnauthorized === "false" ||
+    fileMail.reject_unauthorized === false || fileMail.reject_unauthorized === "false" ||
+    fileMail.rejectUnauthorized === false || fileMail.rejectUnauthorized === "false"
   );
 
-  return {
-    host,
-    port,
-    secure,
-    user,
-    pass,
-    from,
-    rejectUnauthorized,
-  };
+  return { host, port, secure, user, pass, from, rejectUnauthorized };
 }
 
 function resolveSummaryRecipients() {
@@ -1772,7 +1792,26 @@ function resolveSummaryRecipients() {
   const config = functions.config?.() || {};
   const cfgSummary = toStringOrNull(config?.summary?.recipients);
   const cfgMail = toStringOrNull(config?.mail?.recipients);
-  const combined = envSummary || cfgSummary || envMail || cfgMail;
+  // Puis fichier runtime (mêmes clés)
+  let fileSummary = null;
+  let fileMail = null;
+  try {
+    const candidates = [
+      path.join(__dirname, "mail.runtime.json"),
+      path.join(__dirname, ".mail.runtime.json"),
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        const json = JSON.parse(fs.readFileSync(p, "utf8"));
+        fileSummary = toStringOrNull(json?.summary?.recipients);
+        fileMail = toStringOrNull(json?.mail?.recipients) || toStringOrNull(json?.recipients);
+        break;
+      }
+    }
+  } catch (e) {
+    // silencieux
+  }
+  const combined = envSummary || cfgSummary || envMail || cfgMail || fileSummary || fileMail;
   if (!combined) {
     return [...SUMMARY_FALLBACK_RECIPIENTS];
   }
