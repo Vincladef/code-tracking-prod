@@ -273,7 +273,7 @@
 
     const navUpWrap = document.createElement("div");
     navUpWrap.className = "goal-nav goal-nav--up";
-        titleWrap.innerHTML = `
+    navUpWrap.innerHTML = `
       <button type="button" class="btn btn-ghost goal-nav-button" data-nav-up title="Mois précédent" aria-label="Mois précédent">▲</button>
     `;
     section.appendChild(navUpWrap);
@@ -286,7 +286,6 @@
     navDownWrap.className = "goal-nav goal-nav--down";
     navDownWrap.innerHTML = `
       <button type="button" class="btn btn-ghost goal-nav-button" data-nav-down title="Mois suivant" aria-label="Mois suivant">▼</button>
-              <button type="button" class="btn btn-ghost" title="Archiver" data-archive-goal>🗑️</button>
     `;
     section.appendChild(navDownWrap);
 
