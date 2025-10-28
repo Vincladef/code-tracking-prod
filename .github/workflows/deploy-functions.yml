@@ -18,6 +18,7 @@ jobs:
     env:
       # Secrets disponibles dans le dépôt
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      MAIL_CONFIG_JSON: ${{ secrets.MAIL_CONFIG_JSON }}
       GMAIL_USER: ${{ secrets.GMAIL_USER }}
       GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
       MAIL_FROM: ${{ secrets.MAIL_FROM }}
@@ -85,35 +86,30 @@ jobs:
       - name: Create runtime mail config file (no runtimeconfig API)
         shell: bash
         run: |
-          # Valeurs par défaut Gmail si non fournies
-          MAIL_HOST=${MAIL_HOST:-smtp.gmail.com}
-          MAIL_PORT=${MAIL_PORT:-465}
-          MAIL_SECURE=${MAIL_SECURE:-true}
-          MAIL_USER=${MAIL_USER:-$GMAIL_USER}
-          MAIL_PASS=${MAIL_PASS:-$GMAIL_APP_PASS}
+          mkdir -p functions
+          if [ -n "${MAIL_CONFIG_JSON}" ]; then
+            echo "Using MAIL_CONFIG_JSON secret to create functions/mail.runtime.json"
+            printf '%s' "${MAIL_CONFIG_JSON}" > functions/mail.runtime.json
+          else
+            # Valeurs par défaut Gmail si non fournies
+            MAIL_HOST=${MAIL_HOST:-smtp.gmail.com}
+            MAIL_PORT=${MAIL_PORT:-465}
+            MAIL_SECURE=${MAIL_SECURE:-true}
+            MAIL_USER=${MAIL_USER:-$GMAIL_USER}
+            MAIL_PASS=${MAIL_PASS:-$GMAIL_APP_PASS}
 
-          if [ -z "$MAIL_FROM" ]; then
-            echo "MAIL_FROM secret manquant: impossible de préparer la config SMTP." >&2
-            exit 1
+            if [ -z "$MAIL_FROM" ]; then
+              echo "MAIL_FROM secret manquant: impossible de préparer la config SMTP." >&2
+              exit 1
+            fi
+
+            SUMMARY_RECIPIENTS=${SUMMARY_RECIPIENTS:-}
+            if [ -z "$SUMMARY_RECIPIENTS" ]; then SUMMARY_RECIPIENTS="$MAIL_RECIPIENTS"; fi
+            if [ -z "$SUMMARY_RECIPIENTS" ]; then SUMMARY_RECIPIENTS="$MAIL_FROM"; fi
+
+            echo "Writing functions/mail.runtime.json from individual secrets"
+            node -e "const fs=require('fs');const cfg={host:process.env.MAIL_HOST,port:String(process.env.MAIL_PORT||''),secure:String(process.env.MAIL_SECURE||''),user:process.env.MAIL_USER,pass:process.env.MAIL_PASS,from:process.env.MAIL_FROM,recipients:process.env.MAIL_RECIPIENTS||'',summary:{recipients:process.env.SUMMARY_RECIPIENTS||''}};fs.writeFileSync('functions/mail.runtime.json',JSON.stringify(cfg,null,2));console.log('Wrote functions/mail.runtime.json');"
           fi
-
-          SUMMARY_RECIPIENTS=${SUMMARY_RECIPIENTS:-}
-          if [ -z "$SUMMARY_RECIPIENTS" ]; then SUMMARY_RECIPIENTS="$MAIL_RECIPIENTS"; fi
-          if [ -z "$SUMMARY_RECIPIENTS" ]; then SUMMARY_RECIPIENTS="$MAIL_FROM"; fi
-
-          echo "Writing functions/mail.runtime.json"
-          cat > functions/mail.runtime.json <<'JSON'
-          {
-            "host": "$MAIL_HOST",
-            "port": "$MAIL_PORT",
-            "secure": "$MAIL_SECURE",
-            "user": "$MAIL_USER",
-            "pass": "$MAIL_PASS",
-            "from": "$MAIL_FROM",
-            "recipients": "$MAIL_RECIPIENTS",
-            "summary": { "recipients": "$SUMMARY_RECIPIENTS" }
-          }
-          JSON
 
       - name: Deploy Functions (using Service Account auth)
         run: firebase deploy --only functions --project "$PROJECT_ID"
