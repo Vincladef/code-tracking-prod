@@ -53,8 +53,17 @@ jobs:
         id: project
         shell: bash
         run: |
-          PROJECT_ID=$(jq -r .project_id <<< "$FIREBASE_SERVICE_ACCOUNT")
-          if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+          # Avoid dependency on jq: use Node.js to read project_id from the JSON secret
+          PROJECT_ID=$(node -e '
+            try {
+              const sa = process.env.FIREBASE_SERVICE_ACCOUNT;
+              if (!sa) { process.exit(2); }
+              const json = JSON.parse(sa);
+              if (!json.project_id) { process.exit(3); }
+              process.stdout.write(String(json.project_id));
+            } catch (e) { process.exit(4); }
+          ')
+          if [ -z "$PROJECT_ID" ]; then
             echo "Unable to derive project_id from FIREBASE_SERVICE_ACCOUNT" >&2
             exit 1
           fi
@@ -82,7 +91,8 @@ jobs:
           if [ -z "$SUMMARY_RECIPIENTS" ]; then SUMMARY_RECIPIENTS="$MAIL_FROM"; fi
 
           if [ -z "$MAIL_FROM" ]; then
-            echo "MAIL_FROM secret manquant: configuration des mails ignorée (aucun expéditeur)." >&2
+            echo "MAIL_FROM secret manquant: impossible de configurer l'expéditeur SMTP." >&2
+            exit 1
           else
             echo "Configuring Functions mail settings for project $PROJECT_ID"
             firebase functions:config:set \
