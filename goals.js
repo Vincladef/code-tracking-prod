@@ -10,6 +10,8 @@
 
   let lastMount = null;
   let lastCtx = null;
+  let activeReminderPopover = null;
+  let detachReminderOutsideHandlers = null;
 
   function escapeHtml(str) {
     return String(str ?? "")
@@ -90,6 +92,56 @@
     return raw === "email" || raw === "both" || raw === "email+push" || raw === "push+email";
   }
 
+  const REMINDER_ICON_MAIL = '<svg class="goal-reminder-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 7l9 6 9-6"></path></svg>';
+  const REMINDER_ICON_MAIL_CHECK = '<svg class="goal-reminder-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 7l9 6 9-6"></path><path d="M9.5 13.5l2.2 2.2 3.8-3.8"></path></svg>';
+
+  function reminderIconHtml(goal) {
+    return isEmailEnabled(goal) ? REMINDER_ICON_MAIL_CHECK : REMINDER_ICON_MAIL;
+  }
+
+  function detachReminderHandlers() {
+    if (typeof detachReminderOutsideHandlers === "function") {
+      detachReminderOutsideHandlers();
+      detachReminderOutsideHandlers = null;
+    }
+  }
+
+  function closeReminderPopover(pop) {
+    if (!pop) return;
+    pop.setAttribute("hidden", "");
+    if (activeReminderPopover === pop) {
+      detachReminderHandlers();
+      activeReminderPopover = null;
+    }
+  }
+
+  function openReminderPopover(pop, anchor) {
+    if (!pop) return;
+    if (activeReminderPopover && activeReminderPopover !== pop) {
+      closeReminderPopover(activeReminderPopover);
+    }
+    detachReminderHandlers();
+    pop.removeAttribute("hidden");
+    const handlePointerDown = (event) => {
+      if (pop.contains(event.target)) return;
+      if (anchor && anchor.contains(event.target)) return;
+      closeReminderPopover(pop);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeReminderPopover(pop);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    detachReminderOutsideHandlers = () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+    activeReminderPopover = pop;
+  }
+
   function applyGoalRowMeta(row, goal) {
     if (!row || !goal) return;
     // Date pill + tooltip on calendar
@@ -97,8 +149,8 @@
     const theoretical = computeTheoreticalGoalDate(goal);
     const theoreticalIso = formatDateInputValue(theoretical);
     const effectiveIso = notifyIso || theoreticalIso || "";
-  const dateBtn = row.querySelector("[data-open-date],[data-open-reminder]");
-  const datePill = row.querySelector("[data-date-pill]");
+    const dateBtn = row.querySelector("[data-open-date],[data-open-reminder]");
+    const datePill = row.querySelector("[data-date-pill]");
     const prettyFull = (() => {
       if (!effectiveIso) return "Configurer le rappel";
       const [y, m, d] = effectiveIso.split("-").map(Number);
@@ -107,12 +159,19 @@
     })();
     const shortLabel = shortDowLabelFromIso(effectiveIso) || "—";
     if (dateBtn) {
+      const emailEnabled = isEmailEnabled(goal);
       dateBtn.title = `Jour du rappel: ${prettyFull}`;
+      dateBtn.setAttribute("aria-pressed", emailEnabled ? "true" : "false");
+      dateBtn.dataset.emailState = emailEnabled ? "on" : "off";
     }
     if (datePill) {
       datePill.textContent = shortLabel;
       datePill.setAttribute("aria-label", prettyFull);
       datePill.title = prettyFull;
+    }
+    const iconWrap = row.querySelector("[data-reminder-icon]");
+    if (iconWrap) {
+      iconWrap.innerHTML = reminderIconHtml(goal);
     }
     // No separate mail pill anymore (merged into reminder button)
     // Subtitle in case type/week changed
@@ -337,6 +396,7 @@
           const d = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
           return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
         })();
+        const emailEnabled = isEmailEnabled(goal);
         titleWrap.innerHTML = `
           <div style="display:flex; align-items:center; gap:8px; width:100%">
             <button type="button" class="goal-title__button" data-edit-goal style="flex:1; text-align:left;">
@@ -344,8 +404,8 @@
               <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(typeLabel(goal, goal.monthKey))}</span>
             </button>
             <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
-              <button type="button" class="btn btn-ghost" data-open-reminder title="Rappel par email et jour" style="display:flex; align-items:center; gap:6px;">
-                <span aria-hidden>�</span>
+              <button type="button" class="btn btn-ghost goal-reminder-btn" data-open-reminder data-email-state="${emailEnabled ? "on" : "off"}" aria-pressed="${emailEnabled ? "true" : "false"}" title="Rappel par email et jour" style="display:flex; align-items:center; gap:6px;">
+                <span class="goal-reminder-icon-wrap" data-reminder-icon>${reminderIconHtml(goal)}</span>
                 <span class="goal-date-pill text-xs muted" data-date-pill>${escapeHtml(effectiveLabel)}</span>
               </button>
               <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
@@ -439,6 +499,7 @@
       const theoreticalIso = formatDateInputValue(theoretical);
       const effectiveIso = notifyIso || theoreticalIso || "";
       const effectiveLabel = shortDowLabelFromIso(effectiveIso) || "—";
+      const emailEnabled = isEmailEnabled(goal);
 
       row.innerHTML = `
         <div class="goal-title" style="display:flex; align-items:center; gap:8px;">
@@ -447,8 +508,8 @@
             <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
           </button>
           <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
-            <button type="button" class="btn btn-ghost" data-open-reminder title="Rappel par email et jour" style="display:flex; align-items:center; gap:6px;">
-              <span aria-hidden>�</span>
+            <button type="button" class="btn btn-ghost goal-reminder-btn" data-open-reminder data-email-state="${emailEnabled ? "on" : "off"}" aria-pressed="${emailEnabled ? "true" : "false"}" title="Rappel par email et jour" style="display:flex; align-items:center; gap:6px;">
+              <span class="goal-reminder-icon-wrap" data-reminder-icon>${reminderIconHtml(goal)}</span>
               <span class="goal-date-pill text-xs muted" data-date-pill>${escapeHtml(effectiveLabel)}</span>
             </button>
             <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
@@ -1565,11 +1626,16 @@
     let pop = row.querySelector('[data-popover-reminder]');
     if (pop) {
       const isHidden = pop.hasAttribute('hidden');
-      if (isHidden) pop.removeAttribute('hidden');
-      else pop.setAttribute('hidden', '');
-      const inputEl = pop.querySelector('input[type=date]');
-      if (!isHidden && inputEl) {
-        try { inputEl.focus(); } catch (_) {}
+      if (isHidden) {
+        openReminderPopover(pop, anchorBtn);
+        const inputEl = pop.querySelector('input[type=date]');
+        if (inputEl) {
+          setTimeout(() => {
+            try { inputEl.focus(); } catch (_err) {}
+          }, 0);
+        }
+      } else {
+        closeReminderPopover(pop);
       }
       return;
     }
@@ -1605,6 +1671,7 @@
       </div>
     `;
     row.appendChild(pop);
+    openReminderPopover(pop, anchorBtn);
     const input = pop.querySelector('input[type=date]');
     const emailToggle = pop.querySelector('[data-email]');
     const apply = pop.querySelector('[data-apply]');
@@ -1620,7 +1687,7 @@
       };
       try {
         await Schema.upsertObjective(c.db, c.user.uid, payload, goal.id);
-        pop.setAttribute('hidden', '');
+        closeReminderPopover(pop);
         // Update current row locally
         goal.notifyAt = picked || goal.notifyAt || null;
         goal.notifyOnTarget = true;
@@ -1634,7 +1701,7 @@
     apply.addEventListener('click', saveReminder);
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); saveReminder(); }
-      if (e.key === 'Escape') { e.preventDefault(); pop.setAttribute('hidden',''); }
+      if (e.key === 'Escape') { e.preventDefault(); closeReminderPopover(pop); }
     });
     setTimeout(() => { try { input.focus(); } catch (_) {} }, 0);
   }
