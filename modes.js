@@ -14668,6 +14668,14 @@ async function renderDaily(ctx, root, opts = {}) {
   }
 
   const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
+  // Objectifs du jour (affichage dans l’onglet Journalier)
+  let objectivesDueToday = [];
+  try {
+    objectivesDueToday = await Schema.listObjectivesDueOn(ctx.db, ctx.user.uid, selectedDate);
+  } catch (e) {
+    try { modesLogger?.warn?.("daily.objectivesDue.load", e); } catch (_) {}
+    objectivesDueToday = [];
+  }
   const interactiveConsignes = all.filter((c) => !c.summaryOnlyScope);
   const consignes = interactiveConsignes.filter((c) => !c.days?.length || c.days.includes(currentDay));
   modesLogger.info("screen.daily.consignes", consignes.length);
@@ -15379,6 +15387,40 @@ async function renderDaily(ctx, root, opts = {}) {
     event.preventDefault();
   });
   card.appendChild(form);
+
+  // Insère une section dédiée si un ou plusieurs objectifs sont dus aujourd’hui
+  if (Array.isArray(objectivesDueToday) && objectivesDueToday.length) {
+    const section = document.createElement("section");
+    section.className = "daily-category daily-grid__item";
+    section.dataset.category = "Objectifs du jour";
+    const total = objectivesDueToday.length;
+    section.innerHTML = `
+      <div class="daily-category__header">
+        <div class="daily-category__name">Objectifs du jour</div>
+        <span class="daily-category__count">${total} objectif${total > 1 ? "s" : ""}</span>
+      </div>`;
+    const stack = document.createElement("div");
+    stack.className = "daily-category__items";
+    section.appendChild(stack);
+
+    objectivesDueToday.forEach((obj) => {
+      const title = obj?.titre || obj?.title || obj?.name || "Objectif";
+      const row = document.createElement("div");
+      row.className = "consigne-row priority-surface priority-surface-medium";
+      row.dataset.objectiveId = String(obj?.id || "");
+      row.innerHTML = `
+        <div class="consigne-row__header">
+          <div class="consigne-row__main">
+            <div class="consigne-row__title">${escapeHtml(title)}</div>
+          </div>
+          <div class="consigne-row__meta"></div>
+        </div>`;
+      stack.appendChild(row);
+    });
+
+    // Mettre la section en tête de grille
+    form.appendChild(section);
+  }
 
   if (!visibleConsignes.length) {
     const empty = document.createElement("div");
