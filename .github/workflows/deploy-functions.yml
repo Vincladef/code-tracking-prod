@@ -1,0 +1,73 @@
+name: Deploy Functions
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'functions/**'
+      - '.github/workflows/deploy-functions.yml'
+      - 'firebase.json'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+      MAIL_HOST: ${{ secrets.MAIL_HOST }}
+      MAIL_PORT: ${{ secrets.MAIL_PORT }}
+      MAIL_SECURE: ${{ secrets.MAIL_SECURE }}
+      MAIL_USER: ${{ secrets.MAIL_USER }}
+      MAIL_PASS: ${{ secrets.MAIL_PASS }}
+      MAIL_FROM: ${{ secrets.MAIL_FROM }}
+      MAIL_RECIPIENTS: ${{ secrets.MAIL_RECIPIENTS }}
+      SUMMARY_RECIPIENTS: ${{ secrets.SUMMARY_RECIPIENTS }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Firebase CLI
+        run: npm i -g firebase-tools
+
+      - name: Show Firebase CLI version
+        run: firebase --version
+
+      - name: Set Firebase Functions config (mail/summary)
+        if: env.MAIL_HOST != '' && env.MAIL_FROM != ''
+        run: |
+          firebase functions:config:set \
+            mail.host="$MAIL_HOST" \
+            mail.port="${MAIL_PORT:-465}" \
+            mail.secure="${MAIL_SECURE:-true}" \
+            mail.user="$MAIL_USER" \
+            mail.pass="$MAIL_PASS" \
+            mail.from="$MAIL_FROM" \
+            mail.recipients="$MAIL_RECIPIENTS" \
+            summary.recipients="${SUMMARY_RECIPIENTS:-$MAIL_RECIPIENTS}" \
+            --project "$PROJECT_ID"
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ''
+
+      - name: Deploy Functions (with token)
+        if: env.FIREBASE_TOKEN != ''
+        run: firebase deploy --only functions --project "$PROJECT_ID"
+
+      # Optional alternative using Service Account JSON (if you prefer Workload Identity):
+      # - name: Auth with Google via Service Account
+      #   if: env.FIREBASE_TOKEN == ''
+      #   uses: google-github-actions/auth@v2
+      #   with:
+      #     credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      #
+      # - name: Deploy Functions (using ADC)
+      #   if: env.FIREBASE_TOKEN == ''
+      #   run: firebase deploy --only functions --project "$PROJECT_ID"
