@@ -40,6 +40,64 @@ Cette V1 est **100% front** (HTML/JS modules), déployable sur GitHub Pages, ave
   - Envoi serveur via les Cloud Functions `dispatchPushNotification` (tokens, UID, topics/conditions) et `manageTopicSubscriptions`.
   - Nettoyage automatique des tokens expirés ou non enregistrés.
 
+## Notifications e‑mail via SMTP (Gmail)
+
+Les e‑mails sont envoyés par les Cloud Functions via SMTP (TLS) sans dépendance externe. Les déclencheurs déjà présents :
+
+- `onObjectiveWrite` — à la création/mise à jour d’un objectif, si la notification est activée, que la date cible est "aujourd’hui" (contexte Europe/Paris) et que le canal inclut "email" ou "both".
+- `sendDailyRemindersScheduled` — envoi quotidien (6h Europe/Paris) des rappels push et e‑mail, avec un e‑mail de résumé aux destinataires admins.
+
+Paramétrage via `functions.config()` (Firebase Functions Runtime Config) attendu par le code côté serveur :
+
+- `mail.host` (ex. `smtp.gmail.com`)
+- `mail.port` (ex. `465`)
+- `mail.secure` (`true` si port 465)
+- `mail.user` (ex. `mon.compte@gmail.com`)
+- `mail.pass` (Mot de passe d’application Gmail — pas le mot de passe de compte)
+- `mail.from` (ex. `"Mon Nom" <mon.compte@gmail.com>`) 
+- `mail.recipients` (optionnel, liste séparée par virgules, destinataires par défaut pour les tests)
+- `summary.recipients` (optionnel, liste séparée par virgules pour recevoir le résumé quotidien ; défaut = `mail.recipients` ou un fallback hardcodé)
+
+Important pour Gmail : utilisez un "Mot de passe d’application" (sécurité → Validation en 2 étapes → Mots de passe d’application). Le mot de passe de compte ne fonctionnera pas.
+
+### Configuration manuelle (local ou CI)
+
+En local, si vous avez le CLI Firebase installé et authentifié, exécutez :
+
+```
+firebase functions:config:set \
+  mail.host="smtp.gmail.com" \
+  mail.port="465" \
+  mail.secure="true" \
+  mail.user="<GMAIL_USER>" \
+  mail.pass="<GMAIL_APP_PASS>" \
+  mail.from="<Nom> <GMAIL_USER>" \
+  summary.recipients="<admin1@example.com>,<admin2@example.com>"
+```
+
+Puis déployez :
+
+```
+firebase deploy --only functions
+```
+
+### Déploiement CI/CD (GitHub Actions)
+
+Un workflow est fourni : `/.github/workflows/deploy-functions.yml`. Configurez ces Secrets GitHub dans votre dépôt :
+
+- `FIREBASE_PROJECT_ID` — ID du projet Firebase
+- `FIREBASE_TOKEN` — Token CI (`firebase login:ci`) ou utilisez une identité de service (voir bloc commenté du workflow)
+- `MAIL_HOST` — `smtp.gmail.com`
+- `MAIL_PORT` — `465`
+- `MAIL_SECURE` — `true`
+- `MAIL_USER` — votre adresse Gmail
+- `MAIL_PASS` — mot de passe d’application Gmail
+- `MAIL_FROM` — par ex. `"Mon Nom" <votre@gmail.com>`
+- `MAIL_RECIPIENTS` — optionnel, liste séparée par virgules
+- `SUMMARY_RECIPIENTS` — optionnel, pour l’email de résumé quotidien
+
+Le job CI applique automatiquement `functions:config:set` avec ces valeurs, puis déploie les Functions. Aucune modification du code n’est requise pour passer sur Gmail : tout est piloté par la configuration.
+
 ### API Cloud Functions
 
 - `dispatchPushNotification` — `POST https://<region>-<project>.cloudfunctions.net/dispatchPushNotification`
