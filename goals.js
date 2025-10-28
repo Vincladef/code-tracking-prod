@@ -97,8 +97,8 @@
     const theoretical = computeTheoreticalGoalDate(goal);
     const theoreticalIso = formatDateInputValue(theoretical);
     const effectiveIso = notifyIso || theoreticalIso || "";
-    const dateBtn = row.querySelector("[data-open-date]");
-    const datePill = row.querySelector("[data-date-pill]");
+  const dateBtn = row.querySelector("[data-open-date]");
+  const datePill = row.querySelector("[data-date-pill]");
     const prettyFull = (() => {
       if (!effectiveIso) return "Configurer le rappel";
       const [y, m, d] = effectiveIso.split("-").map(Number);
@@ -344,13 +344,19 @@
           return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
         })();
         titleWrap.innerHTML = `
-          <button type="button" class="goal-title__button" data-edit-goal style="flex:1; text-align:left;">
-            <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
-            <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(typeLabel(goal, goal.monthKey))}</span>
-          </button>
-          <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
-            <button type="button" class="btn btn-ghost" data-open-date title="Jour du rappel: ${escapeHtml(effectiveLabel)}">📅</button>
-            <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
+          <div style="display:flex; align-items:center; gap:8px; width:100%">
+            <button type="button" class="goal-title__button" data-edit-goal style="flex:1; text-align:left;">
+              <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
+              <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(typeLabel(goal, goal.monthKey))}</span>
+            </button>
+            <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
+              <button type="button" class="btn btn-ghost" data-open-date title="Jour du rappel" style="display:flex; align-items:center; gap:6px;">
+                <span aria-hidden>📅</span>
+                <span class="goal-date-pill text-xs muted" data-date-pill>${escapeHtml(effectiveLabel)}</span>
+              </button>
+              <button type="button" class="btn btn-ghost" data-mail-pill>${isEmailEnabled(goal) ? "📧✓" : "�"}</button>
+              <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
+            </div>
           </div>
         `;
         const editButton = titleWrap.querySelector("[data-edit-goal]");
@@ -375,6 +381,26 @@
             e.preventDefault();
             e.stopPropagation();
             toggleDatePopover(row, goal, dateBtn);
+          });
+        }
+        const mailBtn = titleWrap.querySelector('[data-mail-pill]');
+        if (mailBtn) {
+          mailBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const c = lastCtx;
+            if (!c) return;
+            const active = isEmailEnabled(goal);
+            const nextChannel = active ? 'push' : 'both';
+            try {
+              await Schema.upsertObjective(c.db, c.user.uid, { notifyOnTarget: true, notifyChannel: nextChannel }, goal.id);
+              goal.notifyChannel = nextChannel;
+              goal.notifyOnTarget = true;
+              applyGoalRowMeta(row, goal);
+            } catch (err) {
+              goalsLogger.error('goals.mailToggle', err);
+              alert("Impossible de mettre à jour l’email.");
+            }
           });
         }
       };
@@ -447,9 +473,11 @@
             <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
           </button>
           <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
-            <button type="button" class="btn btn-ghost" data-open-date title="Jour du rappel">📅</button>
-            <span class="goal-date-pill text-xs muted" data-date-pill>${escapeHtml(effectiveLabel)}</span>
-            <span class="goal-mail-pill text-xs" data-mail-pill title="${isEmailEnabled(goal) ? "Email activé" : "Email désactivé"}">${isEmailEnabled(goal) ? "📧✓" : "📧"}</span>
+            <button type="button" class="btn btn-ghost" data-open-date title="Jour du rappel" style="display:flex; align-items:center; gap:6px;">
+              <span aria-hidden>📅</span>
+              <span class="goal-date-pill text-xs muted" data-date-pill>${escapeHtml(effectiveLabel)}</span>
+            </button>
+            <button type="button" class="btn btn-ghost" data-mail-pill title="${isEmailEnabled(goal) ? "Email activé" : "Email désactivé"}">${isEmailEnabled(goal) ? "📧✓" : "📧"}</button>
             <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
           </div>
         </div>
@@ -557,6 +585,28 @@
           e.preventDefault();
           e.stopPropagation();
           toggleDatePopover(row, goal, dateBtn);
+        });
+      }
+
+      // Toggle email inline
+      const mailBtn = row.querySelector('[data-mail-pill]');
+      if (mailBtn) {
+        mailBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const c = lastCtx;
+          if (!c) return;
+          const active = isEmailEnabled(goal);
+          const nextChannel = active ? 'push' : 'both';
+          try {
+            await Schema.upsertObjective(c.db, c.user.uid, { notifyOnTarget: true, notifyChannel: nextChannel }, goal.id);
+            goal.notifyChannel = nextChannel;
+            goal.notifyOnTarget = true;
+            applyGoalRowMeta(row, goal);
+          } catch (err) {
+            goalsLogger.error('goals.mailToggle', err);
+            alert("Impossible de mettre à jour l’email.");
+          }
         });
       }
 
@@ -876,11 +926,10 @@
     const monthKey = goal?.monthKey || initial.monthKey || Schema.monthKeyFromDate(new Date());
     let weekOfMonth = Number(goal?.weekOfMonth || initial.weekOfMonth || 1);
     const typeInitial = goal?.type || initial.type || "hebdo";
-    const notificationsInitial = goal?.notifyOnTarget !== false;
+    const notificationsInitial = true; // push toujours actif
     const notifyChannelInitial = (() => {
       const raw = (goal?.notifyChannel || initial.notifyChannel || "").toLowerCase();
-      if (raw === "email" || raw === "mail") return "email";
-      if (raw === "both" || raw === "push+email" || raw === "email+push") return "both";
+      if (raw === "email" || raw === "mail" || raw === "both" || raw === "push+email" || raw === "email+push") return "both";
       return "push";
     })();
     const profileEmails = (() => {
@@ -1056,11 +1105,7 @@
             <textarea name="description" rows="3" class="goal-input" placeholder="Notes facultatives">${escapeHtml(goal?.description || "")}</textarea>
           </label>
           <div class="goal-field">
-            <span class="goal-label">Notifications</span>
-            <label class="goal-checkbox">
-              <input type="checkbox" name="notifyOnTarget" ${notificationsInitial ? "checked" : ""}>
-              <span>Recevoir un rappel</span>
-            </label>
+            <span class="goal-label">Rappel</span>
             <div class="goal-reminder">
               <label class="goal-label goal-reminder__label" for="goal-notify-date">Jour du rappel</label>
               <input type="date" id="goal-notify-date" name="notifyAt" class="goal-input goal-reminder__input" value="${escapeHtml(
@@ -1069,12 +1114,10 @@
               <p class="goal-reminder__hint goal-hint" data-notify-default></p>
             </div>
             <div class="goal-reminder" data-reminder-channel>
-              <label class="goal-label goal-reminder__label" for="goal-notify-channel">Canal d’envoi</label>
-              <select id="goal-notify-channel" name="notifyChannel" class="goal-input goal-reminder__input">
-                <option value="push" ${notifyChannelInitial === "push" ? "selected" : ""}>Notification dans l’app</option>
-                <option value="email" ${notifyChannelInitial === "email" ? "selected" : ""}>Email</option>
-                <option value="both" ${notifyChannelInitial === "both" ? "selected" : ""}>Notification + email</option>
-              </select>
+              <label class="goal-checkbox" style="display:flex; gap:8px; align-items:center;">
+                <input type="checkbox" name="notifyEmail" ${notifyChannelInitial === "both" ? "checked" : ""}>
+                <span>Recevoir le rappel par email (en plus de la notification)</span>
+              </label>
               <p class="goal-reminder__hint goal-hint" data-email-warning hidden></p>
             </div>
           </div>
@@ -1120,9 +1163,8 @@
     const typeSelect = form.querySelector("#obj-type");
     const weekPicker = form.querySelector("#week-picker");
     const weekButtons = form.querySelectorAll("#week-picker [data-w]");
-    const notifyCheckbox = form.querySelector("[name=notifyOnTarget]");
+  const notifyCheckbox = form.querySelector("[name=notifyEmail]");
     const notifyDateInput = form.querySelector("[name=notifyAt]");
-    const notifyChannelSelect = form.querySelector("[name=notifyChannel]");
     const notifyChannelWrap = form.querySelector("[data-reminder-channel]");
     const notifyDefaultHint = form.querySelector("[data-notify-default]");
     const notifyEmailWarning = form.querySelector("[data-email-warning]");
@@ -1290,8 +1332,7 @@
 
     const updateEmailWarning = () => {
       if (!notifyEmailWarning) return;
-      const channel = notifyChannelSelect?.value || "push";
-      const needsEmail = channel === "email" || channel === "both";
+  const needsEmail = notifyCheckbox?.checked === true;
       if (!needsEmail) {
         notifyEmailWarning.hidden = true;
         notifyEmailWarning.textContent = "";
@@ -1306,25 +1347,12 @@
     };
 
     const updateNotificationEnabledState = () => {
-      const enabled = notifyCheckbox?.checked !== false;
-      if (notifyDateInput) {
-        notifyDateInput.disabled = !enabled;
-      }
-      if (notifyDefaultHint) {
-        notifyDefaultHint.classList.toggle("is-disabled", !enabled);
-      }
-      if (notifyChannelSelect) {
-        notifyChannelSelect.disabled = !enabled;
-      }
-      if (notifyChannelWrap) {
-        notifyChannelWrap.classList.toggle("is-disabled", !enabled);
-      }
-      if (notifyEmailWarning) {
-        notifyEmailWarning.classList.toggle("is-disabled", !enabled);
-      }
-      if (enabled) {
-        updateEmailWarning();
-      }
+      // Toujours actif; seule l’option email change le canal
+      if (notifyDateInput) notifyDateInput.disabled = false;
+      if (notifyDefaultHint) notifyDefaultHint.classList.remove("is-disabled");
+      if (notifyChannelWrap) notifyChannelWrap.classList.remove("is-disabled");
+      if (notifyEmailWarning) notifyEmailWarning.classList.remove("is-disabled");
+      updateEmailWarning();
     };
 
     const markNotifyDirty = () => {
@@ -1370,11 +1398,7 @@
       });
     }
 
-    if (notifyChannelSelect) {
-      notifyChannelSelect.addEventListener("change", () => {
-        updateEmailWarning();
-      });
-    }
+    // no channel select anymore
 
     weekButtons.forEach((btn) => {
       const value = Number(btn.dataset.w || "1");
@@ -1407,8 +1431,8 @@
       }
       const description = form.querySelector("[name=description]").value.trim();
       const type = typeSelect.value;
-      const notifyOnTarget = notifyCheckbox?.checked !== false;
-      const notifyChannel = notifyChannelSelect?.value || "push";
+  const notifyOnTarget = true; // push toujours actif
+  const notifyChannel = notifyCheckbox?.checked ? "both" : "push";
       const notifyAtRaw = (notifyDateInput?.value || "").trim();
       let notifyAt = null;
       const goalConfig = currentGoalConfig();
@@ -1435,8 +1459,8 @@
         description,
         type,
         monthKey,
-        notifyOnTarget,
-        notifyChannel: notifyOnTarget ? notifyChannel : null,
+  notifyOnTarget,
+  notifyChannel,
         notifyAt: notifyAt || null,
       };
       if (type === "hebdo") {
