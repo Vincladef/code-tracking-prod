@@ -266,6 +266,9 @@
 
     const navUpWrap = document.createElement("div");
     navUpWrap.className = "goal-nav goal-nav--up";
+    // Correction : ajout de la définition manquante
+    const navDownWrap = document.createElement("div");
+    navDownWrap.className = "goal-nav goal-nav--down";
     let activeMonthKey = null;
 
     const toneClasses = ["goal-row--positive", "goal-row--neutral", "goal-row--negative", "goal-row--none"];
@@ -1534,9 +1537,6 @@
               window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
             }
           } catch (err) {
-            goalsLogger.error("goals.archive.error", err);
-            alert("Impossible d’archiver l’objectif.");
-          }
         });
       }
     }
