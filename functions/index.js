@@ -1909,10 +1909,11 @@ function buildGoalReminderEmail({ firstName, displayName, objectives, context, l
   const safeObjectives = Array.isArray(objectives) ? objectives.filter(Boolean) : [];
 
   // Objet concis avec la date entre parenthèses
+  const titleOnly = (o) => toStringOrNull(o?.titre) || toStringOrNull(o?.title) || toStringOrNull(o?.name) || "Objectif";
   const subjectPrefix = safeObjectives.length > 1 ? "Rappel objectifs" : "Rappel objectif";
   let subject;
   if (safeObjectives.length === 1) {
-    const onlyTitle = describeObjectiveForEmail(safeObjectives[0]);
+    const onlyTitle = titleOnly(safeObjectives[0]);
     subject = `${subjectPrefix} — ${onlyTitle} (${formattedDate})`;
   } else {
     subject = `${subjectPrefix} (${formattedDate})`;
@@ -1927,7 +1928,7 @@ function buildGoalReminderEmail({ firstName, displayName, objectives, context, l
 
   const textLines = [greeting, "", intro];
   safeObjectives.forEach((objective) => {
-    textLines.push(`- ${describeObjectiveForEmail(objective)}`);
+    textLines.push(`- ${titleOnly(objective)}`);
   });
   if (link) {
     textLines.push("", `Accède à ton espace : ${link}`);
@@ -1944,7 +1945,7 @@ function buildGoalReminderEmail({ firstName, displayName, objectives, context, l
   if (safeObjectives.length) {
     html += `<ul style="padding-left:20px;margin:0 0 12px 0;">`;
     safeObjectives.forEach((objective) => {
-      html += `<li>${escapeHtml(describeObjectiveForEmail(objective))}</li>`;
+      html += `<li>${escapeHtml(titleOnly(objective))}</li>`;
     });
     html += `</ul>`;
   }

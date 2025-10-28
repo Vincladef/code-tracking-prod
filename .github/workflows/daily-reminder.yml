@@ -447,33 +447,8 @@ jobs:
               // ---- Email (si config SMTP et au moins un objectif) ----
               if (SMTP && Array.isArray(profileEmails) && profileEmails.length && objectiveCount > 0){
                 try {
-                  // Helpers pour le rendu des titres d'objectifs
-                  function formatWeekRangeLabel(monthKey, weekIndex){
-                    const range = weekDateRange(monthKey, weekIndex);
-                    if (!range || !range.start || !range.end) return `Semaine ${weekIndex}`;
-                    const startLabel = range.start.toLocaleDateString('fr-FR', { day:'numeric', month:'long' });
-                    const endLabel = range.end.toLocaleDateString('fr-FR', { day:'numeric', month:'long' });
-                    return `Semaine du ${startLabel} au ${endLabel}`;
-                  }
-                  function formatMonthLabelForObjective(monthKey){
-                    const parsed = parseMonthKey(monthKey);
-                    if(!parsed) return monthKey || '';
-                    const d = new Date(parsed.year, parsed.month-1, 1);
-                    const label = d.toLocaleDateString('fr-FR', { month:'long', year:'numeric' });
-                    return label ? label.charAt(0).toUpperCase()+label.slice(1) : (monthKey||'');
-                  }
-                  function describeObjectiveForEmail(objective){
-                    const t = objective.titre || objective.title || 'Objectif';
-                    const meta = [];
-                    if (objective.type === 'hebdo'){
-                      const w = objective.weekOfMonth || objective.weekIndex || 1;
-                      meta.push(formatWeekRangeLabel(objective.monthKey, w));
-                    } else if (objective.type === 'mensuel'){
-                      const ml = formatMonthLabelForObjective(objective.monthKey);
-                      if (ml) meta.push(`Mensuel — ${ml}`);
-                    }
-                    return meta.length ? `${t} — ${meta.join(' — ')}` : t;
-                  }
+                  // Titre simple pour chaque objectif (sans méta semaine/mois)
+                  const titleOnly = (o) => (o && (o.titre || o.title || o.name)) || 'Objectif';
                   async function objectivesDueOn(uid, ctx){
                     const baseMonthKey = (String(ctx?.dateIso||'').slice(0,7));
                     const monthKey = baseMonthKey || monthKeyFromDate(ctx.selectedDate);
@@ -502,7 +477,7 @@ jobs:
                   }
 
                   const dueObjectives = await objectivesDueOn(uid, ctx);
-                  const titles = dueObjectives.map(describeObjectiveForEmail);
+                  const titles = dueObjectives.map(titleOnly);
                   const date = (ctx && ctx.selectedDate instanceof Date) ? ctx.selectedDate : new Date();
                   const dd = String(date.getDate()).padStart(2,'0');
                   const mm = String(date.getMonth()+1).padStart(2,'0');
