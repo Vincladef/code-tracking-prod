@@ -5751,7 +5751,7 @@ function inputForType(consigne, initialValue = null) {
               inputs.forEach((input, index) => {
                 const skip = Boolean(payload.skipped[index]);
                 const checked = Boolean(payload.items[index]);
-                input.checked = checked;
+                const host = resolveHost(input);
                 if (skip) {
                   input.setAttribute('data-checklist-prev-checked', checked ? '1' : '0');
                   if (input.dataset) {
@@ -5764,9 +5764,11 @@ function inputForType(consigne, initialValue = null) {
                   }
                 }
                 setSkipState(input, skip);
-                const host = resolveHost(input);
-                if (!skip && host) {
-                  host.setAttribute('data-validated', input.checked ? 'true' : 'false');
+                if (!skip) {
+                  input.checked = checked;
+                  if (host) {
+                    host.setAttribute('data-validated', checked ? 'true' : 'false');
+                  }
                 }
               });
               // Persiste une fois l’état réhydraté pour qu’il survive au rechargement
@@ -5786,6 +5788,15 @@ function inputForType(consigne, initialValue = null) {
               console.warn('[checklist] payload', error);
             }
           };
+          if (!hidden.__checklistHydrateListener) {
+            const handleHiddenUpdate = () => {
+              hydratePayload();
+              ensureItemIds();
+            };
+            hidden.addEventListener('input', handleHiddenUpdate);
+            hidden.addEventListener('change', handleHiddenUpdate);
+            hidden.__checklistHydrateListener = true;
+          }
           const hydrate = window.hydrateChecklist;
           const uid = window.AppCtx?.user?.uid || null;
           const dateKey = window.AppCtx?.dateIso || (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
