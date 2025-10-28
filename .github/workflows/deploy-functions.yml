@@ -111,5 +111,8 @@ jobs:
             node -e "const fs=require('fs');const cfg={host:process.env.MAIL_HOST,port:String(process.env.MAIL_PORT||''),secure:String(process.env.MAIL_SECURE||''),user:process.env.MAIL_USER,pass:process.env.MAIL_PASS,from:process.env.MAIL_FROM,recipients:process.env.MAIL_RECIPIENTS||'',summary:{recipients:process.env.SUMMARY_RECIPIENTS||''}};fs.writeFileSync('functions/mail.runtime.json',JSON.stringify(cfg,null,2));console.log('Wrote functions/mail.runtime.json');"
           fi
 
+      - name: Install Functions dependencies
+        run: npm ci --prefix functions
+
       - name: Deploy Functions (using Service Account auth)
         run: firebase deploy --only functions --project "$PROJECT_ID"
