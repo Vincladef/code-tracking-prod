@@ -1720,25 +1720,33 @@ exports.sendDailyRemindersScheduled = functions
   });
 
 function resolveMailSettings() {
-  const config = functions.config();
-  const mail = config?.mail || {};
-  const host = toStringOrNull(mail.host);
-  const from = toStringOrNull(mail.from);
+  // 1) Priorité aux variables d’environnement (déployées via Secrets/CI)
+  const envHost = toStringOrNull(process.env.MAIL_HOST);
+  const envFrom = toStringOrNull(process.env.MAIL_FROM);
+  const envPortRaw = Number(process.env.MAIL_PORT);
+  const envSecureRaw = toStringOrNull(process.env.MAIL_SECURE);
+  const envUser = toStringOrNull(process.env.MAIL_USER) || toStringOrNull(process.env.GMAIL_USER);
+  const envPass = toStringOrNull(process.env.MAIL_PASS) || toStringOrNull(process.env.GMAIL_APP_PASS);
+  const envReject = toStringOrNull(process.env.MAIL_REJECT_UNAUTHORIZED);
+
+  // 2) Fallback sur functions.config()
+  const config = functions.config?.() || {};
+  const mail = config.mail || {};
+  const host = envHost || toStringOrNull(mail.host);
+  const from = envFrom || toStringOrNull(mail.from);
   if (!host || !from) {
     return null;
   }
 
-  const rawPort = Number(mail.port);
+  const rawPort = Number.isFinite(envPortRaw) && envPortRaw > 0 ? envPortRaw : Number(mail.port);
   const port = Number.isFinite(rawPort) && rawPort > 0 ? rawPort : 465;
-  const secure =
-    mail.secure === true ||
-    mail.secure === "true" ||
-    mail.secure === 1 ||
-    mail.secure === "1" ||
-    port === 465;
-  const user = toStringOrNull(mail.user);
-  const pass = toStringOrNull(mail.pass);
+  const secureEnv = envSecureRaw != null && ["1", "true", "yes", "on"].includes(String(envSecureRaw).toLowerCase());
+  const secureCfg = mail.secure === true || mail.secure === "true" || mail.secure === 1 || mail.secure === "1";
+  const secure = secureEnv || secureCfg || port === 465;
+  const user = envUser || toStringOrNull(mail.user);
+  const pass = envPass || toStringOrNull(mail.pass);
   const rejectUnauthorized = !(
+    envReject === "false" || envReject === "0" ||
     mail.reject_unauthorized === false ||
     mail.reject_unauthorized === "false" ||
     mail.rejectUnauthorized === false ||
@@ -1757,10 +1765,14 @@ function resolveMailSettings() {
 }
 
 function resolveSummaryRecipients() {
-  const config = functions.config();
-  const summaryRaw = toStringOrNull(config?.summary?.recipients);
-  const mailRaw = toStringOrNull(config?.mail?.recipients);
-  const combined = summaryRaw || mailRaw;
+  // Env d’abord
+  const envSummary = toStringOrNull(process.env.SUMMARY_RECIPIENTS);
+  const envMail = toStringOrNull(process.env.MAIL_RECIPIENTS);
+  // Puis functions.config()
+  const config = functions.config?.() || {};
+  const cfgSummary = toStringOrNull(config?.summary?.recipients);
+  const cfgMail = toStringOrNull(config?.mail?.recipients);
+  const combined = envSummary || cfgSummary || envMail || cfgMail;
   if (!combined) {
     return [...SUMMARY_FALLBACK_RECIPIENTS];
   }

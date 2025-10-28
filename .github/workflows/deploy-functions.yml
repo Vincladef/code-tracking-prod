@@ -76,11 +76,11 @@ jobs:
         with:
           project_id: ${{ steps.project.outputs.project_id }}
 
-      # Ensure the Cloud Runtime Configuration API is enabled (required for functions:config)
-      - name: Enable required Google APIs
+      # Facultatif: tentative d'activation de l'API (non bloquante si refusée)
+      - name: Ensure Google APIs (best effort, non-blocking)
         run: |
-          echo "Enabling APIs on project: $PROJECT_ID"
-          gcloud services enable runtimeconfig.googleapis.com --project "$PROJECT_ID"
+          echo "Best-effort enabling runtimeconfig on project: $PROJECT_ID"
+          gcloud services enable runtimeconfig.googleapis.com --project "$PROJECT_ID" || echo "Skip enabling API (insufficient perms or already enabled)"
 
       - name: Set Firebase Functions config (mail/summary)
         shell: bash
