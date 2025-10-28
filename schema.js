@@ -2442,6 +2442,7 @@ async function listObjectivesDueOn(db, uid, dateInput) {
   const due = [];
   map.forEach((objective) => {
     if (!objective || objective.notifyOnTarget === false) return;
+    if (objective.archived === true) return;
     const channelRaw = String(objective.notifyChannel || "").trim().toLowerCase();
     if (channelRaw === "none" || channelRaw === "off" || channelRaw === "disabled") return;
     const iso = objectiveDueDateIso(objective);
@@ -2457,54 +2458,100 @@ async function getObjective(db, uid, objectifId) {
 }
 
 async function upsertObjective(db, uid, data, objectifId = null) {
-  const rawStart = data?.startDate ? new Date(data.startDate) : new Date();
-  const placement = weekPlacementFromDate(rawStart);
-  const derivedMonthKey = placement?.monthKey || monthKeyFromDate(rawStart);
-  const monthKey = data?.monthKey || derivedMonthKey;
-  const type = data?.type || "hebdo";
-  const week = type === "hebdo"
-    ? Number(
-        data?.weekOfMonth
-          || (placement?.monthKey === monthKey
-            ? placement.weekIndex
-            : weekIndexForDateInMonth(rawStart, monthKey))
-          || 1,
-      )
-    : null;
+  const input = data && typeof data === "object" ? data : {};
+  const has = (key) => Object.prototype.hasOwnProperty.call(input, key);
+  const isUpdate = Boolean(objectifId);
 
   const ref = objectifId
     ? doc(db, "u", uid, "objectifs", objectifId)
     : doc(collection(db, "u", uid, "objectifs"));
 
-  const payload = {
-    titre: data?.titre || "Objectif",
-    type,
-    monthKey,
-    weekOfMonth: type === "hebdo" ? week : null,
-  };
+  const payload = {};
 
-  if (!objectifId) {
+  if (!isUpdate || has("titre")) {
+    const rawTitre = typeof input.titre === "string" ? input.titre.trim() : "";
+    payload.titre = rawTitre || "Objectif";
+  }
+
+  if (!isUpdate) {
+    const rawStart = input.startDate ? new Date(input.startDate) : new Date();
+    const placement = weekPlacementFromDate(rawStart);
+    const baseMonthKey = placement?.monthKey || monthKeyFromDate(rawStart);
+    const typeRaw = typeof input.type === "string" ? input.type.trim() : input.type;
+    const resolvedType = typeRaw ? String(typeRaw) : "hebdo";
+    payload.type = resolvedType;
+    const resolvedMonthKey = typeof input.monthKey === "string" && input.monthKey.trim()
+      ? input.monthKey
+      : baseMonthKey;
+    payload.monthKey = resolvedMonthKey;
+    if (resolvedType === "hebdo") {
+      const providedWeek = has("weekOfMonth") ? input.weekOfMonth : null;
+      const weekValue = (() => {
+        if (providedWeek !== null && providedWeek !== undefined) {
+          const numeric = Number(providedWeek);
+          return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+        }
+        const placementWeek = placement?.weekIndex;
+        const fallbackWeek = weekIndexForDateInMonth(rawStart, resolvedMonthKey);
+        const numeric = Number(placementWeek || fallbackWeek || 1);
+        return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+      })();
+      payload.weekOfMonth = weekValue;
+    } else {
+      payload.weekOfMonth = null;
+    }
+    if (!has("notifyOnTarget")) {
+      payload.notifyOnTarget = true;
+    }
+    if (!has("notifyChannel")) {
+      payload.notifyChannel = "push";
+    }
     payload.createdAt = serverTimestamp();
+  } else {
+    let nextType = null;
+    if (has("type")) {
+      const typeRaw = typeof input.type === "string" ? input.type.trim() : input.type;
+      nextType = typeRaw ? String(typeRaw) : "hebdo";
+      payload.type = nextType;
+    }
+    if (has("monthKey")) {
+      payload.monthKey = input.monthKey;
+    }
+    if (has("weekOfMonth")) {
+      if ((nextType && nextType !== "hebdo")) {
+        payload.weekOfMonth = null;
+      } else {
+        const rawWeek = input.weekOfMonth;
+        if (rawWeek === null || rawWeek === undefined) {
+          payload.weekOfMonth = null;
+        } else {
+          const numeric = Number(rawWeek);
+          payload.weekOfMonth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+        }
+      }
+    } else if (nextType && nextType !== "hebdo") {
+      payload.weekOfMonth = null;
+    }
   }
 
-  if (data?.description !== undefined) payload.description = data.description;
-  if (data?.status !== undefined) payload.status = data.status;
-  if (data?.startDate !== undefined) payload.startDate = data.startDate;
-  if (data?.endDate !== undefined) payload.endDate = data.endDate;
-  if (data?.notifyOnTarget !== undefined) {
-    payload.notifyOnTarget = data.notifyOnTarget !== false;
+  if (input?.description !== undefined) payload.description = input.description;
+  if (input?.status !== undefined) payload.status = input.status;
+  if (input?.startDate !== undefined) payload.startDate = input.startDate;
+  if (input?.endDate !== undefined) payload.endDate = input.endDate;
+  if (input?.notifyOnTarget !== undefined) {
+    payload.notifyOnTarget = input.notifyOnTarget !== false;
   }
-  if (data?.notifyChannel !== undefined) {
-    const rawChannel = typeof data.notifyChannel === "string" ? data.notifyChannel.trim() : "";
+  if (input?.notifyChannel !== undefined) {
+    const rawChannel = typeof input.notifyChannel === "string" ? input.notifyChannel.trim() : "";
     payload.notifyChannel = rawChannel || null;
   }
-  if (data?.notifyAt !== undefined) {
-    payload.notifyAt = data.notifyAt || null;
+  if (input?.notifyAt !== undefined) {
+    payload.notifyAt = input.notifyAt || null;
   }
 
-  if (data?.archived !== undefined) {
-    payload.archived = data.archived === true;
-    payload.archivedAt = data.archived === true ? (data.archivedAt || serverTimestamp()) : null;
+  if (input?.archived !== undefined) {
+    payload.archived = input.archived === true;
+    payload.archivedAt = input.archived === true ? (input.archivedAt || serverTimestamp()) : null;
   }
 
   await setDoc(ref, payload, { merge: true });
@@ -3098,4 +3145,3 @@ if (typeof module !== "undefined" && module.exports) {
     saveModuleSettings,
   };
 }
-
