@@ -273,7 +273,7 @@
 
     const navUpWrap = document.createElement("div");
     navUpWrap.className = "goal-nav goal-nav--up";
-    navUpWrap.innerHTML = `
+        titleWrap.innerHTML = `
       <button type="button" class="btn btn-ghost goal-nav-button" data-nav-up title="Mois précédent" aria-label="Mois précédent">▲</button>
     `;
     section.appendChild(navUpWrap);
@@ -286,6 +286,7 @@
     navDownWrap.className = "goal-nav goal-nav--down";
     navDownWrap.innerHTML = `
       <button type="button" class="btn btn-ghost goal-nav-button" data-nav-down title="Mois suivant" aria-label="Mois suivant">▼</button>
+              <button type="button" class="btn btn-ghost" title="Archiver" data-archive-goal>🗑️</button>
     `;
     section.appendChild(navDownWrap);
 
@@ -373,6 +374,28 @@
             e.preventDefault();
             e.stopPropagation();
             openGoalForm(ctx, goal);
+          });
+        }
+        const archiveBtn = titleWrap.querySelector('[data-archive-goal]');
+        if (archiveBtn) {
+          archiveBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const c = lastCtx;
+            if (!c || !goal?.id) return;
+            const ok = confirm("Archiver cet objectif ?");
+            if (!ok) return;
+            try {
+              await Schema.upsertObjective(c.db, c.user.uid, { archived: true }, goal.id);
+              const container = row.closest('.goal-row');
+              if (container) container.remove();
+              if (window.__appBadge && typeof window.__appBadge.refresh === 'function') {
+                window.__appBadge.refresh(c.user?.uid).catch(() => {});
+              }
+            } catch (err) {
+              goalsLogger.error('goals.archive', err);
+              alert("Impossible d’archiver l’objectif.");
+            }
           });
         }
         const dateBtn = titleWrap.querySelector("[data-open-date]");
@@ -479,6 +502,7 @@
             </button>
             <button type="button" class="btn btn-ghost" data-mail-pill title="${isEmailEnabled(goal) ? "Email activé" : "Email désactivé"}">${isEmailEnabled(goal) ? "📧✓" : "📧"}</button>
             <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced>⚙️</button>
+            <button type="button" class="btn btn-ghost" title="Archiver" data-archive-goal>🗑️</button>
           </div>
         </div>
         <div class="goal-quick">
@@ -578,6 +602,29 @@
         });
       }
 
+      // Archive button
+      const archiveBtn = row.querySelector('[data-archive-goal]');
+      if (archiveBtn) {
+        archiveBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const c = lastCtx;
+          if (!c || !goal?.id) return;
+          const ok = confirm("Archiver cet objectif ?");
+          if (!ok) return;
+          try {
+            await Schema.upsertObjective(c.db, c.user.uid, { archived: true }, goal.id);
+            row.remove();
+            if (window.__appBadge && typeof window.__appBadge.refresh === 'function') {
+              window.__appBadge.refresh(c.user?.uid).catch(() => {});
+            }
+          } catch (err) {
+            goalsLogger.error('goals.archive', err);
+            alert("Impossible d’archiver l’objectif.");
+          }
+        });
+      }
+
       // Quick date popover
       const dateBtn = row.querySelector("[data-open-date]");
       if (dateBtn) {
@@ -615,6 +662,9 @@
 
       return row;
     };
+
+    // Expose row factory to outer helpers (inline creator)
+    GoalsNS.__createGoalRow = createGoalRow;
 
     const renderMonth = async (monthKey) => {
       const box = document.createElement("section");
@@ -676,6 +726,9 @@
       } catch (err) {
         goalsLogger.error("goals.month.load", err);
       }
+
+      // Exclure les objectifs archivés
+      goals = (goals || []).filter((g) => g && g.archived !== true);
 
       goals.sort((a, b) => (a.titre || "").localeCompare(b.titre || ""));
 
@@ -864,10 +917,24 @@
         const id = await Schema.upsertObjective(c?.db, c?.user?.uid, payload, null);
         const created = { id, ...payload };
         // Replace inline creator with a proper row (no page reload)
-        const parent = row.parentElement;
         const subtitle = typeLabel(created, monthKey);
-        const realRow = createGoalRow(created, subtitle);
-        row.replaceWith(realRow);
+        const factory = (window.Goals && window.Goals.__createGoalRow) || (GoalsNS && GoalsNS.__createGoalRow);
+        if (typeof factory === 'function') {
+          const realRow = factory(created, subtitle);
+          if (realRow) {
+            row.replaceWith(realRow);
+          } else {
+            row.remove();
+          }
+        } else {
+          // Fallback: remove inline and try to re-render
+          row.remove();
+          try {
+            if (lastCtx && lastMount && typeof GoalsNS.renderGoals === 'function') {
+              GoalsNS.renderGoals(lastCtx, lastMount);
+            }
+          } catch (_e) {}
+        }
       } catch (err) {
         goalsLogger.error('goals.inlineCreate.save', err);
         alert("Impossible de créer l’objectif.");
