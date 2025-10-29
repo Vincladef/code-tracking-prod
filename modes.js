@@ -6077,6 +6077,9 @@ function groupConsignes(consignes) {
   });
   childrenByParent.forEach((list) => {
     list.sort((a, b) => {
+      const ordA = Number(a.order || 0);
+      const ordB = Number(b.order || 0);
+      if (ordA !== ordB) return ordA - ordB;
       const idxA = orderIndex.get(a.id) ?? 0;
       const idxB = orderIndex.get(b.id) ?? 0;
       if (idxA !== idxB) return idxA - idxB;
@@ -6990,6 +6993,36 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
   if (canManageChildren) {
     const list = m.querySelector("#subconsignes-list");
     const addBtn = m.querySelector("#add-subconsigne");
+    const persistChildOrder = async () => {
+      if (!list || !ctx?.db || !ctx?.user?.uid) return;
+      const rows = Array.from(list.querySelectorAll('[data-subconsigne][data-id]'));
+      if (!rows.length) return;
+      try {
+        await Promise.all(
+          rows.map((row, index) =>
+            Schema.updateConsigneOrder(ctx.db, ctx.user.uid, row.dataset.id, (index + 1) * 10)
+          )
+        );
+      } catch (error) {
+        console.warn('subconsignes.reorder:persist', error);
+      }
+    };
+    const updateReorderButtonsState = () => {
+      if (!list) return;
+      const rows = Array.from(list.querySelectorAll('[data-subconsigne]'));
+      rows.forEach((row, idx) => {
+        const up = row.querySelector('[data-move-up]');
+        const down = row.querySelector('[data-move-down]');
+        if (up) {
+          up.disabled = idx === 0;
+          up.classList.toggle('opacity-50', up.disabled);
+        }
+        if (down) {
+          down.disabled = idx === rows.length - 1;
+          down.classList.toggle('opacity-50', down.disabled);
+        }
+      });
+    };
     const renderEmpty = () => {
       if (!list) return;
       if (list.children.length) {
@@ -7022,6 +7055,10 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           </select>
         </div>
         <div class="subconsigne-row__actions">
+          <div class="flex items-center gap-1 mr-1">
+            <button type="button" class="btn btn-ghost text-xs" data-move-up title="Monter">▲</button>
+            <button type="button" class="btn btn-ghost text-xs" data-move-down title="Descendre">▼</button>
+          </div>
           <button type="button" class="btn btn-ghost text-xs" data-remove>Supprimer</button>
         </div>
       `;
@@ -7260,7 +7297,31 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         } else if (list) {
           list.setAttribute("data-has-items", "true");
         }
+        updateReorderButtonsState();
       });
+      // Reorder controls
+      const moveUpBtn = row.querySelector('[data-move-up]');
+      const moveDownBtn = row.querySelector('[data-move-down]');
+      const moveRow = async (direction) => {
+        if (!list) return;
+        const rows = Array.from(list.querySelectorAll('[data-subconsigne]'));
+        const index = rows.indexOf(row);
+        if (index < 0) return;
+        if (direction === -1 && index > 0) {
+          list.insertBefore(row, rows[index - 1]);
+        } else if (direction === 1 && index < rows.length - 1) {
+          list.insertBefore(row, rows[index + 1].nextSibling);
+        }
+        updateReorderButtonsState();
+        // Persist order for existing children only (those with an id)
+        await persistChildOrder();
+      };
+      if (moveUpBtn) {
+        moveUpBtn.addEventListener('click', () => moveRow(-1));
+      }
+      if (moveDownBtn) {
+        moveDownBtn.addEventListener('click', () => moveRow(1));
+      }
       return row;
     };
     if (list) {
@@ -7270,6 +7331,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         list.appendChild(row);
       });
       renderEmpty();
+      updateReorderButtonsState();
     }
     if (addBtn) {
       addBtn.addEventListener("click", () => {
@@ -7281,6 +7343,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         list.appendChild(row);
         list.setAttribute("data-has-items", "true");
         row.querySelector('input[name="sub-text"]')?.focus();
+        updateReorderButtonsState();
       });
     }
   }
@@ -7577,7 +7640,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       const updates = [];
       let invalidSubMontantGoal = false;
           if (subRows.length) {
-            subRows.forEach((row) => {
+            subRows.forEach((row, rowIndex) => {
               const textInput = row.querySelector('input[name="sub-text"]');
               const typeSelect = row.querySelector('select[name="sub-type"]');
               if (!textInput || !typeSelect) return;
@@ -7590,6 +7653,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
                 type: typeValue,
                 checklistItems: [],
                 checklistItemIds: [],
+                order: (rowIndex + 1) * 10,
               };
               childPayload.montantUnit = "";
               childPayload.montantGoal = null;
