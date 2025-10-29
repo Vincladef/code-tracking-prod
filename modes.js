@@ -6404,8 +6404,6 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           </div>
 
           <div class="grid gap-2" data-summary-settings>
-            <span class="text-sm text-[var(--muted)]">Bilans</span>
-            <p class="consigne-advanced__hint">Choisis où afficher cette consigne.</p>
             <fieldset class="grid gap-1">
               <span class="text-sm text-[var(--muted)]">Visibilité</span>
               <label class="inline-flex items-center gap-2">
