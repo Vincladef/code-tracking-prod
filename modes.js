@@ -8891,12 +8891,14 @@ function updateConsigneHistoryNavState(state) {
   const atStart = scrollLeft <= CONSIGNE_HISTORY_SCROLL_EPSILON;
   const atEnd = scrollLeft >= maxScroll - CONSIGNE_HISTORY_SCROLL_EPSILON;
   if (navPrev) {
-    navPrev.hidden = !hasOverflow;
-    navPrev.disabled = !hasOverflow || atStart;
+    const showPrev = hasOverflow && !atStart;
+    navPrev.hidden = !showPrev;
+    navPrev.disabled = !showPrev;
   }
   if (navNext) {
-    navNext.hidden = !hasOverflow;
-    navNext.disabled = !hasOverflow || atEnd;
+    const showNext = hasOverflow && !atEnd;
+    navNext.hidden = !showNext;
+    navNext.disabled = !showNext;
   }
 }
 
