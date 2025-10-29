@@ -358,7 +358,13 @@
     // Subtitle in case type/week changed
     const subtitleEl = row.querySelector(".goal-title__subtitle");
     if (subtitleEl) {
-      subtitleEl.textContent = typeLabel(goal, goal.monthKey);
+      const subtitleText = goal.type === "hebdo" ? "" : typeLabel(goal, goal.monthKey);
+      subtitleEl.textContent = subtitleText;
+      if (subtitleText) {
+        subtitleEl.removeAttribute("hidden");
+      } else {
+        subtitleEl.setAttribute("hidden", "");
+      }
     }
     // Title text
     const titleText = row.querySelector(".goal-title__text");
@@ -578,11 +584,12 @@
           return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
         })();
         const emailEnabled = isEmailEnabled(goal);
+        const subtitleText = goal.type === "hebdo" ? "" : typeLabel(goal, goal.monthKey);
         titleWrap.innerHTML = `
           <div style="display:flex; align-items:center; gap:8px; width:100%">
             <button type="button" class="goal-title__button" data-edit-goal data-goal-drag-source style="flex:1; text-align:left;" draggable="true">
               <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
-              <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(typeLabel(goal, goal.monthKey))}</span>
+              <span class="goal-title__subtitle text-xs text-[var(--muted)]"${subtitleText ? "" : " hidden"}>${escapeHtml(subtitleText)}</span>
             </button>
             <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
               <button type="button" class="btn btn-ghost goal-reminder-btn" data-open-reminder data-email-state="${emailEnabled ? "on" : "off"}" aria-pressed="${emailEnabled ? "true" : "false"}" title="Rappel par email et jour" style="display:flex; align-items:center; gap:6px;" draggable="false">
@@ -678,7 +685,8 @@
       if (goal?.id) {
         row.dataset.goalId = String(goal.id);
       }
-      const subtitle = subtitleOverride || typeLabel(goal, goal.monthKey);
+      const maybeSubtitle = subtitleOverride || typeLabel(goal, goal.monthKey);
+      const subtitle = goal.type === "hebdo" ? "" : maybeSubtitle;
       // Effective reminder date label
       const notifyIso = isoValueFromAny(goal?.notifyAt || "");
       const theoretical = computeTheoreticalGoalDate(goal);
@@ -691,7 +699,7 @@
         <div class="goal-title" style="display:flex; align-items:center; gap:8px;">
           <button type="button" class="goal-title__button" data-edit-goal data-goal-drag-source style="flex:1; text-align:left;" draggable="true">
             <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
-            <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
+            <span class="goal-title__subtitle text-xs text-[var(--muted)]"${subtitle ? "" : " hidden"}>${escapeHtml(subtitle)}</span>
           </button>
           <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
             <button type="button" class="btn btn-ghost goal-reminder-btn" data-open-reminder data-email-state="${emailEnabled ? "on" : "off"}" aria-pressed="${emailEnabled ? "true" : "false"}" title="Rappel par email et jour" style="display:flex; align-items:center; gap:6px;" draggable="false">
@@ -716,6 +724,10 @@
       const dragSource = row.querySelector("[data-goal-drag-source]");
       if (dragSource) {
         ensureGoalDragSource(dragSource);
+      }
+      const subtitleEl = row.querySelector(".goal-title__subtitle");
+      if (subtitleEl && !subtitle) {
+        subtitleEl.setAttribute("hidden", "");
       }
       const select = row.querySelector("select");
       const applyTone = (raw) => {
@@ -1027,14 +1039,12 @@
       : '';
     const theoreticalShort = shortDowLabelFromIso(theoreticalIso) || '—';
     const reminderBtnTitle = theoreticalPretty ? `Jour du rappel : ${theoreticalPretty}` : "Configurer le rappel";
-    const subtitle = type === 'hebdo'
-      ? (Schema.weekDateRange(monthKey, weekOfMonth || 1)?.label || `Semaine ${weekOfMonth || 1}`)
-      : 'Mensuel';
+    const subtitle = type === 'hebdo' ? '' : 'Mensuel';
     row.innerHTML = `
       <div class="goal-title" style="display:flex; align-items:center; gap:8px;">
         <div class="goal-inline-editor" style="flex:1;">
           <input type="text" class="goal-input goal-input--inline" placeholder="Nouvel objectif…" aria-label="Titre de l’objectif">
-          <span class="goal-title__subtitle text-xs text-[var(--muted)]" style="display:block; margin-top:2px;">${escapeHtml(subtitle)}</span>
+          <span class="goal-title__subtitle text-xs text-[var(--muted)]"${subtitle ? ' style="display:block; margin-top:2px;"' : ' hidden style="display:block; margin-top:2px;"'}>${escapeHtml(subtitle)}</span>
         </div>
         <div class="goal-actions" style="display:flex; align-items:center; gap:6px;">
           <button type="button" class="btn btn-ghost goal-reminder-btn btn-compact" data-calendar data-email-state="off" aria-pressed="false" title="${escapeHtml(reminderBtnTitle)}" style="display:flex; align-items:center; gap:6px;">
