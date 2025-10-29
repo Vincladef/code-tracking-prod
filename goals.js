@@ -67,27 +67,92 @@
     const existing = options?.existingNote?.value || "";
     const onChange = typeof options?.onChange === "function" ? options.onChange : () => {};
     if (!monthKey) return;
-    const next = window.prompt(type === "week" ? "Note de la semaine" : "Note du mois", existing);
-    if (next === null) {
-      return; // annulé
-    }
-    if (!lastCtx?.db || !lastCtx?.user?.uid) {
-      goalsLogger.warn("goals.notes.ctx.missing");
+    // Modal UI similar to text answer editor
+    const title = type === "week" ? `Note de la semaine ${weekOfMonth}` : "Note du mois";
+    const autosaveKey = ["objective-note", lastCtx?.user?.uid || "anon", monthKey, type, weekOfMonth || ""].join(":");
+    const editorHtml = `
+      <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
+        <header class="practice-editor__header">
+          <h3 class="practice-editor__title">${escapeHtml(title)}</h3>
+          <p class="practice-editor__subtitle">Saisis une note libre. Elle sera visible dans Objectifs.</p>
+        </header>
+        <div class="practice-editor__section">
+          <label class="practice-editor__label" for="objective-note-text">Note</label>
+          <textarea id="objective-note-text" class="consigne-editor__textarea" placeholder="Écrire une note…">${escapeHtml(existing)}</textarea>
+        </div>
+        <div class="practice-editor__actions">
+          <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
+          <button type="button" class="btn btn-danger" data-clear>Effacer</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </form>
+    `;
+    const overlay = typeof window.modal === "function" ? window.modal(editorHtml) : (typeof modal === "function" ? modal(editorHtml) : null);
+    if (!overlay) {
+      // Fallback to prompt if modal helper not available
+      const next = window.prompt(title, existing);
+      if (next === null) return;
+      const payload = { monthKey, type, weekOfMonth: Number.isFinite(weekOfMonth) ? weekOfMonth : null };
+      try {
+        if (String(next).trim()) {
+          const saved = await Schema.saveObjectiveNote(lastCtx.db, lastCtx.user.uid, { ...payload, value: String(next).trim() });
+          onChange(saved);
+        } else {
+          await Schema.deleteObjectiveNote(lastCtx.db, lastCtx.user.uid, payload);
+          onChange(null);
+        }
+      } catch (err) {
+        goalsLogger.warn("goals.notes.save", err);
+        alert("Impossible d'enregistrer la note.");
+      }
       return;
     }
-    const payload = { monthKey, type, weekOfMonth: Number.isFinite(weekOfMonth) ? weekOfMonth : null };
-    try {
-      if (String(next).trim()) {
-        const saved = await Schema.saveObjectiveNote(lastCtx.db, lastCtx.user.uid, { ...payload, value: String(next).trim() });
-        onChange(saved);
-      } else {
-        await Schema.deleteObjectiveNote(lastCtx.db, lastCtx.user.uid, payload);
-        onChange(null);
-      }
-    } catch (err) {
-      goalsLogger.warn("goals.notes.save", err);
-      alert("Impossible d'enregistrer la note.");
+    const form = overlay.querySelector("form.practice-editor");
+    const textarea = form?.querySelector("#objective-note-text");
+    const cancelBtn = form?.querySelector('[data-cancel]');
+    const clearBtn = form?.querySelector('[data-clear]');
+    const submitBtn = form?.querySelector('button[type="submit"]');
+    if (textarea && typeof window.autoGrowTextarea === "function") {
+      try { window.autoGrowTextarea(textarea); } catch (_) {}
     }
+    const payload = { monthKey, type, weekOfMonth: Number.isFinite(weekOfMonth) ? weekOfMonth : null };
+    const close = () => overlay?.remove?.();
+    cancelBtn?.addEventListener('click', (e) => { e.preventDefault(); close(); });
+    if (clearBtn) {
+      if (!existing || !String(existing).trim()) {
+        clearBtn.disabled = true;
+      }
+      clearBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        if (!lastCtx?.db || !lastCtx?.user?.uid) return;
+        try {
+          await Schema.deleteObjectiveNote(lastCtx.db, lastCtx.user.uid, payload);
+          onChange(null);
+          close();
+        } catch (err) {
+          goalsLogger.warn('goals.notes.delete', err);
+        }
+      });
+    }
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!submitBtn || submitBtn.disabled) return;
+      const value = (textarea?.value || '').trim();
+      if (!lastCtx?.db || !lastCtx?.user?.uid) return;
+      try {
+        if (!value) {
+          await Schema.deleteObjectiveNote(lastCtx.db, lastCtx.user.uid, payload);
+          onChange(null);
+        } else {
+          const saved = await Schema.saveObjectiveNote(lastCtx.db, lastCtx.user.uid, { ...payload, value });
+          onChange(saved);
+        }
+        close();
+      } catch (err) {
+        goalsLogger.warn('goals.notes.save', err);
+        alert("Impossible d'enregistrer la note.");
+      }
+    });
   }
   const goalDragState = {
     activeId: null,
