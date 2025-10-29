@@ -16131,6 +16131,17 @@ async function renderDaily(ctx, root, opts = {}) {
   const selectedKey = isDayEntry && selectedDate && typeof Schema?.dayKeyFromDate === "function"
     ? Schema.dayKeyFromDate(selectedDate)
     : null;
+  // Propagate the effective page date into global context so checklist hydration/persistence is day-scoped
+  try {
+    if (typeof window !== "undefined") {
+      const nextIso = selectedKey || null;
+      if (!window.AppCtx || window.AppCtx !== ctx) {
+        window.AppCtx = ctx;
+      }
+      ctx.dateIso = nextIso;
+      window.AppCtx.dateIso = nextIso;
+    }
+  } catch (_) {}
   const pageContext = computeDailyPageContext({ date: selectedDate, dayKey: selectedKey });
   modesLogger.group("screen.daily.render", {
     hash: ctx.route,
