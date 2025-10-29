@@ -9786,6 +9786,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       if (submitBtn) submitBtn.disabled = true;
       try {
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
+        try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
         // If this history entry originates from a bilan summary, also delete the underlying summary answer
         try {
           const scope = entry?.summaryScope || entry?.periodScope || "";
@@ -9815,6 +9817,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               resolvedDayKey,
               childState.responseSyncOptions,
             );
+            try { removeRecentResponsesForDay(childState.consigne.id, resolvedDayKey); } catch (e) {}
+            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, resolvedDayKey); } catch (e) {}
             // Also delete child summary answers if present
             try {
               const cEntry = childState.entry || null;
@@ -9875,6 +9879,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       });
       if (!parentHasValue) {
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
+        try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
         // Also remove the corresponding summary answer if present
         try {
           const scope = entry?.summaryScope || entry?.periodScope || "";
@@ -9918,6 +9924,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             resolvedDayKey,
             state.responseSyncOptions,
           );
+          try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
+          try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, state.consigne.id, resolvedDayKey); } catch (e) {}
           // Remove child summary answer if present
           try {
             const cEntry = state.entry || null;
@@ -14180,7 +14188,8 @@ async function openHistory(ctx, consigne, options = {}) {
         : "";
       const dayKeyAttr = dayKey ? ` data-day-key="${escapeHtml(dayKey)}"` : "";
       const responseIdAttr = r.id ? ` data-response-id="${escapeHtml(String(r.id))}"` : "";
-      const canEditEntry = EDITABLE_HISTORY_TYPES.has(consigne.type) && !summaryInfo.isSummary && dayKey;
+      // Allow editing normal entries and bilan summary entries
+      const canEditEntry = EDITABLE_HISTORY_TYPES.has(consigne.type) && dayKey && (!summaryInfo.isSummary || summaryInfo.isBilan);
       const editButtonMarkup = canEditEntry
         ? `<button type="button" class="history-panel__item-edit" data-history-edit aria-label="Modifier la réponse">Modifier</button>`
         : "";
@@ -14315,6 +14324,7 @@ async function openHistory(ctx, consigne, options = {}) {
     if (!row) return;
     const dayKeyAttr = itemNode?.getAttribute('data-day-key');
     const responseIdAttr = itemNode?.getAttribute('data-response-id');
+    const isBilanEntry = itemNode?.getAttribute('data-history-source') === 'bilan';
     const dayKey = dayKeyAttr && dayKeyAttr.trim() ? dayKeyAttr.trim() : resolveDayKey(row, null);
     if (!dayKey) {
       showToast("Impossible d’identifier la date de cette réponse.");
@@ -14330,6 +14340,15 @@ async function openHistory(ctx, consigne, options = {}) {
     const relative = displayDate ? relativeLabel(displayDate) : '';
     const noteValue = row.note ? String(row.note) : '';
     const fieldId = `history-edit-value-${consigne.id}-${entryIndex}-${Date.now()}`;
+    // If this is a bilan entry, open the dedicated bilan editor instead of the inline editor
+    if (isBilanEntry) {
+      openBilanHistoryEditor(null, consigne, ctx, {
+        dayKey,
+        details: { rawValue: row.value, date: displayDate, timestamp: createdAtSource, isBilan: true },
+        trigger: itemNode,
+      });
+      return;
+    }
     const valueField = renderConsigneValueField(consigne, row.value, fieldId);
     const autosaveKey = [`history-entry`, ctx.user?.uid || 'anon', consigne.id || 'consigne', dayKey]
       .map((part) => String(part || ''))
