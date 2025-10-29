@@ -9594,8 +9594,28 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     .map((part) => String(part || ""))
     .join(":");
   const entryMode = resolveHistoryMode(entry) || "bilan";
+  const explicitResponseId =
+    typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
+  const triggerResponseId = (() => {
+    if (!(trigger instanceof HTMLElement)) {
+      return "";
+    }
+    const container = trigger.closest("[data-history-entry]");
+    if (!container) {
+      return "";
+    }
+    const raw = container.getAttribute("data-response-id");
+    return raw && raw.trim() ? raw.trim() : "";
+  })();
+  const entryResponseId =
+    typeof entry?.responseId === "string" && entry.responseId.trim() ? entry.responseId.trim() : "";
+  const resolvedResponseId =
+    explicitResponseId ||
+    triggerResponseId ||
+    entryResponseId ||
+    (typeof entry?.id === "string" && entry.id.trim() ? entry.id.trim() : "");
   const responseSyncOptions = {
-    responseId: typeof entry?.id === "string" ? entry.id : "",
+    responseId: resolvedResponseId,
     responseMode: entryMode,
     responseType: typeof entry?.type === "string" && entry.type.trim() ? entry.type.trim() : consigne?.type,
     responseDayKey: resolvedDayKey,
@@ -14519,6 +14539,7 @@ async function openHistory(ctx, consigne, options = {}) {
         trigger: itemNode,
         renderInPanel: true,
         panel,
+        responseId: responseIdAttr,
         onChange: reopenHistory,
       });
       return;
