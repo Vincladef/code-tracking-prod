@@ -9538,6 +9538,259 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   });
 }
 
+async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) {
+  const dayKey = typeof options.dayKey === "string" ? options.dayKey.trim() : "";
+  const details = options.details && typeof options.details === "object" ? options.details : null;
+  const trigger = options.trigger instanceof HTMLElement ? options.trigger : null;
+  const source = typeof options.source === "string" ? options.source.trim() : "";
+  if (!dayKey) {
+    showToast("Date introuvable pour cette réponse.");
+    return;
+  }
+  if (!ctx?.db || !ctx?.user?.uid) {
+    showToast("Connexion requise pour modifier cette réponse.");
+    return;
+  }
+  if (!EDITABLE_HISTORY_TYPES.has(consigne?.type)) {
+    showToast("Modification non disponible pour ce type de consigne.");
+    return;
+  }
+  if (!consigne?.id) {
+    showToast("Consigne introuvable.");
+    return;
+  }
+  let historyEntries = [];
+  try {
+    historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+  } catch (error) {
+    try {
+      modesLogger?.warn?.("consigne.history.entry.load", error);
+    } catch (_) {}
+    showToast("Impossible de charger cette réponse.");
+    return;
+  }
+  const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey);
+  const entry = match?.entry || null;
+  const keyInfo = match?.keyInfo || null;
+  const resolvedDayKey = keyInfo?.dayKey || dayKey;
+  const entryValue = entry?.value !== undefined ? entry.value : details?.rawValue ?? "";
+  const entryNote = (() => {
+    if (typeof entry?.note === "string") return entry.note;
+    if (details && typeof details.note === "string") return details.note;
+    return "";
+  })();
+  const createdAtSource =
+    entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? details?.timestamp ?? null;
+  const createdAt = asDate(createdAtSource);
+  const dateCandidate =
+    (keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime()) ? keyInfo.date : null) ||
+    (details?.date instanceof Date && !Number.isNaN(details.date.getTime()) ? details.date : null) ||
+    (parseHistoryTimelineDateInfo(resolvedDayKey)?.date ?? null) ||
+    createdAt ||
+    null;
+  const iterationNumber = Number.isFinite(details?.iterationNumber)
+    ? details.iterationNumber
+    : Number.isFinite(keyInfo?.iterationNumber)
+    ? keyInfo.iterationNumber
+    : null;
+  const rawIterationLabel = (() => {
+    if (typeof details?.iterationLabel === "string" && details.iterationLabel.trim()) {
+      return details.iterationLabel.trim();
+    }
+    if (typeof keyInfo?.iterationLabel === "string" && keyInfo.iterationLabel.trim()) {
+      return keyInfo.iterationLabel.trim();
+    }
+    return "";
+  })();
+  const iterationLabel = sanitizeIterationLabel(rawIterationLabel, iterationNumber);
+  const baseDateLabel =
+    dateCandidate instanceof Date && !Number.isNaN(dateCandidate.getTime())
+      ? formatHistoryDayFullLabel(dateCandidate) || resolvedDayKey
+      : resolvedDayKey;
+  const primaryLabel = iterationLabel || baseDateLabel;
+  const secondaryLabel =
+    iterationLabel && baseDateLabel && iterationLabel !== baseDateLabel ? baseDateLabel : "";
+  const relative = computeRelativeHistoryLabel(dateCandidate);
+  const fieldId = `history-edit-${consigne?.id || "consigne"}-${Date.now().toString(36)}`;
+  const valueField = renderConsigneValueField(consigne, entryValue, fieldId);
+  const autosaveKey = ["history-entry-edit", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
+    .map((part) => String(part || ""))
+    .join(":");
+  const responseSyncOptions = {
+    responseId: typeof entry?.id === "string" ? entry.id : "",
+    responseMode: resolveHistoryMode(entry) || source,
+    responseType: typeof entry?.type === "string" && entry.type.trim() ? entry.type.trim() : consigne?.type,
+    responseDayKey: resolvedDayKey,
+    responseCreatedAt:
+      createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
+        ? createdAt.toISOString()
+        : typeof createdAtSource === "string"
+        ? createdAtSource
+        : "",
+  };
+  const editorHtml = `
+    <div class="space-y-5">
+      <header class="space-y-1">
+        ${primaryLabel ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(primaryLabel)}${
+          relative ? ` <span class="text-xs">(${escapeHtml(relative)})</span>` : ""
+        }</p>` : ""}
+        ${secondaryLabel ? `<p class="text-xs text-slate-500">${escapeHtml(secondaryLabel)}</p>` : ""}
+        <h2 class="text-lg font-semibold">Modifier la réponse</h2>
+        <p class="text-sm text-slate-600">${escapeHtml(safeConsigneLabel(consigne))}</p>
+      </header>
+      <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
+        <div class="practice-editor__section">
+          <label class="practice-editor__label" for="${escapeHtml(fieldId)}">Valeur</label>
+          ${valueField}
+        </div>
+        <div class="practice-editor__section">
+          <label class="practice-editor__label" for="${escapeHtml(`${fieldId}-note`)}">Commentaire</label>
+          <textarea id="${escapeHtml(`${fieldId}-note`)}" name="note" class="consigne-editor__textarea" placeholder="Ajouter un commentaire">${escapeHtml(entryNote)}</textarea>
+        </div>
+        <div class="practice-editor__actions">
+          <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
+          <button type="button" class="btn btn-danger" data-clear>Effacer</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </form>
+    </div>
+  `;
+  const overlay = modal(editorHtml);
+  if (!overlay) {
+    return;
+  }
+  const modalContent = overlay.querySelector("[data-modal-content]");
+  if (modalContent) {
+    modalContent.setAttribute("role", "dialog");
+    modalContent.setAttribute("aria-modal", "true");
+    modalContent.setAttribute("aria-label", "Modifier la réponse");
+  }
+  const form = overlay.querySelector("form");
+  const cancelBtn = overlay.querySelector("[data-cancel]");
+  const clearBtn = overlay.querySelector("[data-clear]");
+  const submitBtn = form?.querySelector('button[type="submit"]');
+  const restoreFocus = () => {
+    if (trigger && typeof trigger.focus === "function") {
+      try {
+        trigger.focus({ preventScroll: true });
+      } catch (_) {
+        trigger.focus();
+      }
+    }
+  };
+  let handleKeyDown = null;
+  const cleanup = () => {
+    if (handleKeyDown) {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      handleKeyDown = null;
+    }
+  };
+  const closeOverlay = () => {
+    cleanup();
+    overlay.remove();
+    restoreFocus();
+  };
+  handleKeyDown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeOverlay();
+    }
+  };
+  document.addEventListener("keydown", handleKeyDown, true);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      closeOverlay();
+    }
+  });
+  cancelBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeOverlay();
+  });
+  if (clearBtn) {
+    const hasInitialData =
+      (entryValue !== "" && entryValue != null) || (entryNote && entryNote.trim().length > 0);
+    if (!hasInitialData) {
+      clearBtn.disabled = true;
+    }
+    clearBtn.addEventListener("click", async (event) => {
+      event.preventDefault();
+      if (!confirm("Effacer la réponse pour cette date ?")) {
+        return;
+      }
+      clearBtn.disabled = true;
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        const status = dotColor(consigne.type, "", consigne) || "na";
+        updateConsigneHistoryTimeline(row, status, {
+          consigne,
+          value: "",
+          note: "",
+          dayKey: resolvedDayKey,
+          iterationLabel,
+        });
+        triggerConsigneRowUpdateHighlight(row);
+        showToast("Réponse effacée.");
+        closeOverlay();
+      } catch (error) {
+        console.error("consigne.history.editor.clear", error);
+        clearBtn.disabled = false;
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!submitBtn || submitBtn.disabled) {
+      return;
+    }
+    submitBtn.disabled = true;
+    if (clearBtn) clearBtn.disabled = true;
+    try {
+      const rawValue = readConsigneValueFromForm(consigne, form);
+      const note = (form.elements.note?.value || "").trim();
+      const isValueEmpty = rawValue === "" || rawValue == null;
+      if (isValueEmpty && !note) {
+        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        const status = dotColor(consigne.type, "", consigne) || "na";
+        updateConsigneHistoryTimeline(row, status, {
+          consigne,
+          value: "",
+          note: "",
+          dayKey: resolvedDayKey,
+          iterationLabel,
+        });
+        triggerConsigneRowUpdateHighlight(row);
+        showToast("Réponse effacée.");
+      } else {
+        await Schema.saveHistoryEntry(
+          ctx.db,
+          ctx.user.uid,
+          consigne.id,
+          resolvedDayKey,
+          { value: rawValue, note },
+          responseSyncOptions,
+        );
+        const status = dotColor(consigne.type, rawValue, consigne) || "na";
+        updateConsigneHistoryTimeline(row, status, {
+          consigne,
+          value: rawValue,
+          note,
+          dayKey: resolvedDayKey,
+          iterationLabel,
+        });
+        triggerConsigneRowUpdateHighlight(row);
+        showToast("Réponse enregistrée.");
+      }
+      closeOverlay();
+    } catch (error) {
+      console.error("consigne.history.editor.save", error);
+      submitBtn.disabled = false;
+      if (clearBtn) clearBtn.disabled = false;
+    }
+  });
+}
+
 function renderConsigneHistoryTimeline(row, points) {
   const container = row?.querySelector?.("[data-consigne-history]");
   const track = row?.querySelector?.("[data-consigne-history-track]");
@@ -9817,11 +10070,20 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       }
       const historySource =
         typeof options.mode === "string" && options.mode.trim().toLowerCase() === "practice" ? "practice" : "daily";
-      void openHistory(ctx, consigne, {
-        source: historySource,
-        focusDayKey: historyDayKey,
-        autoEdit: EDITABLE_HISTORY_TYPES.has(consigne.type),
-      });
+      if (EDITABLE_HISTORY_TYPES.has(consigne.type)) {
+        void openConsigneHistoryEntryEditor(row, consigne, ctx, {
+          dayKey: historyDayKey,
+          details: rawDetails,
+          trigger: target,
+          source: historySource,
+        });
+      } else {
+        void openHistory(ctx, consigne, {
+          source: historySource,
+          focusDayKey: historyDayKey,
+          autoEdit: false,
+        });
+      }
       return;
     }
     if (isKeyboard) {
