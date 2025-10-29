@@ -10161,6 +10161,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   const entry = match?.entry || null;
   const keyInfo = match?.keyInfo || null;
   const resolvedDayKey = keyInfo?.dayKey || dayKey;
+  const historyDocumentId = resolveHistoryDocumentId(entry, resolvedDayKey);
   const entryValue = entry?.value !== undefined ? entry.value : details?.rawValue ?? "";
   const createdAtSource =
     entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? details?.timestamp ?? null;
