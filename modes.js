@@ -773,56 +773,9 @@ function renderConsigneValueField(consigne, value, fieldId) {
     </select>`;
   }
   if (type === "checklist") {
-    const baseLabels = sanitizeChecklistItems(consigne);
-    const fallbackLabels = Array.isArray(value?.labels)
-      ? value.labels.map((label) => (typeof label === "string" ? label : String(label)))
-      : [];
-    const normalized = normalizeChecklistStateArrays(value);
-    const total = Math.max(baseLabels.length, fallbackLabels.length, normalized.items.length);
-    if (!total) {
-      return `<p class="history-checklist-edit__empty text-sm text-[var(--muted)]">Checklist sans éléments.</p>`;
-    }
-    const labels = Array.from({ length: total }, (_, index) => {
-      if (typeof baseLabels[index] === "string" && baseLabels[index]) {
-        return baseLabels[index];
-      }
-      if (typeof fallbackLabels[index] === "string" && fallbackLabels[index]) {
-        return fallbackLabels[index];
-      }
-      return `Élément ${index + 1}`;
-    });
-    const states = Array.from({ length: total }, (_, index) => Boolean(normalized.items[index]));
-    const skipped = Array.from({ length: total }, (_, index) => Boolean(normalized.skipped[index]));
-    const consigneId =
-      consigne && consigne.id != null && consigne.id !== "" ? String(consigne.id) : "";
-    const labelsAttr =
-      fallbackLabels.length > 0
-        ? ` data-history-checklist-labels="${escapeHtml(
-            JSON.stringify(fallbackLabels.map((label) => String(label ?? "")))
-          )}"`
-        : "";
-    const consigneAttr = consigneId ? ` data-consigne-id="${escapeHtml(consigneId)}"` : "";
-    const rows = labels
-      .map((label, index) => {
-        const checkboxId = `${fieldId}-item-${index}`;
-        const skipId = `${fieldId}-skip-${index}`;
-        const isSkipped = skipped[index];
-        const checkedAttr = !isSkipped && states[index] ? " checked" : "";
-        const skipAttr = skipped[index] ? " checked" : "";
-        return `
-          <div class="history-checklist-edit__row flex flex-wrap items-center gap-4 border-b border-slate-200 py-2 last:border-b-0" data-history-checklist-item data-index="${index}">
-            <div class="history-checklist-edit__value flex items-center gap-2">
-              <input id="${escapeHtml(checkboxId)}" type="checkbox" class="h-4 w-4" data-history-checklist-checkbox data-index="${index}"${checkedAttr}>
-              <label for="${escapeHtml(checkboxId)}" class="text-sm">${escapeHtml(label)}</label>
-            </div>
-            <div class="history-checklist-edit__skip flex items-center gap-1 text-xs text-[var(--muted)]">
-              <input id="${escapeHtml(skipId)}" type="checkbox" class="h-3 w-3" data-history-checklist-skip data-index="${index}"${skipAttr}>
-              <label for="${escapeHtml(skipId)}">Passer</label>
-            </div>
-          </div>`;
-      })
-      .join("");
-    return `<div class="history-checklist-edit grid gap-1"${consigneAttr}${labelsAttr} data-history-checklist>${rows}</div>`;
+    // Reuse the daily checklist UI (with arrow/skip behavior) inside the history editor
+    // so users get the same interaction pattern.
+    return inputForType(consigne, value ?? null);
   }
   if (type === "long") {
     return renderRichTextInput("value", {
@@ -842,9 +795,23 @@ function readConsigneValueFromForm(consigne, form) {
     return "";
   }
   if (type === "checklist") {
+    const consigneId = consigne && consigne.id != null && consigne.id !== "" ? String(consigne.id) : "";
+    // Prefer the standard daily checklist UI markup if present in the history editor
+    const dailyRoot = form?.querySelector?.(
+      `[data-checklist-root][data-consigne-id="${String(consigneId)}"]`
+    );
+    if (dailyRoot) {
+      // Read from the DOM state like in daily mode to preserve arrow/skip semantics
+      const domState = readChecklistDomState(dailyRoot);
+      const hasSelection = domState.items.some((checked, index) => checked && !domState.skipped[index]);
+      const hasSkip = domState.skipped.some(Boolean);
+      if (!hasSelection && !hasSkip) {
+        return null;
+      }
+      return buildChecklistValue(consigne, domState);
+    }
+    // Fallback: legacy history checklist markup
     const rootCandidates = Array.from(form?.querySelectorAll("[data-history-checklist]") || []);
-    const consigneId =
-      consigne && consigne.id != null && consigne.id !== "" ? String(consigne.id) : "";
     const root =
       rootCandidates.find((node) => {
         if (!node || typeof node.getAttribute !== "function") {
@@ -9772,6 +9739,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           value: "",
           dayKey: resolvedDayKey,
           isBilan: true,
+          remove: true,
         });
         triggerConsigneRowUpdateHighlight(row);
         for (const childState of baseChildStates) {
@@ -9805,6 +9773,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               value: "",
               dayKey: resolvedDayKey,
               iterationLabel,
+              remove: true,
             });
             triggerConsigneRowUpdateHighlight(childState.row);
           }
@@ -9873,6 +9842,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         value: parentHasValue ? rawValue : "",
         dayKey: resolvedDayKey,
         isBilan: true,
+        remove: parentHasValue ? false : true,
       });
       triggerConsigneRowUpdateHighlight(row);
       for (const { state, value, hasValue } of childResults) {
@@ -9917,6 +9887,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             value: hasValue ? value : "",
             dayKey: resolvedDayKey,
             iterationLabel,
+            remove: hasValue ? false : true,
           });
           triggerConsigneRowUpdateHighlight(state.row);
         }
@@ -10249,6 +10220,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           value: "",
           dayKey: resolvedDayKey,
           iterationLabel,
+          remove: true,
         });
         triggerConsigneRowUpdateHighlight(row);
         for (const childState of baseChildStates) {
@@ -10282,6 +10254,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               value: "",
               dayKey: resolvedDayKey,
               iterationLabel,
+              remove: true,
             });
             triggerConsigneRowUpdateHighlight(childState.row);
           }
@@ -10350,6 +10323,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         value: parentHasValue ? rawValue : "",
         dayKey: resolvedDayKey,
         iterationLabel,
+        remove: parentHasValue ? false : true,
       });
       triggerConsigneRowUpdateHighlight(row);
       for (const { state, value, hasValue } of childResults) {
@@ -10394,6 +10368,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             value: hasValue ? value : "",
             dayKey: resolvedDayKey,
             iterationLabel,
+            remove: hasValue ? false : true,
           });
           triggerConsigneRowUpdateHighlight(state.row);
         }
@@ -10446,6 +10421,53 @@ function renderConsigneHistoryTimeline(row, points) {
 function updateConsigneHistoryTimeline(row, status, options = {}) {
   const state = CONSIGNE_HISTORY_ROW_STATE.get(row);
   if (!state || !state.track) {
+    return;
+  }
+  // If explicitly asked to remove the encard for this day, do so and update container state
+  if (options && options.remove === true) {
+    const resolveDayKey = () => {
+      if (typeof options.dayKey === "string" && options.dayKey.trim()) {
+        return options.dayKey.trim();
+      }
+      if (typeof state.resolveDayKey === "function") {
+        try {
+          const resolved = state.resolveDayKey();
+          if (typeof resolved === "string" && resolved.trim()) {
+            return resolved.trim();
+          }
+        } catch (_) {}
+      }
+      if (row?.dataset?.dayKey) {
+        const fromDataset = row.dataset.dayKey.trim();
+        if (fromDataset) {
+          return fromDataset;
+        }
+      }
+      if (typeof state.dayKey === "string" && state.dayKey.trim()) {
+        return state.dayKey.trim();
+      }
+      if (typeof Schema?.todayKey === "function") {
+        const today = Schema.todayKey();
+        if (typeof today === "string" && today.trim()) {
+          return today.trim();
+        }
+      }
+      return null;
+    };
+    const dayKey = resolveDayKey();
+    if (!dayKey) return;
+    const selector = `[data-history-day="${escapeTimelineSelector(dayKey)}"]`;
+    const item = state.track.querySelector(selector);
+    if (item) {
+      item.remove();
+    }
+    // If no more items, hide the container and mark as empty
+    if (!state.track.children.length) {
+      if (state.container) state.container.hidden = true;
+      state.track.dataset.historyMode = "empty";
+      state.hasDayTimeline = false;
+    }
+    scheduleConsigneHistoryNavUpdate(state);
     return;
   }
   const resolveStateDayKey = () => {
