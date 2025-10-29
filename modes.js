@@ -9921,6 +9921,22 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           }
         }
         showToast("Réponses effacées pour ce bilan.");
+        // If we are inside the history panel, remove the corresponding list item immediately
+        if (renderInPanel && historyPanel) {
+          try {
+            const li = trigger && trigger.closest('[data-history-entry]');
+            if (li && li.parentElement) {
+              li.parentElement.removeChild(li);
+              const listEl = historyPanel.querySelector('.history-panel__list');
+              const badge = historyPanel.querySelector('.history-panel__badge');
+              const count = listEl ? listEl.querySelectorAll('[data-history-entry]').length : 0;
+              if (badge) badge.textContent = count === 0 ? 'Aucune entrée' : (count === 1 ? '1 entrée' : `${count} entrées`);
+              if (listEl && count === 0) {
+                listEl.innerHTML = '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>';
+              }
+            }
+          } catch (_) {}
+        }
         if (typeof options.onChange === 'function') {
           try { options.onChange(); } catch (e) {}
         }
@@ -14567,6 +14583,21 @@ async function openHistory(ctx, consigne, options = {}) {
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, responseSyncOptions);
           try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
           try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
+            // Remove the item immediately in the UI for instant feedback
+            try {
+              const li = itemNode && itemNode.closest('[data-history-entry]');
+              if (li && li.parentElement) {
+                li.parentElement.removeChild(li);
+                // Update header badge and empty state if needed
+                const listEl = panel.querySelector('.history-panel__list');
+                const badge = panel.querySelector('.history-panel__badge');
+                const count = listEl ? listEl.querySelectorAll('[data-history-entry]').length : 0;
+                if (badge) badge.textContent = count === 0 ? 'Aucune entrée' : (count === 1 ? '1 entrée' : `${count} entrées`);
+                if (listEl && count === 0) {
+                  listEl.innerHTML = '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>';
+                }
+              }
+            } catch (_) {}
           closeEditor();
           reopenHistory();
         } catch (error) {
