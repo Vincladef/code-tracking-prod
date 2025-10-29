@@ -1251,33 +1251,33 @@
       --consigne-history-text:#5b21b6;
       --consigne-history-shadow:rgba(124,58,237,.18);
     }
-    .consigne-history__marker {
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      width:1.35rem;
-      height:1.35rem;
-      margin-left:.35rem;
-      margin-right:.1rem;
-      border-radius:999px;
-      background:rgba(124,58,237,.16);
-      color:#5b21b6;
-      font-size:.75rem;
-      font-weight:700;
-      line-height:1;
-      box-shadow:0 0 0 1.5px rgba(124,58,237,.28);
-    }
-    .consigne-history__marker::before {
-      content:"★";
-    }
-    .history-dialog__value {
-      width:100%;
-    }
     .consigne-history__dot.consigne-row__dot {
       width:.6rem;
       height:.6rem;
       box-shadow:none;
       flex:none;
+    }
+    .consigne-history__dot--bilan {
+      width:auto;
+      height:auto;
+      padding:0;
+      background:none;
+      margin-right:.35rem;
+      color:#5b21b6;
+      font-size:.9rem;
+      font-weight:700;
+      line-height:1;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      box-shadow:none;
+    }
+    .consigne-history__dot--bilan::before {
+      content:"★";
+      display:inline-block;
+    }
+    .history-dialog__value {
+      width:100%;
     }
     .consigne-history__meta {
       display:flex;
