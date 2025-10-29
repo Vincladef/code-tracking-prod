@@ -9446,6 +9446,32 @@ function normalizeHistoryDayKey(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+function resolveHistoryDocumentId(entry, fallback) {
+  if (entry && typeof entry === "object") {
+    const candidates = [
+      entry.id,
+      entry.historyId,
+      entry.history_id,
+      entry.documentId,
+      entry.document_id,
+      entry.docId,
+      entry.doc_id,
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string") {
+        const trimmed = candidate.trim();
+        if (trimmed) {
+          return trimmed;
+        }
+      }
+    }
+  }
+  if (typeof fallback === "string" && fallback.trim()) {
+    return fallback.trim();
+  }
+  return "";
+}
+
 function findHistoryEntryForDayKey(entries, consigne, dayKey) {
   if (!Array.isArray(entries) || !dayKey) {
     return null;
@@ -9534,6 +9560,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   const entry = match?.entry || null;
   const keyInfo = match?.keyInfo || null;
   const resolvedDayKey = keyInfo?.dayKey || dayKey;
+  const historyDocumentId = resolveHistoryDocumentId(entry, resolvedDayKey);
   const entryValue = entry?.value !== undefined ? entry.value : details?.rawValue ?? "";
   const createdAtSource =
     entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? details?.timestamp ?? null;
@@ -9859,7 +9886,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       clearBtn.disabled = true;
       if (submitBtn) submitBtn.disabled = true;
       try {
-        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
         try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
         try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
         // If this history entry originates from a bilan summary, also delete the underlying summary answer
@@ -9888,7 +9915,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               ctx.db,
               ctx.user.uid,
               childState.consigne.id,
-              resolvedDayKey,
+              childState.historyDocumentId,
               childState.responseSyncOptions,
             );
             try { removeRecentResponsesForDay(childState.consigne.id, resolvedDayKey); } catch (e) {}
@@ -9971,7 +9998,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         };
       });
       if (!parentHasValue) {
-        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
         try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
         try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
         // Also remove the corresponding summary answer if present
@@ -9990,7 +10017,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           ctx.db,
           ctx.user.uid,
           consigne.id,
-          resolvedDayKey,
+          historyDocumentId,
           { value: rawValue },
           responseSyncOptions,
         );
@@ -10014,7 +10041,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             ctx.db,
             ctx.user.uid,
             state.consigne.id,
-            resolvedDayKey,
+            state.historyDocumentId,
             state.responseSyncOptions,
           );
           try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
@@ -10036,7 +10063,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             ctx.db,
             ctx.user.uid,
             state.consigne.id,
-            resolvedDayKey,
+            state.historyDocumentId,
             { value },
             state.responseSyncOptions,
           );
@@ -10153,7 +10180,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     .map((part) => String(part || ""))
     .join(":");
   const responseSyncOptions = {
-    responseId: typeof entry?.id === "string" ? entry.id : "",
+    responseId: historyDocumentId,
     responseMode: resolveHistoryMode(entry) || source,
     responseType: typeof entry?.type === "string" && entry.type.trim() ? entry.type.trim() : consigne?.type,
     responseDayKey: resolvedDayKey,
@@ -10196,8 +10223,9 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       const childCreatedAtSource =
         childEntry?.createdAt ?? childEntry?.updatedAt ?? childEntry?.recordedAt ?? null;
       const childCreatedAt = asDate(childCreatedAtSource);
+      const childHistoryDocumentId = resolveHistoryDocumentId(childEntry, resolvedDayKey);
       const childResponseSyncOptions = {
-        responseId: typeof childEntry?.id === "string" ? childEntry.id : "",
+        responseId: childHistoryDocumentId,
         responseMode: resolveHistoryMode(childEntry) || source,
         responseType:
           typeof childEntry?.type === "string" && childEntry.type.trim()
@@ -10228,6 +10256,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         fieldId: `${fieldBase}-value`,
         row: inRow instanceof HTMLElement ? inRow : null,
         responseSyncOptions: childResponseSyncOptions,
+        historyDocumentId: childHistoryDocumentId,
         initialHasValue: childInitialHasValue,
       };
     }),
@@ -10370,7 +10399,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       clearBtn.disabled = true;
       if (submitBtn) submitBtn.disabled = true;
       try {
-        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
         // Clear local recent cache so Historique reflects deletion
         try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
         // Remove any other response docs for this consigne/day (e.g., duplicate or bilan-mirrored)
@@ -10401,7 +10430,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               ctx.db,
               ctx.user.uid,
               childState.consigne.id,
-              resolvedDayKey,
+              childState.historyDocumentId,
               childState.responseSyncOptions,
             );
             try { removeRecentResponsesForDay(childState.consigne.id, resolvedDayKey); } catch (e) {}
@@ -10465,7 +10494,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         };
       });
       if (!parentHasValue) {
-        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
         try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
         try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
         // Also delete summary answer if this entry originated from a bilan
@@ -10484,7 +10513,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           ctx.db,
           ctx.user.uid,
           consigne.id,
-          resolvedDayKey,
+          historyDocumentId,
           { value: rawValue },
           responseSyncOptions,
         );
@@ -10509,7 +10538,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             ctx.db,
             ctx.user.uid,
             state.consigne.id,
-            resolvedDayKey,
+            state.historyDocumentId,
             state.responseSyncOptions,
           );
           try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
@@ -10531,7 +10560,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             ctx.db,
             ctx.user.uid,
             state.consigne.id,
-            resolvedDayKey,
+            state.historyDocumentId,
             { value },
             state.responseSyncOptions,
           );
