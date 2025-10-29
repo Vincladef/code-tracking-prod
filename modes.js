@@ -4235,7 +4235,17 @@ function closeConsigneActionMenuFromNode(node, options) {
   }
 }
 
-function renderRichTextInput(name, { consigneId = "", initialValue = null, placeholder = "", inputId = "" } = {}) {
+function renderRichTextInput(
+  name,
+  {
+    consigneId = "",
+    initialValue = null,
+    placeholder = "",
+    inputId = "",
+    advanced = false,
+    colorPickerDefault = "#1f2937",
+  } = {},
+) {
   const normalized = normalizeRichTextValue(initialValue);
   const structuredHtml = ensureRichTextStructure(normalized.html) || "";
   const initialHtml = structuredHtml.trim() ? structuredHtml : "<p><br></p>";
@@ -4247,14 +4257,40 @@ function renderRichTextInput(name, { consigneId = "", initialValue = null, place
     ? ` data-placeholder="${escapeHtml(String(placeholder))}"`
     : "";
   const hiddenIdAttr = inputId ? ` id="${escapeHtml(String(inputId))}"` : "";
+  const advancedAttr = advanced ? ' data-rich-text-advanced="1"' : "";
+  const colorValue = typeof colorPickerDefault === "string" && colorPickerDefault.trim()
+    ? colorPickerDefault.trim()
+    : "#1f2937";
+  const advancedToolbar = advanced
+    ? `
+        <span aria-hidden="true" class="consigne-rich-text__toolbar-separator" style="display:inline-flex;width:1px;height:18px;background:rgba(15,23,42,0.12);margin:0 6px;"></span>
+        <div class="consigne-rich-text__toolbar-group" data-rich-advanced style="display:inline-flex;align-items:center;gap:4px;">
+          <button type="button" class="btn btn-ghost text-xs" data-rich-command="formatBlock" data-rich-value="P" title="Paragraphe" aria-label="Paragraphe">¶</button>
+          <button type="button" class="btn btn-ghost text-xs" data-rich-command="formatBlock" data-rich-value="H2" title="Titre" aria-label="Titre">H2</button>
+          <button type="button" class="btn btn-ghost text-xs" data-rich-command="formatBlock" data-rich-value="H3" title="Sous-titre" aria-label="Sous-titre">H3</button>
+          <select class="btn btn-ghost text-xs" data-rich-select-command="fontSize" title="Taille du texte" aria-label="Taille du texte" style="padding:3px 6px;">
+            <option value="">Taille</option>
+            <option value="3">Normal</option>
+            <option value="4">Grand</option>
+            <option value="5">Très grand</option>
+          </select>
+          <label class="btn btn-ghost text-xs" data-rich-color-trigger title="Couleur du texte" aria-label="Couleur du texte" style="position:relative;overflow:hidden;cursor:pointer;">
+            <span aria-hidden="true">A</span>
+            <input type="color" value="${escapeHtml(colorValue)}" data-rich-color-picker style="position:absolute;inset:0;opacity:0;cursor:pointer;">
+          </label>
+          <button type="button" class="btn btn-ghost text-xs" data-rich-command="removeFormat" title="Effacer la mise en forme" aria-label="Effacer la mise en forme">⟲</button>
+        </div>
+      `
+    : "";
   return `
-    <div class="consigne-rich-text" data-rich-text-root${consigneAttr}>
+    <div class="consigne-rich-text" data-rich-text-root${consigneAttr}${advancedAttr}>
       <div class="consigne-rich-text__toolbar" data-rich-text-toolbar role="toolbar" aria-label="Mise en forme">
         <button type="button" class="btn btn-ghost text-xs" data-rich-command="bold" title="Gras" aria-label="Gras"><strong>B</strong></button>
         <button type="button" class="btn btn-ghost text-xs" data-rich-command="italic" title="Italique" aria-label="Italique"><em>I</em></button>
         <button type="button" class="btn btn-ghost text-xs" data-rich-command="insertUnorderedList" title="Liste à puces" aria-label="Liste à puces">•</button>
         <button type="button" class="btn btn-ghost text-xs" data-rich-command="insertOrderedList" title="Liste numérotée" aria-label="Liste numérotée">1.</button>
         <button type="button" class="btn btn-ghost text-xs" data-rich-command="checkbox" title="Insérer une case à cocher" aria-label="Insérer une case à cocher">☐</button>
+        ${advancedToolbar}
       </div>
       <div class="consigne-rich-text__content consigne-editor__textarea" data-rich-text-content contenteditable="true"${placeholderAttr}>${initialHtml}</div>
       <input type="hidden"${hiddenIdAttr} name="${escapeHtml(String(name))}" value="${serialized}" data-rich-text-input data-rich-text-version="${RICH_TEXT_VERSION}" data-autosave-track="1">
@@ -5208,6 +5244,7 @@ function setupRichTextEditor(root) {
       const button = event.target.closest("[data-rich-command]");
       if (!button) return;
       const command = button.getAttribute("data-rich-command");
+      const value = button.getAttribute("data-rich-value");
       if (!command) return;
 
       if (command === "checkbox" && content.__cbInstalled) {
@@ -5226,12 +5263,55 @@ function setupRichTextEditor(root) {
         updateToolbarStates();
         return;
       }
-      if (!tryExecCommand(command, null) && (command === "bold" || command === "italic")) {
+      if (!tryExecCommand(command, value) && (command === "bold" || command === "italic")) {
         fallbackWrapWithTag(command === "bold" ? "strong" : "em");
       }
       scheduleSelectionCapture();
       schedule();
       updateToolbarStates();
+    });
+  }
+
+  if (toolbar) {
+    const selectControls = Array.from(toolbar.querySelectorAll("[data-rich-select-command]"));
+    selectControls.forEach((select) => {
+      if (select.dataset.richSelectBound === "1") return;
+      select.dataset.richSelectBound = "1";
+      select.addEventListener("change", (event) => {
+        const command = select.getAttribute("data-rich-select-command");
+        if (!command) return;
+        const optionValue = select.value;
+        if (content && typeof content.focus === "function") {
+          content.focus();
+        }
+        restoreSelection();
+        if (optionValue) {
+          tryExecCommand(command, optionValue);
+        } else if (command === "fontSize") {
+          tryExecCommand("removeFormat");
+        }
+        scheduleSelectionCapture();
+        schedule();
+        updateToolbarStates();
+      });
+    });
+
+    const colorPickers = Array.from(toolbar.querySelectorAll("[data-rich-color-picker]"));
+    colorPickers.forEach((input) => {
+      if (input.dataset.richColorBound === "1") return;
+      input.dataset.richColorBound = "1";
+      input.addEventListener("input", () => {
+        const colorValue = input.value;
+        if (!colorValue) return;
+        if (content && typeof content.focus === "function") {
+          content.focus();
+        }
+        restoreSelection();
+        tryExecCommand("foreColor", colorValue);
+        scheduleSelectionCapture();
+        schedule();
+        updateToolbarStates();
+      });
     });
   }
 

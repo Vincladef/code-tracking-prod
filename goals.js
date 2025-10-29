@@ -852,31 +852,105 @@
 
       const headerRow = document.createElement("div");
       headerRow.className = "goal-month__header";
-      headerRow.innerHTML = `
-        <h3 class="goal-month__title">${escapeHtml(label)}</h3>
-        <button type="button" class="goal-month__add btn btn-ghost" data-add-month>＋ Ajouter un objectif</button>
-      `;
+      headerRow.style.display = "flex";
+      headerRow.style.alignItems = "center";
+      headerRow.style.justifyContent = "space-between";
+      headerRow.style.gap = "12px";
+
+      const headerTitle = document.createElement("h3");
+      headerTitle.className = "goal-month__title";
+      headerTitle.textContent = label;
+
+      const headerActions = document.createElement("div");
+      headerActions.style.display = "flex";
+      headerActions.style.alignItems = "center";
+      headerActions.style.gap = "8px";
+
+      const monthNoteButton = document.createElement("button");
+      monthNoteButton.type = "button";
+      monthNoteButton.className = "goal-month__note btn btn-ghost btn-compact";
+      monthNoteButton.setAttribute("aria-pressed", "false");
+      const monthNoteLabel = "📝 Notes du mois";
+
+      const addMonthButton = document.createElement("button");
+      addMonthButton.type = "button";
+      addMonthButton.className = "goal-month__add btn btn-ghost";
+      addMonthButton.dataset.addMonth = "";
+      addMonthButton.textContent = "＋ Ajouter un objectif";
+
+      headerActions.append(monthNoteButton, addMonthButton);
+      headerRow.append(headerTitle, headerActions);
       box.appendChild(headerRow);
 
-      // Inline creator for monthly objectives
-      headerRow.querySelector("[data-add-month]").addEventListener("click", () => {
+      let notes = await loadNotesForMonth(monthKey);
+      if (!notes || typeof notes !== "object") {
+        notes = { month: null, weeks: {} };
+      }
+      if (!notes.weeks || typeof notes.weeks !== "object") {
+        notes.weeks = {};
+      }
+      updateNoteButtonState(monthNoteButton, notes.month, monthNoteLabel);
+
+      monthNoteButton.addEventListener("click", () => {
+        openObjectiveNoteEditor({
+          monthKey,
+          existingNote: notes.month,
+          onChange: (next) => {
+            notes = updateNotesCache(monthKey, (state) => {
+              state.month = next;
+              return state;
+            });
+            updateNoteButtonState(monthNoteButton, notes.month, monthNoteLabel);
+          },
+        });
+      });
+
+      addMonthButton.addEventListener("click", () => {
         ensureMonthlyInlineCreator(box, monthKey);
       });
 
       const weeks = Schema.weeksOf(monthKey);
       const containers = new Map();
       const weekBlocks = [];
+
       weeks.forEach((week) => {
         const weekBox = document.createElement("div");
         weekBox.className = "goal-week";
         weekBox.dataset.week = String(week);
         const range = Schema.weekDateRange(monthKey, week);
+
         const header = document.createElement("div");
         header.className = "goal-week__header";
-        header.innerHTML = `
-          <div class="goal-week__label muted">${escapeHtml(range?.label || `Semaine ${week}`)}</div>
-          <button type="button" class="goal-week__add btn btn-ghost" data-week="${week}">＋ Ajouter</button>
-        `;
+        header.style.display = "flex";
+        header.style.alignItems = "center";
+        header.style.justifyContent = "space-between";
+        header.style.gap = "8px";
+
+        const labelNode = document.createElement("div");
+        labelNode.className = "goal-week__label muted";
+        labelNode.textContent = range?.label || `Semaine ${week}`;
+
+        const actionWrap = document.createElement("div");
+        actionWrap.style.display = "flex";
+        actionWrap.style.alignItems = "center";
+        actionWrap.style.gap = "6px";
+
+        const weekNoteButton = document.createElement("button");
+        weekNoteButton.type = "button";
+        weekNoteButton.className = "goal-week__note btn btn-ghost btn-compact";
+        weekNoteButton.setAttribute("aria-pressed", "false");
+        const weekNoteLabel = "📝 Note";
+        updateNoteButtonState(weekNoteButton, (notes.weeks || {})[week] || null, weekNoteLabel);
+
+        const addButton = document.createElement("button");
+        addButton.type = "button";
+        addButton.className = "goal-week__add btn btn-ghost";
+        addButton.dataset.week = week;
+        addButton.textContent = "＋ Ajouter";
+
+        actionWrap.append(weekNoteButton, addButton);
+        header.append(labelNode, actionWrap);
+
         const list = document.createElement("div");
         list.className = "goal-list";
         weekBox.appendChild(header);
@@ -885,7 +959,30 @@
         weekBlocks.push(weekBox);
         enableGoalDragAndDrop(list);
 
-        header.querySelector("[data-week]").addEventListener("click", () => {
+        weekNoteButton.addEventListener("click", () => {
+          const currentNote = (notes.weeks || {})[week] || null;
+          openObjectiveNoteEditor({
+            monthKey,
+            weekOfMonth: week,
+            existingNote: currentNote,
+            onChange: (next) => {
+              notes = updateNotesCache(monthKey, (state) => {
+                const nextWeeks = { ...state.weeks };
+                if (next) {
+                  nextWeeks[week] = next;
+                } else {
+                  delete nextWeeks[week];
+                }
+                state.weeks = nextWeeks;
+                return state;
+              });
+              const refreshed = (notes.weeks || {})[week] || null;
+              updateNoteButtonState(weekNoteButton, refreshed, weekNoteLabel);
+            },
+          });
+        });
+
+        addButton.addEventListener("click", () => {
           ensureWeeklyInlineCreator(list, monthKey, week);
         });
       });

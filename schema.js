@@ -2397,6 +2397,90 @@ async function listObjectivesByMonth(db, uid, monthKey) {
   return rows;
 }
 
+function objectiveNoteDocId(monthKey, type, weekOfMonth) {
+  const safeMonth = String(monthKey || "").trim();
+  if (!safeMonth) return "";
+  if (type === "week") {
+    const numericWeek = Number(weekOfMonth);
+    const normalizedWeek = Number.isFinite(numericWeek) ? numericWeek : 1;
+    return `${safeMonth}__week-${String(normalizedWeek).padStart(2, "0")}`;
+  }
+  return `${safeMonth}__month`;
+}
+
+async function listObjectiveNotesByMonth(db, uid, monthKey) {
+  const safeMonth = String(monthKey || "").trim();
+  if (!db || !uid || !safeMonth) {
+    return { month: null, weeks: {} };
+  }
+  const result = { month: null, weeks: {} };
+  try {
+    const colRef = collection(db, "u", uid, "objectiveNotes");
+    const qy = query(colRef, where("monthKey", "==", safeMonth));
+    const snap = await getDocs(qy);
+    snap.docs.forEach((docSnap) => {
+      const data = docSnap.data() || {};
+      const type = data.type === "week" ? "week" : "month";
+      const weekNumber = Number(data.weekOfMonth);
+      const entry = {
+        id: docSnap.id,
+        monthKey: data.monthKey || safeMonth,
+        type,
+        weekOfMonth: Number.isFinite(weekNumber) ? weekNumber : null,
+        value: data.value || null,
+        updatedAt: data.updatedAt || null,
+      };
+      if (type === "week" && Number.isFinite(entry.weekOfMonth)) {
+        result.weeks[entry.weekOfMonth] = entry;
+      } else {
+        result.month = entry;
+      }
+    });
+  } catch (error) {
+    schemaLog("objectiveNotes:list:error", { uid, monthKey: safeMonth, error });
+  }
+  return result;
+}
+
+async function saveObjectiveNote(db, uid, input = {}) {
+  const safeMonth = String(input.monthKey || "").trim();
+  if (!db || !uid || !safeMonth) {
+    throw new Error("Paramètres manquants pour saveObjectiveNote");
+  }
+  const type = input.type === "week" ? "week" : "month";
+  const rawWeek = Number(input.weekOfMonth);
+  const weekOfMonth = type === "week" && Number.isFinite(rawWeek) ? rawWeek : null;
+  const docId = objectiveNoteDocId(safeMonth, type, weekOfMonth);
+  if (!docId) {
+    throw new Error("Identifiant de note invalide.");
+  }
+  const ref = doc(db, "u", uid, "objectiveNotes", docId);
+  const payload = {
+    monthKey: safeMonth,
+    type,
+    weekOfMonth,
+    value: input.value || null,
+    updatedAt: serverTimestamp(),
+  };
+  await setDoc(ref, payload, { merge: true });
+  return { id: docId, ...payload };
+}
+
+async function deleteObjectiveNote(db, uid, input = {}) {
+  const safeMonth = String(input.monthKey || "").trim();
+  if (!db || !uid || !safeMonth) {
+    throw new Error("Paramètres manquants pour deleteObjectiveNote");
+  }
+  const type = input.type === "week" ? "week" : "month";
+  const rawWeek = Number(input.weekOfMonth);
+  const weekOfMonth = type === "week" && Number.isFinite(rawWeek) ? rawWeek : null;
+  const docId = objectiveNoteDocId(safeMonth, type, weekOfMonth);
+  if (!docId) {
+    return;
+  }
+  await deleteDoc(doc(db, "u", uid, "objectiveNotes", docId));
+}
+
 function shiftMonthKey(baseKey, offset) {
   const [yearStr, monthStr] = String(baseKey || "").split("-");
   const year = Number(yearStr);
@@ -3179,6 +3263,9 @@ Object.assign(Schema, {
   sortObjectives,
   objectiveDueDateIso,
   shiftMonthKey,
+  listObjectiveNotesByMonth,
+  saveObjectiveNote,
+  deleteObjectiveNote,
   getObjective,
   upsertObjective,
   deleteObjective,
