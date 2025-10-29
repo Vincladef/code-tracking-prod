@@ -8538,8 +8538,9 @@ function resolveHistoryEntrySummaryInfo(entry) {
     (nestedSummary && Object.keys(nestedSummary).length > 0);
   const hasBilanMarker = normalizedStrings.some((value) => {
     if (!value) return false;
+    // Recognize bilan markers across various separators (space, dash, underscore, colon)
     if (/\bbilans?\b/.test(value)) return true;
-    if (value.includes("bilan-") || value.includes("bilan_")) return true;
+    if (value.includes("bilan-") || value.includes("bilan_") || value.includes("bilan:")) return true;
     return false;
   });
   const hasSummaryKeyword = normalizedStrings.some((value) => value.includes("summary"));

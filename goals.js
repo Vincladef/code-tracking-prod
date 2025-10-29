@@ -938,26 +938,33 @@
       headerTitle.className = "goal-month__title";
       headerTitle.textContent = label;
 
-      const headerActions = document.createElement("div");
-      headerActions.style.display = "flex";
-      headerActions.style.alignItems = "center";
-      headerActions.style.gap = "8px";
+  const headerActions = document.createElement("div");
+  headerActions.style.display = "flex";
+  headerActions.style.alignItems = "center";
+  headerActions.style.gap = "8px";
 
-      const monthNoteButton = document.createElement("button");
-      monthNoteButton.type = "button";
-      monthNoteButton.className = "goal-month__note btn btn-ghost btn-compact";
-      monthNoteButton.setAttribute("aria-pressed", "false");
-      const monthNoteLabel = "📝 Notes du mois";
+  const monthNoteButton = document.createElement("button");
+  monthNoteButton.type = "button";
+  monthNoteButton.className = "goal-month__note btn btn-ghost btn-compact";
+  monthNoteButton.setAttribute("aria-pressed", "false");
+  const monthNoteLabel = "📝 Notes du mois";
 
-      const addMonthButton = document.createElement("button");
-      addMonthButton.type = "button";
-      addMonthButton.className = "goal-month__add btn btn-ghost";
-      addMonthButton.dataset.addMonth = "";
-      addMonthButton.textContent = "＋ Ajouter un objectif";
+  const addMonthButton = document.createElement("button");
+  addMonthButton.type = "button";
+  addMonthButton.className = "goal-month__add btn btn-ghost";
+  addMonthButton.dataset.addMonth = "";
+  addMonthButton.textContent = "＋ Ajouter un objectif";
 
-      headerActions.append(monthNoteButton, addMonthButton);
-      headerRow.append(headerTitle, headerActions);
+  // Keep only the Add button in the header row; we'll render Notes just under the title
+  headerActions.append(addMonthButton);
+  headerRow.append(headerTitle, headerActions);
       box.appendChild(headerRow);
+
+  // Notes bar under the month header (prevents overlap and keeps title centered)
+  const monthNotesBar = document.createElement("div");
+  monthNotesBar.className = "goal-month__notes";
+  monthNotesBar.appendChild(monthNoteButton);
+  box.appendChild(monthNotesBar);
 
       let notes = await loadNotesForMonth(monthKey);
       if (!notes || typeof notes !== "object") {
@@ -1007,30 +1014,37 @@
         labelNode.className = "goal-week__label muted";
         labelNode.textContent = range?.label || `Semaine ${week}`;
 
-        const actionWrap = document.createElement("div");
-        actionWrap.style.display = "flex";
-        actionWrap.style.alignItems = "center";
-        actionWrap.style.gap = "6px";
+  const actionWrap = document.createElement("div");
+  actionWrap.style.display = "flex";
+  actionWrap.style.alignItems = "center";
+  actionWrap.style.gap = "6px";
 
-        const weekNoteButton = document.createElement("button");
-        weekNoteButton.type = "button";
-        weekNoteButton.className = "goal-week__note btn btn-ghost btn-compact";
-        weekNoteButton.setAttribute("aria-pressed", "false");
-        const weekNoteLabel = "📝 Note";
-        updateNoteButtonState(weekNoteButton, (notes.weeks || {})[week] || null, weekNoteLabel);
+  const weekNoteButton = document.createElement("button");
+  weekNoteButton.type = "button";
+  weekNoteButton.className = "goal-week__note btn btn-ghost btn-compact";
+  weekNoteButton.setAttribute("aria-pressed", "false");
+  const weekNoteLabel = "📝 Note";
+  updateNoteButtonState(weekNoteButton, (notes.weeks || {})[week] || null, weekNoteLabel);
 
-        const addButton = document.createElement("button");
-        addButton.type = "button";
-        addButton.className = "goal-week__add btn btn-ghost";
-        addButton.dataset.week = week;
-        addButton.textContent = "＋ Ajouter";
+  const addButton = document.createElement("button");
+  addButton.type = "button";
+  addButton.className = "goal-week__add btn btn-ghost";
+  addButton.dataset.week = week;
+  addButton.textContent = "＋ Ajouter";
 
-        actionWrap.append(weekNoteButton, addButton);
-        header.append(labelNode, actionWrap);
+  // In the header, keep only the Add button on the right
+  actionWrap.append(addButton);
+  header.append(labelNode, actionWrap);
 
         const list = document.createElement("div");
         list.className = "goal-list";
-        weekBox.appendChild(header);
+  weekBox.appendChild(header);
+
+  // Place the Notes control under the week name
+  const weekNotesBar = document.createElement("div");
+  weekNotesBar.className = "goal-week__notes";
+  weekNotesBar.appendChild(weekNoteButton);
+  weekBox.appendChild(weekNotesBar);
         weekBox.appendChild(list);
         containers.set(week, list);
         weekBlocks.push(weekBox);
