@@ -14484,6 +14484,32 @@ async function openHistory(ctx, consigne, options = {}) {
       showToast("Impossible d’identifier la date de cette réponse.");
       return;
     }
+    let historyDocumentId = dayKey;
+    let resolveHistoryDocPromise = null;
+    if (ctx?.db && typeof Schema?.loadConsigneHistory === "function") {
+      resolveHistoryDocPromise = (async () => {
+        try {
+          const historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+          const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey);
+          const historyEntry = match?.entry || null;
+          const resolvedId = resolveHistoryDocumentId(historyEntry, dayKey);
+          if (resolvedId) {
+            historyDocumentId = resolvedId;
+          }
+        } catch (error) {
+          modesLogger?.warn?.("ui.history.resolveDocId", { consigneId: consigne.id, dayKey, error });
+        }
+      })();
+    }
+    const ensureHistoryDocumentId = async () => {
+      if (resolveHistoryDocPromise) {
+        try {
+          await resolveHistoryDocPromise;
+        } catch (_) {}
+        resolveHistoryDocPromise = null;
+      }
+      return historyDocumentId;
+    };
     const createdAtSource = row.createdAt ?? row.updatedAt ?? null;
     const createdAt = asDate(createdAtSource);
     const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
@@ -14507,17 +14533,6 @@ async function openHistory(ctx, consigne, options = {}) {
         onChange: reopenHistory,
       });
       return;
-    }
-    let historyDocumentId = dayKey;
-    if (ctx?.db && typeof Schema?.loadConsigneHistory === "function") {
-      try {
-        const historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
-        const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey);
-        const historyEntry = match?.entry || null;
-        historyDocumentId = resolveHistoryDocumentId(historyEntry, dayKey);
-      } catch (error) {
-        modesLogger?.warn?.("ui.history.resolveDocId", { consigneId: consigne.id, dayKey, error });
-      }
     }
     const valueField = renderConsigneValueField(consigne, row.value, fieldId);
     const autosaveKey = [`history-entry`, ctx.user?.uid || 'anon', consigne.id || 'consigne', dayKey]
@@ -14640,7 +14655,8 @@ async function openHistory(ctx, consigne, options = {}) {
         clearBtn.disabled = true;
         if (submitBtn) submitBtn.disabled = true;
         try {
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
+          const targetDocId = await ensureHistoryDocumentId();
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
           try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
           try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
             // Remove the item immediately in the UI for instant feedback
@@ -14677,15 +14693,17 @@ async function openHistory(ctx, consigne, options = {}) {
         const note = (form.elements.note?.value || '').trim();
         const isRawEmpty = rawValue === '' || rawValue == null;
         if (isRawEmpty && !note) {
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
+          const targetDocId = await ensureHistoryDocumentId();
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
           try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
           try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
         } else {
+          const targetDocId = await ensureHistoryDocumentId();
           await Schema.saveHistoryEntry(
             ctx.db,
             ctx.user.uid,
             consigne.id,
-            historyDocumentId,
+            targetDocId,
             {
               value: rawValue,
               note,
