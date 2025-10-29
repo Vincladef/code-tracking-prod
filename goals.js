@@ -52,7 +52,15 @@
 
   function updateNoteButtonState(btn, entry, baseLabel) {
     if (!btn) return;
-    const hasValue = Boolean(entry && typeof entry.value === "string" && entry.value.trim());
+    const hasValue = (() => {
+      if (!entry) return false;
+      const v = entry.value;
+      if (typeof v === "string") return Boolean(v.trim());
+      if (v && typeof v === "object" && window?.Modes?.richText?.hasContent) {
+        try { return Boolean(Modes.richText.hasContent(v)); } catch (_) { return false; }
+      }
+      return false;
+    })();
     btn.setAttribute("aria-pressed", hasValue ? "true" : "false");
     btn.dataset.hasNote = hasValue ? "1" : "0";
     const label = String(baseLabel || "📝 Note");
@@ -70,6 +78,10 @@
     // Modal UI similar to text answer editor
     const title = type === "week" ? `Note de la semaine ${weekOfMonth}` : "Note du mois";
     const autosaveKey = ["objective-note", lastCtx?.user?.uid || "anon", monthKey, type, weekOfMonth || ""].join(":");
+    const fakeConsigne = { id: "objective-note", type: "long" };
+    const richInput = (window.Modes && typeof Modes.inputForType === "function")
+      ? Modes.inputForType(fakeConsigne, existing)
+      : `<textarea id="objective-note-text" class="consigne-editor__textarea" placeholder="Écrire une note…">${escapeHtml(existing)}</textarea>`;
     const editorHtml = `
       <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
         <header class="practice-editor__header">
@@ -78,7 +90,7 @@
         </header>
         <div class="practice-editor__section">
           <label class="practice-editor__label" for="objective-note-text">Note</label>
-          <textarea id="objective-note-text" class="consigne-editor__textarea" placeholder="Écrire une note…">${escapeHtml(existing)}</textarea>
+          ${richInput}
         </div>
         <div class="practice-editor__actions">
           <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
@@ -107,8 +119,9 @@
       }
       return;
     }
-    const form = overlay.querySelector("form.practice-editor");
-    const textarea = form?.querySelector("#objective-note-text");
+  const form = overlay.querySelector("form.practice-editor");
+  const hiddenRichInput = form?.querySelector('input[name="long:objective-note"][data-rich-text-input]');
+  const textarea = form?.querySelector("#objective-note-text");
     const cancelBtn = form?.querySelector('[data-cancel]');
     const clearBtn = form?.querySelector('[data-clear]');
     const submitBtn = form?.querySelector('button[type="submit"]');
@@ -137,10 +150,28 @@
     form?.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!submitBtn || submitBtn.disabled) return;
-      const value = (textarea?.value || '').trim();
+      // Prefer rich-text hidden input if present; fallback to plain textarea
+      let value;
+      if (hiddenRichInput) {
+        try {
+          const raw = hiddenRichInput.value || "";
+          const parsed = raw && raw.trim() ? JSON.parse(raw) : "";
+          const normalized = window?.Modes?.richText?.normalizeValue
+            ? Modes.richText.normalizeValue(parsed)
+            : parsed;
+          const hasContent = window?.Modes?.richText?.hasContent
+            ? Modes.richText.hasContent(normalized)
+            : Boolean((normalized?.text || "").trim());
+          value = hasContent ? normalized : "";
+        } catch (_err) {
+          value = "";
+        }
+      } else {
+        value = (textarea?.value || '').trim();
+      }
       if (!lastCtx?.db || !lastCtx?.user?.uid) return;
       try {
-        if (!value) {
+        if (!value || (typeof value === 'object' && Object.keys(value || {}).length === 0)) {
           await Schema.deleteObjectiveNote(lastCtx.db, lastCtx.user.uid, payload);
           onChange(null);
         } else {

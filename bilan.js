@@ -1197,7 +1197,9 @@
       label: period.label,
       extras,
       moduleId: "bilan",
-      summaryDayKey: false,
+      // Let schema compute and persist the dayKey from the period end (e.g., Sunday for a weekly bilan)
+      // so history items are dated on the relevant period day.
+      // summaryDayKey: false,
     };
 
     const summaryLabel = normalizedSummaryScope === "monthly"

@@ -984,6 +984,7 @@ async function persistResponsesToHistory(db, uid, responses) {
       "origin",
       "context",
       "moduleId",
+      "isBilan",
       "category",
       "sessionId",
       "sessionIndex",
@@ -3004,6 +3005,8 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
         mode: "summary",
         value: answer.value,
         updatedAt: now(),
+        // Explicitly mark summary responses as bilan to ensure star rendering in history
+        isBilan: true,
       };
       if (answer.type !== undefined) {
         responsePayload.type = answer.type;
