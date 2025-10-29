@@ -8599,6 +8599,63 @@ function resolveHistoryTimelineKeyBase(entry) {
     return { dayKey: null, date: null, timestamp: null };
   }
 
+  // Prefer explicit period/page dates for summary (bilan) entries so timeline
+  // positions them on the intended day (e.g., end of week) instead of the
+  // recording timestamp. This avoids Wednesday-vs-Sunday mismatches when the
+  // bilan is filled in advance or later.
+  try {
+    const summaryInfo = resolveHistoryEntrySummaryInfo(entry);
+    if (summaryInfo && summaryInfo.isSummary) {
+      const extractKey = (obj, ...keys) => {
+        for (const k of keys) {
+          const v = obj && typeof obj === 'object' ? obj[k] : undefined;
+          if (v !== undefined && v !== null && v !== "") return v;
+        }
+        return null;
+      };
+      const primaryKey = extractKey(
+        entry,
+        "dayKey",
+        "day_key",
+        "pageDateIso",
+        "page_date_iso"
+      );
+      if (typeof primaryKey === "string" && /^\d{4}-\d{2}-\d{2}$/.test(primaryKey.trim())) {
+        const dayKey = primaryKey.trim();
+        const parsed = Schema?.toDate?.(dayKey) || new Date(dayKey);
+        const date = parsed instanceof Date && !Number.isNaN(parsed.getTime()) ? parsed : null;
+        return {
+          dayKey,
+          date,
+          timestamp: date ? date.getTime() : null,
+        };
+      }
+      const pageDate = extractKey(entry, "pageDate", "page_date");
+      if (pageDate) {
+        const parsed = Schema?.toDate?.(pageDate) || new Date(pageDate);
+        if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+          const dayKey = typeof Schema?.dayKeyFromDate === 'function'
+            ? Schema.dayKeyFromDate(parsed)
+            : parsed.toISOString().slice(0, 10);
+          return { dayKey, date: parsed, timestamp: parsed.getTime() };
+        }
+      }
+      // As a last resort for summaries, prefer createdAt if present (we align it to period end upstream)
+      const createdAt = extractKey(entry, "createdAt", "created_at");
+      if (createdAt) {
+        const parsed = Schema?.toDate?.(createdAt) || new Date(createdAt);
+        if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+          const dayKey = typeof Schema?.dayKeyFromDate === 'function'
+            ? Schema.dayKeyFromDate(parsed)
+            : parsed.toISOString().slice(0, 10);
+          return { dayKey, date: parsed, timestamp: parsed.getTime() };
+        }
+      }
+    }
+  } catch (e) {
+    // Fallback to generic path
+  }
+
   const keyCandidates = [];
   const dateCandidates = [];
 
