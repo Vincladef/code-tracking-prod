@@ -1430,41 +1430,24 @@
         });
         saved = sanitizeLoadedPayload(lastPayload, requestedKey);
       }
-      const optionsHash = root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
-      const blankSelection = {
-        ...saved,
-        selectedIds: [],
-        answers: {},
-        skippedIds: [],
-        checklistValue: null,
-        value: null,
-      };
-      debugLog("hydrateRoot:apply-selection:blank", {
-        consigneId,
-        dateKey: blankSelection.dateKey,
-      });
-      // Reset any hidden field to a blank payload so DOM starts clean.
-      const hiddenField = root.querySelector('input[type="hidden"][data-checklist-state]');
-      if (hiddenField) {
-        try {
-          const payloadState = {
-            items: [],
-            skipped: [],
-            answers: {},
-            dateKey:
-              blankSelection.dateKey ||
-              pageKeyFromUrl ||
-              pageKeyFromCtx ||
-              currentParisDayKey(),
-          };
-          hiddenField.value = JSON.stringify(payloadState);
-          hiddenField.setAttribute("value", hiddenField.value);
-        } catch (_) {
-          hiddenField.value = "";
-          hiddenField.removeAttribute("value");
-        }
+      const optionsHash =
+        root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
+      let selectionToApply = saved;
+      if (!selectionToApply) {
+        selectionToApply = {
+          selectedIds: [],
+          answers: {},
+          skippedIds: [],
+          dateKey: requestedKey,
+        };
       }
-      applySelection(root, blankSelection, { consigneId, optionsHash, markDirty: false, showHint: false });
+      debugLog("hydrateRoot:apply-selection", {
+        consigneId,
+        dateKey: selectionToApply.dateKey,
+        selected: Array.isArray(selectionToApply.selectedIds) ? selectionToApply.selectedIds.length : 0,
+        hasAnswers: Boolean(selectionToApply.answers && Object.keys(selectionToApply.answers).length),
+      });
+      applySelection(root, selectionToApply, { consigneId, optionsHash, markDirty: false, showHint: false });
       // Nettoyer tout flag dirty résiduel
       const hidden = root.querySelector('[data-checklist-state]');
       if (hidden && hidden.dataset) delete hidden.dataset.dirty;
