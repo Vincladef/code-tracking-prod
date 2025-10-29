@@ -8708,7 +8708,8 @@ function buildConsigneHistoryTimeline(entries, consigne) {
   if (Array.isArray(entries)) {
     entries.forEach((entry) => {
       if (!entry || typeof entry !== "object") return;
-      if (isSummaryHistoryEntry(entry)) return;
+      const summaryInfo = resolveHistoryEntrySummaryInfo(entry);
+      if (summaryInfo.isSummary && !summaryInfo.isBilan) return;
       const keyInfo = resolveHistoryTimelineKey(entry, consigne);
       const { dayKey, date, timestamp, iterationIndex, iterationNumber, iterationLabel } = keyInfo || {};
       if (!dayKey || !(date instanceof Date) || Number.isNaN(date.getTime())) {
@@ -8719,7 +8720,6 @@ function buildConsigneHistoryTimeline(entries, consigne) {
       const value = resolveHistoryTimelineValue(entry, consigne);
       const note = resolveHistoryTimelineNote(entry);
       const hasNote = typeof note === "string" && note.trim().length > 0;
-      const summaryInfo = resolveHistoryEntrySummaryInfo(entry);
       const isBilanEntry = Boolean(summaryInfo?.isBilan);
       const isSkipOnly = (() => {
         if (!value) return false;
@@ -8892,6 +8892,7 @@ function applyConsigneHistoryPoint(item, point) {
   const dot = ensureConsigneHistoryDot(item);
   if (dot) {
     dot.className = `consigne-history__dot consigne-row__dot consigne-row__dot--${status}`;
+    dot.textContent = "";
     dot.setAttribute("aria-hidden", "true");
   }
   const sr = ensureConsigneHistorySr(item);
@@ -8916,14 +8917,15 @@ function applyConsigneHistoryPoint(item, point) {
   if (point.isBilan) {
     item.dataset.historySource = "bilan";
     if (dot) {
-      dot.classList.add("consigne-history__dot--bilan");
+      dot.className = "consigne-history__dot consigne-history__dot--bilan";
+      dot.textContent = "★";
     }
   } else {
     if (item.dataset) {
       delete item.dataset.historySource;
     }
     if (dot) {
-      dot.classList.remove("consigne-history__dot--bilan");
+      dot.textContent = "";
     }
   }
   const details = point.details || null;
