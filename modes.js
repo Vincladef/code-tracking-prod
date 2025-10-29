@@ -9345,11 +9345,6 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   const keyInfo = match?.keyInfo || null;
   const resolvedDayKey = keyInfo?.dayKey || dayKey;
   const entryValue = entry?.value !== undefined ? entry.value : details?.rawValue ?? "";
-  const entryNote = (() => {
-    if (typeof entry?.note === "string") return entry.note;
-    if (details && typeof details.note === "string") return details.note;
-    return "";
-  })();
   const createdAtSource =
     entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? details?.timestamp ?? null;
   const createdAt = asDate(createdAtSource);
@@ -9361,6 +9356,21 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     null;
   const dateLabel = formatBilanHistoryDateLabel(dateCandidate, resolvedDayKey);
   const relative = computeRelativeHistoryLabel(dateCandidate);
+  const iterationNumber = Number.isFinite(details?.iterationNumber)
+    ? details.iterationNumber
+    : Number.isFinite(keyInfo?.iterationNumber)
+    ? keyInfo.iterationNumber
+    : null;
+  const rawIterationLabel = (() => {
+    if (typeof details?.iterationLabel === "string" && details.iterationLabel.trim()) {
+      return details.iterationLabel.trim();
+    }
+    if (typeof keyInfo?.iterationLabel === "string" && keyInfo.iterationLabel.trim()) {
+      return keyInfo.iterationLabel.trim();
+    }
+    return "";
+  })();
+  const iterationLabel = sanitizeIterationLabel(rawIterationLabel, iterationNumber);
   const fieldId = `bilan-history-edit-${consigne?.id || "consigne"}-${Date.now().toString(36)}`;
   const valueField = renderConsigneValueField(consigne, entryValue, fieldId);
   const autosaveKey = ["history-entry-bilan", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
@@ -9379,6 +9389,117 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         ? createdAtSource
         : "",
   };
+  let childCandidates = [];
+  if (ctx?.db && ctx?.user?.uid && consigne?.id) {
+    try {
+      childCandidates = await Schema.listChildConsignes(ctx.db, ctx.user.uid, consigne.id);
+    } catch (error) {
+      try {
+        modesLogger?.warn?.("bilan.history.editor.children.load", {
+          consigneId: consigne.id,
+          error,
+        });
+      } catch (_) {}
+      childCandidates = [];
+    }
+  }
+  const parentInitialHasValue = hasValueForConsigne(consigne, entryValue);
+  const baseChildStates = await Promise.all(
+    childCandidates.map(async (child) => {
+      let childEntries = [];
+      try {
+        childEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, child.id);
+      } catch (error) {
+        try {
+          modesLogger?.warn?.("bilan.history.editor.child.load", { childId: child.id, error });
+        } catch (_) {}
+        childEntries = [];
+      }
+      const childMatch = findHistoryEntryForDayKey(childEntries, child, resolvedDayKey);
+      const childEntry = childMatch?.entry || null;
+      const childValue = childEntry?.value !== undefined ? childEntry.value : "";
+      const childCreatedAtSource =
+        childEntry?.createdAt ?? childEntry?.updatedAt ?? childEntry?.recordedAt ?? null;
+      const childCreatedAt = asDate(childCreatedAtSource);
+      const childResponseSyncOptions = {
+        responseId: typeof childEntry?.id === "string" ? childEntry.id : "",
+        responseMode: resolveHistoryMode(childEntry) || entryMode,
+        responseType:
+          typeof childEntry?.type === "string" && childEntry.type.trim()
+            ? childEntry.type.trim()
+            : child.type,
+        responseDayKey: resolvedDayKey,
+        responseCreatedAt:
+          childCreatedAt instanceof Date && !Number.isNaN(childCreatedAt.getTime())
+            ? childCreatedAt.toISOString()
+            : typeof childCreatedAtSource === "string"
+            ? childCreatedAtSource
+            : "",
+      };
+      const selectorValue = String(child.id ?? "").replace(/"/g, '\\"');
+      const inRow =
+        row && row.matches?.(`[data-consigne-id="${selectorValue}"]`)
+          ? row
+          : row?.querySelector?.(`[data-consigne-id="${selectorValue}"]`) ||
+            document.querySelector(`[data-consigne-id="${selectorValue}"]`);
+      const domId = `bilan-history-child-${String(child.id ?? "child")}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      const fieldBase = `${domId}-${Date.now().toString(36)}`;
+      const childInitialHasValue = hasValueForConsigne(child, childValue);
+      return {
+        consigne: child,
+        entry: childEntry,
+        value: childValue,
+        domId,
+        fieldId: `${fieldBase}-value`,
+        row: inRow instanceof HTMLElement ? inRow : null,
+        responseSyncOptions: childResponseSyncOptions,
+        initialHasValue: childInitialHasValue,
+      };
+    }),
+  );
+  const childMarkup = baseChildStates.length
+    ? `<section class="practice-editor__section space-y-3 border-t border-slate-200 pt-3 mt-3" data-history-children>
+        <header class="space-y-1">
+          <h3 class="text-base font-semibold">Sous-consignes</h3>
+          <p class="text-sm text-slate-600">Complète les sous-consignes liées à cette carte.</p>
+        </header>
+        <div class="space-y-3">
+          ${baseChildStates
+            .map((childState, index) => {
+              const child = childState.consigne || {};
+              const childTitle =
+                child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
+              const childDescription = child.description || child.details || child.helper || "";
+              const childFieldMarkup = renderConsigneValueField(
+                child,
+                childState.value,
+                childState.fieldId,
+              );
+              return `
+                <article class="space-y-3 rounded-xl border border-slate-200 p-3" data-history-child="${escapeHtml(childState.domId)}" data-consigne-id="${escapeHtml(
+                String(child.id ?? ""),
+              )}">
+                  <div class="space-y-1">
+                    <div class="font-medium text-slate-800">${escapeHtml(childTitle)}</div>
+                    ${
+                      childDescription
+                        ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(
+                            childDescription,
+                          )}</p>`
+                        : ""
+                    }
+                  </div>
+                  <div class="space-y-2">
+                    ${childFieldMarkup}
+                  </div>
+                </article>`;
+            })
+            .join("")}
+        </div>
+      </section>`
+    : "";
   const editorHtml = `
     <div class="space-y-5">
       <header class="space-y-1">
@@ -9393,10 +9514,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           <label class="practice-editor__label" for="${escapeHtml(fieldId)}">Valeur</label>
           ${valueField}
         </div>
-        <div class="practice-editor__section">
-          <label class="practice-editor__label" for="${escapeHtml(`${fieldId}-note`)}">Commentaire</label>
-          <textarea id="${escapeHtml(`${fieldId}-note`)}" name="note" class="consigne-editor__textarea" placeholder="Ajouter un commentaire">${escapeHtml(entryNote)}</textarea>
-        </div>
+        ${childMarkup}
         <div class="practice-editor__actions">
           <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
           <button type="button" class="btn btn-danger" data-clear>Effacer</button>
@@ -9463,8 +9581,10 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     closeOverlay();
   });
   if (clearBtn) {
-    const hasInitialData =
-      (entryValue !== "" && entryValue != null) || (entryNote && entryNote.trim().length > 0);
+    const hasInitialChildValue = baseChildStates.some((childState) =>
+      hasValueForConsigne(childState.consigne, childState.value),
+    );
+    const hasInitialData = parentInitialHasValue || hasInitialChildValue;
     if (!hasInitialData) {
       clearBtn.disabled = true;
     }
@@ -9481,11 +9601,34 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         updateConsigneHistoryTimeline(row, status, {
           consigne,
           value: "",
-          note: "",
           dayKey: resolvedDayKey,
           isBilan: true,
         });
-        showToast("Réponse effacée pour ce bilan.");
+        triggerConsigneRowUpdateHighlight(row);
+        for (const childState of baseChildStates) {
+          try {
+            await Schema.deleteHistoryEntry(
+              ctx.db,
+              ctx.user.uid,
+              childState.consigne.id,
+              resolvedDayKey,
+              childState.responseSyncOptions,
+            );
+          } catch (error) {
+            console.error("bilan.history.editor.child.clear", error);
+          }
+          const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
+          if (childState.row) {
+            updateConsigneHistoryTimeline(childState.row, childStatus, {
+              consigne: childState.consigne,
+              value: "",
+              dayKey: resolvedDayKey,
+              iterationLabel,
+            });
+            triggerConsigneRowUpdateHighlight(childState.row);
+          }
+        }
+        showToast("Réponses effacées pour ce bilan.");
         closeOverlay();
       } catch (error) {
         console.error("bilan.history.editor.clear", error);
@@ -9503,38 +9646,87 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     if (clearBtn) clearBtn.disabled = true;
     try {
       const rawValue = readConsigneValueFromForm(consigne, form);
-      const note = (form.elements.note?.value || "").trim();
-      const isValueEmpty = rawValue === "" || rawValue == null;
-      if (isValueEmpty && !note) {
+      const parentHasValue = hasValueForConsigne(consigne, rawValue);
+      const childResults = baseChildStates.map((childState) => {
+        const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
+        const childValue = childNode
+          ? readConsigneValueFromForm(childState.consigne, childNode)
+          : "";
+        const hasValue = hasValueForConsigne(childState.consigne, childValue);
+        return {
+          state: childState,
+          value: childValue,
+          hasValue,
+        };
+      });
+      if (!parentHasValue) {
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
-        const status = dotColor(consigne.type, "", consigne) || "na";
-        updateConsigneHistoryTimeline(row, status, {
-          consigne,
-          value: "",
-          note: "",
-          dayKey: resolvedDayKey,
-          isBilan: true,
-        });
-        showToast("Réponse effacée pour ce bilan.");
       } else {
         await Schema.saveHistoryEntry(
           ctx.db,
           ctx.user.uid,
           consigne.id,
           resolvedDayKey,
-          { value: rawValue, note },
+          { value: rawValue },
           responseSyncOptions,
         );
-        const status = dotColor(consigne.type, rawValue, consigne) || "na";
-        updateConsigneHistoryTimeline(row, status, {
-          consigne,
-          value: rawValue,
-          note,
-          dayKey: resolvedDayKey,
-          isBilan: true,
-        });
-        showToast("Réponse de bilan enregistrée.");
       }
+      const parentStatus = dotColor(
+        consigne.type,
+        parentHasValue ? rawValue : "",
+        consigne,
+      ) || "na";
+      updateConsigneHistoryTimeline(row, parentStatus, {
+        consigne,
+        value: parentHasValue ? rawValue : "",
+        dayKey: resolvedDayKey,
+        isBilan: true,
+      });
+      triggerConsigneRowUpdateHighlight(row);
+      for (const { state, value, hasValue } of childResults) {
+        if (!hasValue) {
+          await Schema.deleteHistoryEntry(
+            ctx.db,
+            ctx.user.uid,
+            state.consigne.id,
+            resolvedDayKey,
+            state.responseSyncOptions,
+          );
+        } else {
+          await Schema.saveHistoryEntry(
+            ctx.db,
+            ctx.user.uid,
+            state.consigne.id,
+            resolvedDayKey,
+            { value },
+            state.responseSyncOptions,
+          );
+        }
+        const childStatus = dotColor(
+          state.consigne.type,
+          hasValue ? value : "",
+          state.consigne,
+        ) || "na";
+        if (state.row) {
+          updateConsigneHistoryTimeline(state.row, childStatus, {
+            consigne: state.consigne,
+            value: hasValue ? value : "",
+            dayKey: resolvedDayKey,
+            iterationLabel,
+          });
+          triggerConsigneRowUpdateHighlight(state.row);
+        }
+      }
+      const childCleared = childResults.some(
+        ({ state, hasValue }) => !hasValue && state.initialHasValue,
+      );
+      const allValuesCleared = !parentHasValue && !childResults.some(({ hasValue }) => hasValue);
+      const toastMessage = allValuesCleared
+        ? "Réponses effacées pour ce bilan."
+        : childCleared || (!parentHasValue && parentInitialHasValue)
+        ? "Réponses de bilan mises à jour."
+        : "Réponses de bilan enregistrées.";
+      showToast(toastMessage);
       closeOverlay();
     } catch (error) {
       console.error("bilan.history.editor.save", error);
@@ -9543,7 +9735,6 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     }
   });
 }
-
 
 async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) {
   const dayKey = typeof options.dayKey === "string" ? options.dayKey.trim() : "";
@@ -9590,6 +9781,10 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     (parseHistoryTimelineDateInfo(resolvedDayKey)?.date ?? null) ||
     createdAt ||
     null;
+  const baseDateLabel =
+    dateCandidate instanceof Date && !Number.isNaN(dateCandidate.getTime())
+      ? formatHistoryDayFullLabel(dateCandidate) || resolvedDayKey
+      : resolvedDayKey;
   const iterationNumber = Number.isFinite(details?.iterationNumber)
     ? details.iterationNumber
     : Number.isFinite(keyInfo?.iterationNumber)
@@ -9605,10 +9800,6 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     return "";
   })();
   const iterationLabel = sanitizeIterationLabel(rawIterationLabel, iterationNumber);
-  const baseDateLabel =
-    dateCandidate instanceof Date && !Number.isNaN(dateCandidate.getTime())
-      ? formatHistoryDayFullLabel(dateCandidate) || resolvedDayKey
-      : resolvedDayKey;
   const primaryLabel = iterationLabel || baseDateLabel;
   const secondaryLabel =
     iterationLabel && baseDateLabel && iterationLabel !== baseDateLabel ? baseDateLabel : "";
