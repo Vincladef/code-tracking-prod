@@ -8306,13 +8306,30 @@ function resolveHistoryEntrySummaryInfo(entry) {
     pushString(nestedSummary.mode);
     pushString(nestedSummary.label);
   }
+  const explicitBilanFlags = [
+    entry.isBilan,
+    entry.is_bilan,
+    nestedSummary?.isBilan,
+    nestedSummary?.is_bilan,
+  ];
+  const explicitBilan = explicitBilanFlags.some((flag) => flag === true);
+  const explicitSummaryFlag =
+    entry.isSummary === true ||
+    entry.is_summary === true ||
+    entry.summary === true ||
+    nestedSummary?.isSummary === true ||
+    nestedSummary?.summary === true;
   const hasSummaryField =
     directKeys.some((key) => Object.prototype.hasOwnProperty.call(entry, key)) ||
     Object.prototype.hasOwnProperty.call(entry, "summary") ||
     (nestedSummary && Object.keys(nestedSummary).length > 0);
-  const hasBilanMarker = normalizedStrings.some((value) => value.includes("bilan"));
-  const hasSummaryKeyword =
-    normalizedStrings.some((value) => value.includes("summary")) || hasBilanMarker;
+  const hasBilanMarker = normalizedStrings.some((value) => {
+    if (!value) return false;
+    if (/\bbilans?\b/.test(value)) return true;
+    if (value.includes("bilan-") || value.includes("bilan_")) return true;
+    return false;
+  });
+  const hasSummaryKeyword = normalizedStrings.some((value) => value.includes("summary"));
   const hasWeeklyMarker = normalizedStrings.some((value) => {
     if (!value) return false;
     return (
@@ -8354,10 +8371,12 @@ function resolveHistoryEntrySummaryInfo(entry) {
   if (hasMonthlyMarker) scope = "monthly";
   else if (hasWeeklyMarker) scope = "weekly";
   else if (hasYearlyMarker) scope = "yearly";
+  const hasRecognizedBilanScope = scope === "weekly" || scope === "monthly" || scope === "yearly";
+  const isBilan = explicitBilan || (hasBilanMarker && hasRecognizedBilanScope);
   return {
-    isSummary: hasSummaryField || hasSummaryKeyword || Boolean(scope),
+    isSummary: explicitSummaryFlag || hasSummaryKeyword || Boolean(scope) || explicitBilan,
     scope,
-    isBilan: hasBilanMarker,
+    isBilan,
   };
 }
 
@@ -9062,6 +9081,330 @@ function scheduleConsigneHistoryNavUpdate(state) {
   }
 }
 
+const BILAN_HISTORY_DAY_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
+  weekday: "long",
+  day: "2-digit",
+  month: "long",
+});
+
+function capitalizeFirstLetter(value) {
+  if (typeof value !== "string" || !value.length) {
+    return value;
+  }
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function formatBilanHistoryDateLabel(date, fallback) {
+  if (date instanceof Date && !Number.isNaN(date.getTime())) {
+    return capitalizeFirstLetter(BILAN_HISTORY_DAY_FORMATTER.format(date));
+  }
+  return fallback || "";
+}
+
+function computeRelativeHistoryLabel(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const base = new Date(date.getTime());
+  base.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((today.getTime() - base.getTime()) / 86400000);
+  if (diffDays === 0) return "Aujourd’hui";
+  if (diffDays === 1) return "Hier";
+  if (diffDays > 1 && diffDays < 7) return `Il y a ${diffDays} j`;
+  if (diffDays < 0) {
+    const future = Math.abs(diffDays);
+    if (future === 1) return "Demain";
+    if (future < 7) return `Dans ${future} j`;
+  }
+  return "";
+}
+
+function normalizeHistoryDayKey(value) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function findHistoryEntryForDayKey(entries, consigne, dayKey) {
+  if (!Array.isArray(entries) || !dayKey) {
+    return null;
+  }
+  const normalizedTarget = normalizeHistoryDayKey(dayKey);
+  let best = null;
+  entries.forEach((entry) => {
+    if (!entry || typeof entry !== "object") return;
+    const keyInfo = resolveHistoryTimelineKey(entry, consigne);
+    const candidateKey = normalizeHistoryDayKey(keyInfo?.dayKey);
+    if (!candidateKey || candidateKey !== normalizedTarget) {
+      return;
+    }
+    const timestamp =
+      typeof keyInfo?.timestamp === "number"
+        ? keyInfo.timestamp
+        : keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime())
+        ? keyInfo.date.getTime()
+        : Date.now();
+    if (!best || timestamp >= best.timestamp) {
+      best = {
+        entry,
+        keyInfo,
+        timestamp,
+      };
+    }
+  });
+  return best;
+}
+
+function resolveHistoryMode(entry) {
+  if (!entry || typeof entry !== "object") {
+    return "";
+  }
+  const candidates = [entry.mode, entry.source, entry.origin, entry.context];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return "";
+}
+
+function safeConsigneLabel(consigne) {
+  return (
+    consigne?.text ||
+    consigne?.titre ||
+    consigne?.name ||
+    consigne?.label ||
+    consigne?.id ||
+    "Consigne"
+  ).toString();
+}
+
+async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
+  const dayKey = typeof options.dayKey === "string" ? options.dayKey.trim() : "";
+  const details = options.details && typeof options.details === "object" ? options.details : null;
+  const trigger = options.trigger instanceof HTMLElement ? options.trigger : null;
+  if (!dayKey) {
+    showToast("Date de bilan introuvable.");
+    return;
+  }
+  if (!ctx?.db || !ctx?.user?.uid) {
+    showToast("Connexion requise pour modifier cette réponse.");
+    return;
+  }
+  if (!EDITABLE_HISTORY_TYPES.has(consigne?.type)) {
+    showToast("Modification non disponible pour ce type de consigne.");
+    return;
+  }
+  if (!consigne?.id) {
+    showToast("Consigne introuvable.");
+    return;
+  }
+  let historyEntries = [];
+  try {
+    historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+  } catch (error) {
+    modesLogger?.warn?.("bilan.history.editor.load", error);
+    showToast("Impossible de charger cette réponse de bilan.");
+    return;
+  }
+  const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey);
+  const entry = match?.entry || null;
+  const keyInfo = match?.keyInfo || null;
+  const resolvedDayKey = keyInfo?.dayKey || dayKey;
+  const entryValue = entry?.value !== undefined ? entry.value : details?.rawValue ?? "";
+  const entryNote = (() => {
+    if (typeof entry?.note === "string") return entry.note;
+    if (details && typeof details.note === "string") return details.note;
+    return "";
+  })();
+  const createdAtSource =
+    entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? details?.timestamp ?? null;
+  const createdAt = asDate(createdAtSource);
+  const dateCandidate =
+    (keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime()) ? keyInfo.date : null) ||
+    (details?.date instanceof Date && !Number.isNaN(details.date.getTime()) ? details.date : null) ||
+    (parseHistoryTimelineDateInfo(resolvedDayKey)?.date ?? null) ||
+    createdAt ||
+    null;
+  const dateLabel = formatBilanHistoryDateLabel(dateCandidate, resolvedDayKey);
+  const relative = computeRelativeHistoryLabel(dateCandidate);
+  const fieldId = `bilan-history-edit-${consigne?.id || "consigne"}-${Date.now().toString(36)}`;
+  const valueField = renderConsigneValueField(consigne, entryValue, fieldId);
+  const autosaveKey = ["history-entry-bilan", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
+    .map((part) => String(part || ""))
+    .join(":");
+  const entryMode = resolveHistoryMode(entry) || "bilan";
+  const responseSyncOptions = {
+    responseId: typeof entry?.id === "string" ? entry.id : "",
+    responseMode: entryMode,
+    responseType: typeof entry?.type === "string" && entry.type.trim() ? entry.type.trim() : consigne?.type,
+    responseDayKey: resolvedDayKey,
+    responseCreatedAt:
+      createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
+        ? createdAt.toISOString()
+        : typeof createdAtSource === "string"
+        ? createdAtSource
+        : "",
+  };
+  const editorHtml = `
+    <div class="space-y-5">
+      <header class="space-y-1">
+        <p class="text-sm text-[var(--muted)]">${escapeHtml(dateLabel)}${
+          relative ? ` <span class="text-xs">(${escapeHtml(relative)})</span>` : ""
+        }</p>
+        <h2 class="text-lg font-semibold">Modifier la réponse</h2>
+        <p class="text-sm text-slate-600">${escapeHtml(safeConsigneLabel(consigne))}</p>
+      </header>
+      <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
+        <div class="practice-editor__section">
+          <label class="practice-editor__label" for="${escapeHtml(fieldId)}">Valeur</label>
+          ${valueField}
+        </div>
+        <div class="practice-editor__section">
+          <label class="practice-editor__label" for="${escapeHtml(`${fieldId}-note`)}">Commentaire</label>
+          <textarea id="${escapeHtml(`${fieldId}-note`)}" name="note" class="consigne-editor__textarea" placeholder="Ajouter un commentaire">${escapeHtml(entryNote)}</textarea>
+        </div>
+        <div class="practice-editor__actions">
+          <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
+          <button type="button" class="btn btn-danger" data-clear>Effacer</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </form>
+    </div>
+  `;
+  const overlay = modal(editorHtml);
+  if (!overlay) {
+    return;
+  }
+  const modalContent = overlay.querySelector("[data-modal-content]");
+  if (modalContent) {
+    modalContent.setAttribute("role", "dialog");
+    modalContent.setAttribute("aria-modal", "true");
+    modalContent.setAttribute("aria-label", "Modifier la réponse de bilan");
+  }
+  const form = overlay.querySelector("form");
+  const cancelBtn = overlay.querySelector("[data-cancel]");
+  const clearBtn = overlay.querySelector("[data-clear]");
+  const submitBtn = form?.querySelector('button[type="submit"]');
+  const restoreFocus = () => {
+    if (trigger && typeof trigger.focus === "function") {
+      try {
+        trigger.focus({ preventScroll: true });
+      } catch (_) {
+        trigger.focus();
+      }
+    }
+  };
+  let handleKeyDown = null;
+  const cleanup = () => {
+    if (handleKeyDown) {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      handleKeyDown = null;
+    }
+  };
+  const closeOverlay = () => {
+    cleanup();
+    overlay.remove();
+    restoreFocus();
+  };
+  handleKeyDown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeOverlay();
+    }
+  };
+  document.addEventListener("keydown", handleKeyDown, true);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      closeOverlay();
+    }
+  });
+  cancelBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeOverlay();
+  });
+  if (clearBtn) {
+    const hasInitialData =
+      (entryValue !== "" && entryValue != null) || (entryNote && entryNote.trim().length > 0);
+    if (!hasInitialData) {
+      clearBtn.disabled = true;
+    }
+    clearBtn.addEventListener("click", async (event) => {
+      event.preventDefault();
+      if (!confirm("Effacer la réponse pour ce bilan ?")) {
+        return;
+      }
+      clearBtn.disabled = true;
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        const status = dotColor(consigne.type, "", consigne) || "na";
+        updateConsigneHistoryTimeline(row, status, {
+          consigne,
+          value: "",
+          note: "",
+          dayKey: resolvedDayKey,
+          isBilan: true,
+        });
+        showToast("Réponse effacée pour ce bilan.");
+        closeOverlay();
+      } catch (error) {
+        console.error("bilan.history.editor.clear", error);
+        clearBtn.disabled = false;
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!submitBtn || submitBtn.disabled) {
+      return;
+    }
+    submitBtn.disabled = true;
+    if (clearBtn) clearBtn.disabled = true;
+    try {
+      const rawValue = readConsigneValueFromForm(consigne, form);
+      const note = (form.elements.note?.value || "").trim();
+      const isValueEmpty = rawValue === "" || rawValue == null;
+      if (isValueEmpty && !note) {
+        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        const status = dotColor(consigne.type, "", consigne) || "na";
+        updateConsigneHistoryTimeline(row, status, {
+          consigne,
+          value: "",
+          note: "",
+          dayKey: resolvedDayKey,
+          isBilan: true,
+        });
+        showToast("Réponse effacée pour ce bilan.");
+      } else {
+        await Schema.saveHistoryEntry(
+          ctx.db,
+          ctx.user.uid,
+          consigne.id,
+          resolvedDayKey,
+          { value: rawValue, note },
+          responseSyncOptions,
+        );
+        const status = dotColor(consigne.type, rawValue, consigne) || "na";
+        updateConsigneHistoryTimeline(row, status, {
+          consigne,
+          value: rawValue,
+          note,
+          dayKey: resolvedDayKey,
+          isBilan: true,
+        });
+        showToast("Réponse de bilan enregistrée.");
+      }
+      closeOverlay();
+    } catch (error) {
+      console.error("bilan.history.editor.save", error);
+      submitBtn.disabled = false;
+      if (clearBtn) clearBtn.disabled = false;
+    }
+  });
+}
+
 function renderConsigneHistoryTimeline(row, points) {
   const container = row?.querySelector?.("[data-consigne-history]");
   const track = row?.querySelector?.("[data-consigne-history-track]");
@@ -9311,13 +9654,30 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     if (!target || !state.track.contains(target)) {
       return;
     }
+    const rawDetails = target._historyDetails || null;
     const historyDayKey =
       (typeof target.dataset.historyDay === "string" && target.dataset.historyDay.trim()
         ? target.dataset.historyDay.trim()
         : "") ||
-      (target._historyDetails && typeof target._historyDetails.dayKey === "string"
-        ? target._historyDetails.dayKey
+      (rawDetails && typeof rawDetails.dayKey === "string"
+        ? rawDetails.dayKey
         : "");
+    const isBilanPoint = target.dataset.historySource === "bilan" || rawDetails?.isBilan === true;
+    const bilanDayKey = isBilanPoint
+      ? historyDayKey ||
+        (typeof rawDetails?.dayKey === "string" && rawDetails.dayKey.trim() ? rawDetails.dayKey.trim() : "")
+      : "";
+    if (isBilanPoint && bilanDayKey) {
+      if (isKeyboard) {
+        event.preventDefault();
+      }
+      void openBilanHistoryEditor(row, consigne, ctx, {
+        dayKey: bilanDayKey,
+        details: rawDetails,
+        trigger: target,
+      });
+      return;
+    }
     if (historyDayKey) {
       if (isKeyboard) {
         event.preventDefault();
@@ -9334,7 +9694,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     if (isKeyboard) {
       event.preventDefault();
     }
-    let details = target._historyDetails ? { ...target._historyDetails } : null;
+    let details = rawDetails ? { ...rawDetails } : null;
     if (!details) {
       const rawIso = target.dataset.dateIso || target.dataset.historyDay || null;
       const dateInfo = parseHistoryTimelineDateInfo(rawIso);
