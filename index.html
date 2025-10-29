@@ -1680,7 +1680,7 @@
 
     @media (max-width: 640px) {
       .goal-header{ flex-direction:column; align-items:flex-start; gap:.65rem; }
-      .goal-nav{ width:100%; justify-content:flex-start; }
+      .goal-nav{ width:100%; justify-content:center; }
       .goal-timeline{ padding:0; gap:.85rem; }
       .goal-month{ background:transparent; border:none; box-shadow:none; padding:0; border-radius:0; }
       .goal-month--current{ box-shadow:none; border:none; }
@@ -1699,6 +1699,10 @@
       .goal-title{ flex-direction:column; align-items:flex-start !important; gap:.9rem; }
       .goal-actions{ width:100%; justify-content:flex-start; flex-wrap:wrap; }
       .goal-actions .goal-reminder-btn{ flex:1 1 65%; min-height:44px; justify-content:space-between; padding:.55rem .75rem; border-radius:12px; }
+      .goal-actions .goal-reminder-btn[data-email-state="on"]{ background:rgba(99,102,241,.08); border-color:rgba(129,140,248,.24); color:#312e81; }
+      .goal-actions .goal-reminder-btn[data-email-state="on"] .goal-reminder-icon-wrap{ background:rgba(124,110,255,.18); color:#312e81; }
+      .goal-actions .goal-reminder-btn:not([data-email-state="on"]){ background:rgba(148,163,184,.12); border-color:rgba(148,163,184,.22); color:#334155; }
+      .goal-actions .goal-reminder-btn:not([data-email-state="on"]) .goal-reminder-icon-wrap{ background:rgba(148,163,184,.18); color:#475569; }
       .goal-actions [data-open-advanced]{ margin-left:auto; }
       .goal-actions [data-open-advanced],
       .goal-actions [data-advanced],
