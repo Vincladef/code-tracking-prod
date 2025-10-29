@@ -1878,7 +1878,44 @@ async function openBilanModal(ctx, options = {}) {
           ${periodLabel ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(periodLabel)}</p>` : ""}
           ${secondarySubtitle ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(secondarySubtitle)}</p>` : ""}
         </div>
-        <button type="button" class="btn" data-bilan-close>Fermer</button>
+        <div class="flex items-center gap-2">
+          <div class="relative" data-bilan-settings>
+            <button type="button" class="btn btn-ghost" data-bilan-settings-trigger title="Paramètres des bilans">
+              <span aria-hidden="true">⚙️</span>
+              <span class="sr-only">Paramètres</span>
+            </button>
+            <div class="card p-3 sm:p-4 space-y-3" data-bilan-settings-panel role="dialog" aria-label="Paramètres des bilans" hidden style="position:absolute; right:0; top:100%; margin-top:6px; min-width: 260px; z-index: 40;">
+              <div class="space-y-2">
+                <label class="block text-sm font-medium">Jour du bilan hebdomadaire</label>
+                <select class="w-full" data-bilan-weekendson>
+                  ${[0,1,2,3,4,5,6].map((i)=>{
+                    const d=new Date(); d.setDate(d.getDate() + ((i - d.getDay() + 7)%7));
+                    const label = DAILY_WEEKDAY_FORMATTER.format(d);
+                    return `<option value="${i}">${escapeHtml(label)}</option>`;
+                  }).join("")}
+                </select>
+                <p class="text-xs text-[var(--muted)]">Ce jour détermine quand le bilan hebdo apparaît dans l’onglet journalier et le jour du rappel hebdo.</p>
+              </div>
+              <fieldset class="space-y-2">
+                <legend class="text-sm font-medium">Rappels par e‑mail</legend>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" data-bilan-weekly-rem />
+                  <span>Bilan de la semaine</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" data-bilan-monthly-rem />
+                  <span>Bilan du mois</span>
+                </label>
+                <p class="text-xs text-[var(--muted)]">Le rappel mensuel est envoyé la semaine qui contient la fin du mois, le jour sélectionné ci‑dessus.</p>
+              </fieldset>
+              <div class="flex items-center justify-end gap-2">
+                <button type="button" class="btn btn-ghost" data-bilan-settings-cancel>Fermer</button>
+                <button type="button" class="btn" data-bilan-settings-save>Enregistrer</button>
+              </div>
+            </div>
+          </div>
+          <button type="button" class="btn" data-bilan-close>Fermer</button>
+        </div>
       </header>
       <div class="space-y-4" data-bilan-modal-root>
         <p class="text-sm text-[var(--muted)]">Chargement du bilan…</p>
@@ -1896,6 +1933,8 @@ async function openBilanModal(ctx, options = {}) {
   if (!mount) {
     return overlay;
   }
+  // Paramètres (roue ⚙️)
+  void initializeBilanSettingsControls(ctx, overlay);
   if (!window.Bilan || typeof window.Bilan.renderSummary !== "function") {
     mount.innerHTML = `<p class="text-sm text-red-600">Module de bilan indisponible.</p>`;
     return overlay;
@@ -14032,6 +14071,146 @@ async function loadBilanSettings(ctx) {
   return bilanSettingsPromise;
 }
 
+async function initializeBilanSettingsControls(ctx, host) {
+  if (!host || typeof host.querySelector !== "function") {
+    return;
+  }
+  const wrapper = host.querySelector("[data-bilan-settings]");
+  if (!wrapper || wrapper.dataset.bilanSettingsBound === "1") {
+    return;
+  }
+  wrapper.dataset.bilanSettingsBound = "1";
+  const trigger = wrapper.querySelector("[data-bilan-settings-trigger]");
+  const panel = wrapper.querySelector("[data-bilan-settings-panel]");
+  const select = wrapper.querySelector("[data-bilan-weekendson]");
+  const weeklyCb = wrapper.querySelector("[data-bilan-weekly-rem]");
+  const monthlyCb = wrapper.querySelector("[data-bilan-monthly-rem]");
+  const btnSave = wrapper.querySelector("[data-bilan-settings-save]");
+  const btnCancel = wrapper.querySelector("[data-bilan-settings-cancel]");
+  if (!trigger || !panel || !select || !btnSave) {
+    return;
+  }
+  trigger.setAttribute("aria-haspopup", "dialog");
+  trigger.setAttribute("aria-expanded", "false");
+
+  const applySettingsToForm = (settings) => {
+    if (!settings || typeof settings !== "object") {
+      return;
+    }
+    if (typeof settings.weekEndsOn === "number") {
+      select.value = String(settings.weekEndsOn);
+    }
+    if (weeklyCb) {
+      weeklyCb.checked = !!settings.weeklyReminderEnabled;
+    }
+    if (monthlyCb) {
+      monthlyCb.checked = !!settings.monthlyReminderEnabled;
+    }
+  };
+
+  try {
+    const settings = await loadBilanSettings(ctx);
+    applySettingsToForm(settings);
+  } catch (error) {
+    console.warn("bilan.settings.prefill", error);
+  }
+
+  let outsideHandler = null;
+  const cleanupOutsideHandler = () => {
+    if (outsideHandler) {
+      document.removeEventListener("click", outsideHandler, true);
+      outsideHandler = null;
+    }
+  };
+
+  const closePanel = () => {
+    panel.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    cleanupOutsideHandler();
+  };
+
+  const openPanel = () => {
+    if (!panel.hidden) {
+      return;
+    }
+    panel.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    cleanupOutsideHandler();
+    outsideHandler = (event) => {
+      if (!wrapper.contains(event.target)) {
+        closePanel();
+      }
+    };
+    setTimeout(() => {
+      if (outsideHandler) {
+        document.addEventListener("click", outsideHandler, true);
+      }
+    }, 0);
+  };
+
+  trigger.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (panel.hidden) {
+      openPanel();
+    } else {
+      closePanel();
+    }
+  });
+
+  panel.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+
+  if (btnCancel) {
+    btnCancel.addEventListener("click", (event) => {
+      event.preventDefault();
+      closePanel();
+    });
+  }
+
+  let isSaving = false;
+  btnSave.addEventListener("click", async (event) => {
+    event.preventDefault();
+    if (isSaving || !ctx?.db || !ctx?.user?.uid) {
+      return;
+    }
+    const payload = {
+      weekEndsOn: normalizeWeekdayIndex(select.value),
+      weeklyReminderEnabled: weeklyCb ? !!weeklyCb.checked : false,
+      monthlyReminderEnabled: monthlyCb ? !!monthlyCb.checked : false,
+    };
+    try {
+      isSaving = true;
+      btnSave.disabled = true;
+      await Schema.saveModuleSettings(ctx.db, ctx.user.uid, BILAN_MODULE_ID, payload);
+      setBilanRuntimeSettings(payload);
+      closePanel();
+      if (typeof showToast === "function") {
+        showToast("Paramètres de bilan enregistrés.");
+      }
+    } catch (error) {
+      console.error("bilan.settings.save", error);
+      if (typeof showToast === "function") {
+        showToast("Impossible d’enregistrer les paramètres.");
+      }
+    } finally {
+      isSaving = false;
+      btnSave.disabled = false;
+    }
+  });
+
+  if (typeof MutationObserver === "function" && document?.body) {
+    const observer = new MutationObserver(() => {
+      if (!wrapper.isConnected) {
+        cleanupOutsideHandler();
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+}
+
 function modesParseDayKeyToDate(key) {
   if (typeof key !== "string") {
     return null;
@@ -14564,9 +14743,48 @@ async function renderDaily(ctx, root, opts = {}) {
     const summaryTitle = entry?.navLabel || "Bilan";
     const summarySubtitle = entry?.navSubtitle || "";
     summaryCard.innerHTML = `
-      <header class="space-y-1">
-        <h2 class="text-lg font-semibold">${escapeHtml(summaryTitle)}</h2>
-        ${summarySubtitle ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(summarySubtitle)}</p>` : ""}
+      <header class="flex flex-wrap items-start justify-between gap-3">
+        <div class="space-y-1">
+          <h2 class="text-lg font-semibold">${escapeHtml(summaryTitle)}</h2>
+          ${summarySubtitle ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(summarySubtitle)}</p>` : ""}
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="relative" data-bilan-settings>
+            <button type="button" class="btn btn-ghost" data-bilan-settings-trigger title="Paramètres des bilans">
+              <span aria-hidden="true">⚙️</span>
+              <span class="sr-only">Paramètres</span>
+            </button>
+            <div class="card p-3 sm:p-4 space-y-3" data-bilan-settings-panel role="dialog" aria-label="Paramètres des bilans" hidden style="position:absolute; right:0; top:100%; margin-top:6px; min-width: 260px; z-index: 40;">
+              <div class="space-y-2">
+                <label class="block text-sm font-medium">Jour du bilan hebdomadaire</label>
+                <select class="w-full" data-bilan-weekendson>
+                  ${[0,1,2,3,4,5,6].map((i)=>{
+                    const d=new Date(); d.setDate(d.getDate() + ((i - d.getDay() + 7)%7));
+                    const label = DAILY_WEEKDAY_FORMATTER.format(d);
+                    return `<option value="${i}">${escapeHtml(label)}</option>`;
+                  }).join("")}
+                </select>
+                <p class="text-xs text-[var(--muted)]">Ce jour détermine quand le bilan hebdo apparaît dans l’onglet journalier et le jour du rappel hebdo.</p>
+              </div>
+              <fieldset class="space-y-2">
+                <legend class="text-sm font-medium">Rappels par e‑mail</legend>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" data-bilan-weekly-rem />
+                  <span>Bilan de la semaine</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" data-bilan-monthly-rem />
+                  <span>Bilan du mois</span>
+                </label>
+                <p class="text-xs text-[var(--muted)]">Le rappel mensuel est envoyé la semaine qui contient la fin du mois, le jour sélectionné ci‑dessus.</p>
+              </fieldset>
+              <div class="flex items-center justify-end gap-2">
+                <button type="button" class="btn btn-ghost" data-bilan-settings-cancel>Fermer</button>
+                <button type="button" class="btn" data-bilan-settings-save>Enregistrer</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </header>
       <div class="space-y-4" data-summary-root>
         <p class="text-sm text-[var(--muted)]">Chargement du bilan…</p>
@@ -14581,6 +14799,8 @@ async function renderDaily(ctx, root, opts = {}) {
       }
       return;
     }
+    // Paramètres (roue ⚙️) dans l'encart de bilan du journalier
+    void initializeBilanSettingsControls(ctx, summaryCard);
     if (!window.Bilan || typeof window.Bilan.renderSummary !== "function") {
       summaryRoot.innerHTML = `<p class="text-sm text-[var(--muted)]">Module de bilan indisponible.</p>`;
       modesLogger.groupEnd();
