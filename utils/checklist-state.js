@@ -1399,36 +1399,10 @@
         root.removeAttribute("data-checklist-dirty");
         return;
       }
-      // Sinon (pas de date explicite), fallback localStorage pour compat (ex. écran sans contexte de date)
+      // Si on n’a aucune réponse, on n’hydrate rien pour éviter les pré-sélections.
       if (!saved) {
         debugLog("hydrateRoot:no-current-day", { consigneId });
-        const storage = safeLocalStorage();
-        let lastPayload = null;
-        if (storage) {
-          const prefix = `${STORAGE_PREFIX}:${uid}:${consigneId}:`;
-          for (let i = 0; i < storage.length; i++) {
-            const key = storage.key(i);
-            if (key && key.startsWith(prefix)) {
-              try {
-                const parsed = JSON.parse(storage.getItem(key));
-                if (parsed && (!lastPayload || parsed.ts > lastPayload.ts)) {
-                  lastPayload = parsed;
-                }
-              } catch (e) {}
-            }
-          }
-        }
-        if (!lastPayload) {
-          debugLog("hydrateRoot:no-history", { consigneId });
-          return;
-        }
-        debugLog("hydrateRoot:local-fallback", {
-          consigneId,
-          dateKey: lastPayload.dateKey,
-          selected: Array.isArray(lastPayload.selectedIds) ? lastPayload.selectedIds.length : 0,
-          hasAnswers: Boolean(lastPayload.answers && Object.keys(lastPayload.answers).length),
-        });
-        saved = sanitizeLoadedPayload(lastPayload, requestedKey);
+        return;
       }
       const optionsHash =
         root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
