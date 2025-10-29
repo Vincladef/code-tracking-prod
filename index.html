@@ -1144,9 +1144,9 @@
     }
     .consigne-history {
       margin-top:.75rem;
+      position:relative;
       display:flex;
-      align-items:center;
-      gap:.4rem;
+      align-items:stretch;
       width:100%;
       max-width:100%;
     }
@@ -1159,7 +1159,7 @@
       overflow-x:auto;
       -webkit-overflow-scrolling:touch;
       scrollbar-width:none;
-      padding:.35rem .15rem .35rem 0;
+      padding:.35rem 0;
     }
     .consigne-history__viewport::-webkit-scrollbar {
       display:none;
@@ -1276,41 +1276,57 @@
       color:#64748b;
     }
     .consigne-history__nav {
-      flex:none;
-      width:2.1rem;
-      height:2.1rem;
+      position:absolute;
+      top:50%;
+      transform:translateY(-50%);
+      width:2rem;
+      height:2rem;
       border-radius:999px;
       border:1px solid rgba(148,163,184,.35);
-      background:#fff;
+      background:rgba(255,255,255,.92);
       color:#1f2937;
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      box-shadow:0 10px 22px rgba(15,23,42,.12);
+      box-shadow:0 12px 28px rgba(15,23,42,.16);
       cursor:pointer;
-      transition:background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+      transition:background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .15s ease, opacity .15s ease;
+      opacity:0;
+      pointer-events:none;
+      z-index:3;
     }
     .consigne-history__nav span {
       font-size:1.05rem;
       line-height:1;
     }
     .consigne-history__nav:hover:not(:disabled) {
-      background:#f1f5f9;
+      background:#f8fafc;
       border-color:rgba(148,163,184,.6);
-      transform:translateY(-1px);
+      transform:translateY(calc(-50% - 2px));
     }
     .consigne-history__nav:focus-visible {
       outline:3px solid rgba(59,130,246,.55);
       outline-offset:2px;
+      transform:translateY(calc(-50% - 1px));
     }
     .consigne-history__nav:disabled {
       opacity:.45;
       cursor:not-allowed;
       box-shadow:none;
-      transform:none;
+      transform:translateY(-50%);
+    }
+    .consigne-history__nav:not([hidden]) {
+      opacity:1;
+      pointer-events:auto;
     }
     .consigne-history__nav[hidden] {
       display:none;
+    }
+    .consigne-history__nav[data-consigne-history-prev] {
+      left:.35rem;
+    }
+    .consigne-history__nav[data-consigne-history-next] {
+      right:.35rem;
     }
     [data-priority-tone="high"] [data-status-dot] {
       position:relative;
