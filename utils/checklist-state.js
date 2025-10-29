@@ -1431,71 +1431,40 @@
         saved = sanitizeLoadedPayload(lastPayload, requestedKey);
       }
       const optionsHash = root.getAttribute("data-checklist-options-hash") || root.dataset?.checklistOptionsHash || null;
-      // On restaure l'état complet si disponible
-      let checklistValue = saved.checklistValue || saved.value || null;
-      if (checklistValue && typeof checklistValue === "string") {
+      const blankSelection = {
+        ...saved,
+        selectedIds: [],
+        answers: {},
+        skippedIds: [],
+        checklistValue: null,
+        value: null,
+      };
+      debugLog("hydrateRoot:apply-selection:blank", {
+        consigneId,
+        dateKey: blankSelection.dateKey,
+      });
+      // Reset any hidden field to a blank payload so DOM starts clean.
+      const hiddenField = root.querySelector('input[type="hidden"][data-checklist-state]');
+      if (hiddenField) {
         try {
-          checklistValue = JSON.parse(checklistValue);
-        } catch (e) {}
-      }
-      if (checklistValue && typeof checklistValue === "object") {
-        // On injecte dans le champ caché pour que le DOM se synchronise
-        const hidden = root.querySelector('input[type="hidden"][data-checklist-state]');
-        if (hidden) {
-          try {
-            const enriched = { ...checklistValue };
-            if (!enriched.dateKey) {
-              const pageKey = pageKeyFromUrl || pageKeyFromCtx || null;
-              enriched.dateKey = pageKey || saved.dateKey || currentParisDayKey();
-            }
-            hidden.value = JSON.stringify(enriched);
-          } catch (e) {
-            hidden.value = JSON.stringify(checklistValue);
-          }
+          const payloadState = {
+            items: [],
+            skipped: [],
+            answers: {},
+            dateKey:
+              blankSelection.dateKey ||
+              pageKeyFromUrl ||
+              pageKeyFromCtx ||
+              currentParisDayKey(),
+          };
+          hiddenField.value = JSON.stringify(payloadState);
+          hiddenField.setAttribute("value", hiddenField.value);
+        } catch (_) {
+          hiddenField.value = "";
+          hiddenField.removeAttribute("value");
         }
-        debugLog("hydrateRoot:checklist-value", {
-          consigneId,
-          dateKey: checklistValue.dateKey || saved.dateKey,
-          answers: checklistValue.answers ? Object.keys(checklistValue.answers).length : 0,
-          selected: Array.isArray(checklistValue.items) ? checklistValue.items.filter(Boolean).length : null,
-        });
-        // On force la restauration de l'état answers pour chaque item
-        if (checklistValue.answers && typeof checklistValue.answers === "object") {
-          const items = root.querySelectorAll('[data-checklist-item]');
-          items.forEach((item) => {
-            const input = item.querySelector('[data-checklist-input], input[type="checkbox"]');
-            const key = input?.getAttribute('data-key') || item.getAttribute('data-checklist-key');
-            const answer = checklistValue.answers[key];
-            if (answer) {
-              input.checked = answer.value === 'yes' || answer.value === 'maybe';
-              if (answer.skipped) {
-                input.setAttribute('data-checklist-skip', '1');
-                item.setAttribute('data-checklist-skipped', '1');
-                item.classList.add('checklist-item--skipped');
-              } else {
-                input.removeAttribute('data-checklist-skip');
-                item.removeAttribute('data-checklist-skipped');
-                item.classList.remove('checklist-item--skipped');
-              }
-            } else {
-              // Si pas de réponse, décocher et retirer le skip
-              if (input) input.checked = false;
-              item.removeAttribute('data-checklist-skipped');
-              item.classList.remove('checklist-item--skipped');
-              if (input) input.removeAttribute('data-checklist-skip');
-            }
-          });
-        }
-        applySelection(root, checklistValue, { consigneId, optionsHash, markDirty: false, showHint: false });
-      } else {
-        debugLog("hydrateRoot:apply-selection", {
-          consigneId,
-          dateKey: saved.dateKey,
-          selected: Array.isArray(saved.selectedIds) ? saved.selectedIds.length : 0,
-          hasAnswers: Boolean(saved.answers && Object.keys(saved.answers).length),
-        });
-        applySelection(root, saved, { consigneId, optionsHash, markDirty: false, showHint: false });
       }
+      applySelection(root, blankSelection, { consigneId, optionsHash, markDirty: false, showHint: false });
       // Nettoyer tout flag dirty résiduel
       const hidden = root.querySelector('[data-checklist-state]');
       if (hidden && hidden.dataset) delete hidden.dataset.dirty;

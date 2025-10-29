@@ -17096,7 +17096,10 @@ async function renderDaily(ctx, root, opts = {}) {
 
   const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
     const previous = previousAnswers.get(item.id);
-    const hasPrevValue = previous && Object.prototype.hasOwnProperty.call(previous, "value");
+    const hasPrevValue =
+      item.type === "checklist"
+        ? false
+        : Boolean(previous && Object.prototype.hasOwnProperty.call(previous, "value"));
     const initialValue = hasPrevValue ? previous.value : null;
     const row = document.createElement("div");
     const tone = priorityTone(item.priority);
@@ -17316,7 +17319,10 @@ async function renderDaily(ctx, root, opts = {}) {
     wrapper.appendChild(parentCard);
     const childConfigs = group.children.map((child) => {
       const previous = previousAnswers.get(child.id);
-      const hasPrevValue = previous && Object.prototype.hasOwnProperty.call(previous, "value");
+      const hasPrevValue =
+        child.type === "checklist"
+          ? false
+          : Boolean(previous && Object.prototype.hasOwnProperty.call(previous, "value"));
       const initialValue = hasPrevValue ? previous.value : null;
       const childRow = createHiddenConsigneRow(child, { initialValue });
       childRow.dataset.parentId = child.parentId || group.consigne.id || "";
