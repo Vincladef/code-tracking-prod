@@ -772,6 +772,58 @@ function renderConsigneValueField(consigne, value, fieldId) {
       <option value="no" ${current === "no" ? "selected" : ""}>Non</option>
     </select>`;
   }
+  if (type === "checklist") {
+    const baseLabels = sanitizeChecklistItems(consigne);
+    const fallbackLabels = Array.isArray(value?.labels)
+      ? value.labels.map((label) => (typeof label === "string" ? label : String(label)))
+      : [];
+    const normalized = normalizeChecklistStateArrays(value);
+    const total = Math.max(baseLabels.length, fallbackLabels.length, normalized.items.length);
+    if (!total) {
+      return `<p class="history-checklist-edit__empty text-sm text-[var(--muted)]">Checklist sans éléments.</p>`;
+    }
+    const labels = Array.from({ length: total }, (_, index) => {
+      if (typeof baseLabels[index] === "string" && baseLabels[index]) {
+        return baseLabels[index];
+      }
+      if (typeof fallbackLabels[index] === "string" && fallbackLabels[index]) {
+        return fallbackLabels[index];
+      }
+      return `Élément ${index + 1}`;
+    });
+    const states = Array.from({ length: total }, (_, index) => Boolean(normalized.items[index]));
+    const skipped = Array.from({ length: total }, (_, index) => Boolean(normalized.skipped[index]));
+    const consigneId =
+      consigne && consigne.id != null && consigne.id !== "" ? String(consigne.id) : "";
+    const labelsAttr =
+      fallbackLabels.length > 0
+        ? ` data-history-checklist-labels="${escapeHtml(
+            JSON.stringify(fallbackLabels.map((label) => String(label ?? "")))
+          )}"`
+        : "";
+    const consigneAttr = consigneId ? ` data-consigne-id="${escapeHtml(consigneId)}"` : "";
+    const rows = labels
+      .map((label, index) => {
+        const checkboxId = `${fieldId}-item-${index}`;
+        const skipId = `${fieldId}-skip-${index}`;
+        const isSkipped = skipped[index];
+        const checkedAttr = !isSkipped && states[index] ? " checked" : "";
+        const skipAttr = skipped[index] ? " checked" : "";
+        return `
+          <div class="history-checklist-edit__row flex flex-wrap items-center gap-4 border-b border-slate-200 py-2 last:border-b-0" data-history-checklist-item data-index="${index}">
+            <div class="history-checklist-edit__value flex items-center gap-2">
+              <input id="${escapeHtml(checkboxId)}" type="checkbox" class="h-4 w-4" data-history-checklist-checkbox data-index="${index}"${checkedAttr}>
+              <label for="${escapeHtml(checkboxId)}" class="text-sm">${escapeHtml(label)}</label>
+            </div>
+            <div class="history-checklist-edit__skip flex items-center gap-1 text-xs text-[var(--muted)]">
+              <input id="${escapeHtml(skipId)}" type="checkbox" class="h-3 w-3" data-history-checklist-skip data-index="${index}"${skipAttr}>
+              <label for="${escapeHtml(skipId)}">Passer</label>
+            </div>
+          </div>`;
+      })
+      .join("");
+    return `<div class="history-checklist-edit grid gap-1"${consigneAttr}${labelsAttr} data-history-checklist>${rows}</div>`;
+  }
   if (type === "long") {
     return renderRichTextInput("value", {
       initialValue: value,
@@ -788,6 +840,87 @@ function readConsigneValueFromForm(consigne, form) {
   const type = consigne?.type || "short";
   if (type === "info") {
     return "";
+  }
+  if (type === "checklist") {
+    const rootCandidates = Array.from(form?.querySelectorAll("[data-history-checklist]") || []);
+    const consigneId =
+      consigne && consigne.id != null && consigne.id !== "" ? String(consigne.id) : "";
+    const root =
+      rootCandidates.find((node) => {
+        if (!node || typeof node.getAttribute !== "function") {
+          return false;
+        }
+        const rawId = node.getAttribute("data-consigne-id") || "";
+        if (!consigneId) {
+          return !rawId;
+        }
+        return rawId === consigneId;
+      }) || rootCandidates[0] || null;
+    const fallbackLabelsAttr =
+      typeof root?.getAttribute === "function" ? root.getAttribute("data-history-checklist-labels") : "";
+    let fallbackLabels = [];
+    if (fallbackLabelsAttr) {
+      try {
+        const parsed = JSON.parse(fallbackLabelsAttr);
+        if (Array.isArray(parsed)) {
+          fallbackLabels = parsed.map((label) => (typeof label === "string" ? label : String(label ?? "")));
+        }
+      } catch (_) {
+        // ignore parse errors
+      }
+    }
+    const baseLabels = sanitizeChecklistItems(consigne);
+    const items = [];
+    const skipped = [];
+    if (root) {
+      const rows = Array.from(root.querySelectorAll("[data-history-checklist-item]"));
+      rows.forEach((row, orderIndex) => {
+        const rawIndex = row?.getAttribute?.("data-index");
+        const parsedIndex = Number(rawIndex);
+        const index = Number.isInteger(parsedIndex) && parsedIndex >= 0 ? parsedIndex : orderIndex;
+        const checkbox = row.querySelector("[data-history-checklist-checkbox]");
+        const skipBox = row.querySelector("[data-history-checklist-skip]");
+        items[index] = checkbox ? Boolean(checkbox.checked) : false;
+        skipped[index] = skipBox ? Boolean(skipBox.checked) : false;
+      });
+    }
+    const total = Math.max(baseLabels.length, fallbackLabels.length, items.length);
+    const normalizedItems = Array.from({ length: total }, (_, index) => Boolean(items[index]));
+    const normalizedSkipped = Array.from({ length: total }, (_, index) => Boolean(skipped[index]));
+    const labels = Array.from({ length: total }, (_, index) => {
+      if (typeof baseLabels[index] === "string" && baseLabels[index]) {
+        return baseLabels[index];
+      }
+      if (typeof fallbackLabels[index] === "string" && fallbackLabels[index]) {
+        return fallbackLabels[index];
+      }
+      return `Élément ${index + 1}`;
+    });
+    const hasSelection = normalizedItems.some((checked, index) => checked && !normalizedSkipped[index]);
+    const hasSkip = normalizedSkipped.some(Boolean);
+    if (!hasSelection && !hasSkip) {
+      return null;
+    }
+    const stableIds = Array.isArray(consigne?.checklistItemIds) ? consigne.checklistItemIds : [];
+    const selectedIds = [];
+    labels.forEach((label, index) => {
+      if (normalizedItems[index] && !normalizedSkipped[index]) {
+        selectedIds.push(resolveChecklistItemId(consigne, index, label, stableIds));
+      }
+    });
+    const result = {
+      items: normalizedItems,
+    };
+    if (labels.length) {
+      result.labels = labels.map((label) => (typeof label === "string" ? label : String(label ?? "")));
+    }
+    if (hasSkip) {
+      result.skipped = normalizedSkipped;
+    }
+    if (selectedIds.length) {
+      result.selectedIds = selectedIds;
+    }
+    return result;
   }
   const field = form?.elements?.value;
   if (!field) return "";
@@ -12399,7 +12532,16 @@ function mergeRowsWithRecent(rows, consigneId) {
   return merged;
 }
 
-const EDITABLE_HISTORY_TYPES = new Set(["short", "long", "num", "montant", "likert5", "likert6", "yesno"]);
+const EDITABLE_HISTORY_TYPES = new Set([
+  "short",
+  "long",
+  "num",
+  "montant",
+  "likert5",
+  "likert6",
+  "yesno",
+  "checklist",
+]);
 
 async function openHistory(ctx, consigne, options = {}) {
   options = { ...options };
