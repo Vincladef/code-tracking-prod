@@ -10121,6 +10121,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         value: parentHasValue ? rawValue : "",
         dayKey: resolvedDayKey,
         isBilan: true,
+        historyId: historyDocumentId,
+        responseId: resolvedResponseId,
         remove: parentHasValue ? false : true,
       });
       triggerConsigneRowUpdateHighlight(row);
@@ -10168,6 +10170,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             value: hasValue ? value : "",
             dayKey: resolvedDayKey,
             iterationLabel,
+            historyId: state.historyDocumentId,
+            responseId: state.responseSyncOptions?.responseId || "",
             remove: hasValue ? false : true,
           });
           triggerConsigneRowUpdateHighlight(state.row);
@@ -10269,6 +10273,34 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   const autosaveKey = ["history-entry-edit", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
     .map((part) => String(part || ""))
     .join(":");
+  const explicitResponseId =
+    typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
+  const triggerResponseId = (() => {
+    if (!(trigger instanceof HTMLElement)) {
+      return "";
+    }
+    const direct =
+      (typeof trigger.dataset?.historyResponseId === "string" && trigger.dataset.historyResponseId.trim()
+        ? trigger.dataset.historyResponseId.trim()
+        : "") ||
+      trigger.getAttribute?.("data-history-response-id") ||
+      "";
+    if (direct && direct.trim()) {
+      return direct.trim();
+    }
+    const container = trigger.closest("[data-history-entry]");
+    if (container) {
+      const attr = container.getAttribute("data-response-id");
+      if (attr && attr.trim()) {
+        return attr.trim();
+      }
+    }
+    return "";
+  })();
+  const detailResponseId = resolveHistoryResponseId(details);
+  const entryResponseId = resolveHistoryResponseId(entry);
+  const resolvedResponseId =
+    explicitResponseId || triggerResponseId || detailResponseId || entryResponseId || "";
   const responseSyncOptions = {
     responseId: resolvedResponseId,
     responseMode: resolveHistoryMode(entry) || source,
@@ -10620,6 +10652,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         value: parentHasValue ? rawValue : "",
         dayKey: resolvedDayKey,
         iterationLabel,
+        historyId: historyDocumentId,
+        responseId: responseSyncOptions?.responseId || "",
         remove: parentHasValue ? false : true,
       });
       triggerConsigneRowUpdateHighlight(row);
@@ -10668,6 +10702,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             value: hasValue ? value : "",
             dayKey: resolvedDayKey,
             iterationLabel,
+            historyId: state.historyDocumentId,
+            responseId: state.responseSyncOptions?.responseId || "",
             remove: hasValue ? false : true,
           });
           triggerConsigneRowUpdateHighlight(state.row);
@@ -10837,6 +10873,38 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   }
   iterationLabel = sanitizeIterationLabel(iterationLabel, iterationNumber);
   const providedIsBilan = options.isBilan === true || existingDetails?.isBilan === true;
+  const resolvedHistoryId = (() => {
+    if (typeof options.historyId === "string" && options.historyId.trim()) {
+      return options.historyId.trim();
+    }
+    const fromExisting =
+      (typeof existingDetails?.historyId === "string" && existingDetails.historyId.trim()
+        ? existingDetails.historyId.trim()
+        : "") ||
+      (typeof existingDetails?.history_id === "string" && existingDetails.history_id.trim()
+        ? existingDetails.history_id.trim()
+        : "") ||
+      (typeof item?.dataset?.historyId === "string" && item.dataset.historyId.trim()
+        ? item.dataset.historyId.trim()
+        : "");
+    return fromExisting || "";
+  })();
+  const resolvedResponseId = (() => {
+    if (typeof options.responseId === "string" && options.responseId.trim()) {
+      return options.responseId.trim();
+    }
+    const fromExisting =
+      (typeof existingDetails?.responseId === "string" && existingDetails.responseId.trim()
+        ? existingDetails.responseId.trim()
+        : "") ||
+      (typeof existingDetails?.response_id === "string" && existingDetails.response_id.trim()
+        ? existingDetails.response_id.trim()
+        : "") ||
+      (typeof item?.dataset?.historyResponseId === "string" && item.dataset.historyResponseId.trim()
+        ? item.dataset.historyResponseId.trim()
+        : "");
+    return fromExisting || "";
+  })();
   const record = {
     dayKey,
     date,
@@ -10850,6 +10918,8 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     iterationIndex: iterationIndex != null ? iterationIndex : existingDetails?.iterationIndex ?? null,
     iterationNumber,
     iterationLabel,
+    historyId: resolvedHistoryId,
+    responseId: resolvedResponseId,
   };
   if (!item) {
     item = document.createElement("div");
@@ -10894,7 +10964,11 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
         isPractice: practiceMode,
         isBilan: providedIsBilan,
         timestamp: record.timestamp,
+        historyId: resolvedHistoryId,
+        responseId: resolvedResponseId,
       },
+      historyId: resolvedHistoryId,
+      responseId: resolvedResponseId,
     };
   applyConsigneHistoryPoint(item, point);
   state.track.dataset.historyMode = "day";
