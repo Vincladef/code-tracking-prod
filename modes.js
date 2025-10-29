@@ -9732,6 +9732,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     }
     overlay = document.createElement('div');
     overlay.className = 'history-panel__edit-overlay';
+    // Force a very high z-index to ensure it sits above any panel content or other overlays
+    try { overlay.style.zIndex = '99999'; } catch (_) {}
     overlay.innerHTML = `
       <div class="history-panel__edit-dialog" role="dialog" aria-modal="true" tabindex="-1">
         ${editorHtml}
