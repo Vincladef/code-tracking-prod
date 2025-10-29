@@ -34,6 +34,7 @@ function buildReminderBody(firstName, consigneCount, objectiveCount, options = {
 function reminderExtras(options = {}) {
   const weekly = options && typeof options === "object" && options.weekly;
   const monthly = options && typeof options === "object" && options.monthly;
+  const yearly = options && typeof options === "object" && options.yearly;
   const mentions = [];
   if (weekly) {
     mentions.push("ton bilan de la semaine");
@@ -41,13 +42,20 @@ function reminderExtras(options = {}) {
   if (monthly) {
     mentions.push("ton bilan du mois");
   }
+  if (yearly) {
+    mentions.push("ton bilan de l’année");
+  }
   if (!mentions.length) {
     return "";
   }
   if (mentions.length === 1) {
     return mentions[0];
   }
-  return `${mentions[0]} et ${mentions[1]}`;
+  if (mentions.length === 2) {
+    return `${mentions[0]} et ${mentions[1]}`;
+  }
+  const last = mentions.pop();
+  return `${mentions.join(", ")} et ${last}`;
 }
 
 module.exports = { buildReminderBody };

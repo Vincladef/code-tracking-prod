@@ -42,6 +42,18 @@ function runTests() {
     "tu as 2 consignes et 1 objectif à remplir aujourd’hui. Pense aussi à ton bilan de la semaine et ton bilan du mois.",
     "Les rappels hebdo et mensuel doivent être concaténés",
   );
+
+  assertEqual(
+    buildReminderBody("", 0, 0, { yearly: true }),
+    "tu n’as rien à remplir aujourd’hui. Pense aussi à ton bilan de l’année.",
+    "Le rappel annuel doit être pris en compte seul",
+  );
+
+  assertEqual(
+    buildReminderBody("Léa", 3, 2, { weekly: true, monthly: true, yearly: true }),
+    "Léa, tu as 3 consignes et 2 objectifs à remplir aujourd’hui. Pense aussi à ton bilan de la semaine, ton bilan du mois et ton bilan de l’année.",
+    "Les rappels hebdo, mensuel et annuel doivent être listés avec des virgules",
+  );
 }
 
 try {

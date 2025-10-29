@@ -1245,6 +1245,31 @@
       --consigne-history-text:#0f172a;
       --consigne-history-shadow:rgba(148,163,184,.16);
     }
+    .consigne-history__item[data-history-source="bilan"] {
+      --consigne-history-border:rgba(124,58,237,.32);
+      --consigne-history-bg:rgba(237,233,254,.6);
+      --consigne-history-text:#5b21b6;
+      --consigne-history-shadow:rgba(124,58,237,.18);
+    }
+    .consigne-history__marker {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:1.35rem;
+      height:1.35rem;
+      margin-left:.35rem;
+      margin-right:.1rem;
+      border-radius:999px;
+      background:rgba(124,58,237,.16);
+      color:#5b21b6;
+      font-size:.75rem;
+      font-weight:700;
+      line-height:1;
+      box-shadow:0 0 0 1.5px rgba(124,58,237,.28);
+    }
+    .consigne-history__marker::before {
+      content:"★";
+    }
     .history-dialog__value {
       width:100%;
     }

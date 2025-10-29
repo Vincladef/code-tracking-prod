@@ -130,11 +130,13 @@ function normalizeBilanSettings(raw) {
   const monthlyEnabled = data.monthlyEnabled !== false;
   const weeklyReminderEnabled = normalizeReminderFlag(data.weeklyReminder ?? data.weeklyReminderEnabled);
   const monthlyReminderEnabled = normalizeReminderFlag(data.monthlyReminder ?? data.monthlyReminderEnabled);
+  const yearlyReminderEnabled = normalizeReminderFlag(data.yearlyReminder ?? data.yearlyReminderEnabled);
   return {
     weekEndsOn,
     monthlyEnabled,
     weeklyReminderEnabled,
     monthlyReminderEnabled,
+    yearlyReminderEnabled,
   };
 }
 
@@ -195,6 +197,21 @@ function weekContainsMonthEnd(range) {
     }
     const lastDay = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
     if (cursor.getDate() === lastDay) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function weekContainsYearEnd(range) {
+  if (!range?.start || !range?.end) return false;
+  for (let offset = 0; offset < 7; offset += 1) {
+    const cursor = new Date(range.start.getTime());
+    cursor.setDate(range.start.getDate() + offset);
+    if (cursor > range.end) {
+      break;
+    }
+    if (cursor.getMonth() === 11 && cursor.getDate() === 31) {
       return true;
     }
   }
@@ -957,6 +974,7 @@ async function sendReminder(
       firstName: firstName || "",
       weeklySummary: summaryFlags.weekly ? "1" : "0",
       monthlySummary: summaryFlags.monthly ? "1" : "0",
+      yearlySummary: summaryFlags.yearly ? "1" : "0",
     },
     notification: { title, body },
     webpush: {
@@ -1499,9 +1517,20 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
         const range = weekRangeFromDateWithConfig(selectedDate, weekEndsOn);
         monthlyReminder = weekContainsMonthEnd(range);
       }
+      let yearlyReminder = false;
+      if (
+        bilanSettings.yearlyReminderEnabled &&
+        isWeekEnd &&
+        selectedDate instanceof Date &&
+        !Number.isNaN(selectedDate?.getTime?.())
+      ) {
+        const range = weekRangeFromDateWithConfig(selectedDate, weekEndsOn);
+        yearlyReminder = weekContainsYearEnd(range);
+      }
       const summaryFlags = {
         weekly: bilanSettings.weeklyReminderEnabled && isWeekEnd,
         monthly: monthlyReminder,
+        yearly: yearlyReminder,
       };
 
       let profileData = profileMap.get(uid) || null;
@@ -1538,8 +1567,9 @@ async function sendDailyRemindersHandler({ context = parisContext() } = {}) {
       entry.totalObjectiveCount = dueObjectives.length;
       entry.weeklyReminder = summaryFlags.weekly ? 1 : 0;
       entry.monthlyReminder = summaryFlags.monthly ? 1 : 0;
+      entry.yearlyReminder = summaryFlags.yearly ? 1 : 0;
 
-      const hasSummaryReminder = summaryFlags.weekly || summaryFlags.monthly;
+      const hasSummaryReminder = summaryFlags.weekly || summaryFlags.monthly || summaryFlags.yearly;
       const hasPushContent = entry.visibleCount > 0 || entry.pushObjectiveCount > 0 || hasSummaryReminder;
       const hasEmailContent = entry.emailObjectiveCount > 0;
 
@@ -2321,4 +2351,3 @@ exports.__testables = {
   objectiveDueDateIso,
   countObjectivesDueToday,
 };
-

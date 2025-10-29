@@ -1906,7 +1906,11 @@ async function openBilanModal(ctx, options = {}) {
                   <input type="checkbox" data-bilan-monthly-rem />
                   <span>Bilan du mois</span>
                 </label>
-                <p class="text-xs text-[var(--muted)]">Le rappel mensuel est envoyé la semaine qui contient la fin du mois, le jour sélectionné ci‑dessus.</p>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" data-bilan-yearly-rem />
+                  <span>Bilan de l’année</span>
+                </label>
+                <p class="text-xs text-[var(--muted)]">Les rappels mensuel et annuel sont envoyés la semaine qui contient la fin de la période, le jour sélectionné ci‑dessus.</p>
               </fieldset>
               <div class="flex items-center justify-end gap-2">
                 <button type="button" class="btn btn-ghost" data-bilan-settings-cancel>Fermer</button>
@@ -8086,6 +8090,7 @@ function formatConsigneHistoryPoint(record, consigne) {
   const noteSource = typeof record.note === "string" ? record.note : extractTextualNote(record.note);
   const note = typeof noteSource === "string" ? noteSource.trim() : "";
   const hasContent = Boolean(valueHtml || valueText || note);
+  const isBilan = record?.isBilan === true;
   const srText = (() => {
     if (rawIterationLabel) {
       return rawIterationLabel;
@@ -8104,6 +8109,7 @@ function formatConsigneHistoryPoint(record, consigne) {
     label: labelText,
     weekdayLabel: weekdayText,
     isPlaceholder: Boolean(record.isPlaceholder),
+    isBilan,
     details: {
       dayKey: dayKey || "",
       date,
@@ -8121,6 +8127,7 @@ function formatConsigneHistoryPoint(record, consigne) {
       iterationNumber: iterationNumber,
       iterationLabel: rawIterationLabel,
       isPractice,
+      isBilan,
       timestamp:
         typeof record.timestamp === "number"
           ? record.timestamp
@@ -8251,6 +8258,107 @@ function isSummaryHistoryEntry(entry) {
     }
   }
   return false;
+}
+
+function resolveHistoryEntrySummaryInfo(entry) {
+  if (!entry || typeof entry !== "object") {
+    return { isSummary: false, scope: "", isBilan: false };
+  }
+  const normalizedStrings = [];
+  const pushString = (value) => {
+    if (typeof value === "string" && value.trim()) {
+      normalizedStrings.push(value.trim().toLowerCase());
+    }
+  };
+  const directKeys = [
+    "summaryScope",
+    "summary_scope",
+    "summaryKey",
+    "summary_key",
+    "summaryLabel",
+    "summary_label",
+    "summaryMode",
+    "summary_mode",
+    "summaryPeriod",
+    "summary_period",
+    "period",
+    "periodLabel",
+    "period_label",
+    "periodKey",
+    "period_key",
+    "periodScope",
+    "period_scope",
+    "mode",
+    "source",
+    "origin",
+    "context",
+    "moduleId",
+    "module_id",
+  ];
+  directKeys.forEach((key) => pushString(entry[key]));
+  if (typeof entry.key === "string") {
+    pushString(entry.key);
+  }
+  const nestedSummary = entry.summary && typeof entry.summary === "object" ? entry.summary : null;
+  if (nestedSummary) {
+    pushString(nestedSummary.scope);
+    pushString(nestedSummary.type);
+    pushString(nestedSummary.mode);
+    pushString(nestedSummary.label);
+  }
+  const hasSummaryField =
+    directKeys.some((key) => Object.prototype.hasOwnProperty.call(entry, key)) ||
+    Object.prototype.hasOwnProperty.call(entry, "summary") ||
+    (nestedSummary && Object.keys(nestedSummary).length > 0);
+  const hasBilanMarker = normalizedStrings.some((value) => value.includes("bilan"));
+  const hasSummaryKeyword =
+    normalizedStrings.some((value) => value.includes("summary")) || hasBilanMarker;
+  const hasWeeklyMarker = normalizedStrings.some((value) => {
+    if (!value) return false;
+    return (
+      value.includes("hebdo") ||
+      value.includes("weekly") ||
+      value.includes("week") ||
+      /\bsemaine\b/.test(value) ||
+      /\bhebdomadaire\b/.test(value) ||
+      /\b\d{4}-w\d{1,2}\b(?!-)/i.test(value)
+    );
+  });
+  const hasMonthlyMarker = normalizedStrings.some((value) => {
+    if (!value) return false;
+    return (
+      value.includes("mensu") ||
+      value.includes("mensuel") ||
+      value.includes("mensuelle") ||
+      value.includes("mois") ||
+      value.includes("monthly") ||
+      value.includes("month") ||
+      /\b\d{4}-(0[1-9]|1[0-2])\b(?!-)/.test(value)
+    );
+  });
+  const hasYearlyMarker = normalizedStrings.some((value) => {
+    if (!value) return false;
+    return (
+      value.includes("annuel") ||
+      value.includes("annuelle") ||
+      value.includes("annual") ||
+      value.includes("année") ||
+      value.includes("annee") ||
+      value.includes("yearly")
+    );
+  });
+  if (!hasSummaryField && !hasSummaryKeyword && !hasWeeklyMarker && !hasMonthlyMarker && !hasYearlyMarker) {
+    return { isSummary: false, scope: "", isBilan: false };
+  }
+  let scope = "";
+  if (hasMonthlyMarker) scope = "monthly";
+  else if (hasWeeklyMarker) scope = "weekly";
+  else if (hasYearlyMarker) scope = "yearly";
+  return {
+    isSummary: hasSummaryField || hasSummaryKeyword || Boolean(scope),
+    scope,
+    isBilan: hasBilanMarker,
+  };
 }
 
 function resolveHistoryTimelineKeyBase(entry) {
@@ -8611,6 +8719,8 @@ function buildConsigneHistoryTimeline(entries, consigne) {
       const value = resolveHistoryTimelineValue(entry, consigne);
       const note = resolveHistoryTimelineNote(entry);
       const hasNote = typeof note === "string" && note.trim().length > 0;
+      const summaryInfo = resolveHistoryEntrySummaryInfo(entry);
+      const isBilanEntry = Boolean(summaryInfo?.isBilan);
       const isSkipOnly = (() => {
         if (!value) return false;
         if (typeof value === "object" && value.skipped === true) {
@@ -8643,6 +8753,7 @@ function buildConsigneHistoryTimeline(entries, consigne) {
           timestamp: effectiveTimestamp,
           value,
           note,
+          isBilan: isBilanEntry,
           iterationIndex: typeof iterationIndex === "number" ? iterationIndex : null,
           iterationNumber: typeof iterationNumber === "number" ? iterationNumber : null,
           iterationLabel: typeof iterationLabel === "string" ? iterationLabel : "",
@@ -8664,6 +8775,7 @@ function buildConsigneHistoryTimeline(entries, consigne) {
             : today.getTime(),
       value: record?.value,
       note: record?.note || "",
+      isBilan: record?.isBilan === true,
       iterationIndex: typeof record?.iterationIndex === "number" ? record.iterationIndex : null,
       iterationNumber: typeof record?.iterationNumber === "number" ? record.iterationNumber : null,
       iterationLabel: typeof record?.iterationLabel === "string" ? record.iterationLabel : "",
@@ -8681,6 +8793,7 @@ function buildConsigneHistoryTimeline(entries, consigne) {
           note: record.note,
           timestamp: record.timestamp,
           isPlaceholder: false,
+          isBilan: record.isBilan === true,
           iterationIndex: record.iterationIndex,
           iterationNumber: record.iterationNumber,
           iterationLabel: record.iterationLabel,
@@ -8734,6 +8847,28 @@ function ensureConsigneHistoryMeta(item) {
     }
   }
   return meta;
+}
+
+function ensureConsigneHistoryMarker(item) {
+  if (!item) return null;
+  let marker = item.querySelector(".consigne-history__marker");
+  if (!marker) {
+    marker = document.createElement("span");
+    marker.className = "consigne-history__marker";
+    marker.setAttribute("aria-hidden", "true");
+    const dot = item.querySelector(".consigne-history__dot");
+    if (dot && dot.parentNode) {
+      dot.parentNode.insertBefore(marker, dot.nextSibling);
+    } else {
+      const meta = item.querySelector(".consigne-history__meta");
+      if (meta && meta.parentNode) {
+        meta.parentNode.insertBefore(marker, meta);
+      } else {
+        item.insertBefore(marker, item.firstChild || null);
+      }
+    }
+  }
+  return marker;
 }
 
 function ensureConsigneHistoryLabel(meta) {
@@ -8799,6 +8934,21 @@ function applyConsigneHistoryPoint(item, point) {
       weekdayEl.hidden = !point.weekdayLabel;
     }
     meta.hidden = !point.label && !point.weekdayLabel;
+  }
+  if (point.isBilan) {
+    item.dataset.historySource = "bilan";
+    const marker = ensureConsigneHistoryMarker(item);
+    if (marker) {
+      marker.hidden = false;
+    }
+  } else {
+    if (item.dataset) {
+      delete item.dataset.historySource;
+    }
+    const marker = item.querySelector(".consigne-history__marker");
+    if (marker && marker.parentNode) {
+      marker.parentNode.removeChild(marker);
+    }
   }
   const details = point.details || null;
   if (details) {
@@ -9031,6 +9181,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     iterationLabel = existingDetails.iterationLabel;
   }
   iterationLabel = sanitizeIterationLabel(iterationLabel, iterationNumber);
+  const providedIsBilan = options.isBilan === true || existingDetails?.isBilan === true;
   const record = {
     dayKey,
     date,
@@ -9040,6 +9191,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     timestamp:
       existingDetails?.timestamp || (date ? date.getTime() : iterationIndex != null ? iterationIndex : Date.now()),
     isPlaceholder: false,
+    isBilan: providedIsBilan,
     iterationIndex: iterationIndex != null ? iterationIndex : existingDetails?.iterationIndex ?? null,
     iterationNumber,
     iterationLabel,
@@ -9067,6 +9219,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       label: iterationLabel || fallbackLabels.label,
       weekdayLabel: iterationLabel ? "" : fallbackLabels.weekday,
       isPlaceholder: false,
+      isBilan: providedIsBilan,
       details: {
         dayKey: dayKey || "",
         date,
@@ -9084,6 +9237,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
         iterationNumber: record.iterationNumber ?? null,
         iterationLabel: iterationLabel || "",
         isPractice: practiceMode,
+        isBilan: providedIsBilan,
         timestamp: record.timestamp,
       },
     };
@@ -12110,115 +12264,6 @@ async function openHistory(ctx, consigne, options = {}) {
     return "";
   }
 
-  function detectSummaryNote(row) {
-    if (!row || typeof row !== "object") {
-      return { isSummary: false, scope: "", isBilan: false };
-    }
-    const normalizedStrings = [];
-    const pushString = (value) => {
-      if (typeof value === "string" && value.trim()) {
-        normalizedStrings.push(value.trim().toLowerCase());
-      }
-    };
-    pushString(row.summaryScope);
-    pushString(row.summary_scope);
-    pushString(row.summaryKey);
-    pushString(row.summary_key);
-    pushString(row.summaryLabel);
-    pushString(row.summary_label);
-    pushString(row.summaryMode);
-    pushString(row.summary_mode);
-    pushString(row.summaryPeriod);
-    pushString(row.summary_period);
-    pushString(row.period);
-    pushString(row.periodLabel);
-    pushString(row.period_label);
-    pushString(row.periodKey);
-    pushString(row.period_key);
-    pushString(row.periodScope);
-    pushString(row.period_scope);
-    pushString(row.mode);
-    pushString(row.source);
-    pushString(row.origin);
-    pushString(row.context);
-    pushString(row.moduleId);
-    pushString(row.module_id);
-    if (typeof row.key === "string") {
-      pushString(row.key);
-    }
-    const hasSummaryObject =
-      Object.prototype.hasOwnProperty.call(row, "summary") &&
-      row.summary &&
-      typeof row.summary === "object";
-    if (hasSummaryObject) {
-      pushString(row.summary.scope);
-      pushString(row.summary.type);
-      pushString(row.summary.mode);
-      pushString(row.summary.label);
-    }
-    const hasSummaryField =
-      Object.prototype.hasOwnProperty.call(row, "summaryScope") ||
-      Object.prototype.hasOwnProperty.call(row, "summary_scope") ||
-      Object.prototype.hasOwnProperty.call(row, "summaryKey") ||
-      Object.prototype.hasOwnProperty.call(row, "summary_key") ||
-      Object.prototype.hasOwnProperty.call(row, "summaryLabel") ||
-      Object.prototype.hasOwnProperty.call(row, "summary_label") ||
-      Object.prototype.hasOwnProperty.call(row, "summaryMode") ||
-      Object.prototype.hasOwnProperty.call(row, "summary_mode") ||
-      Object.prototype.hasOwnProperty.call(row, "summaryPeriod") ||
-      Object.prototype.hasOwnProperty.call(row, "summary_period") ||
-      hasSummaryObject;
-    const hasBilanMarker = normalizedStrings.some((value) => value.includes("bilan"));
-    const hasSummaryKeyword =
-      normalizedStrings.some((value) => value.includes("summary")) || hasBilanMarker;
-    const hasWeeklyMarker = normalizedStrings.some((value) => {
-      if (!value) return false;
-      return (
-        value.includes("hebdo") ||
-        value.includes("weekly") ||
-        value.includes("week") ||
-        /\bsemaine\b/.test(value) ||
-        /\bhebdomadaire\b/.test(value) ||
-        /\b\d{4}-w\d{1,2}\b(?!-)/i.test(value)
-      );
-    });
-    const hasMonthlyMarker = normalizedStrings.some((value) => {
-      if (!value) return false;
-      return (
-        value.includes("mensu") ||
-        value.includes("mensuel") ||
-        value.includes("mensuelle") ||
-        value.includes("mois") ||
-        value.includes("monthly") ||
-        value.includes("month") ||
-        /\b\d{4}-(0[1-9]|1[0-2])\b(?!-)/.test(value)
-      );
-    });
-    const hasYearlyMarker = normalizedStrings.some((value) => {
-      if (!value) return false;
-      return (
-        value.includes("annuel") ||
-        value.includes("annuelle") ||
-        value.includes("annual") ||
-        value.includes("année") ||
-        value.includes("annee") ||
-        value.includes("yearly")
-      );
-    });
-    if (!hasSummaryField && !hasSummaryKeyword && !hasWeeklyMarker && !hasMonthlyMarker && !hasYearlyMarker) {
-      return { isSummary: false, scope: "", isBilan: false };
-    }
-    let scope = "";
-    if (hasMonthlyMarker) scope = "monthly";
-    else if (hasWeeklyMarker) scope = "weekly";
-    else if (hasYearlyMarker) scope = "yearly";
-    return {
-      isSummary: hasSummaryField || hasSummaryKeyword || Boolean(scope),
-      scope,
-      isBilan: hasBilanMarker,
-    };
-  }
-
   function firstNonEmptyString(...values) {
     for (const value of values) {
       if (typeof value === "string") {
@@ -12446,7 +12491,7 @@ async function openHistory(ctx, consigne, options = {}) {
             : Number.NaN
           : Number(numericValue);
       const note = r.note && String(r.note).trim();
-      const summaryInfo = detectSummaryNote(r);
+      const summaryInfo = resolveHistoryEntrySummaryInfo(r);
       const rawSummaryLabel = summaryInfo.isSummary
         ? firstNonEmptyString(
             r.summaryLabel,
@@ -13996,6 +14041,7 @@ const BILAN_DEFAULT_SETTINGS = {
   monthlyEnabled: true,
   weeklyReminderEnabled: false,
   monthlyReminderEnabled: false,
+  yearlyReminderEnabled: false,
 };
 
 let DAILY_WEEK_ENDS_ON = BILAN_DEFAULT_SETTINGS.weekEndsOn;
@@ -14029,11 +14075,13 @@ function normalizeBilanSettings(raw) {
   const monthlyEnabled = data.monthlyEnabled !== false;
   const weeklyReminderEnabled = normalizeBilanReminder(data.weeklyReminder ?? data.weeklyReminderEnabled);
   const monthlyReminderEnabled = normalizeBilanReminder(data.monthlyReminder ?? data.monthlyReminderEnabled);
+  const yearlyReminderEnabled = normalizeBilanReminder(data.yearlyReminder ?? data.yearlyReminderEnabled);
   return {
     weekEndsOn,
     monthlyEnabled,
     weeklyReminderEnabled,
     monthlyReminderEnabled,
+    yearlyReminderEnabled,
   };
 }
 
@@ -14085,6 +14133,7 @@ async function initializeBilanSettingsControls(ctx, host) {
   const select = wrapper.querySelector("[data-bilan-weekendson]");
   const weeklyCb = wrapper.querySelector("[data-bilan-weekly-rem]");
   const monthlyCb = wrapper.querySelector("[data-bilan-monthly-rem]");
+  const yearlyCb = wrapper.querySelector("[data-bilan-yearly-rem]");
   const btnSave = wrapper.querySelector("[data-bilan-settings-save]");
   const btnCancel = wrapper.querySelector("[data-bilan-settings-cancel]");
   if (!trigger || !panel || !select || !btnSave) {
@@ -14105,6 +14154,9 @@ async function initializeBilanSettingsControls(ctx, host) {
     }
     if (monthlyCb) {
       monthlyCb.checked = !!settings.monthlyReminderEnabled;
+    }
+    if (yearlyCb) {
+      yearlyCb.checked = !!settings.yearlyReminderEnabled;
     }
   };
 
@@ -14179,6 +14231,7 @@ async function initializeBilanSettingsControls(ctx, host) {
       weekEndsOn: normalizeWeekdayIndex(select.value),
       weeklyReminderEnabled: weeklyCb ? !!weeklyCb.checked : false,
       monthlyReminderEnabled: monthlyCb ? !!monthlyCb.checked : false,
+      yearlyReminderEnabled: yearlyCb ? !!yearlyCb.checked : false,
     };
     try {
       isSaving = true;
@@ -14776,7 +14829,11 @@ async function renderDaily(ctx, root, opts = {}) {
                   <input type="checkbox" data-bilan-monthly-rem />
                   <span>Bilan du mois</span>
                 </label>
-                <p class="text-xs text-[var(--muted)]">Le rappel mensuel est envoyé la semaine qui contient la fin du mois, le jour sélectionné ci‑dessus.</p>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" data-bilan-yearly-rem />
+                  <span>Bilan de l’année</span>
+                </label>
+                <p class="text-xs text-[var(--muted)]">Les rappels mensuel et annuel sont envoyés la semaine qui contient la fin de la période, le jour sélectionné ci‑dessus.</p>
               </fieldset>
               <div class="flex items-center justify-end gap-2">
                 <button type="button" class="btn btn-ghost" data-bilan-settings-cancel>Fermer</button>
