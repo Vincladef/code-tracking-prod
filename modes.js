@@ -8885,11 +8885,13 @@ function updateConsigneHistoryNavState(state) {
   const containerHidden = container?.hidden === true;
   const scrollWidth = viewport.scrollWidth || 0;
   const clientWidth = viewport.clientWidth || 0;
-  const maxScroll = Math.max(0, scrollWidth - clientWidth);
-  const hasOverflow = !containerHidden && maxScroll > CONSIGNE_HISTORY_SCROLL_EPSILON;
-  const scrollLeft = viewport.scrollLeft || 0;
-  const atStart = scrollLeft <= CONSIGNE_HISTORY_SCROLL_EPSILON;
-  const atEnd = scrollLeft >= maxScroll - CONSIGNE_HISTORY_SCROLL_EPSILON;
+  const widthDelta = Math.round(scrollWidth) - Math.round(clientWidth);
+  const maxScrollRaw = Math.max(0, scrollWidth - clientWidth);
+  const maxScroll = Math.max(0, Math.round(maxScrollRaw));
+  const normalizedScrollLeft = Math.round(viewport.scrollLeft || 0);
+  const hasOverflow = !containerHidden && widthDelta > CONSIGNE_HISTORY_SCROLL_EPSILON;
+  const atStart = normalizedScrollLeft <= CONSIGNE_HISTORY_SCROLL_EPSILON;
+  const atEnd = normalizedScrollLeft >= maxScroll - CONSIGNE_HISTORY_SCROLL_EPSILON;
   if (navPrev) {
     const showPrev = hasOverflow && !atStart;
     navPrev.hidden = !showPrev;
