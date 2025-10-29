@@ -1328,6 +1328,52 @@
     .consigne-history__nav[data-consigne-history-next] {
       right:.35rem;
     }
+
+    .practice-hidden__item{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:.75rem;
+      padding:.45rem .5rem;
+      border-radius:.75rem;
+      background:rgba(248,250,252,.65);
+    }
+    .practice-hidden__text{
+      flex:1;
+      min-width:0;
+      line-height:1.4;
+    }
+    .practice-hidden__actions{
+      display:inline-flex;
+      align-items:center;
+      gap:.5rem;
+    }
+    .practice-hidden__actions .btn{
+      border-radius:.65rem;
+    }
+
+    @media (max-width: 640px){
+      .practice-hidden__item{
+        flex-direction:column;
+        align-items:stretch;
+        gap:.65rem;
+        padding:.75rem .85rem;
+        background:#fff;
+        border:1px solid rgba(148,163,184,.25);
+        box-shadow:0 8px 22px rgba(15,23,42,.08);
+      }
+      .practice-hidden__actions{
+        width:100%;
+        justify-content:flex-start;
+        flex-wrap:wrap;
+        gap:.65rem;
+      }
+      .practice-hidden__actions .btn{
+        flex:1 1 calc(50% - .4rem);
+        min-height:40px;
+        justify-content:center;
+      }
+    }
     [data-priority-tone="high"] [data-status-dot] {
       position:relative;
       transform:scale(1.08);

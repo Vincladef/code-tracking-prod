@@ -13411,18 +13411,19 @@ async function renderPractice(ctx, root, _opts = {}) {
 
   const createPracticeHiddenItem = (consigne, remaining) => {
     const item = document.createElement("li");
-    item.className = "flex items-center justify-between gap-2";
+    item.className = "practice-hidden__item";
     item.dataset.practiceHiddenItem = "1";
     if (consigne?.id != null) {
       const stringId = String(consigne.id);
       item.dataset.consigneId = stringId;
     }
     item.__consigneData = consigne || null;
-    const label = document.createElement("span");
+    const label = document.createElement("div");
+    label.className = "practice-hidden__text";
     const safeLabel = consigne?.text || consigne?.titre || "cette consigne";
     label.innerHTML = `<span class="font-medium text-slate-600">${escapeHtml(safeLabel)}</span> — revient dans ${remaining} itération(s)`;
-    const actions = document.createElement("span");
-    actions.className = "flex items-center gap-1";
+    const actions = document.createElement("div");
+    actions.className = "practice-hidden__actions";
     const historyBtn = document.createElement("button");
     historyBtn.type = "button";
     historyBtn.className = "btn btn-ghost text-xs js-histo-hidden";
@@ -15599,12 +15600,12 @@ async function renderDaily(ctx, root, opts = {}) {
     box.innerHTML = `<div class="font-medium">Masquées par répétition espacée (${hidden.length})</div>
   <ul class="text-sm text-[var(--muted)] space-y-1">
     ${hidden.map(h => `
-      <li class="flex items-center justify-between gap-2">
-        <span><span class="font-medium text-slate-600">${escapeHtml(h.c.text)}</span> — revient dans ${h.daysLeft} jour(s) (le ${h.when.toLocaleDateString()})</span>
-        <span class="flex items-center gap-1">
+      <li class="practice-hidden__item">
+        <div class="practice-hidden__text"><span class="font-medium text-slate-600">${escapeHtml(h.c.text)}</span> — revient dans ${h.daysLeft} jour(s) (le ${h.when.toLocaleDateString()})</div>
+        <div class="practice-hidden__actions">
           <button type="button" class="btn btn-ghost text-xs js-histo-hidden" data-id="${h.c.id}">Historique</button>
           <button type="button" class="btn btn-ghost text-xs js-reset-sr" data-id="${h.c.id}">Réinitialiser</button>
-        </span>
+        </div>
       </li>`).join("")}
   </ul>`;
     container.appendChild(box);
