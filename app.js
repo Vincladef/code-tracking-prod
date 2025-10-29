@@ -3172,6 +3172,13 @@
 
     let section = tokens[0];
     let sub = null;
+    const modesApi = typeof window !== "undefined" ? window.Modes : null;
+    const goalsApi = typeof window !== "undefined" ? window.Goals : null;
+    const modesReady = () =>
+      modesApi &&
+      typeof modesApi.renderDaily === "function" &&
+      typeof modesApi.renderPractice === "function" &&
+      typeof modesApi.renderHistory === "function";
     if (section === "u") {
       // /u/{uid}/{sub}
       const uid = tokens[1];
@@ -3209,6 +3216,11 @@
         // Propager la date de la page dans le contexte global pour les checklists
         // afin que l'hydratation et la persistance soient scorées par jour (indépendance samedi/dimanche)
         {
+          if (!modesReady()) {
+            console.warn("Modes module not ready (daily). Retrying soon…");
+            window.setTimeout(render, 50);
+            return;
+          }
           const pageDateIso = (qp.get("d") || "").trim();
           ctx.dateIso = pageDateIso || null;
           // AppCtx est une référence à ctx (assignée plus bas), une mutation suffit
@@ -3218,7 +3230,7 @@
           }
         }
         return renderWithChecklistHydration(
-          Modes.renderDaily(ctx, root, {
+          modesApi.renderDaily(ctx, root, {
             day: qp.get("day"),
             dateIso: qp.get("d"),
             view: qp.get("view"),
@@ -3226,14 +3238,29 @@
           root
         );
       case "practice":
+        if (!modesReady()) {
+          console.warn("Modes module not ready (practice). Retrying soon…");
+          window.setTimeout(render, 50);
+          return;
+        }
         return renderWithChecklistHydration(
-          Modes.renderPractice(ctx, root, { newSession: qp.get("new") === "1" }),
+          modesApi.renderPractice(ctx, root, { newSession: qp.get("new") === "1" }),
           root
         );
       case "history":
-        return renderWithChecklistHydration(Modes.renderHistory(ctx, root), root);
+        if (!modesReady()) {
+          console.warn("Modes module not ready (history). Retrying soon…");
+          window.setTimeout(render, 50);
+          return;
+        }
+        return renderWithChecklistHydration(modesApi.renderHistory(ctx, root), root);
       case "goals":
-        return renderWithChecklistHydration(Goals.renderGoals(ctx, root), root);
+        if (!goalsApi || typeof goalsApi.renderGoals !== "function") {
+          console.warn("Goals module not ready. Retrying soon…");
+          window.setTimeout(render, 50);
+          return;
+        }
+        return renderWithChecklistHydration(goalsApi.renderGoals(ctx, root), root);
       default:
         root.innerHTML = "<div class='card'>Page inconnue.</div>";
     }
