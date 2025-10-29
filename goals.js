@@ -12,6 +12,83 @@
   let lastCtx = null;
   let activeReminderPopover = null;
   let detachReminderOutsideHandlers = null;
+  // Notes cache (mois + semaines)
+  const __notesCache = new Map(); // monthKey -> { month: {id, monthKey, type:"month", value}, weeks: { [week]: {id, monthKey, type:"week", weekOfMonth, value} } }
+
+  async function loadNotesForMonth(monthKey) {
+    const safeMonth = String(monthKey || "").trim();
+    if (!safeMonth) return { month: null, weeks: {} };
+    if (__notesCache.has(safeMonth)) {
+      return __notesCache.get(safeMonth);
+    }
+    if (!lastCtx?.db || !lastCtx?.user?.uid || typeof Schema?.listObjectiveNotesByMonth !== "function") {
+      const empty = { month: null, weeks: {} };
+      __notesCache.set(safeMonth, empty);
+      return empty;
+    }
+    try {
+      const notes = await Schema.listObjectiveNotesByMonth(lastCtx.db, lastCtx.user.uid, safeMonth);
+      const normalized = notes && typeof notes === "object" ? { month: notes.month || null, weeks: notes.weeks || {} } : { month: null, weeks: {} };
+      __notesCache.set(safeMonth, normalized);
+      return normalized;
+    } catch (err) {
+      goalsLogger.warn("goals.notes.load", err);
+      const empty = { month: null, weeks: {} };
+      __notesCache.set(safeMonth, empty);
+      return empty;
+    }
+  }
+
+  function updateNotesCache(monthKey, updater) {
+    const safeMonth = String(monthKey || "").trim();
+    if (!safeMonth) return { month: null, weeks: {} };
+    const prev = __notesCache.get(safeMonth) || { month: null, weeks: {} };
+    const draft = { month: prev.month || null, weeks: { ...(prev.weeks || {}) } };
+    const next = typeof updater === "function" ? (updater(draft) || draft) : draft;
+    const normalized = next && typeof next === "object" ? next : draft;
+    __notesCache.set(safeMonth, normalized);
+    return normalized;
+  }
+
+  function updateNoteButtonState(btn, entry, baseLabel) {
+    if (!btn) return;
+    const hasValue = Boolean(entry && typeof entry.value === "string" && entry.value.trim());
+    btn.setAttribute("aria-pressed", hasValue ? "true" : "false");
+    btn.dataset.hasNote = hasValue ? "1" : "0";
+    const label = String(baseLabel || "📝 Note");
+    btn.textContent = hasValue ? `${label} ★` : label;
+    btn.title = hasValue ? "Note enregistrée" : "Ajouter une note";
+  }
+
+  async function openObjectiveNoteEditor(options) {
+    const monthKey = String(options?.monthKey || "").trim();
+    const weekOfMonth = Number(options?.weekOfMonth);
+    const type = Number.isFinite(weekOfMonth) ? "week" : "month";
+    const existing = options?.existingNote?.value || "";
+    const onChange = typeof options?.onChange === "function" ? options.onChange : () => {};
+    if (!monthKey) return;
+    const next = window.prompt(type === "week" ? "Note de la semaine" : "Note du mois", existing);
+    if (next === null) {
+      return; // annulé
+    }
+    if (!lastCtx?.db || !lastCtx?.user?.uid) {
+      goalsLogger.warn("goals.notes.ctx.missing");
+      return;
+    }
+    const payload = { monthKey, type, weekOfMonth: Number.isFinite(weekOfMonth) ? weekOfMonth : null };
+    try {
+      if (String(next).trim()) {
+        const saved = await Schema.saveObjectiveNote(lastCtx.db, lastCtx.user.uid, { ...payload, value: String(next).trim() });
+        onChange(saved);
+      } else {
+        await Schema.deleteObjectiveNote(lastCtx.db, lastCtx.user.uid, payload);
+        onChange(null);
+      }
+    } catch (err) {
+      goalsLogger.warn("goals.notes.save", err);
+      alert("Impossible d'enregistrer la note.");
+    }
+  }
   const goalDragState = {
     activeId: null,
     sourceList: null,
