@@ -9111,17 +9111,24 @@ function resolveHistoryTimelineKey(entry, consigne) {
 function buildConsigneHistoryTimeline(entries, consigne) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const dayMap = new Map();
+  const records = [];
   if (Array.isArray(entries)) {
     entries.forEach((entry) => {
       if (!entry || typeof entry !== "object") return;
       const summaryInfo = resolveHistoryEntrySummaryInfo(entry);
-      if (summaryInfo.isSummary && !summaryInfo.isBilan) return;
+      if (summaryInfo.isSummary && !summaryInfo.isBilan) {
+        return;
+      }
       const keyInfo = resolveHistoryTimelineKey(entry, consigne);
       const { dayKey, date, timestamp, iterationIndex, iterationNumber, iterationLabel } = keyInfo || {};
-      if (!dayKey || !(date instanceof Date) || Number.isNaN(date.getTime())) {
-        if (!dayKey) {
-          return;
+      if (!dayKey) {
+        return;
+      }
+      let effectiveDate = date instanceof Date && !Number.isNaN(date.getTime()) ? date : null;
+      if (!effectiveDate) {
+        const parsed = modesParseDayKeyToDate(dayKey);
+        if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+          effectiveDate = parsed;
         }
       }
       const value = resolveHistoryTimelineValue(entry, consigne);
@@ -9147,54 +9154,36 @@ function buildConsigneHistoryTimeline(entries, consigne) {
       const effectiveTimestamp =
         typeof timestamp === "number"
           ? timestamp
-          : date instanceof Date && !Number.isNaN(date.getTime())
-          ? date.getTime()
+          : effectiveDate instanceof Date && !Number.isNaN(effectiveDate.getTime())
+          ? effectiveDate.getTime()
           : typeof iterationIndex === "number"
           ? iterationIndex
           : today.getTime();
-      const existing = dayMap.get(dayKey);
-      const historyId = typeof entry?.id === "string" ? entry.id : "";
+      const historyId = resolveHistoryDocumentId(entry, dayKey);
       const responseId = resolveHistoryResponseId(entry);
-      if (!existing || effectiveTimestamp >= existing.timestamp) {
-        dayMap.set(dayKey, {
-          status,
-          date,
-          timestamp: effectiveTimestamp,
-          value,
-          note,
-          isBilan: isBilanEntry,
-          iterationIndex: typeof iterationIndex === "number" ? iterationIndex : null,
-          iterationNumber: typeof iterationNumber === "number" ? iterationNumber : null,
-          iterationLabel: typeof iterationLabel === "string" ? iterationLabel : "",
-          historyId,
-          responseId,
-        });
-      }
+      records.push({
+        dayKey,
+        date: effectiveDate,
+        status,
+        value,
+        note,
+        isBilan: isBilanEntry,
+        timestamp: effectiveTimestamp,
+        iterationIndex: typeof iterationIndex === "number" ? iterationIndex : null,
+        iterationNumber: typeof iterationNumber === "number" ? iterationNumber : null,
+        iterationLabel: typeof iterationLabel === "string" ? iterationLabel : "",
+        historyId: typeof historyId === "string" ? historyId : "",
+        responseId: typeof responseId === "string" ? responseId : "",
+      });
     });
   }
-  const sortedRecords = Array.from(dayMap.entries())
-    .map(([dayKey, record]) => ({
-      dayKey,
-      status: record?.status || "na",
-      date: record?.date instanceof Date ? record.date : null,
-      timestamp: typeof record?.timestamp === "number"
-        ? record.timestamp
-        : record?.date instanceof Date && !Number.isNaN(record.date.getTime())
-          ? record.date.getTime()
-          : typeof record?.iterationIndex === "number"
-            ? record.iterationIndex
-            : today.getTime(),
-      value: record?.value,
-      note: record?.note || "",
-      isBilan: record?.isBilan === true,
-      iterationIndex: typeof record?.iterationIndex === "number" ? record.iterationIndex : null,
-      iterationNumber: typeof record?.iterationNumber === "number" ? record.iterationNumber : null,
-      iterationLabel: typeof record?.iterationLabel === "string" ? record.iterationLabel : "",
-      historyId: typeof record?.historyId === "string" ? record.historyId : "",
-      responseId: typeof record?.responseId === "string" ? record.responseId : "",
-    }))
-    .sort((a, b) => b.timestamp - a.timestamp);
-  const limited = sortedRecords.slice(0, CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
+  records.sort((a, b) => {
+    if (typeof b.timestamp === "number" && typeof a.timestamp === "number" && b.timestamp !== a.timestamp) {
+      return b.timestamp - a.timestamp;
+    }
+    return (b.date?.getTime?.() || 0) - (a.date?.getTime?.() || 0);
+  });
+  const limited = records.slice(0, CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
   return limited
     .map((record) =>
       formatConsigneHistoryPoint(
@@ -10057,6 +10046,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           consigne,
           value: "",
           dayKey: resolvedDayKey,
+          historyId: historyDocumentId,
+          responseId: responseSyncOptions?.responseId || "",
           isBilan: true,
           remove: true,
         });
@@ -10093,6 +10084,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               consigne: childState.consigne,
               value: "",
               dayKey: resolvedDayKey,
+              historyId: childState.historyDocumentId,
+              responseId: childState.responseSyncOptions?.responseId || "",
               iterationLabel,
               remove: true,
             });
@@ -10606,6 +10599,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           consigne,
           value: "",
           dayKey: resolvedDayKey,
+          historyId: historyDocumentId,
+          responseId: responseSyncOptions?.responseId || "",
           iterationLabel,
           remove: true,
         });
@@ -10642,6 +10637,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               consigne: childState.consigne,
               value: "",
               dayKey: resolvedDayKey,
+              historyId: childState.historyDocumentId,
+              responseId: childState.responseSyncOptions?.responseId || "",
               iterationLabel,
               remove: true,
             });
@@ -10824,6 +10821,10 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   }
   // If explicitly asked to remove the encard for this day, do so and update container state
   if (options && options.remove === true) {
+    const normalizedHistoryId =
+      typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
+    const normalizedResponseId =
+      typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
     const resolveDayKey = () => {
       if (typeof options.dayKey === "string" && options.dayKey.trim()) {
         return options.dayKey.trim();
@@ -10854,9 +10855,18 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       return null;
     };
     const dayKey = resolveDayKey();
-    if (!dayKey) return;
-    const selector = `[data-history-day="${escapeTimelineSelector(dayKey)}"]`;
-    const item = state.track.querySelector(selector);
+    let item = null;
+    if (normalizedHistoryId) {
+      item = state.track.querySelector(`[data-history-id="${escapeTimelineSelector(normalizedHistoryId)}"]`);
+    }
+    if (!item && normalizedResponseId) {
+      item = state.track.querySelector(
+        `[data-history-response-id="${escapeTimelineSelector(normalizedResponseId)}"]`,
+      );
+    }
+    if (!item && dayKey) {
+      item = state.track.querySelector(`[data-history-day="${escapeTimelineSelector(dayKey)}"]`);
+    }
     if (item) {
       item.remove();
     }
@@ -10911,7 +10921,22 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     }
   }
   const selector = `[data-history-day="${escapeTimelineSelector(dayKey)}"]`;
-  let item = state.track.querySelector(selector);
+  const normalizedHistoryId =
+    typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
+  const normalizedResponseId =
+    typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
+  let item = null;
+  if (normalizedHistoryId) {
+    item = state.track.querySelector(`[data-history-id="${escapeTimelineSelector(normalizedHistoryId)}"]`);
+  }
+  if (!item && normalizedResponseId) {
+    item = state.track.querySelector(
+      `[data-history-response-id="${escapeTimelineSelector(normalizedResponseId)}"]`,
+    );
+  }
+  if (!item) {
+    item = state.track.querySelector(selector);
+  }
   const dateIso = item?.dataset?.dateIso;
   let date = null;
   if (dateIso) {
@@ -10937,8 +10962,8 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   iterationLabel = sanitizeIterationLabel(iterationLabel, iterationNumber);
   const providedIsBilan = options.isBilan === true || existingDetails?.isBilan === true;
   const resolvedHistoryId = (() => {
-    if (typeof options.historyId === "string" && options.historyId.trim()) {
-      return options.historyId.trim();
+    if (normalizedHistoryId) {
+      return normalizedHistoryId;
     }
     const fromExisting =
       (typeof existingDetails?.historyId === "string" && existingDetails.historyId.trim()
@@ -10953,8 +10978,8 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     return fromExisting || "";
   })();
   const resolvedResponseId = (() => {
-    if (typeof options.responseId === "string" && options.responseId.trim()) {
-      return options.responseId.trim();
+    if (normalizedResponseId) {
+      return normalizedResponseId;
     }
     const fromExisting =
       (typeof existingDetails?.responseId === "string" && existingDetails.responseId.trim()
@@ -14070,6 +14095,27 @@ function collectConsigneTimelineSnapshot(consigne) {
   return { row, items };
 }
 
+function refreshConsigneTimelineWithRows(consigne, rows) {
+  if (!consigne || consigne.id == null) {
+    return;
+  }
+  const snapshot = collectConsigneTimelineSnapshot(consigne);
+  if (!snapshot || !(snapshot.row instanceof HTMLElement)) {
+    return;
+  }
+  const points = buildConsigneHistoryTimeline(rows, consigne);
+  const state = CONSIGNE_HISTORY_ROW_STATE.get(snapshot.row) || null;
+  const rendered = renderConsigneHistoryTimeline(snapshot.row, points);
+  if (state) {
+    state.hasDayTimeline = Boolean(points.length);
+    state.track = snapshot.row.querySelector("[data-consigne-history-track]") || state.track;
+    scheduleConsigneHistoryNavUpdate(state);
+  }
+  if (!rendered && state) {
+    state.track.dataset.historyMode = "empty";
+  }
+}
+
 function logConsigneHistoryComparison(consigne, panelMetas, context = {}) {
   if (!consigne || !Array.isArray(panelMetas)) {
     return;
@@ -14777,6 +14823,7 @@ async function openHistory(ctx, consigne, options = {}) {
     })
     .join("");
 
+  refreshConsigneTimelineWithRows(consigne, rows);
   logConsigneHistoryComparison(consigne, rowMetas, {
     source: historySource || options.source || "",
     size,
