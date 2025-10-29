@@ -7694,7 +7694,7 @@ function historyStatusFromAverage(type, values) {
 const CONSIGNE_HISTORY_TIMELINE_DAY_COUNT = 21;
 const CONSIGNE_HISTORY_ROW_STATE = new WeakMap();
 const CONSIGNE_HISTORY_SCROLL_MIN_STEP = 160;
-const CONSIGNE_HISTORY_SCROLL_EPSILON = 2;
+const CONSIGNE_HISTORY_SCROLL_EPSILON = 6;
 const CONSIGNE_HISTORY_DAY_LABEL_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
 const CONSIGNE_HISTORY_WEEKDAY_LABEL_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "short" });
 const CONSIGNE_HISTORY_DAY_FULL_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
