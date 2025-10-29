@@ -138,19 +138,10 @@
     nodes.forEach((node) => list.appendChild(node));
   }
 
-  function bindGoalDragHandle(handle) {
-    if (!handle || handle.dataset.goalDragBound === "1") return;
-    handle.dataset.goalDragBound = "1";
-    handle.setAttribute("draggable", "true");
-    handle.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-    });
-    handle.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-      }
-    });
+  function ensureGoalDragSource(button) {
+    if (!button || button.dataset.goalDragBound === "1") return;
+    button.dataset.goalDragBound = "1";
+    button.setAttribute("draggable", "true");
   }
 
   function clearGoalDragVisuals() {
@@ -192,10 +183,11 @@
     list.dataset.goalDnd = "1";
 
     const handleDragStart = (event) => {
-      const handle = event.target.closest("[data-goal-drag-handle]");
-      if (!handle) return;
-      const row = handle.closest("[data-goal-id]");
+      const source = event.target.closest("[data-goal-drag-source]");
+      if (!source) return;
+      const row = source.closest("[data-goal-id]");
       if (!row || !row.dataset.goalId) return;
+      if (!list.contains(row)) return;
       goalDragState.activeId = row.dataset.goalId;
       goalDragState.sourceList = list;
       goalDragState.startOrder = captureGoalOrder(list);
@@ -358,9 +350,9 @@
     if (iconWrap) {
       iconWrap.innerHTML = reminderIconHtml(goal);
     }
-    const dragHandle = row.querySelector("[data-goal-drag-handle]");
-    if (dragHandle) {
-      bindGoalDragHandle(dragHandle);
+    const dragSource = row.querySelector("[data-goal-drag-source]");
+    if (dragSource) {
+      ensureGoalDragSource(dragSource);
     }
     // No separate mail pill anymore (merged into reminder button)
     // Subtitle in case type/week changed
@@ -588,7 +580,7 @@
         const emailEnabled = isEmailEnabled(goal);
         titleWrap.innerHTML = `
           <div style="display:flex; align-items:center; gap:8px; width:100%">
-            <button type="button" class="goal-title__button" data-edit-goal style="flex:1; text-align:left;">
+            <button type="button" class="goal-title__button" data-edit-goal data-goal-drag-source style="flex:1; text-align:left;" draggable="true">
               <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
               <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(typeLabel(goal, goal.monthKey))}</span>
             </button>
@@ -598,7 +590,6 @@
                 <span class="goal-date-pill text-xs muted" data-date-pill>${escapeHtml(effectiveLabel)}</span>
               </button>
               <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced draggable="false">⚙️</button>
-              <button type="button" class="btn btn-ghost goal-drag-handle" data-goal-drag-handle aria-label="Réordonner l’objectif" title="Réordonner l’objectif" draggable="true">⋮⋮</button>
             </div>
           </div>
         `;
@@ -627,9 +618,9 @@
             toggleReminderPopover(row, goal, reminderBtn);
           });
         }
-        const dragHandle = titleWrap.querySelector("[data-goal-drag-handle]");
-        if (dragHandle) {
-          bindGoalDragHandle(dragHandle);
+        const dragSource = titleWrap.querySelector("[data-goal-drag-source]");
+        if (dragSource) {
+          ensureGoalDragSource(dragSource);
         }
       };
 
@@ -698,7 +689,7 @@
 
       row.innerHTML = `
         <div class="goal-title" style="display:flex; align-items:center; gap:8px;">
-          <button type="button" class="goal-title__button" data-edit-goal style="flex:1; text-align:left;">
+          <button type="button" class="goal-title__button" data-edit-goal data-goal-drag-source style="flex:1; text-align:left;" draggable="true">
             <span class="goal-title__text">${escapeHtml(goal.titre || "Objectif")}</span>
             <span class="goal-title__subtitle text-xs text-[var(--muted)]">${escapeHtml(subtitle)}</span>
           </button>
@@ -708,7 +699,6 @@
               <span class="goal-date-pill text-xs muted" data-date-pill>${escapeHtml(effectiveLabel)}</span>
             </button>
             <button type="button" class="btn btn-ghost goal-advanced" title="Options avancées" data-open-advanced draggable="false">⚙️</button>
-            <button type="button" class="btn btn-ghost goal-drag-handle" data-goal-drag-handle aria-label="Réordonner l’objectif" title="Réordonner l’objectif" draggable="true">⋮⋮</button>
           </div>
         </div>
         <div class="goal-quick">
@@ -723,6 +713,10 @@
           </select>
         </div>
       `;
+      const dragSource = row.querySelector("[data-goal-drag-source]");
+      if (dragSource) {
+        ensureGoalDragSource(dragSource);
+      }
       const select = row.querySelector("select");
       const applyTone = (raw) => {
         row.classList.remove(...toneClasses);

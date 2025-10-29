@@ -1653,7 +1653,9 @@
     .goal-row--editable .goal-quick,
     .goal-row--editable .goal-quick *{ cursor:auto; }
     .goal-title{ flex:1; width:100%; }
-    .goal-title__button{ display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%; background:none; border:none; padding:0; font:inherit; color:inherit; text-align:left; cursor:pointer; }
+    .goal-title__button{ display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%; background:none; border:none; padding:0; font:inherit; color:inherit; text-align:left; cursor:grab; }
+    .goal-title__button:active{ cursor:grabbing; }
+    .goal-list--dragging [data-goal-drag-source]{ cursor:grabbing; }
     .goal-title__button:hover .goal-title__text{ text-decoration:underline; }
     .goal-title__button:focus-visible{ outline:2px solid var(--accent-400); outline-offset:2px; border-radius:6px; }
     .goal-title__text{ font-weight:600; }
@@ -1673,12 +1675,7 @@
     .goal-reminder-icon-wrap{ width:26px; height:26px; border-radius:999px; background:rgba(148,163,184,.18); display:inline-flex; align-items:center; justify-content:center; color:#475569; transition:background .15s ease, color .15s ease; }
     .goal-reminder-btn[data-email-state="on"] .goal-reminder-icon-wrap{ background:#4f46e5; color:#fff; }
     .goal-reminder-icon{ width:16px; height:16px; display:block; }
-    .goal-drag-handle{ width:2.25rem; height:2.25rem; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; cursor:grab; font-size:1.1rem; color:#475569; }
-    .goal-drag-handle:active{ cursor:grabbing; }
-    .goal-drag-handle:hover{ background:var(--accent-50); color:#312e81; }
-    .goal-drag-handle:focus-visible{ outline:2px solid var(--accent-400); outline-offset:2px; }
     .goal-row.is-dragging{ opacity:0.6; }
-    .goal-list--dragging .goal-drag-handle{ cursor:grabbing; }
 
     .history-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
     .history-table{ min-width:720px; }
