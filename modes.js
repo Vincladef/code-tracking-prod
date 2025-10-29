@@ -10267,6 +10267,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       if (submitBtn) submitBtn.disabled = true;
       try {
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        // Clear local recent cache so Historique reflects deletion
+        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
         // If this entry is a bilan-backed summary, delete the summary answer to avoid reappearance
         try {
           const scope = entry?.summaryScope || entry?.periodScope || "";
@@ -10296,6 +10298,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               resolvedDayKey,
               childState.responseSyncOptions,
             );
+            try { removeRecentResponsesForDay(childState.consigne.id, resolvedDayKey); } catch (e) {}
             // Also handle child summary deletion
             try {
               const cEntry = childState.entry || null;
@@ -10356,6 +10359,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       });
       if (!parentHasValue) {
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
         // Also delete summary answer if this entry originated from a bilan
         try {
           const scope = entry?.summaryScope || entry?.periodScope || "";
@@ -10376,6 +10380,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           { value: rawValue },
           responseSyncOptions,
         );
+        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
       }
       const parentStatus = dotColor(
         consigne.type,
@@ -10399,6 +10404,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             resolvedDayKey,
             state.responseSyncOptions,
           );
+          try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
           // Delete child summary answer if present
           try {
             const cEntry = state.entry || null;
@@ -10420,6 +10426,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             { value },
             state.responseSyncOptions,
           );
+          try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
         }
         const childStatus = dotColor(
           state.consigne.type,
@@ -13221,6 +13228,35 @@ function getRecentResponsesStore() {
   return null;
 }
 
+function clearRecentResponsesForConsigne(consigneId) {
+  if (!consigneId) return;
+  const store = getRecentResponsesStore();
+  if (!store) return;
+  try {
+    store.delete(consigneId);
+  } catch (error) {
+    console.warn("recentResponsesStore:clear", error);
+  }
+}
+
+function removeRecentResponsesForDay(consigneId, dayKey) {
+  if (!consigneId || !dayKey) return;
+  const store = getRecentResponsesStore();
+  if (!store) return;
+  try {
+    const list = store.get(consigneId) || [];
+    if (!Array.isArray(list) || !list.length) return;
+    const filtered = list.filter((entry) => String(entry?.dayKey || "") !== String(dayKey));
+    if (filtered.length) {
+      store.set(consigneId, filtered);
+    } else {
+      store.delete(consigneId);
+    }
+  } catch (error) {
+    console.warn("recentResponsesStore:removeDay", error);
+  }
+}
+
 const MILLIS_EPOCH_THRESHOLD = Date.UTC(2000, 0, 1);
 
 function normalizeDateInstance(date) {
@@ -14382,6 +14418,7 @@ async function openHistory(ctx, consigne, options = {}) {
         if (submitBtn) submitBtn.disabled = true;
         try {
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, responseSyncOptions);
+          try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
           closeEditor();
           reopenHistory();
         } catch (error) {
@@ -14402,6 +14439,7 @@ async function openHistory(ctx, consigne, options = {}) {
         const isRawEmpty = rawValue === '' || rawValue == null;
         if (isRawEmpty && !note) {
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, responseSyncOptions);
+          try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
         } else {
           await Schema.saveHistoryEntry(
             ctx.db,
@@ -14414,6 +14452,7 @@ async function openHistory(ctx, consigne, options = {}) {
             },
             responseSyncOptions
           );
+          try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
         }
         closeEditor();
         reopenHistory();
