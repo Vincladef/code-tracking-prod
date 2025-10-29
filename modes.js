@@ -9149,6 +9149,8 @@ function buildConsigneHistoryTimeline(entries, consigne) {
           iterationIndex: record.iterationIndex,
           iterationNumber: record.iterationNumber,
           iterationLabel: record.iterationLabel,
+          historyId: record.historyId,
+          responseId: record.responseId,
         },
         consigne,
       ),
@@ -16899,6 +16901,27 @@ async function renderDaily(ctx, root, opts = {}) {
   const previousAnswers = previousAnswersRaw instanceof Map
     ? previousAnswersRaw
     : new Map(previousAnswersRaw || []);
+  const normalizedCurrentDayKey =
+    typeof dayKey === "string" && dayKey.trim() ? normalizeHistoryDayKey(dayKey) : "";
+  const resolvePreviousEntryDayKey = (entry) => {
+    if (!entry || typeof entry !== "object") {
+      return "";
+    }
+    const candidates = [
+      entry.dayKey,
+      entry.day_key,
+      entry.dateKey,
+      entry.date_key,
+      entry.responseDayKey,
+      entry.day,
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.trim()) {
+        return normalizeHistoryDayKey(candidate);
+      }
+    }
+    return "";
+  };
 
   const observedValues = new Map();
   const autoSaveStates = new Map();
@@ -17248,10 +17271,23 @@ async function renderDaily(ctx, root, opts = {}) {
 
   const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
     const previous = previousAnswers.get(item.id);
-    const hasPrevValue =
-      item.type === "checklist"
-        ? false
-        : Boolean(previous && Object.prototype.hasOwnProperty.call(previous, "value"));
+    const previousHasValue = Boolean(
+      previous && Object.prototype.hasOwnProperty.call(previous, "value"),
+    );
+    let hasPrevValue = false;
+    if (previousHasValue) {
+      if (item.type === "checklist") {
+        const previousDayKey = resolvePreviousEntryDayKey(previous);
+        const sameDay = normalizedCurrentDayKey
+          ? previousDayKey === normalizedCurrentDayKey
+          : Boolean(previousDayKey);
+        if (sameDay && hasChecklistResponse(item, null, previous.value)) {
+          hasPrevValue = true;
+        }
+      } else {
+        hasPrevValue = true;
+      }
+    }
     const initialValue = hasPrevValue ? previous.value : null;
     const row = document.createElement("div");
     const tone = priorityTone(item.priority);
@@ -17471,10 +17507,23 @@ async function renderDaily(ctx, root, opts = {}) {
     wrapper.appendChild(parentCard);
     const childConfigs = group.children.map((child) => {
       const previous = previousAnswers.get(child.id);
-      const hasPrevValue =
-        child.type === "checklist"
-          ? false
-          : Boolean(previous && Object.prototype.hasOwnProperty.call(previous, "value"));
+      const previousHasValue = Boolean(
+        previous && Object.prototype.hasOwnProperty.call(previous, "value"),
+      );
+      let hasPrevValue = false;
+      if (previousHasValue) {
+        if (child.type === "checklist") {
+          const previousDayKey = resolvePreviousEntryDayKey(previous);
+          const sameDay = normalizedCurrentDayKey
+            ? previousDayKey === normalizedCurrentDayKey
+            : Boolean(previousDayKey);
+          if (sameDay && hasChecklistResponse(child, null, previous.value)) {
+            hasPrevValue = true;
+          }
+        } else {
+          hasPrevValue = true;
+        }
+      }
       const initialValue = hasPrevValue ? previous.value : null;
       const childRow = createHiddenConsigneRow(child, { initialValue });
       childRow.dataset.parentId = child.parentId || group.consigne.id || "";
