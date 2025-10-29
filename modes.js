@@ -14026,6 +14026,181 @@ async function fetchConsigneHistoryRows(ctx, consigneId, options = {}) {
   return result;
 }
 
+function collectConsigneTimelineSnapshot(consigne) {
+  if (!consigne || consigne.id == null || typeof document === "undefined") {
+    return null;
+  }
+  const consigneId = String(consigne.id);
+  const selector = `[data-consigne-id="${escapeTimelineSelector(consigneId)}"]`;
+  const row = document.querySelector(selector);
+  if (!(row instanceof HTMLElement)) {
+    return null;
+  }
+  const state = CONSIGNE_HISTORY_ROW_STATE.get(row) || null;
+  if (!state || !state.track) {
+    return { row, items: [] };
+  }
+  const nodes = Array.from(state.track.querySelectorAll(".consigne-history__item"));
+  const items = nodes.map((item, index) => {
+    const details = item._historyDetails && typeof item._historyDetails === "object" ? item._historyDetails : {};
+    const rawDayKey =
+      (typeof details.dayKey === "string" && details.dayKey.trim()) ||
+      (typeof item.dataset.historyDay === "string" && item.dataset.historyDay.trim()) ||
+      "";
+    const normalizedDayKey = normalizeHistoryDayKey(rawDayKey);
+    const status = item.dataset.status || details.status || "";
+    const historyId =
+      (typeof details.historyId === "string" && details.historyId.trim()) ||
+      (typeof item.dataset.historyId === "string" && item.dataset.historyId.trim()) ||
+      "";
+    const responseId =
+      (typeof details.responseId === "string" && details.responseId.trim()) ||
+      (typeof item.dataset.historyResponseId === "string" && item.dataset.historyResponseId.trim()) ||
+      "";
+    return {
+      index,
+      dayKey: rawDayKey,
+      normalizedDayKey,
+      status,
+      historyId,
+      responseId,
+      details,
+    };
+  });
+  return { row, items };
+}
+
+function logConsigneHistoryComparison(consigne, panelMetas, context = {}) {
+  if (!consigne || !Array.isArray(panelMetas)) {
+    return;
+  }
+  try {
+    const timelineSnapshot = collectConsigneTimelineSnapshot(consigne);
+    const timelineItems = Array.isArray(timelineSnapshot?.items) ? timelineSnapshot.items : null;
+    const timelineEntries = timelineItems
+      ? timelineItems.map((item) => ({
+          index: item.index,
+          dayKey: item.dayKey,
+          normalizedDayKey: item.normalizedDayKey,
+          status: item.status || "",
+          responseId: item.responseId || "",
+          historyId: item.historyId || "",
+        }))
+      : null;
+    const panelEntries = panelMetas.map((meta) => ({
+      index: meta.index,
+      dayKey: meta.dayKey || "",
+      normalizedDayKey: meta.normalizedDayKey || "",
+      status: meta.status || "",
+      responseId: meta.responseId || "",
+      historyId: meta.historyId || "",
+    }));
+
+    const timelineMap = new Map();
+    if (timelineEntries) {
+      timelineEntries.forEach((entry) => {
+        const key = entry.normalizedDayKey || `idx:${entry.index}:${entry.dayKey || ""}`;
+        timelineMap.set(key, entry);
+      });
+    }
+    const panelMap = new Map();
+    panelEntries.forEach((entry) => {
+      const key = entry.normalizedDayKey || `idx:${entry.index}:${entry.dayKey || ""}`;
+      panelMap.set(key, entry);
+    });
+
+    const missingInTimeline = [];
+    panelMap.forEach((entry, key) => {
+      if (!timelineMap.has(key)) {
+        missingInTimeline.push(entry);
+      }
+    });
+    const missingInPanel = [];
+    timelineMap.forEach((entry, key) => {
+      if (!panelMap.has(key)) {
+        missingInPanel.push(entry);
+      }
+    });
+    const statusMismatches = [];
+    const idMismatches = [];
+    panelMap.forEach((entry, key) => {
+      if (!timelineMap.has(key)) {
+        return;
+      }
+      const timelineEntry = timelineMap.get(key);
+      if ((entry.status || "na") !== (timelineEntry.status || "na")) {
+        statusMismatches.push({
+          key,
+          panel: entry.status || "",
+          timeline: timelineEntry.status || "",
+        });
+      }
+      const panelResponse = entry.responseId || "";
+      const timelineResponse = timelineEntry.responseId || "";
+      if (panelResponse !== timelineResponse) {
+        idMismatches.push({
+          key,
+          panel: panelResponse || "(aucun)",
+          timeline: timelineResponse || "(aucun)",
+        });
+      }
+    });
+
+    const hasTimeline = Boolean(timelineSnapshot && timelineEntries);
+    const hasDifferences =
+      !hasTimeline ||
+      missingInTimeline.length > 0 ||
+      missingInPanel.length > 0 ||
+      statusMismatches.length > 0 ||
+      idMismatches.length > 0;
+
+    const label = `[history-sync] ${safeConsigneLabel(consigne)} (#${consigne.id ?? "?"})`;
+    const groupMethod = hasDifferences ? console.group : console.groupCollapsed;
+    if (typeof groupMethod !== "function") {
+      if (hasDifferences) {
+        console.warn(label, "différences détectées", {
+          missingInTimeline,
+          missingInPanel,
+          statusMismatches,
+          idMismatches,
+          hasTimeline,
+          context,
+        });
+      } else {
+        console.info(`${label}: OK`, { count: panelEntries.length, context });
+      }
+      return;
+    }
+
+    groupMethod.call(console, label);
+    console.info("contexte", context);
+    if (!hasTimeline) {
+      console.warn("Pastilles non disponibles pour comparaison (row introuvable ou timeline vide).");
+    } else {
+      console.table?.(timelineEntries);
+    }
+    console.table?.(panelEntries);
+    if (missingInTimeline.length) {
+      console.warn("Présent dans l’historique (panel) mais absent des pastilles :", missingInTimeline);
+    }
+    if (missingInPanel.length) {
+      console.warn("Présent dans les pastilles mais absent du panneau :", missingInPanel);
+    }
+    if (statusMismatches.length) {
+      console.warn("Statuts divergents :", statusMismatches);
+    }
+    if (idMismatches.length) {
+      console.warn("responseId divergents :", idMismatches);
+    }
+    if (!hasDifferences) {
+      console.info(`Aucune divergence détectée (${panelEntries.length} entrées synchronisées).`);
+    }
+    console.groupEnd();
+  } catch (error) {
+    console.warn("[history-sync] comparaison impossible", error);
+  }
+}
+
 const EDITABLE_HISTORY_TYPES = new Set([
   "short",
   "long",
@@ -14381,6 +14556,7 @@ async function openHistory(ctx, consigne, options = {}) {
     })
     .join("");
 
+  const rowMetas = [];
   const list = rows
     .map((r, index) => {
       const recordedAt = firstValidDate([
@@ -14414,6 +14590,27 @@ async function openHistory(ctx, consigne, options = {}) {
           : Number(numericValue);
       const note = r.note && String(r.note).trim();
       const summaryInfo = resolveHistoryEntrySummaryInfo(r);
+      const normalizedDayKey = normalizeHistoryDayKey(dayKey);
+      const historyId =
+        (typeof r.historyId === "string" && r.historyId.trim()) ||
+        (typeof r.history_id === "string" && r.history_id.trim()) ||
+        "";
+      const responseId =
+        (typeof r.responseId === "string" && r.responseId.trim()) ||
+        (typeof r.response_id === "string" && r.response_id.trim()) ||
+        (typeof r.id === "string" && r.id.trim()) ||
+        "";
+      rowMetas.push({
+        index,
+        dayKey,
+        normalizedDayKey,
+        status,
+        historyId,
+        responseId,
+        value: r.value,
+        note: note || "",
+        source: summaryInfo.isBilan ? "bilan" : normalizeHistoryMode(r),
+      });
       const rawSummaryLabel = summaryInfo.isSummary
         ? firstNonEmptyString(
             r.summaryLabel,
@@ -14552,7 +14749,7 @@ async function openHistory(ctx, consigne, options = {}) {
         ? `<div class="history-panel__meta-row">${metaParts.join(" ")}</div>`
         : "";
       const dayKeyAttr = dayKey ? ` data-day-key="${escapeHtml(dayKey)}"` : "";
-      const responseIdAttr = r.id ? ` data-response-id="${escapeHtml(String(r.id))}"` : "";
+      const responseIdAttr = responseId ? ` data-response-id="${escapeHtml(String(responseId))}"` : "";
       // Allow editing normal entries and bilan summary entries
       const canEditEntry = EDITABLE_HISTORY_TYPES.has(consigne.type) && dayKey && (!summaryInfo.isSummary || summaryInfo.isBilan);
       const editButtonMarkup = canEditEntry
@@ -14579,6 +14776,12 @@ async function openHistory(ctx, consigne, options = {}) {
       `;
     })
     .join("");
+
+  logConsigneHistoryComparison(consigne, rowMetas, {
+    source: historySource || options.source || "",
+    size,
+    panelCount: rowMetas.length,
+  });
 
   const totalLabel = rows.length === 0 ? "Aucune entrée" : rows.length === 1 ? "1 entrée" : `${rows.length} entrées`;
   const navigationBounds = computeHistoryNavigationBounds(chartPoints);
