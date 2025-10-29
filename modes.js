@@ -8354,6 +8354,8 @@ function formatConsigneHistoryPoint(record, consigne) {
   const note = typeof noteSource === "string" ? noteSource.trim() : "";
   const hasContent = Boolean(valueHtml || valueText || note);
   const isBilan = record?.isBilan === true;
+  const historyId = typeof record?.historyId === "string" ? record.historyId : "";
+  const responseId = typeof record?.responseId === "string" ? record.responseId : "";
   const srText = (() => {
     if (rawIterationLabel) {
       return rawIterationLabel;
@@ -8373,6 +8375,8 @@ function formatConsigneHistoryPoint(record, consigne) {
     weekdayLabel: weekdayText,
     isPlaceholder: Boolean(record.isPlaceholder),
     isBilan,
+    historyId,
+    responseId,
     details: {
       dayKey: dayKey || "",
       date,
@@ -8391,6 +8395,8 @@ function formatConsigneHistoryPoint(record, consigne) {
       iterationLabel: rawIterationLabel,
       isPractice,
       isBilan,
+      historyId,
+      responseId,
       timestamp:
         typeof record.timestamp === "number"
           ? record.timestamp
@@ -9086,6 +9092,8 @@ function buildConsigneHistoryTimeline(entries, consigne) {
           ? iterationIndex
           : today.getTime();
       const existing = dayMap.get(dayKey);
+      const historyId = typeof entry?.id === "string" ? entry.id : "";
+      const responseId = resolveHistoryResponseId(entry);
       if (!existing || effectiveTimestamp >= existing.timestamp) {
         dayMap.set(dayKey, {
           status,
@@ -9097,6 +9105,8 @@ function buildConsigneHistoryTimeline(entries, consigne) {
           iterationIndex: typeof iterationIndex === "number" ? iterationIndex : null,
           iterationNumber: typeof iterationNumber === "number" ? iterationNumber : null,
           iterationLabel: typeof iterationLabel === "string" ? iterationLabel : "",
+          historyId,
+          responseId,
         });
       }
     });
@@ -9119,6 +9129,8 @@ function buildConsigneHistoryTimeline(entries, consigne) {
       iterationIndex: typeof record?.iterationIndex === "number" ? record.iterationIndex : null,
       iterationNumber: typeof record?.iterationNumber === "number" ? record.iterationNumber : null,
       iterationLabel: typeof record?.iterationLabel === "string" ? record.iterationLabel : "",
+      historyId: typeof record?.historyId === "string" ? record.historyId : "",
+      responseId: typeof record?.responseId === "string" ? record.responseId : "",
     }))
     .sort((a, b) => b.timestamp - a.timestamp);
   const limited = sortedRecords.slice(0, CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
@@ -9270,13 +9282,30 @@ function applyConsigneHistoryPoint(item, point) {
   }
   const details = point.details || null;
   if (details) {
-    item._historyDetails = { ...details };
+    const detailCopy = { ...details };
+    if (!detailCopy.historyId && point.historyId) {
+      detailCopy.historyId = point.historyId;
+    }
+    if (!detailCopy.responseId && point.responseId) {
+      detailCopy.responseId = point.responseId;
+    }
+    item._historyDetails = detailCopy;
     item.dataset.historyHasDetails = details.hasContent ? "1" : "0";
     item.setAttribute("aria-haspopup", "dialog");
   } else {
     delete item._historyDetails;
     item.dataset.historyHasDetails = "0";
     item.setAttribute("aria-haspopup", "dialog");
+  }
+  if (point.historyId) {
+    item.dataset.historyId = point.historyId;
+  } else {
+    delete item.dataset.historyId;
+  }
+  if (point.responseId) {
+    item.dataset.historyResponseId = point.responseId;
+  } else {
+    delete item.dataset.historyResponseId;
   }
   if (point.title) {
     item.title = point.title;
@@ -9472,6 +9501,37 @@ function resolveHistoryDocumentId(entry, fallback) {
   return "";
 }
 
+function resolveHistoryResponseId(entry, fallback = "") {
+  if (entry && typeof entry === "object") {
+    const candidates = [
+      entry.responseId,
+      entry.response_id,
+      entry.responseDocId,
+      entry.response_doc_id,
+      entry.responseRef,
+      entry.response_ref,
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string") {
+        const trimmed = candidate.trim();
+        if (trimmed) {
+          return trimmed;
+        }
+      }
+    }
+    if (entry.metadata && typeof entry.metadata === "object") {
+      const metaResolved = resolveHistoryResponseId(entry.metadata);
+      if (metaResolved) {
+        return metaResolved;
+      }
+    }
+  }
+  if (typeof fallback === "string" && fallback.trim()) {
+    return fallback.trim();
+  }
+  return "";
+}
+
 function findHistoryEntryForDayKey(entries, consigne, dayKey) {
   if (!Array.isArray(entries) || !dayKey) {
     return null;
@@ -9561,6 +9621,24 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   const keyInfo = match?.keyInfo || null;
   const resolvedDayKey = keyInfo?.dayKey || dayKey;
   const historyDocumentId = resolveHistoryDocumentId(entry, resolvedDayKey);
+  const explicitResponseId =
+    typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
+  const triggerResponseId = (() => {
+    if (!(trigger instanceof HTMLElement)) {
+      return "";
+    }
+    const raw =
+      (typeof trigger.dataset?.historyResponseId === "string" && trigger.dataset.historyResponseId.trim()
+        ? trigger.dataset.historyResponseId.trim()
+        : "") ||
+      trigger.getAttribute?.("data-history-response-id") ||
+      "";
+    return typeof raw === "string" ? raw.trim() : "";
+  })();
+  const detailResponseId = resolveHistoryResponseId(details);
+  const entryResponseId = resolveHistoryResponseId(entry);
+  const resolvedResponseId =
+    explicitResponseId || triggerResponseId || detailResponseId || entryResponseId || "";
   const entryValue = entry?.value !== undefined ? entry.value : details?.rawValue ?? "";
   const createdAtSource =
     entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? details?.timestamp ?? null;
@@ -9610,10 +9688,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   const entryResponseId =
     typeof entry?.responseId === "string" && entry.responseId.trim() ? entry.responseId.trim() : "";
   const resolvedResponseId =
-    explicitResponseId ||
-    triggerResponseId ||
-    entryResponseId ||
-    (typeof entry?.id === "string" && entry.id.trim() ? entry.id.trim() : "");
+    explicitResponseId || triggerResponseId || detailResponseId || entryResponseId || "";
   const responseSyncOptions = {
     responseId: resolvedResponseId,
     responseMode: entryMode,
@@ -9658,8 +9733,9 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       const childCreatedAtSource =
         childEntry?.createdAt ?? childEntry?.updatedAt ?? childEntry?.recordedAt ?? null;
       const childCreatedAt = asDate(childCreatedAtSource);
+      const childResponseId = resolveHistoryResponseId(childEntry);
       const childResponseSyncOptions = {
-        responseId: typeof childEntry?.id === "string" ? childEntry.id : "",
+        responseId: childResponseId,
         responseMode: resolveHistoryMode(childEntry) || entryMode,
         responseType:
           typeof childEntry?.type === "string" && childEntry.type.trim()
@@ -10201,7 +10277,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     .map((part) => String(part || ""))
     .join(":");
   const responseSyncOptions = {
-    responseId: historyDocumentId,
+    responseId: resolvedResponseId,
     responseMode: resolveHistoryMode(entry) || source,
     responseType: typeof entry?.type === "string" && entry.type.trim() ? entry.type.trim() : consigne?.type,
     responseDayKey: resolvedDayKey,
@@ -10245,8 +10321,9 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         childEntry?.createdAt ?? childEntry?.updatedAt ?? childEntry?.recordedAt ?? null;
       const childCreatedAt = asDate(childCreatedAtSource);
       const childHistoryDocumentId = resolveHistoryDocumentId(childEntry, resolvedDayKey);
+      const childResponseId = resolveHistoryResponseId(childEntry);
       const childResponseSyncOptions = {
-        responseId: childHistoryDocumentId,
+        responseId: childResponseId,
         responseMode: resolveHistoryMode(childEntry) || source,
         responseType:
           typeof childEntry?.type === "string" && childEntry.type.trim()
@@ -10931,6 +11008,12 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       ? historyDayKey ||
         (typeof rawDetails?.dayKey === "string" && rawDetails.dayKey.trim() ? rawDetails.dayKey.trim() : "")
       : "";
+    const responseIdCandidate =
+      typeof rawDetails?.responseId === "string" && rawDetails.responseId.trim()
+        ? rawDetails.responseId.trim()
+        : typeof target.dataset.historyResponseId === "string" && target.dataset.historyResponseId.trim()
+        ? target.dataset.historyResponseId.trim()
+        : "";
     if (isBilanPoint && bilanDayKey) {
       if (isKeyboard) {
         event.preventDefault();
@@ -10939,6 +11022,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
         dayKey: bilanDayKey,
         details: rawDetails,
         trigger: target,
+        responseId: responseIdCandidate,
       });
       return;
     }
@@ -10954,6 +11038,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
           details: rawDetails,
           trigger: target,
           source: historySource,
+          responseId: responseIdCandidate,
         });
       } else {
         void openHistory(ctx, consigne, {
