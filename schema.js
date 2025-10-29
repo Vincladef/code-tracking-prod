@@ -3095,18 +3095,16 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
       if (answer.note !== undefined) {
         responsePayload.note = answer.note;
       }
-      if (!hasExisting) {
+        // Always align createdAt to the period base date for summary entries
+        // so history consistently uses the period day (e.g., end of week/month)
         responsePayload.createdAt = createdAtIso;
-      }
       try {
         await setDoc(responseRef, responsePayload, { merge: true });
       } catch (error) {
         schemaLog("summaryResponse:save:error", { scope, periodKey, consigneId, error });
         return null;
       }
-      const createdAtValue = hasExisting
-        ? existingData?.createdAt ?? createdAtIso
-        : responsePayload.createdAt ?? createdAtIso;
+        const createdAtValue = responsePayload.createdAt ?? createdAtIso;
       return {
         id: responseId,
         consigneId,
