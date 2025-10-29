@@ -7938,6 +7938,67 @@ const CONSIGNE_HISTORY_DAY_FULL_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
   month: "long",
 });
+const HISTORY_PANEL_FETCH_LIMIT = 120;
+const DAILY_HISTORY_MODE_KEYS = new Set(["daily"]);
+
+function normalizeHistoryMode(row) {
+  if (!row || typeof row !== "object") {
+    return "";
+  }
+  const candidates = [row.mode, row.source, row.origin, row.context];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim().toLowerCase();
+    }
+  }
+  return "";
+}
+
+function parseHistoryResponseDate(value) {
+  const parsed = asDate(value);
+  return parsed instanceof Date && !Number.isNaN(parsed.getTime()) ? parsed : null;
+}
+
+function resolveHistoryResponseDayKey(row, createdAt) {
+  try {
+    const info = resolveHistoryEntrySummaryInfo(row);
+    if (info && (info.isSummary || info.isBilan)) {
+      const base = resolveHistoryTimelineKeyBase(row);
+      if (base && typeof base.dayKey === "string" && base.dayKey.trim()) {
+        return base.dayKey.trim();
+      }
+    }
+  } catch (_) {}
+  const rawDay =
+    row?.dayKey ||
+    row?.day_key ||
+    row?.date ||
+    row?.day ||
+    (typeof row?.getDayKey === "function" ? row.getDayKey() : null);
+  if (typeof rawDay === "string" && rawDay.trim()) {
+    return rawDay.trim();
+  }
+  if (rawDay instanceof Date && !Number.isNaN(rawDay.getTime())) {
+    return typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(rawDay)
+      : rawDay.toISOString().slice(0, 10);
+  }
+  if (typeof rawDay === "number" && Number.isFinite(rawDay)) {
+    const fromNumber = asDate(rawDay);
+    if (fromNumber instanceof Date && !Number.isNaN(fromNumber.getTime())) {
+      return typeof Schema?.dayKeyFromDate === "function"
+        ? Schema.dayKeyFromDate(fromNumber)
+        : fromNumber.toISOString().slice(0, 10);
+    }
+  }
+  const fallbackDate = parseHistoryResponseDate(createdAt);
+  if (fallbackDate instanceof Date && !Number.isNaN(fallbackDate.getTime())) {
+    return typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(fallbackDate)
+      : fallbackDate.toISOString().slice(0, 10);
+  }
+  return "";
+}
 
 function capitalizeHistoryLabel(value) {
   if (typeof value !== "string" || !value.length) {
@@ -11037,14 +11098,27 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
   const initialPoints = buildConsigneHistoryTimeline([], consigne);
   state.hasDayTimeline = renderConsigneHistoryTimeline(row, initialPoints);
   scheduleConsigneHistoryNavUpdate(state);
-  if (!ctx?.db || !ctx?.user?.uid || !consigne?.id || typeof Schema?.loadConsigneHistory !== "function") {
+  if (!ctx?.db || !ctx?.user?.uid || !consigne?.id) {
     return;
   }
-  Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id)
-    .then((entries) => {
+  const timelineFetchLimit = Math.max(CONSIGNE_HISTORY_TIMELINE_DAY_COUNT * 3, 60);
+  fetchConsigneHistoryRows(ctx, consigne.id, { limit: timelineFetchLimit })
+    .then((result) => {
       if (!row.isConnected) {
         return;
       }
+      if (result.error) {
+        try {
+          modesLogger?.warn?.("consigne.history.timeline", result.error);
+        } catch (_) {}
+        scheduleConsigneHistoryNavUpdate(state);
+        return;
+      }
+      if (Array.isArray(result.missing) && result.missing.length) {
+        scheduleConsigneHistoryNavUpdate(state);
+        return;
+      }
+      const entries = Array.isArray(result.rows) ? result.rows : [];
       const points = buildConsigneHistoryTimeline(entries, consigne);
       state.hasDayTimeline = renderConsigneHistoryTimeline(row, points);
       scheduleConsigneHistoryNavUpdate(state);
@@ -13884,6 +13958,74 @@ function mergeRowsWithRecent(rows, consigneId) {
   return merged;
 }
 
+async function fetchConsigneHistoryRows(ctx, consigneId, options = {}) {
+  const result = { rows: [], size: 0, missing: null, error: null };
+  if (!ctx || !ctx.db || !ctx.user?.uid || !consigneId) {
+    return result;
+  }
+  const { collection, where, orderBy, limit, query, getDocs } = modesFirestore || {};
+  const requiredFns = ["collection", "where", "orderBy", "limit", "query", "getDocs"];
+  const missingFns = requiredFns.filter((fn) => typeof modesFirestore?.[fn] !== "function");
+  if (missingFns.length) {
+    result.missing = missingFns;
+    return result;
+  }
+  const fetchLimitRaw = Number.isFinite(options.limit) && options.limit > 0 ? Math.floor(options.limit) : HISTORY_PANEL_FETCH_LIMIT;
+  const fetchLimit = Math.max(1, Math.min(fetchLimitRaw, 500));
+  let snap = null;
+  try {
+    snap = await getDocs(
+      query(
+        collection(ctx.db, "u", ctx.user.uid, "responses"),
+        where("consigneId", "==", consigneId),
+        orderBy("createdAt", "desc"),
+        limit(fetchLimit),
+      ),
+    );
+  } catch (error) {
+    result.error = error;
+    return result;
+  }
+  const docs = Array.isArray(snap?.docs) ? snap.docs : [];
+  result.size = typeof snap?.size === "number" ? snap.size : docs.length;
+  let rows = docs.map((docSnap) => {
+    const data = docSnap.data() || {};
+    return {
+      id: docSnap.id,
+      responseId: docSnap.id,
+      ...data,
+    };
+  });
+  rows = mergeRowsWithRecent(rows, consigneId);
+  if (options.filterDailyDuplicates !== false) {
+    const seenDailyDayKeys = new Set();
+    rows = rows.filter((row) => {
+      const modeKey = normalizeHistoryMode(row);
+      if (!DAILY_HISTORY_MODE_KEYS.has(modeKey)) {
+        return true;
+      }
+      const createdAtSource = row?.createdAt ?? row?.updatedAt ?? null;
+      const createdAt = parseHistoryResponseDate(createdAtSource);
+      const primaryDate = resolveHistoryEntryDate(row) || createdAt;
+      const resolvedDayKey = resolveHistoryResponseDayKey(row, primaryDate);
+      if (!resolvedDayKey) {
+        return true;
+      }
+      const normalizedKey = normalizeHistoryDayKey(resolvedDayKey);
+      if (!normalizedKey) {
+        return true;
+      }
+      if (seenDailyDayKeys.has(normalizedKey)) {
+        return false;
+      }
+      seenDailyDayKeys.add(normalizedKey);
+      return true;
+    });
+  }
+  result.rows = rows;
+  return result;
+}
+
 const EDITABLE_HISTORY_TYPES = new Set([
   "short",
   "long",
@@ -13984,112 +14126,26 @@ async function openHistory(ctx, consigne, options = {}) {
   const dropdownConsigneMap = new Map(dropdownConsignes.map((item) => [String(item?.id ?? ""), item]));
   const hasDropdownSelection = dropdownConsignes.length > 1;
 
-  const missingFirestoreFns = ["collection", "where", "orderBy", "limit", "query", "getDocs"].filter(
-    (fn) => typeof modesFirestore?.[fn] !== "function"
-  );
-  if (!ctx?.db || missingFirestoreFns.length) {
+  const historyFetch = await fetchConsigneHistoryRows(ctx, consigneId, { limit: HISTORY_PANEL_FETCH_LIMIT });
+  if (!ctx?.db || (Array.isArray(historyFetch.missing) && historyFetch.missing.length)) {
     modesLogger.warn("ui.history.firestore.missing", {
       hasDb: Boolean(ctx?.db),
-      missing: missingFirestoreFns,
+      missing: historyFetch.missing || [],
     });
     showToast("Historique indisponible : connexion aux données manquante.");
     modesLogger.groupEnd();
     return null;
   }
-
-  let ss;
-  try {
-    const qy = modesFirestore.query(
-      modesFirestore.collection(ctx.db, "u", uid, "responses"),
-      modesFirestore.where("consigneId", "==", consigneId),
-      modesFirestore.orderBy("createdAt", "desc"),
-      modesFirestore.limit(60)
-    );
-    ss = await modesFirestore.getDocs(qy);
-  } catch (error) {
-    modesLogger.warn("ui.history.firestore.error", error);
+  if (historyFetch.error) {
+    modesLogger.warn("ui.history.firestore.error", historyFetch.error);
     showToast("Impossible de charger l’historique pour le moment.");
     modesLogger.groupEnd();
     return null;
   }
 
-  const docs = Array.isArray(ss?.docs) ? ss.docs : [];
-  const size = typeof ss?.size === "number" ? ss.size : docs.length;
+  const size = historyFetch.size;
   modesLogger.info("ui.history.rows", size);
-  let rows = docs.map((d) => ({ id: d.id, ...d.data() }));
-  rows = mergeRowsWithRecent(rows, consigneId);
-  const DAILY_MODE_KEYS = new Set(["daily"]);
-
-  function normalizeMode(row) {
-    const candidates = [row?.mode, row?.source, row?.origin, row?.context];
-    for (const candidate of candidates) {
-      if (typeof candidate === "string" && candidate.trim()) {
-        return candidate.trim().toLowerCase();
-      }
-    }
-    return "";
-  }
-
-  function parseDateForDaily(value) {
-    const parsed = asDate(value);
-    return parsed instanceof Date && !Number.isNaN(parsed.getTime()) ? parsed : null;
-  }
-
-  function resolveDayKey(row, createdAt) {
-    // For summary/bilan entries, prefer the same key resolution used by the timeline
-    try {
-      const info = resolveHistoryEntrySummaryInfo(row);
-      if (info && (info.isSummary || info.isBilan)) {
-        const base = resolveHistoryTimelineKeyBase(row);
-        if (base && typeof base.dayKey === "string" && base.dayKey.trim()) {
-          return base.dayKey.trim();
-        }
-      }
-    } catch (_) {}
-    const rawDay =
-      row?.dayKey ||
-      row?.day_key ||
-      row?.date ||
-      row?.day ||
-      (typeof row?.getDayKey === "function" ? row.getDayKey() : null);
-    if (typeof rawDay === "string" && rawDay.trim()) {
-      return rawDay.trim();
-    }
-    if (rawDay instanceof Date && !Number.isNaN(rawDay.getTime())) {
-      return Schema?.dayKeyFromDate ? Schema.dayKeyFromDate(rawDay) : "";
-    }
-    if (typeof rawDay === "number" && Number.isFinite(rawDay)) {
-      const fromNumber = asDate(rawDay);
-      if (fromNumber instanceof Date && !Number.isNaN(fromNumber.getTime())) {
-        return Schema?.dayKeyFromDate ? Schema.dayKeyFromDate(fromNumber) : "";
-      }
-    }
-    const parsedCreatedAt = asDate(createdAt);
-    if (parsedCreatedAt instanceof Date && !Number.isNaN(parsedCreatedAt.getTime())) {
-      return Schema?.dayKeyFromDate ? Schema.dayKeyFromDate(parsedCreatedAt) : "";
-    }
-    return "";
-  }
-
-  const seenDailyDayKeys = new Set();
-  rows = rows.filter((row) => {
-    const modeKey = normalizeMode(row);
-    if (!DAILY_MODE_KEYS.has(modeKey)) {
-      return true;
-    }
-    const createdAtSource = row?.createdAt ?? row?.updatedAt ?? null;
-    const createdAt = parseDateForDaily(createdAtSource);
-    const primaryDate = resolveHistoryEntryDate(row) || createdAt;
-    const dayKey = resolveDayKey(row, primaryDate);
-    if (!dayKey) {
-      return true;
-    }
-    if (seenDailyDayKeys.has(dayKey)) {
-      return false;
-    }
-    seenDailyDayKeys.add(dayKey);
-    return true;
-  });
+  let rows = Array.isArray(historyFetch.rows) ? historyFetch.rows.slice() : [];
 
   const dateTimeFormatter = new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
@@ -14336,7 +14392,7 @@ async function openHistory(ctx, consigne, options = {}) {
         r.updated_at,
       ]);
       const primaryDate = resolveHistoryEntryDate(r);
-      const dayKey = resolveDayKey(r, primaryDate || recordedAt);
+      const dayKey = resolveHistoryResponseDayKey(r, primaryDate || recordedAt);
       const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
       const displayDate = firstValidDate([dayDate, primaryDate, recordedAt]);
       const iso = displayDate instanceof Date ? displayDate.toISOString() : "";
@@ -14634,7 +14690,7 @@ async function openHistory(ctx, consigne, options = {}) {
     const dayKeyAttr = itemNode?.getAttribute('data-day-key');
     const responseIdAttr = itemNode?.getAttribute('data-response-id');
     const isBilanEntry = itemNode?.getAttribute('data-history-source') === 'bilan';
-    const dayKey = dayKeyAttr && dayKeyAttr.trim() ? dayKeyAttr.trim() : resolveDayKey(row, null);
+    const dayKey = dayKeyAttr && dayKeyAttr.trim() ? dayKeyAttr.trim() : resolveHistoryResponseDayKey(row, null);
     if (!dayKey) {
       showToast("Impossible d’identifier la date de cette réponse.");
       return;
@@ -14695,7 +14751,7 @@ async function openHistory(ctx, consigne, options = {}) {
       .join(':');
     const responseSyncOptions = {
       responseId: responseIdAttr && responseIdAttr.trim() ? responseIdAttr.trim() : row.id || '',
-      responseMode: normalizeMode(row) || row.mode || row.source || '',
+      responseMode: normalizeHistoryMode(row) || row.mode || row.source || '',
       responseType: typeof row.type === 'string' && row.type.trim() ? row.type.trim() : consigne.type,
       responseDayKey: dayKey,
       responseCreatedAt:
@@ -14894,7 +14950,7 @@ async function openHistory(ctx, consigne, options = {}) {
     if (focusDayKeyOption) {
       const focusIndex = rows.findIndex((row) => {
         const createdAtSource = row?.createdAt ?? row?.updatedAt ?? null;
-        const resolvedKey = resolveDayKey(row, createdAtSource);
+        const resolvedKey = resolveHistoryResponseDayKey(row, createdAtSource);
         return resolvedKey === focusDayKeyOption;
       });
       if (focusIndex >= 0) {
