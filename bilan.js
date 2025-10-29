@@ -215,12 +215,20 @@
     return consignes
       .map((consigne) => {
         if (!consigne || !consigne.id) return null;
+        if (consigne.archived === true) return null;
         if (!consigneVisibleInSummary(consigne, period)) return null;
-        const text = consigne.text || consigne.titre || consigne.name || consigne.id;
+        const journalText = consigne.text || consigne.titre || consigne.name || consigne.id;
+        const summaryText = consigne.summaryCustomText
+          ? String(consigne.summaryCustomText)
+          : consigne.summaryText
+          ? String(consigne.summaryText)
+          : journalText;
         return {
           ...consigne,
           family,
-          text,
+          text: summaryText,
+          summaryText,
+          journalText,
           summaryCategory: consigne.category || "Général",
           summaryLabel: FAMILY_LABELS[family] || family,
         };
@@ -242,6 +250,20 @@
       normalized.objective = alreadyNormalized
         ? sections.objective.slice()
         : normalizeObjectives(sections.objective, period);
+      if (normalized.objective.length) {
+        normalized.objective = normalized.objective.filter((item) => {
+          if (!item) {
+            return false;
+          }
+          if (item.archived === true) {
+            return false;
+          }
+          if (item.originalGoal) {
+            return isObjectiveActive(item.originalGoal);
+          }
+          return true;
+        });
+      }
     }
     return normalized;
   }
@@ -352,6 +374,8 @@
           ${actionBtn("Modifier", "js-edit", { disabled: disableExtras })}
           ${actionBtn("Décaler", "js-delay", { disabled: disableExtras })}
           ${actionBtn("Activer la répétition espacée", "js-sr-toggle", { disabled: disableExtras })}
+          ${actionBtn("Retirer des bilans", "js-remove-summary", { disabled: disableExtras })}
+          ${actionBtn("Modifier le texte du bilan", "js-edit-summary-text", { disabled: disableExtras })}
           ${actionBtn("Supprimer", "js-del text-red-600", { disabled: disableExtras })}
         </div>
       </div>
@@ -569,10 +593,27 @@
     return "";
   }
 
+  function isObjectiveActive(goal) {
+    if (!goal) return false;
+    if (goal.archived === true) return false;
+    if (goal.active === false) return false;
+    if (goal.deleted === true || goal.isDeleted === true) return false;
+    if (goal.removed === true) return false;
+    if (goal.disabled === true) return false;
+    if (goal.deletedAt) return false;
+    if (typeof goal.status === "string") {
+      const normalizedStatus = goal.status.trim().toLowerCase();
+      if (normalizedStatus === "archived" || normalizedStatus === "inactive" || normalizedStatus === "deleted") {
+        return false;
+      }
+    }
+    return true;
+  }
+
   function normalizeObjectives(goals, period) {
     if (!Array.isArray(goals) || !goals.length) return [];
     return goals
-      .filter((goal) => goal && goal.id && objectiveMatchesScope(goal, period))
+      .filter((goal) => goal && goal.id && isObjectiveActive(goal) && objectiveMatchesScope(goal, period))
       .map((goal) => {
         const text = goal.titre || goal.title || goal.name || "Objectif";
         const subtitle = goalRangeLabel(goal, period) || goalTypeLabel(goal);
@@ -749,6 +790,8 @@
       const deleteButton = actionsRoot?.querySelector(".js-del");
       const delayButton = actionsRoot?.querySelector(".js-delay");
       const srToggleButton = actionsRoot?.querySelector(".js-sr-toggle");
+      const removeSummaryButton = actionsRoot?.querySelector(".js-remove-summary");
+      const editSummaryTextButton = actionsRoot?.querySelector(".js-edit-summary-text");
       const closeMenuFromNode = typeof Modes.closeConsigneActionMenuFromNode === "function"
         ? Modes.closeConsigneActionMenuFromNode
         : () => {};
@@ -849,6 +892,65 @@
             updateDelayState(srEnabled);
           }
         });
+      }
+      const canEditSummaryVisibility = isManageableFamily && consigne.family !== "objective" && ctx && ctx.db && ctx.user?.uid;
+      if (removeSummaryButton) {
+        removeSummaryButton.disabled = !canEditSummaryVisibility;
+        removeSummaryButton.classList.toggle("opacity-50", !canEditSummaryVisibility);
+        if (canEditSummaryVisibility) {
+          removeSummaryButton.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            closeMenuFromNode(removeSummaryButton);
+            try {
+              await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, {
+                weeklySummaryEnabled: false,
+                monthlySummaryEnabled: false,
+                yearlySummaryEnabled: false,
+                summaryOnlyScope: null,
+              });
+              row.remove();
+              showToast("Consigne retirée des bilans.");
+            } catch (error) {
+              bilanLogger?.warn?.("bilan.consigne.summary.remove", error);
+              showToast("Impossible de retirer la consigne des bilans.");
+            }
+          });
+        }
+      }
+      if (editSummaryTextButton) {
+        const canEditSummaryText = canEditSummaryVisibility;
+        editSummaryTextButton.disabled = !canEditSummaryText;
+        editSummaryTextButton.classList.toggle("opacity-50", !canEditSummaryText);
+        if (canEditSummaryText) {
+          editSummaryTextButton.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            closeMenuFromNode(editSummaryTextButton);
+            const currentSummaryText = consigne.summaryText || consigne.summaryCustomText || consigne.text || consigne.journalText || "";
+            const next = window.prompt("Texte à afficher dans le bilan :", currentSummaryText);
+            if (next === null) {
+              return;
+            }
+            const trimmed = next.replace(/\s+/g, " ").trim();
+            const payloadValue = trimmed ? trimmed : null;
+            try {
+              await Schema.updateConsigne(ctx.db, ctx.user.uid, consigne.id, {
+                summaryCustomText: payloadValue,
+              });
+              consigne.summaryCustomText = payloadValue || "";
+              consigne.summaryText = payloadValue || consigne.journalText || consigne.text || "";
+              const titleEl = row.querySelector(".consigne-row__title");
+              if (titleEl) {
+                titleEl.textContent = consigne.summaryText;
+              }
+              showToast(payloadValue ? "Texte du bilan mis à jour." : "Texte du bilan réinitialisé.");
+            } catch (error) {
+              bilanLogger?.warn?.("bilan.consigne.summaryText.update", error);
+              showToast("Impossible de mettre à jour le texte du bilan.");
+            }
+          });
+        }
       }
       if (actionsRoot && typeof Modes.setupConsigneActionMenus === "function") {
         const config = isManageableFamily && ctx && ctx.db && ctx.user?.uid && srToggleButton && !srToggleButton.disabled

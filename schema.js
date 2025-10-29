@@ -470,6 +470,7 @@ function hydrateConsigne(doc) {
     monthlySummaryEnabled: data.monthlySummaryEnabled !== false,
     yearlySummaryEnabled: data.yearlySummaryEnabled !== false,
     summaryOnlyScope: normalizeSummaryOnlyScope(data.summaryOnlyScope),
+    summaryCustomText: typeof data.summaryCustomText === "string" ? data.summaryCustomText : "",
     parentId: normalizeParentId(data.parentId),
     checklistItems: normalizedChecklist.items,
     checklistItemIds: normalizedChecklist.ids,
