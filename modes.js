@@ -13843,6 +13843,31 @@ async function openHistory(ctx, consigne, options = {}) {
   modesLogger.info("ui.history.rows", size);
   let rows = docs.map((d) => ({ id: d.id, ...d.data() }));
   rows = mergeRowsWithRecent(rows, consigneId);
+  let historyEntries = [];
+  if (ctx?.db && typeof Schema?.loadConsigneHistory === "function") {
+    try {
+      historyEntries = await Schema.loadConsigneHistory(ctx.db, uid, consigneId);
+    } catch (error) {
+      modesLogger?.warn?.("ui.history.loadConsigneHistory", { consigneId, error });
+      historyEntries = [];
+    }
+  }
+  const historyEntryCache = new Map();
+  const resolveHistoryEntryForKey = (rawKey) => {
+    if (typeof rawKey !== "string") {
+      return null;
+    }
+    const normalized = normalizeHistoryDayKey(rawKey);
+    if (!normalized) {
+      return null;
+    }
+    if (historyEntryCache.has(normalized)) {
+      return historyEntryCache.get(normalized);
+    }
+    const match = findHistoryEntryForDayKey(historyEntries, consigne, normalized) || null;
+    historyEntryCache.set(normalized, match);
+    return match;
+  };
 
   const DAILY_MODE_KEYS = new Set(["daily"]);
 
@@ -14183,6 +14208,13 @@ async function openHistory(ctx, consigne, options = {}) {
             : Number.NaN
           : Number(numericValue);
       const note = r.note && String(r.note).trim();
+      const historyMatch =
+        resolveHistoryEntryForKey(dayKey) ||
+        resolveHistoryEntryForKey(r.historyKey || r.history_key) ||
+        resolveHistoryEntryForKey(r.historyEntryId || r.history_entry_id) ||
+        resolveHistoryEntryForKey(r.historyId || r.history_id);
+      const historyEntry = historyMatch?.entry || null;
+      const historyDocumentId = historyEntry ? resolveHistoryDocumentId(historyEntry, dayKey) : dayKey || "";
       const summaryInfo = resolveHistoryEntrySummaryInfo(r);
       const rawSummaryLabel = summaryInfo.isSummary
         ? firstNonEmptyString(
@@ -14323,13 +14355,14 @@ async function openHistory(ctx, consigne, options = {}) {
         : "";
       const dayKeyAttr = dayKey ? ` data-day-key="${escapeHtml(dayKey)}"` : "";
       const responseIdAttr = r.id ? ` data-response-id="${escapeHtml(String(r.id))}"` : "";
+      const historyIdAttr = historyDocumentId ? ` data-history-id="${escapeHtml(historyDocumentId)}"` : "";
       // Allow editing normal entries and bilan summary entries
       const canEditEntry = EDITABLE_HISTORY_TYPES.has(consigne.type) && dayKey && (!summaryInfo.isSummary || summaryInfo.isBilan);
       const editButtonMarkup = canEditEntry
         ? `<button type="button" class="history-panel__item-edit" data-history-edit aria-label="Modifier la réponse">Modifier</button>`
         : "";
       return `
-        <li class="history-panel__item${summaryClass}${bilanClass}" data-history-entry data-history-index="${index}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}${responseIdAttr}${bilanAttr}>
+        <li class="history-panel__item${summaryClass}${bilanClass}" data-history-entry data-history-index="${index}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}${responseIdAttr}${historyIdAttr}${bilanAttr}>
           <div class="history-panel__item-row">
             <span class="${valueClasses.join(" ")}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}">
               <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
@@ -14459,12 +14492,14 @@ async function openHistory(ctx, consigne, options = {}) {
     if (!row) return;
     const dayKeyAttr = itemNode?.getAttribute('data-day-key');
     const responseIdAttr = itemNode?.getAttribute('data-response-id');
+    const historyIdAttr = itemNode?.getAttribute('data-history-id');
     const isBilanEntry = itemNode?.getAttribute('data-history-source') === 'bilan';
     const dayKey = dayKeyAttr && dayKeyAttr.trim() ? dayKeyAttr.trim() : resolveDayKey(row, null);
     if (!dayKey) {
       showToast("Impossible d’identifier la date de cette réponse.");
       return;
     }
+    const historyDocumentId = historyIdAttr && historyIdAttr.trim() ? historyIdAttr.trim() : dayKey;
     const createdAtSource = row.createdAt ?? row.updatedAt ?? null;
     const createdAt = asDate(createdAtSource);
     const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
@@ -14609,7 +14644,7 @@ async function openHistory(ctx, consigne, options = {}) {
         clearBtn.disabled = true;
         if (submitBtn) submitBtn.disabled = true;
         try {
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, responseSyncOptions);
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
           try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
           try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
             // Remove the item immediately in the UI for instant feedback
@@ -14646,7 +14681,7 @@ async function openHistory(ctx, consigne, options = {}) {
         const note = (form.elements.note?.value || '').trim();
         const isRawEmpty = rawValue === '' || rawValue == null;
         if (isRawEmpty && !note) {
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, responseSyncOptions);
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
           try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
           try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
         } else {
@@ -14654,7 +14689,7 @@ async function openHistory(ctx, consigne, options = {}) {
             ctx.db,
             ctx.user.uid,
             consigne.id,
-            dayKey,
+            historyDocumentId,
             {
               value: rawValue,
               note,
