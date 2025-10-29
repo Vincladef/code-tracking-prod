@@ -9505,6 +9505,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   const dayKey = typeof options.dayKey === "string" ? options.dayKey.trim() : "";
   const details = options.details && typeof options.details === "object" ? options.details : null;
   const trigger = options.trigger instanceof HTMLElement ? options.trigger : null;
+  const renderInPanel = options.renderInPanel === true;
+  const historyPanel = options.panel instanceof HTMLElement ? options.panel : null;
   if (!dayKey) {
     showToast("Date de bilan introuvable.");
     return;
@@ -9712,62 +9714,122 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       </form>
     </div>
   `;
-  const overlay = modal(editorHtml);
-  if (!overlay) {
-    return;
-  }
-  initializeChecklistScope(overlay, {});
-  overlay.querySelectorAll("textarea").forEach((textarea) => {
-    if (typeof autoGrowTextarea === "function") {
-      autoGrowTextarea(textarea);
-    }
-  });
-  const modalContent = overlay.querySelector("[data-modal-content]");
-  if (modalContent) {
-    modalContent.setAttribute("role", "dialog");
-    modalContent.setAttribute("aria-modal", "true");
-    modalContent.setAttribute("aria-label", "Modifier la réponse de bilan");
-  }
-  const form = overlay.querySelector("form");
-  const cancelBtn = overlay.querySelector("[data-cancel]");
-  const clearBtn = overlay.querySelector("[data-clear]");
-  const submitBtn = form?.querySelector('button[type="submit"]');
+  let overlay = null;
+  let modalContent = null;
+  let cleanup = null;
+  let submitBtn = null;
+  let clearBtn = null;
+  let form = null;
   const restoreFocus = () => {
     if (trigger && typeof trigger.focus === "function") {
-      try {
-        trigger.focus({ preventScroll: true });
-      } catch (_) {
-        trigger.focus();
+      try { trigger.focus({ preventScroll: true }); } catch (_) { trigger.focus(); }
+    }
+  };
+  if (renderInPanel && historyPanel) {
+    const previousOverlay = historyPanel.querySelector('.history-panel__edit-overlay');
+    if (previousOverlay) {
+      previousOverlay.dispatchEvent(new Event('history-edit-request-close'));
+    }
+    overlay = document.createElement('div');
+    overlay.className = 'history-panel__edit-overlay';
+    overlay.innerHTML = `
+      <div class="history-panel__edit-dialog" role="dialog" aria-modal="true" tabindex="-1">
+        ${editorHtml}
+      </div>
+    `;
+    historyPanel.appendChild(overlay);
+    modalContent = overlay.querySelector('.history-panel__edit-dialog');
+    form = overlay.querySelector('form');
+    clearBtn = form?.querySelector('[data-clear]');
+    submitBtn = form?.querySelector('button[type="submit"]');
+    let handleKeyDown;
+    let overlayObserver;
+    const closeEditor = () => {
+      if (cleanup) cleanup();
+      if (overlay && overlay.isConnected) overlay.remove();
+      restoreFocus();
+    };
+    cleanup = () => {
+      if (handleKeyDown) {
+        document.removeEventListener('keydown', handleKeyDown, true);
+        handleKeyDown = null;
       }
+      overlay.removeEventListener('history-edit-request-close', closeEditor);
+      if (overlayObserver) {
+        overlayObserver.disconnect();
+        overlayObserver = null;
+      }
+    };
+    handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeEditor();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    overlay.addEventListener('history-edit-request-close', () => {
+      closeEditor();
+    });
+    overlayObserver = new MutationObserver(() => {
+      if (!overlay.isConnected && cleanup) cleanup();
+    });
+    try { overlayObserver.observe(historyPanel, { childList: true }); } catch (_) {}
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) {
+        closeEditor();
+      }
+    });
+    requestAnimationFrame(() => {
+      try { modalContent?.focus({ preventScroll: true }); } catch (_) { modalContent?.focus?.(); }
+    });
+  } else {
+    overlay = modal(editorHtml);
+    if (!overlay) return;
+    modalContent = overlay.querySelector('[data-modal-content]');
+    if (modalContent) {
+      modalContent.setAttribute('role', 'dialog');
+      modalContent.setAttribute('aria-modal', 'true');
+      modalContent.setAttribute('aria-label', 'Modifier la réponse de bilan');
     }
-  };
-  let handleKeyDown = null;
-  const cleanup = () => {
-    if (handleKeyDown) {
-      document.removeEventListener("keydown", handleKeyDown, true);
-      handleKeyDown = null;
-    }
-  };
-  const closeOverlay = () => {
-    cleanup();
-    overlay.remove();
-    restoreFocus();
-  };
-  handleKeyDown = (event) => {
-    if (event.key === "Escape") {
+    form = overlay.querySelector('form');
+    clearBtn = overlay.querySelector('[data-clear]');
+    submitBtn = form?.querySelector('button[type="submit"]');
+    let handleKeyDown = null;
+    cleanup = () => {
+      if (handleKeyDown) {
+        document.removeEventListener('keydown', handleKeyDown, true);
+        handleKeyDown = null;
+      }
+    };
+    const closeOverlay = () => {
+      cleanup();
+      overlay.remove();
+      restoreFocus();
+    };
+    handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeOverlay();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) {
+        closeOverlay();
+      }
+    });
+    const cancelBtn = overlay.querySelector('[data-cancel]');
+    cancelBtn?.addEventListener('click', (event) => {
       event.preventDefault();
       closeOverlay();
+    });
+  }
+  // Enhance textarea and checklist scope for both rendering modes
+  initializeChecklistScope(overlay, {});
+  overlay.querySelectorAll('textarea').forEach((textarea) => {
+    if (typeof autoGrowTextarea === 'function') {
+      autoGrowTextarea(textarea);
     }
-  };
-  document.addEventListener("keydown", handleKeyDown, true);
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) {
-      closeOverlay();
-    }
-  });
-  cancelBtn?.addEventListener("click", (event) => {
-    event.preventDefault();
-    closeOverlay();
   });
   if (clearBtn) {
     const hasInitialChildValue = baseChildStates.some((childState) =>
@@ -14340,12 +14402,15 @@ async function openHistory(ctx, consigne, options = {}) {
     const relative = displayDate ? relativeLabel(displayDate) : '';
     const noteValue = row.note ? String(row.note) : '';
     const fieldId = `history-edit-value-${consigne.id}-${entryIndex}-${Date.now()}`;
-    // If this is a bilan entry, open the dedicated bilan editor instead of the inline editor
+    // If this is a bilan entry, open the dedicated bilan editor instead of the inline editor,
+    // rendering inside the history panel so it appears on top.
     if (isBilanEntry) {
       openBilanHistoryEditor(null, consigne, ctx, {
         dayKey,
         details: { rawValue: row.value, date: displayDate, timestamp: createdAtSource, isBilan: true },
         trigger: itemNode,
+        renderInPanel: true,
+        panel,
       });
       return;
     }
