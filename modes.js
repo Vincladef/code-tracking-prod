@@ -9621,24 +9621,6 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   const keyInfo = match?.keyInfo || null;
   const resolvedDayKey = keyInfo?.dayKey || dayKey;
   const historyDocumentId = resolveHistoryDocumentId(entry, resolvedDayKey);
-  const explicitResponseId =
-    typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
-  const triggerResponseId = (() => {
-    if (!(trigger instanceof HTMLElement)) {
-      return "";
-    }
-    const raw =
-      (typeof trigger.dataset?.historyResponseId === "string" && trigger.dataset.historyResponseId.trim()
-        ? trigger.dataset.historyResponseId.trim()
-        : "") ||
-      trigger.getAttribute?.("data-history-response-id") ||
-      "";
-    return typeof raw === "string" ? raw.trim() : "";
-  })();
-  const detailResponseId = resolveHistoryResponseId(details);
-  const entryResponseId = resolveHistoryResponseId(entry);
-  const resolvedResponseId =
-    explicitResponseId || triggerResponseId || detailResponseId || entryResponseId || "";
   const entryValue = entry?.value !== undefined ? entry.value : details?.rawValue ?? "";
   const createdAtSource =
     entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? details?.timestamp ?? null;
@@ -9678,15 +9660,26 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     if (!(trigger instanceof HTMLElement)) {
       return "";
     }
-    const container = trigger.closest("[data-history-entry]");
-    if (!container) {
-      return "";
+    const direct =
+      (typeof trigger.dataset?.historyResponseId === "string" && trigger.dataset.historyResponseId.trim()
+        ? trigger.dataset.historyResponseId.trim()
+        : "") ||
+      trigger.getAttribute?.("data-history-response-id") ||
+      "";
+    if (direct && typeof direct === "string" && direct.trim()) {
+      return direct.trim();
     }
-    const raw = container.getAttribute("data-response-id");
-    return raw && raw.trim() ? raw.trim() : "";
+    const container = trigger.closest("[data-history-entry]");
+    if (container) {
+      const attr = container.getAttribute("data-response-id");
+      if (attr && attr.trim()) {
+        return attr.trim();
+      }
+    }
+    return "";
   })();
-  const entryResponseId =
-    typeof entry?.responseId === "string" && entry.responseId.trim() ? entry.responseId.trim() : "";
+  const detailResponseId = resolveHistoryResponseId(details);
+  const entryResponseId = resolveHistoryResponseId(entry);
   const resolvedResponseId =
     explicitResponseId || triggerResponseId || detailResponseId || entryResponseId || "";
   const responseSyncOptions = {
