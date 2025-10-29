@@ -8849,28 +8849,6 @@ function ensureConsigneHistoryMeta(item) {
   return meta;
 }
 
-function ensureConsigneHistoryMarker(item) {
-  if (!item) return null;
-  let marker = item.querySelector(".consigne-history__marker");
-  if (!marker) {
-    marker = document.createElement("span");
-    marker.className = "consigne-history__marker";
-    marker.setAttribute("aria-hidden", "true");
-    const dot = item.querySelector(".consigne-history__dot");
-    if (dot && dot.parentNode) {
-      dot.parentNode.insertBefore(marker, dot.nextSibling);
-    } else {
-      const meta = item.querySelector(".consigne-history__meta");
-      if (meta && meta.parentNode) {
-        meta.parentNode.insertBefore(marker, meta);
-      } else {
-        item.insertBefore(marker, item.firstChild || null);
-      }
-    }
-  }
-  return marker;
-}
-
 function ensureConsigneHistoryLabel(meta) {
   if (!meta) return null;
   let label = meta.querySelector(".consigne-history__label");
@@ -8937,17 +8915,15 @@ function applyConsigneHistoryPoint(item, point) {
   }
   if (point.isBilan) {
     item.dataset.historySource = "bilan";
-    const marker = ensureConsigneHistoryMarker(item);
-    if (marker) {
-      marker.hidden = false;
+    if (dot) {
+      dot.classList.add("consigne-history__dot--bilan");
     }
   } else {
     if (item.dataset) {
       delete item.dataset.historySource;
     }
-    const marker = item.querySelector(".consigne-history__marker");
-    if (marker && marker.parentNode) {
-      marker.parentNode.removeChild(marker);
+    if (dot) {
+      dot.classList.remove("consigne-history__dot--bilan");
     }
   }
   const details = point.details || null;
@@ -9331,6 +9307,26 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     }
     const target = event.target.closest(".consigne-history__item");
     if (!target || !state.track.contains(target)) {
+      return;
+    }
+    const historyDayKey =
+      (typeof target.dataset.historyDay === "string" && target.dataset.historyDay.trim()
+        ? target.dataset.historyDay.trim()
+        : "") ||
+      (target._historyDetails && typeof target._historyDetails.dayKey === "string"
+        ? target._historyDetails.dayKey
+        : "");
+    if (historyDayKey) {
+      if (isKeyboard) {
+        event.preventDefault();
+      }
+      const historySource =
+        typeof options.mode === "string" && options.mode.trim().toLowerCase() === "practice" ? "practice" : "daily";
+      void openHistory(ctx, consigne, {
+        source: historySource,
+        focusDayKey: historyDayKey,
+        autoEdit: EDITABLE_HISTORY_TYPES.has(consigne.type),
+      });
       return;
     }
     if (isKeyboard) {
@@ -12041,7 +12037,14 @@ function mergeRowsWithRecent(rows, consigneId) {
   return merged;
 }
 
+const EDITABLE_HISTORY_TYPES = new Set(["short", "long", "num", "montant", "likert5", "likert6", "yesno"]);
+
 async function openHistory(ctx, consigne, options = {}) {
+  options = { ...options };
+  const focusDayKeyOption =
+    typeof options.focusDayKey === "string" && options.focusDayKey.trim() ? options.focusDayKey.trim() : "";
+  const autoEdit = options.autoEdit === true;
+  options.autoEdit = false;
   const consigneId = consigne?.id || "";
   const consigneType = consigne?.type || "";
   modesLogger.group("ui.history.open", { consigneId, type: consigneType });
@@ -12456,8 +12459,6 @@ async function openHistory(ctx, consigne, options = {}) {
       return `<option value="${escapeHtml(option.value)}"${selectedAttr}>${escapeHtml(option.label)}</option>`;
     })
     .join("");
-
-  const EDITABLE_HISTORY_TYPES = new Set(["short", "long", "num", "montant", "likert5", "likert6", "yesno"]);
 
   const list = rows
     .map((r, index) => {
@@ -12960,6 +12961,30 @@ async function openHistory(ctx, consigne, options = {}) {
       event.preventDefault();
       openEntryEditor(entryIndex, itemNode);
     });
+    if (focusDayKeyOption) {
+      const focusIndex = rows.findIndex((row) => {
+        const createdAtSource = row?.createdAt ?? row?.updatedAt ?? null;
+        const resolvedKey = resolveDayKey(row, createdAtSource);
+        return resolvedKey === focusDayKeyOption;
+      });
+      if (focusIndex >= 0) {
+        const focusItem = listContainer.querySelector(
+          `[data-history-entry][data-history-index="${focusIndex}"]`,
+        );
+        if (focusItem) {
+          requestAnimationFrame(() => {
+            try {
+              focusItem.scrollIntoView({ block: "nearest", inline: "nearest" });
+            } catch (_) {
+              focusItem.scrollIntoView();
+            }
+            if (autoEdit && EDITABLE_HISTORY_TYPES.has(consigne.type)) {
+              openEntryEditor(focusIndex, focusItem);
+            }
+          });
+        }
+      }
+    }
   }
 
   const NAVIGABLE_RANGES = new Set(["7d", "30d", "365d"]);
