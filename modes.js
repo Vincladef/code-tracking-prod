@@ -64,11 +64,10 @@ function readStoredConsigneCategory(uid, mode) {
 
 function storeConsigneCategory(uid, mode, category) {
   const key = consigneCategoryStorageKey(uid, mode);
-  if (!key) return;
   try {
     if (typeof localStorage === "undefined") return;
-    if (category) {
-      localStorage.setItem(key, category);
+    if (category != null) {
+      localStorage.setItem(key, String(category));
     } else {
       localStorage.removeItem(key);
     }
@@ -86,7 +85,7 @@ const AUTO_GROW_DEFAULT_MAX_HEIGHT = 320;
 function autoGrowTextarea(el) {
   if (!(el instanceof HTMLTextAreaElement)) return;
   if (el.dataset.autoGrowBound === "true") return;
-  const rawMax = Number.parseInt(el.dataset.autoGrowMax || "", 10);
+  const rawMax = Number(el.getAttribute("data-auto-grow-max"));
   const maxHeight = Math.max(
     AUTO_GROW_MIN_HEIGHT,
     Number.isFinite(rawMax) && rawMax > 0 ? rawMax : AUTO_GROW_DEFAULT_MAX_HEIGHT,
@@ -9719,7 +9718,9 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   let cleanup = null;
   let submitBtn = null;
   let clearBtn = null;
+  let cancelBtn = null;
   let form = null;
+  let requestClose = null;
   const restoreFocus = () => {
     if (trigger && typeof trigger.focus === "function") {
       try { trigger.focus({ preventScroll: true }); } catch (_) { trigger.focus(); }
@@ -9751,6 +9752,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       if (overlay && overlay.isConnected) overlay.remove();
       restoreFocus();
     };
+    requestClose = closeEditor;
     cleanup = () => {
       if (handleKeyDown) {
         document.removeEventListener('keydown', handleKeyDown, true);
@@ -9784,6 +9786,13 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     requestAnimationFrame(() => {
       try { modalContent?.focus({ preventScroll: true }); } catch (_) { modalContent?.focus?.(); }
     });
+    cancelBtn = overlay.querySelector('[data-cancel]');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        closeEditor();
+      });
+    }
   } else {
     overlay = modal(editorHtml);
     if (!overlay) return;
@@ -9808,6 +9817,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       overlay.remove();
       restoreFocus();
     };
+    requestClose = closeOverlay;
     handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -9820,7 +9830,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         closeOverlay();
       }
     });
-    const cancelBtn = overlay.querySelector('[data-cancel]');
+    cancelBtn = overlay.querySelector('[data-cancel]');
     cancelBtn?.addEventListener('click', (event) => {
       event.preventDefault();
       closeOverlay();
@@ -9911,7 +9921,10 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           }
         }
         showToast("Réponses effacées pour ce bilan.");
-        closeOverlay();
+        if (typeof options.onChange === 'function') {
+          try { options.onChange(); } catch (e) {}
+        }
+        if (typeof requestClose === 'function') requestClose();
       } catch (error) {
         console.error("bilan.history.editor.clear", error);
         clearBtn.disabled = false;
@@ -10038,7 +10051,10 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         ? "Réponses de bilan mises à jour."
         : "Réponses de bilan enregistrées.";
       showToast(toastMessage);
-      closeOverlay();
+      if (typeof options.onChange === 'function') {
+        try { options.onChange(); } catch (e) {}
+      }
+      if (typeof requestClose === 'function') requestClose();
     } catch (error) {
       console.error("bilan.history.editor.save", error);
       submitBtn.disabled = false;
@@ -13801,6 +13817,16 @@ async function openHistory(ctx, consigne, options = {}) {
   }
 
   function resolveDayKey(row, createdAt) {
+    // For summary/bilan entries, prefer the same key resolution used by the timeline
+    try {
+      const info = resolveHistoryEntrySummaryInfo(row);
+      if (info && (info.isSummary || info.isBilan)) {
+        const base = resolveHistoryTimelineKeyBase(row);
+        if (base && typeof base.dayKey === "string" && base.dayKey.trim()) {
+          return base.dayKey.trim();
+        }
+      }
+    } catch (_) {}
     const rawDay =
       row?.dayKey ||
       row?.day_key ||
@@ -14413,6 +14439,7 @@ async function openHistory(ctx, consigne, options = {}) {
         trigger: itemNode,
         renderInPanel: true,
         panel,
+        onChange: reopenHistory,
       });
       return;
     }
