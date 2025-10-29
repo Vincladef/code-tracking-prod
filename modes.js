@@ -15739,6 +15739,7 @@ Modes.buildSummaryMetadataForScope = buildSummaryMetadataForScope;
 Modes.setupConsigneActionMenus = setupConsigneActionMenus;
 Modes.setupConsignePriorityMenu = setupConsignePriorityMenu;
 Modes.closeConsigneActionMenuFromNode = closeConsigneActionMenuFromNode;
+Modes.setupConsigneHistoryTimeline = setupConsigneHistoryTimeline;
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {

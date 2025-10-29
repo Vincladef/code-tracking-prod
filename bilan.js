@@ -733,6 +733,15 @@
         </div>
       </div>
       ${descriptionHtml}
+      ${!isChild ? `
+      <div class="consigne-history" data-consigne-history hidden>
+        <button type="button" class="consigne-history__nav" data-consigne-history-prev aria-label="Faire défiler l’historique vers la gauche" hidden><span aria-hidden="true">&lsaquo;</span></button>
+        <div class="consigne-history__viewport" data-consigne-history-viewport>
+          <div class="consigne-history__track" data-consigne-history-track role="list"></div>
+        </div>
+        <button type="button" class="consigne-history__nav" data-consigne-history-next aria-label="Faire défiler l’historique vers la droite" hidden><span aria-hidden="true">&rsaquo;</span></button>
+      </div>
+      ` : ""}
       <div class="consigne-row__body" data-consigne-input-holder></div>
     `;
     const holder = row.querySelector("[data-consigne-input-holder]");
@@ -792,6 +801,13 @@
       const srToggleButton = actionsRoot?.querySelector(".js-sr-toggle");
       const removeSummaryButton = actionsRoot?.querySelector(".js-remove-summary");
       const editSummaryTextButton = actionsRoot?.querySelector(".js-edit-summary-text");
+      if (typeof Modes.setupConsigneHistoryTimeline === "function") {
+        try {
+          Modes.setupConsigneHistoryTimeline(row, consigne, ctx, { mode: "bilan" });
+        } catch (error) {
+          bilanLogger?.warn?.("bilan.consigne.history", error);
+        }
+      }
       const closeMenuFromNode = typeof Modes.closeConsigneActionMenuFromNode === "function"
         ? Modes.closeConsigneActionMenuFromNode
         : () => {};
