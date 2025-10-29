@@ -3311,7 +3311,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       stat.statusKind = dotColor(stat.type, lastValue, stat.consigne);
     }
 
-    function openCellEditor(stat, pointIndex) {
+  function openCellEditor(stat, pointIndex) {
       if (stat?.type === "info") {
         return;
       }
@@ -3319,13 +3319,26 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       if (!point) return;
       const consigne = stat.consigne;
       const valueId = `practice-editor-value-${stat.id}-${pointIndex}-${Date.now()}`;
-      const valueField = buildValueField(consigne, point.rawValue, valueId);
+  const valueField = buildValueField(consigne, point.rawValue, valueId);
       const noteValue = point.note || "";
       const iterationInfo = iterationMeta[pointIndex];
       const iterationLabel = iterationInfo?.label || `Itération ${pointIndex + 1}`;
       const dateObj = iterationInfo?.dateObj || toDate(point.dateIso);
       const fullDateLabel = iterationInfo?.fullLabel || (dateObj ? fullDateTimeFormatter.format(dateObj) : point.dateIso);
       const dateLabel = fullDateLabel && fullDateLabel !== iterationLabel ? `${iterationLabel} — ${fullDateLabel}` : fullDateLabel || iterationLabel;
+      const responseSyncOptions = (() => {
+        const createdAt = dateObj instanceof Date && !Number.isNaN(dateObj.getTime()) ? dateObj : null;
+        const createdAtIso = createdAt ? createdAt.toISOString() : "";
+        const dayKey = createdAt && typeof Schema?.dayKeyFromDate === "function"
+          ? Schema.dayKeyFromDate(createdAt)
+          : "";
+        return {
+          responseMode: "practice",
+          responseType: consigne?.type,
+          responseDayKey: dayKey,
+          responseCreatedAt: createdAtIso,
+        };
+      })();
       const autosaveKeyParts = [
         "practice-entry",
         ctx.user?.uid || "anon",
@@ -3376,7 +3389,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           clearBtn.disabled = true;
           submitBtn.disabled = true;
           try {
-            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, stat.id, point.dateIso);
+            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, stat.id, point.dateIso, responseSyncOptions);
             updateStatAfterEdit(stat, pointIndex, "", "");
             renderHistory();
             panel.remove();
@@ -3397,13 +3410,20 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           const note = (form.elements.note?.value || "").trim();
           const isRawEmpty = rawValue === "" || rawValue == null;
           if (isRawEmpty && !note) {
-            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, stat.id, point.dateIso);
+            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, stat.id, point.dateIso, responseSyncOptions);
             updateStatAfterEdit(stat, pointIndex, "", "");
           } else {
-            await Schema.saveHistoryEntry(ctx.db, ctx.user.uid, stat.id, point.dateIso, {
-              value: rawValue,
-              note,
-            });
+            await Schema.saveHistoryEntry(
+              ctx.db,
+              ctx.user.uid,
+              stat.id,
+              point.dateIso,
+              {
+                value: rawValue,
+                note,
+              },
+              responseSyncOptions,
+            );
             updateStatAfterEdit(stat, pointIndex, rawValue, note);
           }
           renderHistory();
@@ -9735,6 +9755,17 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       if (submitBtn) submitBtn.disabled = true;
       try {
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        // If this history entry originates from a bilan summary, also delete the underlying summary answer
+        try {
+          const scope = entry?.summaryScope || entry?.periodScope || "";
+          const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
+          const answerKey = entry?.summaryKey || "";
+          if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+            await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
+          }
+        } catch (err) {
+          console.error("bilan.history.editor.clear.summaryDelete", err);
+        }
         const status = dotColor(consigne.type, "", consigne) || "na";
         updateConsigneHistoryTimeline(row, status, {
           consigne,
@@ -9752,6 +9783,18 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               resolvedDayKey,
               childState.responseSyncOptions,
             );
+            // Also delete child summary answers if present
+            try {
+              const cEntry = childState.entry || null;
+              const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
+              const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
+              const cAnswerKey = cEntry?.summaryKey || "";
+              if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
+              }
+            } catch (err) {
+              console.error("bilan.history.editor.child.clear.summaryDelete", err);
+            }
           } catch (error) {
             console.error("bilan.history.editor.child.clear", error);
           }
@@ -9799,6 +9842,17 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       });
       if (!parentHasValue) {
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        // Also remove the corresponding summary answer if present
+        try {
+          const scope = entry?.summaryScope || entry?.periodScope || "";
+          const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
+          const answerKey = entry?.summaryKey || "";
+          if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+            await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
+          }
+        } catch (err) {
+          console.error("bilan.history.editor.save.summaryDelete", err);
+        }
       } else {
         await Schema.saveHistoryEntry(
           ctx.db,
@@ -9830,6 +9884,18 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             resolvedDayKey,
             state.responseSyncOptions,
           );
+          // Remove child summary answer if present
+          try {
+            const cEntry = state.entry || null;
+            const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
+            const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
+            const cAnswerKey = cEntry?.summaryKey || "";
+            if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
+            }
+          } catch (err) {
+            console.error("bilan.history.editor.child.save.summaryDelete", err);
+          }
         } else {
           await Schema.saveHistoryEntry(
             ctx.db,
@@ -10166,6 +10232,17 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       if (submitBtn) submitBtn.disabled = true;
       try {
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        // If this entry is a bilan-backed summary, delete the summary answer to avoid reappearance
+        try {
+          const scope = entry?.summaryScope || entry?.periodScope || "";
+          const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
+          const answerKey = entry?.summaryKey || "";
+          if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+            await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
+          }
+        } catch (err) {
+          console.error("consigne.history.editor.clear.summaryDelete", err);
+        }
         const status = dotColor(consigne.type, "", consigne) || "na";
         updateConsigneHistoryTimeline(row, status, {
           consigne,
@@ -10183,6 +10260,18 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               resolvedDayKey,
               childState.responseSyncOptions,
             );
+            // Also handle child summary deletion
+            try {
+              const cEntry = childState.entry || null;
+              const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
+              const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
+              const cAnswerKey = cEntry?.summaryKey || "";
+              if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
+              }
+            } catch (err) {
+              console.error("consigne.history.child.clear.summaryDelete", err);
+            }
           } catch (error) {
             console.error("consigne.history.child.clear", error);
           }
@@ -10230,6 +10319,17 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       });
       if (!parentHasValue) {
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
+        // Also delete summary answer if this entry originated from a bilan
+        try {
+          const scope = entry?.summaryScope || entry?.periodScope || "";
+          const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
+          const answerKey = entry?.summaryKey || "";
+          if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+            await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
+          }
+        } catch (err) {
+          console.error("consigne.history.editor.save.summaryDelete", err);
+        }
       } else {
         await Schema.saveHistoryEntry(
           ctx.db,
@@ -10261,6 +10361,18 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             resolvedDayKey,
             state.responseSyncOptions,
           );
+          // Delete child summary answer if present
+          try {
+            const cEntry = state.entry || null;
+            const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
+            const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
+            const cAnswerKey = cEntry?.summaryKey || "";
+            if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
+            }
+          } catch (err) {
+            console.error("consigne.history.child.save.summaryDelete", err);
+          }
         } else {
           await Schema.saveHistoryEntry(
             ctx.db,
