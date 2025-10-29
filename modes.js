@@ -10269,6 +10269,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
         // Clear local recent cache so Historique reflects deletion
         try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
+        // Remove any other response docs for this consigne/day (e.g., duplicate or bilan-mirrored)
+        try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
         // If this entry is a bilan-backed summary, delete the summary answer to avoid reappearance
         try {
           const scope = entry?.summaryScope || entry?.periodScope || "";
@@ -10299,6 +10301,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               childState.responseSyncOptions,
             );
             try { removeRecentResponsesForDay(childState.consigne.id, resolvedDayKey); } catch (e) {}
+            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, resolvedDayKey); } catch (e) {}
             // Also handle child summary deletion
             try {
               const cEntry = childState.entry || null;
@@ -10360,6 +10363,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       if (!parentHasValue) {
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey, responseSyncOptions);
         try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
+        try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
         // Also delete summary answer if this entry originated from a bilan
         try {
           const scope = entry?.summaryScope || entry?.periodScope || "";
@@ -10405,6 +10409,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             state.responseSyncOptions,
           );
           try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
+          try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, state.consigne.id, resolvedDayKey); } catch (e) {}
           // Delete child summary answer if present
           try {
             const cEntry = state.entry || null;
@@ -13257,6 +13262,35 @@ function removeRecentResponsesForDay(consigneId, dayKey) {
   }
 }
 
+async function deleteAllResponsesForDay(db, uid, consigneId, dayKey) {
+  if (!db || !uid || !consigneId || !dayKey) return;
+  const { collection, where, query, getDocs, deleteDoc } = modesFirestore || {};
+  if (typeof collection !== 'function' || typeof query !== 'function' || typeof where !== 'function' || typeof getDocs !== 'function') {
+    return;
+  }
+  try {
+    const qy = query(
+      collection(db, 'u', uid, 'responses'),
+      where('consigneId', '==', consigneId),
+      where('dayKey', '==', dayKey)
+    );
+    const snap = await getDocs(qy);
+    const tasks = (snap?.docs || []).map((docSnap) => {
+      try {
+        return deleteDoc(docSnap.ref);
+      } catch (error) {
+        console.warn('history.deleteAllResponsesForDay:delete', error);
+        return null;
+      }
+    });
+    if (tasks.length) {
+      await Promise.all(tasks);
+    }
+  } catch (error) {
+    console.warn('history.deleteAllResponsesForDay', error);
+  }
+}
+
 const MILLIS_EPOCH_THRESHOLD = Date.UTC(2000, 0, 1);
 
 function normalizeDateInstance(date) {
@@ -14419,6 +14453,7 @@ async function openHistory(ctx, consigne, options = {}) {
         try {
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, responseSyncOptions);
           try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
+          try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
           closeEditor();
           reopenHistory();
         } catch (error) {
@@ -14440,6 +14475,7 @@ async function openHistory(ctx, consigne, options = {}) {
         if (isRawEmpty && !note) {
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, dayKey, responseSyncOptions);
           try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
+          try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
         } else {
           await Schema.saveHistoryEntry(
             ctx.db,
