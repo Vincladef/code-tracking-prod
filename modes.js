@@ -13863,32 +13863,6 @@ async function openHistory(ctx, consigne, options = {}) {
   modesLogger.info("ui.history.rows", size);
   let rows = docs.map((d) => ({ id: d.id, ...d.data() }));
   rows = mergeRowsWithRecent(rows, consigneId);
-  let historyEntries = [];
-  if (ctx?.db && typeof Schema?.loadConsigneHistory === "function") {
-    try {
-      historyEntries = await Schema.loadConsigneHistory(ctx.db, uid, consigneId);
-    } catch (error) {
-      modesLogger?.warn?.("ui.history.loadConsigneHistory", { consigneId, error });
-      historyEntries = [];
-    }
-  }
-  const historyEntryCache = new Map();
-  const resolveHistoryEntryForKey = (rawKey) => {
-    if (typeof rawKey !== "string") {
-      return null;
-    }
-    const normalized = normalizeHistoryDayKey(rawKey);
-    if (!normalized) {
-      return null;
-    }
-    if (historyEntryCache.has(normalized)) {
-      return historyEntryCache.get(normalized);
-    }
-    const match = findHistoryEntryForDayKey(historyEntries, consigne, normalized) || null;
-    historyEntryCache.set(normalized, match);
-    return match;
-  };
-
   const DAILY_MODE_KEYS = new Set(["daily"]);
 
   function normalizeMode(row) {
@@ -14228,13 +14202,6 @@ async function openHistory(ctx, consigne, options = {}) {
             : Number.NaN
           : Number(numericValue);
       const note = r.note && String(r.note).trim();
-      const historyMatch =
-        resolveHistoryEntryForKey(dayKey) ||
-        resolveHistoryEntryForKey(r.historyKey || r.history_key) ||
-        resolveHistoryEntryForKey(r.historyEntryId || r.history_entry_id) ||
-        resolveHistoryEntryForKey(r.historyId || r.history_id);
-      const historyEntry = historyMatch?.entry || null;
-      const historyDocumentId = historyEntry ? resolveHistoryDocumentId(historyEntry, dayKey) : dayKey || "";
       const summaryInfo = resolveHistoryEntrySummaryInfo(r);
       const rawSummaryLabel = summaryInfo.isSummary
         ? firstNonEmptyString(
@@ -14375,14 +14342,13 @@ async function openHistory(ctx, consigne, options = {}) {
         : "";
       const dayKeyAttr = dayKey ? ` data-day-key="${escapeHtml(dayKey)}"` : "";
       const responseIdAttr = r.id ? ` data-response-id="${escapeHtml(String(r.id))}"` : "";
-      const historyIdAttr = historyDocumentId ? ` data-history-id="${escapeHtml(historyDocumentId)}"` : "";
       // Allow editing normal entries and bilan summary entries
       const canEditEntry = EDITABLE_HISTORY_TYPES.has(consigne.type) && dayKey && (!summaryInfo.isSummary || summaryInfo.isBilan);
       const editButtonMarkup = canEditEntry
         ? `<button type="button" class="history-panel__item-edit" data-history-edit aria-label="Modifier la réponse">Modifier</button>`
         : "";
       return `
-        <li class="history-panel__item${summaryClass}${bilanClass}" data-history-entry data-history-index="${index}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}${responseIdAttr}${historyIdAttr}${bilanAttr}>
+        <li class="history-panel__item${summaryClass}${bilanClass}" data-history-entry data-history-index="${index}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}${responseIdAttr}${bilanAttr}>
           <div class="history-panel__item-row">
             <span class="${valueClasses.join(" ")}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}">
               <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
@@ -14503,7 +14469,7 @@ async function openHistory(ctx, consigne, options = {}) {
     openHistory(ctx, consigne, options);
   };
 
-  const openEntryEditor = (entryIndex, itemNode) => {
+  const openEntryEditor = async (entryIndex, itemNode) => {
     if (!EDITABLE_HISTORY_TYPES.has(consigne.type)) {
       showToast("Modification non disponible pour ce type de consigne.");
       return;
@@ -14512,14 +14478,12 @@ async function openHistory(ctx, consigne, options = {}) {
     if (!row) return;
     const dayKeyAttr = itemNode?.getAttribute('data-day-key');
     const responseIdAttr = itemNode?.getAttribute('data-response-id');
-    const historyIdAttr = itemNode?.getAttribute('data-history-id');
     const isBilanEntry = itemNode?.getAttribute('data-history-source') === 'bilan';
     const dayKey = dayKeyAttr && dayKeyAttr.trim() ? dayKeyAttr.trim() : resolveDayKey(row, null);
     if (!dayKey) {
       showToast("Impossible d’identifier la date de cette réponse.");
       return;
     }
-    const historyDocumentId = historyIdAttr && historyIdAttr.trim() ? historyIdAttr.trim() : dayKey;
     const createdAtSource = row.createdAt ?? row.updatedAt ?? null;
     const createdAt = asDate(createdAtSource);
     const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
@@ -14533,7 +14497,7 @@ async function openHistory(ctx, consigne, options = {}) {
     // If this is a bilan entry, open the dedicated bilan editor instead of the inline editor,
     // rendering inside the history panel so it appears on top.
     if (isBilanEntry) {
-      openBilanHistoryEditor(null, consigne, ctx, {
+      await openBilanHistoryEditor(null, consigne, ctx, {
         dayKey,
         details: { rawValue: row.value, date: displayDate, timestamp: createdAtSource, isBilan: true },
         trigger: itemNode,
@@ -14543,6 +14507,17 @@ async function openHistory(ctx, consigne, options = {}) {
         onChange: reopenHistory,
       });
       return;
+    }
+    let historyDocumentId = dayKey;
+    if (ctx?.db && typeof Schema?.loadConsigneHistory === "function") {
+      try {
+        const historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+        const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey);
+        const historyEntry = match?.entry || null;
+        historyDocumentId = resolveHistoryDocumentId(historyEntry, dayKey);
+      } catch (error) {
+        modesLogger?.warn?.("ui.history.resolveDocId", { consigneId: consigne.id, dayKey, error });
+      }
     }
     const valueField = renderConsigneValueField(consigne, row.value, fieldId);
     const autosaveKey = [`history-entry`, ctx.user?.uid || 'anon', consigne.id || 'consigne', dayKey]
@@ -14741,7 +14716,7 @@ async function openHistory(ctx, consigne, options = {}) {
         return;
       }
       event.preventDefault();
-      openEntryEditor(entryIndex, itemNode);
+      void openEntryEditor(entryIndex, itemNode);
     });
     if (focusDayKeyOption) {
       const focusIndex = rows.findIndex((row) => {
@@ -14761,7 +14736,7 @@ async function openHistory(ctx, consigne, options = {}) {
               focusItem.scrollIntoView();
             }
             if (autoEdit && EDITABLE_HISTORY_TYPES.has(consigne.type)) {
-              openEntryEditor(focusIndex, focusItem);
+              void openEntryEditor(focusIndex, focusItem);
             }
           });
         }
