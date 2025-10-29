@@ -853,59 +853,8 @@
     }
     // IMPORTANT: si une date explicite est fournie (par options.dateKey ou AppCtx.dateIso),
     // on NE fait PAS de fallback sur l'historique d'autres jours. Cela garantit l'isolation par jour.
-    const hasExplicitDate = Boolean(requestedKey || pageKeyFromCtx);
-    if (hasExplicitDate) {
-      debugLog("loadSelection:skip-history-fallback", { consigneId, dateKey });
-      return null;
-    }
-    if (!db ||
-      typeof collection !== "function" ||
-      typeof query !== "function" ||
-      typeof where !== "function" ||
-      typeof orderBy !== "function" ||
-      typeof limit !== "function" ||
-      typeof getDocs !== "function") {
-      return null;
-    }
-    try {
-      const constraints = [
-        collection(db, "u", uid, "history"),
-        where("type", "==", "checklist"),
-        where("consigneId", "==", consigneId),
-        orderBy("ts", "desc"),
-        limit(1),
-      ];
-      const snap = await getDocs(query(...constraints));
-      const docSnap = snap?.docs?.[0];
-      if (!docSnap) return null;
-      const data = docSnap.data() || {};
-      const normalized = normalizePayload({
-        consigneId,
-        selectedIds: data.selectedIds,
-        optionsHash: data.optionsHash,
-        ts:
-          data.ts instanceof Date
-            ? data.ts.getTime()
-            : data.ts && typeof data.ts.toDate === "function"
-            ? data.ts.toDate().getTime()
-            : data.ts,
-        dateKey: data.dateKey || data.dayKey,
-        answers: data.answers,
-        skippedIds: data.skippedIds,
-      });
-      const sanitized = sanitizeLoadedPayload(normalized, dateKey);
-      cacheSelection(uid, consigneId, sanitized);
-      debugLog("loadSelection:history", {
-        consigneId,
-        dateKey: sanitized.dateKey,
-        selected: sanitized.selectedIds.length,
-        hasAnswers: Boolean(sanitized.answers && Object.keys(sanitized.answers).length),
-      });
-      return sanitized;
-    } catch (error) {
-      console.warn("[checklist-state] firestore:load", error);
-      return null;
-    }
+    debugLog("loadSelection:no-fallback", { consigneId, dateKey });
+    return null;
   }
 
   function clearHint(root, consigneId) {
@@ -956,36 +905,8 @@
     return trimmed;
   }
 
-  function renderHint(root, consigneId, { optionsChanged = false, previousDateKey = null } = {}) {
-    if (!root) return;
-    const parent = root.parentElement || root;
-    if (!parent) return;
-    clearHint(root, consigneId);
-    const hint = document.createElement("div");
-    hint.className = HINT_CLASS;
-    hint.textContent = "Réponses précédentes pré-appliquées";
-    if (consigneId) {
-      hint.dataset.checklistFor = String(consigneId);
-    }
-    if (previousDateKey) {
-      const formatted = formatHintDate(previousDateKey);
-      if (formatted) {
-        const note = document.createElement("span");
-        note.className = `${HINT_CLASS}__note`;
-        note.textContent = `Dernière réponse du ${formatted}`;
-        hint.appendChild(document.createTextNode(" "));
-        hint.appendChild(note);
-      }
-    }
-    if (optionsChanged) {
-      hint.classList.add(HINT_WARNING_CLASS);
-      const note = document.createElement("span");
-      note.className = `${HINT_CLASS}__note`;
-      note.textContent = "La consigne a changé depuis votre dernière réponse.";
-      hint.appendChild(document.createTextNode(" "));
-      hint.appendChild(note);
-    }
-    parent.insertBefore(hint, root);
+  function renderHint() {
+    // Hints disabled per user feedback.
   }
 
   function collectChecklistEntries(root, consigneId) {
