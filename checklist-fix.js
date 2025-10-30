@@ -808,6 +808,10 @@
           if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
             return;
           }
+          // Ignorer les changements déclenchés pendant une hydratation protégée
+          if (root.dataset && root.dataset.checklistHydrating === "1") {
+            return;
+          }
           if (
             !target.matches('[data-checklist-input]') &&
             !(itemKeyAttr && target.hasAttribute(itemKeyAttr))
