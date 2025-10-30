@@ -11419,6 +11419,18 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       delete row.dataset.dayKey;
     }
   }
+  if (typeof console !== "undefined" && console?.info) {
+    try {
+      console.info("[checklist-history] timeline.update", {
+        consigneId: options?.consigne?.id ?? null,
+        dayKey,
+        status,
+        remove: options?.remove === true,
+        historyId: options?.historyId || "",
+        responseId: options?.responseId || "",
+      });
+    } catch (_) {}
+  }
   const selector = `[data-history-day="${escapeTimelineSelector(dayKey)}"]`;
   const normalizedHistoryId =
     typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
@@ -18307,6 +18319,17 @@ async function renderDaily(ctx, root, opts = {}) {
     const answers = [{ consigne, value: pendingValue, dayKey, ...extras }];
     if (normalizedSummary) {
       Object.assign(answers[0], normalizedSummary);
+    }
+    if (consigne.type === "checklist") {
+      try {
+        console.info("[checklist-history] daily.autosave.payload", {
+          consigneId: consigne?.id ?? null,
+          dayKey,
+          items: Array.isArray(pendingValue?.items) ? pendingValue.items : null,
+          skipped: Array.isArray(pendingValue?.skipped) ? pendingValue.skipped : null,
+          hasSummary: !!normalizedSummary,
+        });
+      } catch (_) {}
     }
     try {
       modesLogger?.info?.("daily.autosave.enqueue", {
