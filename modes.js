@@ -9533,12 +9533,15 @@ function applyConsigneHistoryPoint(item, point) {
     delete item.dataset.historyResponseId;
   }
   if (point.title) {
-    item.title = point.title;
+    // Avoid clobbering a title we just computed from dayKey in the hard-render section above
+    if (!item.title) {
+      item.title = point.title;
+    }
   } else {
     item.removeAttribute("title");
   }
   const ariaParts = [];
-  const fullLabel = details?.fullDateLabel || point.title || "";
+  const fullLabel = item.title || details?.fullDateLabel || point.title || "";
   if (fullLabel) {
     ariaParts.push(fullLabel);
   }
@@ -9987,7 +9990,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   const dateCandidate =
     (keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime()) ? keyInfo.date : null) ||
     (details?.date instanceof Date && !Number.isNaN(details.date.getTime()) ? details.date : null) ||
-    (parseHistoryTimelineDateInfo(resolvedDayKey)?.date ?? null) ||
+    (modesParseDayKeyToDate(resolvedDayKey) ?? null) ||
     createdAt ||
     null;
   const dateLabel = formatBilanHistoryDateLabel(dateCandidate, resolvedDayKey);
@@ -10788,7 +10791,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   const dateCandidate =
     (keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime()) ? keyInfo.date : null) ||
     (details?.date instanceof Date && !Number.isNaN(details.date.getTime()) ? details.date : null) ||
-    (parseHistoryTimelineDateInfo(resolvedDayKey)?.date ?? null) ||
+    (modesParseDayKeyToDate(resolvedDayKey) ?? null) ||
     createdAt ||
     null;
   const baseDateLabel =
@@ -11555,9 +11558,8 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   if (!item) {
     item = state.track.querySelector(selector);
   }
-  // Use only dayKey (page date), ignore dateIso (recording date)
-  const info = parseHistoryTimelineDateInfo(dayKey);
-  const date = info?.date || null;
+  // Use only dayKey (page date), ignore recording date
+  const date = modesParseDayKeyToDate(dayKey);
   const existingDetails = item?._historyDetails || null;
   const consigne = options.consigne || null;
   const effectiveValue = options.value !== undefined ? options.value : existingDetails?.rawValue ?? null;
@@ -11791,12 +11793,13 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       return;
     }
     const rawDetails = target._historyDetails || null;
+    // Prefer internal details.dayKey (set at render) over dataset to avoid any later DOM-side overwrites
     const historyDayKey =
+      (rawDetails && typeof rawDetails.dayKey === "string" && rawDetails.dayKey.trim()
+        ? rawDetails.dayKey.trim()
+        : "") ||
       (typeof target.dataset.historyDay === "string" && target.dataset.historyDay.trim()
         ? target.dataset.historyDay.trim()
-        : "") ||
-      (rawDetails && typeof rawDetails.dayKey === "string"
-        ? rawDetails.dayKey
         : "");
     const isBilanPoint = target.dataset.historySource === "bilan" || rawDetails?.isBilan === true;
     const isSummaryPoint =
@@ -11887,15 +11890,15 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     let details = rawDetails ? { ...rawDetails } : null;
     if (!details) {
       const historyDay = target.dataset.historyDay || null;
-      const dateInfo = parseHistoryTimelineDateInfo(historyDay);
+      const parsedDate = historyDay ? modesParseDayKeyToDate(historyDay) : null;
       const fallbackPoint = formatConsigneHistoryPoint(
         {
           dayKey: historyDay,
-          date: dateInfo?.date || null,
+          date: parsedDate || null,
           status: target.dataset.status || "na",
           value: null,
           note: "",
-          timestamp: dateInfo?.timestamp || Date.now(),
+          timestamp: parsedDate instanceof Date && !Number.isNaN(parsedDate.getTime()) ? parsedDate.getTime() : Date.now(),
           isPlaceholder: target.dataset.placeholder === "1",
         },
         consigne,
