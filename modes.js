@@ -5820,7 +5820,11 @@ function inputForType(consigne, initialValue = null, options = {}) {
             const payload = serialize();
             // Conserver des métadonnées pour éviter les incohérences (date, options)
             try {
-              const ctxKey = pageDateKey ? String(pageDateKey) : '';
+              // Prefer any history date stamped on the root/hidden by the global hydrator;
+              // fall back to pageDateKey
+              const rootHist = (root?.dataset && root.dataset.checklistHistoryDate) || root.getAttribute('data-checklist-history-date') || '';
+              const hiddenHist = (hidden?.dataset && hidden.dataset.checklistHistoryDate) || hidden.getAttribute('data-checklist-history-date') || '';
+              const ctxKey = (rootHist && String(rootHist).trim()) || (hiddenHist && String(hiddenHist).trim()) || (pageDateKey ? String(pageDateKey) : '');
               if (ctxKey) payload.dateKey = ctxKey;
               const optHash = (root?.dataset && root.dataset.checklistOptionsHash) || '';
               if (optHash) payload.optionsHash = optHash;
@@ -6123,7 +6127,8 @@ function inputForType(consigne, initialValue = null, options = {}) {
           };
           const hydrate = window.hydrateChecklist;
           const uid = window.AppCtx?.user?.uid || null;
-          const dateKey = historyDateKeyAttr || window.AppCtx?.dateIso || (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
+          // Always compute the effective page dayKey first; this is what we want to scope hydration to
+          const dateKey = pageDateKey || historyDateKeyAttr || window.AppCtx?.dateIso || (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
           const consigneId = root.getAttribute('data-consigne-id') || root.dataset.consigneId || '';
           // Évite les doubles chemins d'hydratation: si une API globale existe, on la laisse faire
           if (!(typeof hydrate === 'function')) {
@@ -6132,9 +6137,9 @@ function inputForType(consigne, initialValue = null, options = {}) {
           ensureItemIds();
           sync();
           if (typeof hydrate === 'function') {
-            // En contexte historique, utiliser historyDateKeyAttr comme dateKey
-            const effectiveDateKey = isHistoryContext ? historyDateKeyAttr : dateKey;
-            console.log("[DEBUG] Calling hydrateChecklist with effectiveDateKey:", effectiveDateKey, "isHistoryContext:", isHistoryContext);
+            // Use the computed page dateKey; avoid defaulting to today to prevent mismatches
+            const effectiveDateKey = dateKey;
+            console.log("[DEBUG] Calling hydrateChecklist with effectiveDateKey:", effectiveDateKey, "isHistoryContext:", isHistoryContext, "pageDateKey:", pageDateKey);
             if (root.dataset) root.dataset.checklistHydrating = '1';
             Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key', dateKey: effectiveDateKey }))
               .then(() => {
@@ -18165,7 +18170,9 @@ async function renderDaily(ctx, root, opts = {}) {
   const navLabel = entry?.navLabel || (selectedDate ? formatDailyNavLabel(selectedDate) : "Journalier");
   const navSubtitle = entry?.navSubtitle || "";
   const isDayEntry = entry?.type === DAILY_ENTRY_TYPES.DAY;
-  const selectedKey = isDayEntry && selectedDate && typeof Schema?.dayKeyFromDate === "function"
+  // For weekly/monthly/yearly summary pages, still propagate a concrete dayKey (the route's d=...)
+  // so checklist hydration/persistence consistently target the visible page date instead of "today".
+  const selectedKey = selectedDate && typeof Schema?.dayKeyFromDate === "function"
     ? Schema.dayKeyFromDate(selectedDate)
     : null;
   // Propagate the effective page date into global context so checklist hydration/persistence is day-scoped
