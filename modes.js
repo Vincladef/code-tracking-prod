@@ -9266,7 +9266,7 @@ function resolveHistoryTimelineKey(entry, consigne) {
         break;
       }
     }
-    const fallbackKey =
+    let fallbackKey =
       initialDayKey ||
       entry?.historyKey ||
       entry?.history_key ||
@@ -9276,6 +9276,10 @@ function resolveHistoryTimelineKey(entry, consigne) {
       entry?.dateKey ||
       entry?.date_key ||
       null;
+    // Ignore ambiguous day/month strings like "01/01" that lack a year
+    if (typeof fallbackKey === "string" && /^\d{1,2}[\/\-]\d{1,2}$/.test(fallbackKey.trim())) {
+      fallbackKey = null;
+    }
     if (sessionKey) {
       base.dayKey = sessionKey;
     } else if (!base.dayKey && fallbackKey) {

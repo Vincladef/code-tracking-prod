@@ -797,6 +797,15 @@ function registerRecentResponses(mode, entries) {
         dayKey: entry.dayKey || null,
         createdAt: createdAtIso || new Date().toISOString(),
       };
+      // Derive a dayKey from createdAt when absent to keep UI pastilles aligned post-save
+      if (!normalized.dayKey && normalized.createdAt) {
+        try {
+          const d = new Date(normalized.createdAt);
+          if (!Number.isNaN(d.getTime())) {
+            normalized.dayKey = dayKeyFromDate(d);
+          }
+        } catch (_) {}
+      }
       return normalized;
     })
     .filter(Boolean);
@@ -1092,8 +1101,11 @@ async function saveResponses(db, uid, mode, answers) {
         }
       }
     }
-    if (a.dayKey || mode === "daily") {
-      payload.dayKey = a.dayKey || todayKey();
+    // Always include a dayKey so UI pastilles remain stable after saving (both daily and practice)
+    if (a.dayKey) {
+      payload.dayKey = a.dayKey;
+    } else {
+      payload.dayKey = todayKey();
     }
     if (a.note !== undefined) {
       payload.note = a.note;
