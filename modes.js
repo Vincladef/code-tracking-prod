@@ -10483,6 +10483,18 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       }
     : null;
   const resolvedDayKey = keyInfo?.dayKey || dayKey;
+  if (consigne.type === "checklist" && !entry) {
+    try {
+      console.error("[checklist-history] entry-editor:missing-entry", {
+        consigneId: consigne.id ?? null,
+        dayKey,
+        resolvedDayKey,
+        responseTarget: explicitResponseId || triggerResponseId || detailResponseId || "",
+        historyTarget: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
+        availableEntries: historyEntries.length,
+      });
+    } catch (_) {}
+  }
   const historyDocumentId = resolveHistoryDocumentId(entry, resolvedDayKey);
   const entryValue = entry?.value !== undefined ? entry.value : details?.rawValue ?? "";
   const createdAtSource =
@@ -10549,11 +10561,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         summary: timelineSummary,
         responseId: explicitResponseId || triggerResponseId || detailResponseId || "",
         historyId: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
+        rawValue: details?.rawValue ?? details?.value ?? null,
       },
       entrySummary: {
         summary: entrySummary,
         responseId: resolvedResponseId,
         historyId: historyDocumentId,
+        rawValue: entryValue,
       },
       panelSummary: panelSummary
         ? {
@@ -10567,6 +10581,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               (typeof panelEntry?.historyId === "string" && panelEntry.historyId.trim()) ||
               (typeof panelEntry?.history_id === "string" && panelEntry.history_id.trim()) ||
               "",
+            rawValue: panelEntry?.value ?? null,
           }
         : null,
       matchInfo,
@@ -10733,16 +10748,19 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           focusDayKey: resolvedDayKey,
           domSummary: {
             summary: domSummary,
+            rawValue: domValue,
           },
           timelineDetails: {
             summary: summarizeChecklistValue(details?.rawValue ?? details?.value ?? null),
             responseId: explicitResponseId || triggerResponseId || detailResponseId || "",
             historyId: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
+            rawValue: details?.rawValue ?? details?.value ?? null,
           },
           entrySummary: {
             summary: summarizeChecklistValue(entryValue),
             responseId: resolvedResponseId,
             historyId: historyDocumentId,
+            rawValue: entryValue,
           },
           matchInfo,
         });
@@ -11463,6 +11481,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
             summary: timelineSummary,
             responseId: responseIdCandidate,
             historyId: historyIdCandidate,
+            rawValue: rawDetails?.rawValue ?? rawDetails?.value ?? null,
           },
           entries: [],
         });
@@ -11483,6 +11502,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
           source: historySource,
           responseId: responseIdCandidate,
           historyId: historyIdCandidate,
+          panelEntry: row,
         });
       } else {
         void openHistory(ctx, consigne, {
@@ -14438,6 +14458,46 @@ function summarizeChecklistValue(value) {
   }
 }
 
+function diffChecklistSummaries(summaryA, summaryB) {
+  const keys = ["checked", "total", "skipped", "percentage", "empty"];
+  if (!summaryA && !summaryB) {
+    return [];
+  }
+  if (!summaryA || !summaryB) {
+    return [
+      {
+        field: "summary",
+        left: summaryA ?? null,
+        right: summaryB ?? null,
+        kind: "missing",
+      },
+    ];
+  }
+  const normalizeNumber = (value) => {
+    if (value === null || value === undefined) return null;
+    const num = Number(value);
+    if (!Number.isFinite(num)) return null;
+    return Math.round(num * 1000) / 1000;
+  };
+  const differences = [];
+  keys.forEach((key) => {
+    const left = summaryA[key];
+    const right = summaryB[key];
+    if (typeof left === "number" || typeof right === "number") {
+      const normLeft = normalizeNumber(left);
+      const normRight = normalizeNumber(right);
+      if (normLeft !== normRight) {
+        differences.push({ field: key, left: normLeft, right: normRight });
+      }
+      return;
+    }
+    if (left !== right) {
+      differences.push({ field: key, left, right });
+    }
+  });
+  return differences;
+}
+
 function logChecklistHistoryInspection(consigne, payload = {}) {
   if (!consigne || consigne.type !== "checklist") {
     return;
@@ -14459,17 +14519,64 @@ function logChecklistHistoryInspection(consigne, payload = {}) {
         dom: payload.domSummary || null,
       });
     }
-    if (
-      payload.timelineDetails?.summary ||
-      payload.entrySummary?.summary ||
-      payload.panelSummary?.summary ||
-      payload.domSummary?.summary
-    ) {
+    if (payload.matchInfo && payload.matchInfo.type && payload.matchInfo.type !== "history") {
+      try {
+        console.warn(
+          `[checklist-history] attention: correspondance basée sur ${payload.matchInfo.type} (${payload.matchInfo.weight ?? "?"})`,
+          {
+            consigneId: consigne.id ?? null,
+            dayKey: payload.focusDayKey || "",
+            match: payload.matchInfo,
+          },
+        );
+      } catch (_) {}
+    }
+    const summaryMap = {
+      timeline: payload.timelineDetails?.summary || null,
+      entry: payload.entrySummary?.summary || null,
+      panel: payload.panelSummary?.summary || null,
+      dom: payload.domSummary?.summary || null,
+    };
+    const summaryEntries = Object.entries(summaryMap).filter(([, summary]) => summary != null);
+    if (summaryEntries.length) {
       console.info("summary-compare", {
-        timeline: payload.timelineDetails?.summary || null,
-        entry: payload.entrySummary?.summary || null,
-        panel: payload.panelSummary?.summary || null,
-        dom: payload.domSummary?.summary || null,
+        timeline: summaryMap.timeline || null,
+        entry: summaryMap.entry || null,
+        panel: summaryMap.panel || null,
+        dom: summaryMap.dom || null,
+      });
+      const keys = Object.keys(summaryMap);
+      keys.forEach((baseName, index) => {
+        const baseSummary = summaryMap[baseName];
+        if (!baseSummary) {
+          return;
+        }
+        for (let i = index + 1; i < keys.length; i += 1) {
+          const compareName = keys[i];
+          const compareSummary = summaryMap[compareName];
+          if (!compareSummary) {
+            continue;
+          }
+          const diffs = diffChecklistSummaries(baseSummary, compareSummary);
+          if (diffs.length) {
+            const severity =
+              baseName === "timeline" || compareName === "timeline"
+                ? "error"
+                : "warn";
+            const logger = console[severity] || console.warn;
+            try {
+              logger(
+                `[checklist-history] mismatch ${baseName} vs ${compareName} (#${consigne.id ?? "?"})`,
+                {
+                  dayKey: payload.focusDayKey || "",
+                  differences: diffs,
+                  [baseName]: baseSummary,
+                  [compareName]: compareSummary,
+                },
+              );
+            } catch (_) {}
+          }
+        }
       });
     }
     if (Array.isArray(payload.entries)) {
@@ -15414,6 +15521,7 @@ async function openHistory(ctx, consigne, options = {}) {
                 (typeof row.history_id === "string" && row.history_id.trim()) ||
                 (historyIdAttr && historyIdAttr.trim()) ||
                 "",
+              rawValue: row.value ?? null,
             }
           : null,
         entries: [],
