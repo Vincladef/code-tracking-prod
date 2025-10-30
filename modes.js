@@ -11590,6 +11590,20 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     if (typeof state.dayKey === "string" && state.dayKey.trim()) {
       return state.dayKey.trim();
     }
+    // Prefer the page's selected date (URL ?d) or AppCtx before falling back to today
+    try {
+      const url = new URL(window.location.href);
+      const qd = url.searchParams.get("d");
+      if (typeof qd === "string" && qd.trim()) {
+        return qd.trim();
+      }
+    } catch (_) {}
+    if (typeof window !== "undefined" && window.AppCtx && typeof window.AppCtx.dateIso === "string") {
+      const fromCtx = window.AppCtx.dateIso.trim();
+      if (fromCtx) {
+        return fromCtx;
+      }
+    }
     if (typeof Schema?.todayKey === "function") {
       const today = Schema.todayKey();
       if (typeof today === "string" && today.trim()) {
