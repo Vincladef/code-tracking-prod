@@ -10603,6 +10603,13 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       }
       if (typeof requestClose === 'function') requestClose();
       flushHistoryPanelRefresh();
+      // Clear local recent cache and notify global listeners so "global history" views refresh
+      try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+      try {
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+        }
+      } catch (_) {}
     } catch (error) {
       console.error("bilan.history.editor.save", error);
       submitBtn.disabled = false;
@@ -11250,6 +11257,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         showToast("Réponses effacées.");
         closeOverlay();
         flushHistoryPanelRefresh();
+        // Clear local recent cache and notify global listeners so "global history" views refresh
+        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+        try {
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+          }
+        } catch (_) {}
       } catch (error) {
         console.error("consigne.history.editor.clear", error);
         clearBtn.disabled = false;
@@ -11384,6 +11398,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       showToast(toastMessage);
       closeOverlay();
       flushHistoryPanelRefresh();
+      // Clear local recent cache and notify global listeners so "global history" views refresh
+      try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+      try {
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+        }
+      } catch (_) {}
     } catch (error) {
       console.error("consigne.history.editor.save", error);
       submitBtn.disabled = false;
@@ -14835,6 +14856,24 @@ function refreshOpenHistoryPanel(consigneId) {
   return false;
 }
 
+// Ensure any global "consigne:history:refresh" event triggers a panel refresh
+if (typeof window !== "undefined" && !window.__hpHistoryRefreshBound) {
+  try {
+    window.__hpHistoryRefreshBound = true;
+    window.addEventListener(
+      "consigne:history:refresh",
+      (event) => {
+        const targetId = event?.detail?.consigneId ?? event?.detail?.id ?? null;
+        if (targetId == null) return;
+        try {
+          refreshOpenHistoryPanel(String(targetId));
+        } catch (_) {}
+      },
+      { passive: true },
+    );
+  } catch (_) {}
+}
+
 function refreshConsigneTimelineWithRows(consigne, rows) {
   if (!consigne || consigne.id == null) {
     return;
@@ -16178,6 +16217,13 @@ async function openHistory(ctx, consigne, options = {}) {
             } catch (_) {}
           closeEditor();
           reopenHistory();
+          // Clear local recent cache and notify global listeners so other views refresh
+          try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+          try {
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+              window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+            }
+          } catch (_) {}
         } catch (error) {
           console.error('history-entry:clear', error);
           clearBtn.disabled = false;
@@ -16227,6 +16273,13 @@ async function openHistory(ctx, consigne, options = {}) {
         }
         closeEditor();
         reopenHistory();
+        // Clear local recent cache and notify global listeners so other views refresh
+        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+        try {
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+          }
+        } catch (_) {}
       } catch (error) {
         console.error('history-entry:save', error);
         submitBtn.disabled = false;
