@@ -1,4 +1,18 @@
 // modes.js — Journalier / Pratique / Historique
+// Build/version marker to diagnose stale bundles overriding fixes
+(function modesBuildTag(){
+  try {
+    const TAG = "v2025-10-06-02";
+    const prev = typeof window !== "undefined" ? window.__hpModesBuildTag : null;
+    if (typeof window !== "undefined") {
+      window.__hpModesBuildTag = TAG;
+      if (prev && prev !== TAG) {
+        console.warn("[build] modes:multiple-versions", { prev, current: TAG });
+      }
+    }
+    console.info("[build] modes", TAG);
+  } catch (_) {}
+})();
 /* global Schema, Modes */
 window.Modes = window.Modes || {};
 const modesFirestore = Schema.firestore || window.firestoreAPI || {};

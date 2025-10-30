@@ -1,4 +1,18 @@
 /* global Schema */
+// Build/version marker to diagnose stale bundles overriding fixes
+(function schemaBuildTag(){
+  try {
+    const TAG = "v2025-10-06-02";
+    const prev = typeof window !== "undefined" ? window.__hpSchemaBuildTag : null;
+    if (typeof window !== "undefined") {
+      window.__hpSchemaBuildTag = TAG;
+      if (prev && prev !== TAG) {
+        console.warn("[build] schema:multiple-versions", { prev, current: TAG });
+      }
+    }
+    console.info("[build] schema", TAG);
+  } catch (_) {}
+})();
 window.Schema = window.Schema || {};
 
 const firebaseCompat = window.firebase || {};
