@@ -688,6 +688,13 @@
       } else {
         applySkipState(target, item, false);
       }
+      // Marquer la saisie locale tout de suite pour protéger contre une réhydratation immédiate
+      try {
+        if (root && root.dataset) {
+          root.dataset.checklistDirty = "1";
+          root.dataset.checklistDirtyAt = String(Date.now());
+        }
+      } catch (_) {}
       updateHiddenState(root);
       const persistFn = window.ChecklistState?.persistRoot;
       if (typeof persistFn === "function") {
@@ -717,7 +724,7 @@
           console.warn("[app] checklist:persist", error);
         });
       }
-      root.dataset.checklistDirty = "1";
+  // déjà marqué ci-dessus
       // Determine event dayKey to scope updates to the correct day/root
       const historyKey =
         root.getAttribute("data-checklist-history-date") ||
