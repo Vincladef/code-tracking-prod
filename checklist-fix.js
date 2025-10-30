@@ -661,9 +661,24 @@
       root.dataset?.consigneId ||
       null;
     const uid = resolveUid(options.uid);
-  // Prefer explicit option dateKey; otherwise use the page-scoped day key propagated in AppCtx.dateIso.
-  // Fall back to today only if neither is available.
+  // Prefer explicit option dateKey; otherwise:
+  // 1) URL ?d=... if present (works even before AppCtx is set)
+  // 2) AppCtx.dateIso
+  // 3) today
+  const urlDayKey = (function(){
+    try {
+      const hash = typeof GLOBAL.location?.hash === 'string' ? GLOBAL.location.hash : '';
+      const search = typeof GLOBAL.location?.search === 'string' ? GLOBAL.location.search : '';
+      const pick = (s) => {
+        if (!s) return null;
+        const m = String(s).match(/[?&]d=(\d{4}-\d{2}-\d{2})\b/i);
+        return m ? m[1] : null;
+      };
+      return pick(search) || pick(hash);
+    } catch (_) { return null; }
+  })();
   const dateKey = (options.dateKey && String(options.dateKey))
+    || (urlDayKey && String(urlDayKey))
     || (typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? String(GLOBAL.AppCtx.dateIso) : null)
     || todayKey();
     
