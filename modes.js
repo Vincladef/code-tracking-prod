@@ -15057,7 +15057,9 @@ function logChecklistHistoryInspection(consigne, payload = {}) {
     if (Array.isArray(payload.entries)) {
       const rows = payload.entries.slice(0, payload.maxEntries ?? 40).map((entry, index) => {
         const keyInfo = resolveHistoryTimelineKey(entry, consigne);
-        const summary = summarizeChecklistValue(entry?.value);
+        // Normalize the value exactly like the timeline does to ensure status/metrics alignment
+        const displayValue = resolveHistoryTimelineValue(entry, consigne);
+        const summary = summarizeChecklistValue(displayValue);
         const historyId =
           (typeof entry?.historyId === "string" && entry.historyId.trim()) ||
           (typeof entry?.history_id === "string" && entry.history_id.trim()) ||
@@ -15071,7 +15073,7 @@ function logChecklistHistoryInspection(consigne, payload = {}) {
           index,
           dayKey: keyInfo?.dayKey || "",
           normalizedDayKey: normalizeHistoryDayKey(keyInfo?.dayKey),
-          status: dotColor(consigne.type, entry?.value, consigne) || "na",
+          status: dotColor(consigne.type, displayValue, consigne) || "na",
           historyId,
           responseId,
           checked: summary?.checked ?? null,
