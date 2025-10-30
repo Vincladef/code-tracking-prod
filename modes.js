@@ -5640,6 +5640,7 @@ function inputForType(consigne, initialValue = null, options = {}) {
           let pressTarget = null;
 
           const queryInputs = () => Array.from(root.querySelectorAll('[data-checklist-input]'));
+          const now = () => (typeof Date !== 'undefined' ? Date.now() : performance?.now?.() || 0);
           const resolveClosest = (target, selector) => {
             if (!target) return null;
             if (target instanceof Element) {
@@ -5810,6 +5811,16 @@ function inputForType(consigne, initialValue = null, options = {}) {
           };
           const sync = (options = {}) => {
             const payload = serialize();
+            // Conserver des métadonnées pour éviter les incohérences (date, options)
+            try {
+              const ctxKey = pageDateKey ? String(pageDateKey) : '';
+              if (ctxKey) payload.dateKey = ctxKey;
+              const optHash = (root?.dataset && root.dataset.checklistOptionsHash) || '';
+              if (optHash) payload.optionsHash = optHash;
+              // Snapshot des clés pour debug/alignment
+              const keys = queryInputs().map((i) => i.getAttribute('data-key') || i.getAttribute('data-item-id') || '');
+              if (keys.some((k) => k)) payload.itemKeys = keys;
+            } catch (_) {}
             try {
               hidden.value = JSON.stringify(payload);
             } catch (error) {
@@ -5817,6 +5828,8 @@ function inputForType(consigne, initialValue = null, options = {}) {
             }
             if (options.markDirty) {
               hidden.dataset.dirty = '1';
+              root.dataset.checklistDirty = '1';
+              root.dataset.checklistDirtyAt = String(now());
             }
             if (options.notify) {
               hidden.dispatchEvent(new Event('input', { bubbles: true }));
@@ -5835,6 +5848,7 @@ function inputForType(consigne, initialValue = null, options = {}) {
               host.setAttribute('data-validated', input.checked ? 'true' : 'false');
             }
             root.dataset.checklistDirty = '1';
+            root.dataset.checklistDirtyAt = String(now());
             sync({ markDirty: true, notify: true });
             // Déclenche une persistance immédiate via le handler global (app.js)
             try {
@@ -6002,6 +6016,10 @@ function inputForType(consigne, initialValue = null, options = {}) {
           root.addEventListener('change', (event) => {
             if (event.target instanceof Element && event.target.matches('[data-checklist-input]')) {
               closeContextMenu();
+              // Ignorer les changements déclenchés pendant l'hydratation
+              if (root.dataset && root.dataset.checklistHydrating === '1') {
+                return;
+              }
               const input = event.target;
               const host = resolveHost(input);
               const skipActive = isSkipped(input, host);
@@ -6011,11 +6029,20 @@ function inputForType(consigne, initialValue = null, options = {}) {
                 host.setAttribute('data-validated', input.checked ? 'true' : 'false');
               }
               root.dataset.checklistDirty = '1';
+              root.dataset.checklistDirtyAt = String(now());
               sync({ markDirty: true, notify: true });
             }
           });
           const hydratePayload = () => {
             try {
+              // Protection anti-rebond: ne pas réappliquer si une saisie locale vient d'avoir lieu
+              try {
+                const ts = root?.dataset?.checklistDirtyAt ? Number(root.dataset.checklistDirtyAt) : 0;
+                if (ts && now() - ts < 400) {
+                  console.info('[checklist] hydrate.hidden.skip-recent-local-change');
+                  return;
+                }
+              } catch (_) {}
               const raw = JSON.parse(hidden.value || '[]');
               if (isHistoryContext) {
                 logChecklistEvent("info", "[checklist-history] hydrate.payload.raw", {
@@ -6027,13 +6054,34 @@ function inputForType(consigne, initialValue = null, options = {}) {
               // Si le hidden payload contient une clé de date incompatible, on n'applique pas
               try {
                 const hiddenKey = raw && typeof raw === 'object' && raw.dateKey ? String(raw.dateKey) : null;
+                const rawOptionsHash = raw && typeof raw === 'object' && raw.optionsHash ? String(raw.optionsHash) : '';
+                const currentOptionsHash = (root?.dataset && root.dataset.checklistOptionsHash) || '';
+                if (rawOptionsHash && currentOptionsHash && rawOptionsHash !== currentOptionsHash) {
+                  console.info('[checklist] hydrate.hidden.skip-options-mismatch', { rawOptionsHash, currentOptionsHash });
+                  return;
+                }
                 if (hiddenKey && pageDateKey && hiddenKey !== pageDateKey) {
-                  console.info('[checklist] hydrate.hidden.skip-date-mismatch', { hiddenKey, pageDateKey });
+                  console.info('[checklist] hydrate.hidden.fix-date-mismatch', { hiddenKey, pageDateKey });
+                  // Réécrit la clé de date dans le hidden pour éviter de futurs rebonds
+                  try {
+                    const clone = Array.isArray(raw)
+                      ? { items: raw.map((v) => v === true) }
+                      : { ...raw };
+                    clone.dateKey = pageDateKey;
+                    hidden.value = JSON.stringify(clone);
+                  } catch (_) {}
                   return;
                 }
                 if (pageDateKey && !hiddenKey) {
-                  // Page avec date explicite mais payload sans dateKey → ignorer
-                  console.info('[checklist] hydrate.hidden.skip-missing-dateKey', { pageDateKey });
+                  // Page avec date explicite mais payload sans dateKey → injecter la clé et attendre prochain cycle
+                  console.info('[checklist] hydrate.hidden.inject-dateKey', { pageDateKey });
+                  try {
+                    const clone = Array.isArray(raw)
+                      ? { items: raw.map((v) => v === true) }
+                      : { ...raw };
+                    clone.dateKey = pageDateKey;
+                    hidden.value = JSON.stringify(clone);
+                  } catch (_) {}
                   return;
                 }
               } catch (e) {}
@@ -6050,6 +6098,8 @@ function inputForType(consigne, initialValue = null, options = {}) {
                 });
               }
               const inputs = queryInputs();
+              // Hydratation en mode protégé
+              if (root.dataset) root.dataset.checklistHydrating = '1';
               inputs.forEach((input, index) => {
                 const skip = Boolean(payload.skipped[index]);
                 const checked = Boolean(payload.items[index]);
@@ -6071,19 +6121,8 @@ function inputForType(consigne, initialValue = null, options = {}) {
                   host.setAttribute('data-validated', input.checked ? 'true' : 'false');
                 }
               });
-              // Persiste une fois l’état réhydraté pour qu’il survive au rechargement
-              try {
-                const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
-                if (typeof persistFn === 'function') {
-                  const ctxUid = window.AppCtx?.user?.uid || null;
-                  const ctxDb = window.AppCtx?.db || null;
-                  Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
-                    console.warn('[checklist] persist:hydrate', e);
-                  });
-                }
-              } catch (e) {
-                console.warn('[checklist] persist:hydrate', e);
-              }
+              // Ne pas persister immédiatement ici pour éviter les courses; la prochaine interaction s'en chargera
+              if (root.dataset) delete root.dataset.checklistHydrating;
             } catch (error) {
               console.warn('[checklist] payload', error);
             }
@@ -6099,13 +6138,16 @@ function inputForType(consigne, initialValue = null, options = {}) {
             // En contexte historique, utiliser historyDateKeyAttr comme dateKey
             const effectiveDateKey = isHistoryContext ? historyDateKeyAttr : dateKey;
             console.log("[DEBUG] Calling hydrateChecklist with effectiveDateKey:", effectiveDateKey, "isHistoryContext:", isHistoryContext);
+            if (root.dataset) root.dataset.checklistHydrating = '1';
             Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key', dateKey: effectiveDateKey }))
               .then(() => {
                 ensureItemIds();
                 sync();
+                if (root.dataset) delete root.dataset.checklistHydrating;
               })
               .catch((error) => {
                 console.warn('[checklist] hydrate', error);
+                if (root.dataset) delete root.dataset.checklistHydrating;
               });
           }
         })();
