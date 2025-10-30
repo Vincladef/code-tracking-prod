@@ -873,9 +873,10 @@
           if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
             return;
           }
-          // Ignorer les changements déclenchés pendant une hydratation protégée
+          // Ne pas ignorer le premier clic pendant l'hydratation: marquer et continuer
           if (root.dataset && root.dataset.checklistHydrating === "1") {
-            return;
+            root.dataset.checklistHydrationLocalDirty = "1";
+            // continue without returning so the user's action is applied
           }
           if (
             !target.matches('[data-checklist-input]') &&
@@ -972,6 +973,7 @@
         return null;
       }
       let saved = null;
+      const hadLocalChange = root?.dataset?.checklistHydrationLocalDirty === "1";
       const selectedCount = (value) => {
         if (!value) return 0;
         if (Array.isArray(value.selectedIds)) return value.selectedIds.length;
@@ -1003,7 +1005,7 @@
           }
       }
       let appliedWithManager = false;
-      if (saved && manager && typeof manager.applySelection === "function") {
+      if (saved && !hadLocalChange && manager && typeof manager.applySelection === "function") {
         try {
           manager.applySelection(root, saved, { consigneId, dateKey, uid: effectiveUid, db });
           appliedWithManager = true;
@@ -1013,7 +1015,7 @@
           log("hydrate.apply.error", { message: error?.message || String(error) }, "warn");
         }
       }
-        if (saved && !appliedWithManager) {
+        if (saved && !appliedWithManager && !hadLocalChange) {
           const selected = Array.isArray(saved?.selectedIds)
             ? saved.selectedIds
             : Array.isArray(saved?.selected)
@@ -1026,6 +1028,9 @@
             : [];
           applySelectedKeys(root, itemKeyAttr, selected, skipped);
           log("hydrate.apply.dom", { selected: selected.length, skipped: skipped.length });
+      }
+      if (hadLocalChange) {
+        log("hydrate.skip-apply-due-local-change");
       }
       return saved;
     })()
