@@ -8372,6 +8372,8 @@ function formatConsigneHistoryPoint(record, consigne) {
   const modeSource = typeof consigne?.mode === "string" ? consigne.mode : null;
   const normalizedMode = typeof modeSource === "string" ? modeSource.trim().toLowerCase() : "";
   const isPractice = normalizedMode === "practice" || iterationIndex !== null || /session-/i.test(dayKey || "");
+  const isSummary = record?.isSummary === true;
+  const summaryScope = typeof record?.summaryScope === "string" ? record.summaryScope : "";
   const baseTitle = buildHistoryTimelineTitle(date, dayKey, status);
   const statusLabel = STATUS_LABELS[status] || "";
   const title = rawIterationLabel
@@ -8436,6 +8438,8 @@ function formatConsigneHistoryPoint(record, consigne) {
     weekdayLabel: weekdayText,
     isPlaceholder: Boolean(record.isPlaceholder),
     isBilan,
+    isSummary,
+    summaryScope,
     historyId,
     responseId,
     details: {
@@ -8456,6 +8460,8 @@ function formatConsigneHistoryPoint(record, consigne) {
       iterationLabel: rawIterationLabel,
       isPractice,
       isBilan,
+      isSummary,
+      summaryScope,
       historyId,
       responseId,
       timestamp:
@@ -9116,9 +9122,6 @@ function buildConsigneHistoryTimeline(entries, consigne) {
     entries.forEach((entry) => {
       if (!entry || typeof entry !== "object") return;
       const summaryInfo = resolveHistoryEntrySummaryInfo(entry);
-      if (summaryInfo.isSummary && !summaryInfo.isBilan) {
-        return;
-      }
       const keyInfo = resolveHistoryTimelineKey(entry, consigne);
       const { dayKey, date, timestamp, iterationIndex, iterationNumber, iterationLabel } = keyInfo || {};
       if (!dayKey) {
@@ -9133,23 +9136,7 @@ function buildConsigneHistoryTimeline(entries, consigne) {
       }
       const value = resolveHistoryTimelineValue(entry, consigne);
       const note = resolveHistoryTimelineNote(entry);
-      const hasNote = typeof note === "string" && note.trim().length > 0;
       const isBilanEntry = Boolean(summaryInfo?.isBilan);
-      const isSkipOnly = (() => {
-        if (!value) return false;
-        if (typeof value === "object" && value.skipped === true) {
-          return true;
-        }
-        if (typeof value === "string") {
-          const normalized = value.trim().toLowerCase();
-          if (!normalized) return false;
-          return normalized === "passée" || normalized === "passee";
-        }
-        return false;
-      })();
-      if (isSkipOnly && !hasNote) {
-        return;
-      }
       const status = dotColor(consigne?.type, value, consigne) || "na";
       const effectiveTimestamp =
         typeof timestamp === "number"
@@ -9168,6 +9155,8 @@ function buildConsigneHistoryTimeline(entries, consigne) {
         value,
         note,
         isBilan: isBilanEntry,
+        isSummary: Boolean(summaryInfo?.isSummary),
+        summaryScope: typeof summaryInfo?.scope === "string" ? summaryInfo.scope : "",
         timestamp: effectiveTimestamp,
         iterationIndex: typeof iterationIndex === "number" ? iterationIndex : null,
         iterationNumber: typeof iterationNumber === "number" ? iterationNumber : null,
@@ -9196,6 +9185,8 @@ function buildConsigneHistoryTimeline(entries, consigne) {
           timestamp: record.timestamp,
           isPlaceholder: false,
           isBilan: record.isBilan === true,
+          isSummary: record.isSummary === true,
+          summaryScope: typeof record.summaryScope === "string" ? record.summaryScope : "",
           iterationIndex: record.iterationIndex,
           iterationNumber: record.iterationNumber,
           iterationLabel: record.iterationLabel,
@@ -9323,6 +9314,11 @@ function applyConsigneHistoryPoint(item, point) {
     if (dot) {
       dot.className = "consigne-history__dot consigne-history__dot--bilan";
       dot.textContent = "★";
+    }
+  } else if (point.isSummary) {
+    item.dataset.historySource = "summary";
+    if (dot) {
+      dot.textContent = "";
     }
   } else {
     if (item.dataset) {
@@ -11216,6 +11212,8 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
         ? rawDetails.dayKey
         : "");
     const isBilanPoint = target.dataset.historySource === "bilan" || rawDetails?.isBilan === true;
+    const isSummaryPoint =
+      !isBilanPoint && (target.dataset.historySource === "summary" || rawDetails?.isSummary === true);
     const bilanDayKey = isBilanPoint
       ? historyDayKey ||
         (typeof rawDetails?.dayKey === "string" && rawDetails.dayKey.trim() ? rawDetails.dayKey.trim() : "")
@@ -11244,6 +11242,14 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       }
       const historySource =
         typeof options.mode === "string" && options.mode.trim().toLowerCase() === "practice" ? "practice" : "daily";
+      if (isSummaryPoint) {
+        void openHistory(ctx, consigne, {
+          source: historySource,
+          focusDayKey: historyDayKey,
+          autoEdit: false,
+        });
+        return;
+      }
       if (EDITABLE_HISTORY_TYPES.has(consigne.type)) {
         void openConsigneHistoryEntryEditor(row, consigne, ctx, {
           dayKey: historyDayKey,
