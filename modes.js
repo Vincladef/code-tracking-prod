@@ -10463,7 +10463,9 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     const hasInitialChildValue = baseChildStates.some((childState) =>
       hasValueForConsigne(childState.consigne, childState.value),
     );
-    const hasInitialData = parentInitialHasValue || hasInitialChildValue;
+    // Allow clearing when an entry exists even if it has no textual content
+    const hadStoredEntry = Boolean(entry);
+    const hasInitialData = hadStoredEntry || parentInitialHasValue || hasInitialChildValue;
     if (!hasInitialData) {
       clearBtn.disabled = true;
     }
@@ -11270,7 +11272,9 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     const hasInitialChildValue = baseChildStates.some((childState) =>
       hasValueForConsigne(childState.consigne, childState.value),
     );
-    const hasInitialData = parentInitialHasValue || hasInitialChildValue;
+    // Allow clearing when a bilan entry exists even if it has no textual content
+    const hadStoredEntry = Boolean(entry);
+    const hasInitialData = hadStoredEntry || parentInitialHasValue || hasInitialChildValue;
     if (!hasInitialData) {
       clearBtn.disabled = true;
     }
