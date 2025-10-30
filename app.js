@@ -438,11 +438,23 @@
             (root.dataset ? root.dataset.checklistHistoryDate : null) ||
             (hidden.getAttribute && hidden.getAttribute("data-checklist-history-date")) ||
             (hidden.dataset ? hidden.dataset.checklistHistoryDate : null);
+          // Use URL ?d=... as the primary fallback for summary/bilan pages
+          let urlDayKey = null;
+          try {
+            const hash = typeof window.location?.hash === 'string' ? window.location.hash : '';
+            const search = typeof window.location?.search === 'string' ? window.location.search : '';
+            const pick = (s) => {
+              if (!s) return null;
+              const m = String(s).match(/[?&]d=(\d{4}-\d{2}-\d{2})\b/i);
+              return m ? m[1] : null;
+            };
+            urlDayKey = pick(search) || pick(hash) || null;
+          } catch (_) {}
           const effectiveKey = historyKeyAttr && String(historyKeyAttr).trim()
             ? String(historyKeyAttr).trim()
-            : ((typeof window !== 'undefined' && window.AppCtx?.dateIso)
+            : (urlDayKey || ((typeof window !== 'undefined' && window.AppCtx?.dateIso)
                 ? String(window.AppCtx.dateIso)
-                : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null));
+                : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null)));
           if (effectiveKey) {
             payload.dateKey = effectiveKey;
           }
@@ -686,8 +698,21 @@
           root.getAttribute("data-checklist-history-date") ||
           (root.dataset ? root.dataset.checklistHistoryDate : null) ||
           null;
+        // Derive page date from URL as a strong fallback (bilan pages)
+        let urlDayKey = null;
+        try {
+          const hash = typeof window.location?.hash === "string" ? window.location.hash : "";
+          const search = typeof window.location?.search === "string" ? window.location.search : "";
+          const pick = (s) => {
+            if (!s) return null;
+            const m = String(s).match(/[?&]d=(\d{4}-\d{2}-\d{2})\b/i);
+            return m ? m[1] : null;
+          };
+          urlDayKey = pick(search) || pick(hash) || null;
+        } catch (_) {}
+        const persistDayKey = historyKey || urlDayKey || (window.AppCtx?.dateIso || undefined);
         Promise.resolve(
-          persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb, dateKey: historyKey || undefined })
+          persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb, dateKey: persistDayKey })
         ).catch((error) => {
           console.warn("[app] checklist:persist", error);
         });
@@ -698,11 +723,23 @@
         root.getAttribute("data-checklist-history-date") ||
         (root.dataset ? root.dataset.checklistHistoryDate : null) ||
         null;
+      // Derive URL ?d as the preferred fallback to ensure summary context drives the dayKey
+      let urlDayKey = null;
+      try {
+        const hash = typeof window.location?.hash === 'string' ? window.location.hash : '';
+        const search = typeof window.location?.search === 'string' ? window.location.search : '';
+        const pick = (s) => {
+          if (!s) return null;
+          const m = String(s).match(/[?&]d=(\d{4}-\d{2}-\d{2})\b/i);
+          return m ? m[1] : null;
+        };
+        urlDayKey = pick(search) || pick(hash) || null;
+      } catch (_) {}
       const eventDayKey = historyKey && String(historyKey).trim()
         ? String(historyKey).trim()
-        : ((typeof window !== 'undefined' && window.AppCtx?.dateIso)
+        : (urlDayKey || ((typeof window !== 'undefined' && window.AppCtx?.dateIso)
             ? String(window.AppCtx.dateIso)
-            : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null));
+            : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null)));
 
       const detail = {
         consigneId,
@@ -831,7 +868,7 @@
         void node.offsetWidth;
         node.classList.add("saved-burst");
       }
-      const log = Array.isArray(window.historyLog) ? window.historyLog : [];
+  const log = Array.isArray(window.historyLog) ? window.historyLog : [];
       window.historyLog = log;
       const entry = {
         consigneId: detail.consigneId || null,
