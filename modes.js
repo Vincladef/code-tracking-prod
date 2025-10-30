@@ -6016,6 +6016,15 @@ function inputForType(consigne, initialValue = null) {
           const hydratePayload = () => {
             try {
               const raw = JSON.parse(hidden.value || '[]');
+              if (isHistoryContext) {
+                try {
+                  console.info('[checklist-history] hydrate.payload.raw', {
+                    dateAttr: historyDateKeyAttr,
+                    pageDateKey,
+                    raw,
+                  });
+                } catch (_) {}
+              }
               // Si le hidden payload contient une clé de date incompatible, on n'applique pas
               try {
                 const hiddenKey = raw && typeof raw === 'object' && raw.dateKey ? String(raw.dateKey) : null;
@@ -6035,6 +6044,14 @@ function inputForType(consigne, initialValue = null) {
                     items: Array.isArray(raw.items) ? raw.items.map((item) => item === true) : [],
                     skipped: Array.isArray(raw.skipped) ? raw.skipped.map((item) => item === true) : [],
                   };
+              if (isHistoryContext) {
+                try {
+                  console.info('[checklist-history] hydrate.payload.ready', {
+                    items: payload.items,
+                    skipped: payload.skipped,
+                  });
+                } catch (_) {}
+              }
               const inputs = queryInputs();
               inputs.forEach((input, index) => {
                 const skip = Boolean(payload.skipped[index]);
