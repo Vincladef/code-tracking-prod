@@ -9026,7 +9026,9 @@ function resolveHistoryTimelineKeyBase(entry) {
     return acc;
   };
 
-  const scoredCandidates = [];
+  // Prefer explicit keys (dayKey/dateKey/docId) over recording timestamps.
+  // We only fall back to dates when no usable key is present.
+  const scoredKeyCandidates = [];
   const seen = new Set();
   keyCandidates.forEach((candidate) => {
     const marker = typeof candidate.value === "string" ? `key:${candidate.value}` : candidate.value;
@@ -9034,9 +9036,10 @@ function resolveHistoryTimelineKeyBase(entry) {
       return;
     }
     seen.add(marker);
-    consider(scoredCandidates, candidate, candidate.source === "docId" ? 6 : candidate.source === "nested" ? 5 : 4);
+    consider(scoredKeyCandidates, candidate, candidate.source === "docId" ? 10 : candidate.source === "nested" ? 9 : 8);
   });
 
+  const scoredDateCandidates = [];
   const seenDates = new Set();
   dateCandidates.forEach((candidate) => {
     const marker = typeof candidate.value === "string" ? `date:${candidate.value}` : candidate.value;
@@ -9044,9 +9047,10 @@ function resolveHistoryTimelineKeyBase(entry) {
       return;
     }
     seenDates.add(marker);
-    consider(scoredCandidates, candidate, candidate.source === "nested" ? 7 : 8);
+    consider(scoredDateCandidates, candidate, candidate.source === "nested" ? 3 : 2);
   });
 
+  const scoredCandidates = scoredKeyCandidates.length ? scoredKeyCandidates : scoredDateCandidates;
   if (scoredCandidates.length) {
     scoredCandidates.sort((a, b) => {
       if (b.weight !== a.weight) {
