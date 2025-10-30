@@ -9987,7 +9987,9 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   const keyInfo = match?.keyInfo || null;
   const resolvedDayKey = keyInfo?.dayKey || dayKey;
   const historyDocumentId = resolveHistoryDocumentId(entry, resolvedDayKey);
-  const entryValue = entry?.value !== undefined ? entry.value : details?.rawValue ?? "";
+  // For bilan editors, do NOT prefill from timeline/details when no saved entry exists,
+  // to avoid showing pre-checked states when there is no recorded bilan answer for this period.
+  const entryValue = entry?.value !== undefined ? entry.value : "";
   const createdAtSource =
     entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? details?.timestamp ?? null;
   const createdAt = asDate(createdAtSource);
@@ -10129,6 +10131,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       const childCreatedAtSource =
         childEntry?.createdAt ?? childEntry?.updatedAt ?? childEntry?.recordedAt ?? null;
       const childCreatedAt = asDate(childCreatedAtSource);
+      const childHistoryDocumentId = resolveHistoryDocumentId(childEntry, resolvedDayKey);
       const childResponseId = resolveHistoryResponseId(childEntry);
       const childResponseSyncOptions = {
         responseId: childResponseId,
@@ -10164,6 +10167,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         fieldId: `${fieldBase}-value`,
         row: inRow instanceof HTMLElement ? inRow : null,
         responseSyncOptions: childResponseSyncOptions,
+        historyDocumentId: childHistoryDocumentId,
         initialHasValue: childInitialHasValue,
       };
     }),
@@ -10212,6 +10216,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         </div>
       </section>`
     : "";
+  const labelForAttr = consigne.type === "checklist" ? "" : ` for="${escapeHtml(fieldId)}"`;
   const editorHtml = `
     <div class="space-y-5">
       <header class="space-y-1">
@@ -10223,7 +10228,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       </header>
       <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
         <div class="practice-editor__section">
-          <label class="practice-editor__label" for="${escapeHtml(fieldId)}">Valeur</label>
+          <label class="practice-editor__label"${labelForAttr}>Valeur</label>
           ${valueField}
         </div>
         ${childMarkup}
@@ -11048,6 +11053,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         </div>
       </section>`
     : "";
+  const labelForAttr2 = consigne.type === "checklist" ? "" : ` for="${escapeHtml(fieldId)}"`;
   const editorHtml = `
     <div class="space-y-5">
       <header class="space-y-1">
@@ -11060,7 +11066,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       </header>
       <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
         <div class="practice-editor__section">
-          <label class="practice-editor__label" for="${escapeHtml(fieldId)}">Valeur</label>
+          <label class="practice-editor__label"${labelForAttr2}>Valeur</label>
           ${valueField}
         </div>
         ${childMarkup}
@@ -16086,6 +16092,7 @@ async function openHistory(ctx, consigne, options = {}) {
       });
       triggerConsigneRowUpdateHighlight(timelineRow);
     };
+    const labelForAttr3 = consigne.type === "checklist" ? "" : ` for="${fieldId}"`;
     const editorHtml = `
       <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
         <header class="practice-editor__header">
@@ -16097,7 +16104,7 @@ async function openHistory(ctx, consigne, options = {}) {
           <p class="practice-editor__value">${escapeHtml(dateLabel)}${relative ? ` <span class="practice-editor__meta">(${escapeHtml(relative)})</span>` : ''}</p>
         </div>
         <div class="practice-editor__section">
-          <label class="practice-editor__label" for="${fieldId}">Valeur</label>
+          <label class="practice-editor__label"${labelForAttr3}>Valeur</label>
           ${valueField}
         </div>
         <div class="practice-editor__section">
