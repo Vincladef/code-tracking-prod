@@ -10632,11 +10632,12 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       if (submitBtn) submitBtn.disabled = true;
       try {
         const dayKeyToClear = resolvedDayKey;
-        try {
-          await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
-        } catch (_) {}
-  try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (e) {}
-  try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+        if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
+          try {
+            await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
+          } catch (_) {}
+        }
+        try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) {}
         try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
         // If this history entry originates from a bilan summary, also delete the underlying summary answer
@@ -10663,11 +10664,12 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         triggerConsigneRowUpdateHighlight(row);
         for (const childState of baseChildStates) {
           try {
-            try {
-              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, dayKeyToClear);
-            } catch (_) {}
-      try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (e) {}
-            try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
+            if (ctx?.db && ctx?.user?.uid && childState?.consigne?.id && dayKeyToClear) {
+              try {
+                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, dayKeyToClear);
+              } catch (_) {}
+            }
+            try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
             try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
             await Schema.deleteHistoryEntry(
               ctx.db,
@@ -10705,6 +10707,22 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             triggerConsigneRowUpdateHighlight(childState.row);
           }
         }
+        try {
+          const escapeConsigneId =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(String(consigne.id ?? ""))
+              : String(consigne.id ?? "").replace(/"/g, '\\"');
+          const escapeDayKey =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(String(dayKeyToClear ?? ""))
+              : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
+          const dailyRow = document.querySelector(
+            `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
+          );
+          if (dailyRow) {
+            setConsigneRowValue(dailyRow, consigne, "");
+          }
+        } catch (_) {}
         showToast("Réponses effacées pour ce bilan.");
         // If we are inside the history panel, remove the corresponding list item immediately
         if (renderInPanel && historyPanel) {
@@ -11454,11 +11472,14 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       clearBtn.disabled = true;
       if (submitBtn) submitBtn.disabled = true;
       try {
-        const dayKeyToClear = resolvedDayKey;
-        try {
-          await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
-        } catch (_) {}
-        try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (e) {}
+        const dayKeyToClear = resolvedDayKey || dayKey;
+        if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
+          try {
+            await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
+          } catch (_) {}
+        }
+        try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) {}
+        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
         // If this entry is a bilan-backed summary, delete the summary answer to avoid reappearance
         try {
@@ -11484,10 +11505,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         triggerConsigneRowUpdateHighlight(row);
         for (const childState of baseChildStates) {
           try {
-            try {
-              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, dayKeyToClear);
-            } catch (_) {}
-            try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (e) {}
+            if (ctx?.db && ctx?.user?.uid && childState?.consigne?.id && dayKeyToClear) {
+              try {
+                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, dayKeyToClear);
+              } catch (_) {}
+            }
+            try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
+            try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
             await Schema.deleteHistoryEntry(
               ctx.db,
               ctx.user.uid,
@@ -11524,19 +11548,28 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             triggerConsigneRowUpdateHighlight(childState.row);
           }
         }
+        try {
+          const escapeConsigneId =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(String(consigne.id ?? ""))
+              : String(consigne.id ?? "").replace(/"/g, '\\"');
+          const escapeDayKey =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(String(dayKeyToClear ?? ""))
+              : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
+          const dailyRow = document.querySelector(
+            `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
+          );
+          if (dailyRow) {
+            setConsigneRowValue(dailyRow, consigne, "");
+          }
+        } catch (_) {}
         showToast("Réponses effacées.");
         closeOverlay();
         flushHistoryPanelRefresh();
         try {
-          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-            window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
-          }
-        } catch (_) {}
-        // Clear local recent cache and notify global listeners so "global history" views refresh
-        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
-        try {
-          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-            window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+          if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+            window.dispatchEvent(new CustomEvent("consigne:history:refresh", { detail: { consigneId: consigne.id } }));
           }
         } catch (_) {}
       } catch (error) {
@@ -18690,7 +18723,7 @@ async function renderDaily(ctx, root, opts = {}) {
   });
 
   const previousAnswersRaw = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
-  const previousAnswers = previousAnswersRaw instanceof Map
+  let previousAnswers = previousAnswersRaw instanceof Map
     ? previousAnswersRaw
     : new Map(previousAnswersRaw || []);
   const normalizedCurrentDayKey =
@@ -18706,6 +18739,8 @@ async function renderDaily(ctx, root, opts = {}) {
       entry.date_key,
       entry.responseDayKey,
       entry.day,
+      entry.pageDateIso,
+      entry.page_date_iso,
     ];
     for (const candidate of candidates) {
       if (typeof candidate === "string" && candidate.trim()) {
@@ -18714,6 +18749,17 @@ async function renderDaily(ctx, root, opts = {}) {
     }
     return "";
   };
+
+  if (previousAnswers && previousAnswers.size && normalizedCurrentDayKey) {
+    const filtered = new Map();
+    previousAnswers.forEach((entry, consigneId) => {
+      const entryKey = resolvePreviousEntryDayKey(entry);
+      if (entryKey && entryKey === normalizedCurrentDayKey) {
+        filtered.set(consigneId, entry);
+      }
+    });
+    previousAnswers = filtered;
+  }
 
   const observedValues = new Map();
   const autoSaveStates = new Map();
