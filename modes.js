@@ -12337,10 +12337,22 @@ function initializeChecklistScope(scope, { consigneId = null, dateKey = null } =
           root.dataset && typeof root.dataset.checklistHistoryDate === "string"
             ? root.dataset.checklistHistoryDate.trim()
             : "";
+        // Derive the page dayKey from the URL hash if not explicitly present on the root
+        let pageDateKey = "";
+        try {
+          const hash = typeof window.location?.hash === "string" ? window.location.hash : "";
+          const qp = new URLSearchParams((hash.split("?")[1] || ""));
+          const d = (qp.get("d") || "").trim();
+          pageDateKey = d || "";
+        } catch (_) {}
+        if (!pageDateKey) {
+          const ctxKey = (typeof window !== "undefined" && window.AppCtx?.dateIso) ? String(window.AppCtx.dateIso) : "";
+          pageDateKey = ctxKey || (typeof Schema?.todayKey === "function" ? Schema.todayKey() : "");
+        }
         const providedDateKey =
           datasetValue ||
           (typeof attrValue === "string" && attrValue.trim() ? attrValue.trim() : "") ||
-          (typeof dateKey === "string" && dateKey.trim() ? dateKey.trim() : "");
+          (typeof pageDateKey === "string" && pageDateKey.trim() ? pageDateKey.trim() : "");
         if (providedDateKey) {
           if (root.dataset) {
             root.dataset.checklistHistoryDate = providedDateKey;
