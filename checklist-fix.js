@@ -799,7 +799,6 @@
                 : [],
             };
         const inputs = collectInputs(root);
-        if (root.dataset) root.dataset.checklistHydrating = "1";
         inputs.forEach((input, index) => {
           if (!(input instanceof HTMLInputElement)) {
             return;
@@ -854,7 +853,6 @@
           0
         );
         log("hydrate.hidden", { checked: checkedCount, skipped: skippedCount });
-        if (root.dataset) delete root.dataset.checklistHydrating;
       };
       const handler = () => {
         applyHiddenState();

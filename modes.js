@@ -6097,8 +6097,7 @@ function inputForType(consigne, initialValue = null, options = {}) {
                 });
               }
               const inputs = queryInputs();
-              // Hydratation en mode protégé
-              if (root.dataset) root.dataset.checklistHydrating = '1';
+              // Hydratation en mode protégé (inline payload) — ne plus marquer hydratation pour ne pas interférer avec le premier clic
               inputs.forEach((input, index) => {
                 const skip = Boolean(payload.skipped[index]);
                 const checked = Boolean(payload.items[index]);
@@ -6121,7 +6120,6 @@ function inputForType(consigne, initialValue = null, options = {}) {
                 }
               });
               // Ne pas persister immédiatement ici pour éviter les courses; la prochaine interaction s'en chargera
-              if (root.dataset) delete root.dataset.checklistHydrating;
             } catch (error) {
               console.warn('[checklist] payload', error);
             }
