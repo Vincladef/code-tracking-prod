@@ -9218,6 +9218,7 @@ function resolveHistoryTimelineKey(entry, consigne) {
 }
 
 function buildConsigneHistoryTimeline(entries, consigne) {
+  console.log("[DEBUG buildConsigneHistoryTimeline] Processing", entries.length, "entries for consigne", consigne?.id);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const records = [];
@@ -9276,7 +9277,7 @@ function buildConsigneHistoryTimeline(entries, consigne) {
     return (b.date?.getTime?.() || 0) - (a.date?.getTime?.() || 0);
   });
   const limited = records.slice(0, CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
-  return limited
+  const result = limited
     .map((record) =>
       formatConsigneHistoryPoint(
         {
@@ -9300,6 +9301,9 @@ function buildConsigneHistoryTimeline(entries, consigne) {
       ),
     )
     .filter(Boolean);
+  
+  console.log("[DEBUG buildConsigneHistoryTimeline] Returning", result.length, "points for consigne", consigne?.id, "first 3:", result.slice(0, 3).map(p => ({ dayKey: p.details?.dayKey, status: p.status })));
+  return result;
 }
 
 function escapeTimelineSelector(value) {
@@ -11715,9 +11719,10 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
         return;
       }
       const entries = Array.isArray(result.rows) ? result.rows : [];
-      console.log("[DEBUG FETCH] Consigne", consigne.id, "fetched", entries.length, "entries:", entries.map(e => ({ consigneId: e.consigneId, dayKey: e.dayKey, createdAt: e.createdAt })));
+      console.log("[DEBUG FETCH] Consigne", consigne.id, "fetched", entries.length, "entries:", entries.slice(0, 3).map(e => ({ consigneId: e.consigneId, dayKey: e.dayKey, createdAt: e.createdAt })));
       const points = buildConsigneHistoryTimeline(entries, consigne);
-      console.log("[DEBUG BUILD] Consigne", consigne.id, "built", points.length, "points:", points.map(p => ({ dayKey: p.details?.dayKey, status: p.status })));
+      console.log("[DEBUG BUILD] Consigne", consigne.id, "built", points.length, "points:", points.slice(0, 5).map(p => ({ dayKey: p.details?.dayKey, status: p.status, consigneId: p.details?.consigneId })));
+      console.log("[DEBUG RENDER] About to render timeline for consigne", consigne.id, "with", points.length, "points");
       state.hasDayTimeline = renderConsigneHistoryTimeline(row, points);
       scheduleConsigneHistoryNavUpdate(state);
     })
