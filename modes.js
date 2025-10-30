@@ -12113,6 +12113,15 @@ function initializeChecklistScope(scope, { consigneId = null, dateKey = null } =
           } else {
             root.setAttribute("data-checklist-history-date", providedDateKey);
           }
+          if (hidden) {
+            try {
+              if (hidden.dataset) {
+                hidden.dataset.checklistHistoryDate = providedDateKey;
+              } else {
+                hidden.setAttribute("data-checklist-history-date", providedDateKey);
+              }
+            } catch (_) {}
+          }
         }
         const hydrateOptions = {
           container: root,
