@@ -11685,9 +11685,11 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
   state.hasDayTimeline = false;
   scheduleConsigneHistoryNavUpdate(state);
   if (!ctx?.db || !ctx?.user?.uid || !consigne?.id) {
+    console.log("[DEBUG TIMELINE FETCH] Blocked fetch - db:", !!ctx?.db, "uid:", !!ctx?.user?.uid, "consigneId:", !!consigne?.id);
     return;
   }
   const timelineFetchLimit = Math.max(CONSIGNE_HISTORY_TIMELINE_DAY_COUNT * 3, 60);
+  console.log("[DEBUG TIMELINE FETCH] Starting fetch for consigne:", consigne.id, "limit:", timelineFetchLimit);
   fetchConsigneHistoryRows(ctx, consigne.id, { limit: timelineFetchLimit })
     .then((result) => {
       if (!row.isConnected) {
