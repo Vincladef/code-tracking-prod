@@ -6015,6 +6015,14 @@ function inputForType(consigne, initialValue = null, options = {}) {
           root.addEventListener('change', (event) => {
             if (event.target instanceof Element && event.target.matches('[data-checklist-input]')) {
               closeContextMenu();
+              try {
+                const consigneId = root.getAttribute('data-consigne-id') || root.dataset?.consigneId || null;
+                console.info('[checklist-debug] modes.change:start', {
+                  consigneId,
+                  hydrating: root?.dataset?.checklistHydrating === '1',
+                  localDirty: root?.dataset?.checklistHydrationLocalDirty === '1',
+                });
+              } catch (_) {}
               // Ne pas ignorer le premier clic pendant l'hydratation: marquer et continuer
               if (root.dataset && root.dataset.checklistHydrating === '1') {
                 root.dataset.checklistHydrationLocalDirty = '1';
@@ -6031,6 +6039,11 @@ function inputForType(consigne, initialValue = null, options = {}) {
               root.dataset.checklistDirty = '1';
               root.dataset.checklistDirtyAt = String(now());
               sync({ markDirty: true, notify: true });
+              try {
+                console.info('[checklist-debug] modes.change:sync', {
+                  dirtyAt: root?.dataset?.checklistDirtyAt || null,
+                });
+              } catch (_) {}
             }
           });
           const hydratePayload = () => {
@@ -6138,7 +6151,14 @@ function inputForType(consigne, initialValue = null, options = {}) {
           if (typeof hydrate === 'function') {
             // Use the computed page dateKey; avoid defaulting to today to prevent mismatches
             const effectiveDateKey = dateKey;
-            console.log("[DEBUG] Calling hydrateChecklist with effectiveDateKey:", effectiveDateKey, "isHistoryContext:", isHistoryContext, "pageDateKey:", pageDateKey);
+            try {
+              console.info('[checklist-debug] hydrate:start', {
+                consigneId,
+                dateKey: effectiveDateKey,
+                isHistoryContext,
+                pageDateKey,
+              });
+            } catch (_) {}
             if (root.dataset) {
               root.dataset.checklistHydrating = '1';
               root.dataset.checklistHydrationLocalDirty = root.dataset.checklistHydrationLocalDirty || '0';
@@ -6153,6 +6173,12 @@ function inputForType(consigne, initialValue = null, options = {}) {
                 } else {
                   console.info('[checklist] hydrate.skip-remote-due-local-change');
                 }
+                try {
+                  console.info('[checklist-debug] hydrate:done', {
+                    consigneId,
+                    hadLocalChange,
+                  });
+                } catch (_) {}
                 if (root.dataset) {
                   delete root.dataset.checklistHydrating;
                   delete root.dataset.checklistHydrationLocalDirty;

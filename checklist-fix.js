@@ -871,6 +871,11 @@
           if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
             return;
           }
+          try {
+            const hydrating = root?.dataset?.checklistHydrating === "1";
+            const localDirty = root?.dataset?.checklistHydrationLocalDirty === "1";
+            log("change.start", { hydrating, localDirty });
+          } catch (_) {}
           // Ne pas ignorer le premier clic pendant l'hydratation: marquer et continuer
           if (root.dataset && root.dataset.checklistHydrating === "1") {
             root.dataset.checklistHydrationLocalDirty = "1";
@@ -971,6 +976,11 @@
         return null;
       }
       let saved = null;
+      try {
+        const hydrating = root?.dataset?.checklistHydrating === "1";
+        const localDirty = root?.dataset?.checklistHydrationLocalDirty === "1";
+        log("hydrate.before-load", { dateKey, hydrating, localDirty });
+      } catch (_) {}
       const hadLocalChange = root?.dataset?.checklistHydrationLocalDirty === "1";
       const selectedCount = (value) => {
         if (!value) return 0;
