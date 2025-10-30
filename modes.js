@@ -14795,16 +14795,27 @@ function collectConsigneTimelineSnapshot(consigne) {
     return null;
   }
   const consigneId = String(consigne.id);
+  // Prefer the standard selector first, but also support bilan rows which carry data-id
   const selector = `[data-consigne-id="${escapeTimelineSelector(consigneId)}"]`;
-  const row = document.querySelector(selector);
+  let row = document.querySelector(selector);
+  if (!(row instanceof HTMLElement)) {
+    // Bilan page rows use data-id instead of data-consigne-id
+    const altSelector = `[data-id="${escapeTimelineSelector(consigneId)}"]`;
+    const candidate = document.querySelector(altSelector);
+    if (candidate instanceof HTMLElement) {
+      row = candidate;
+    }
+  }
   if (!(row instanceof HTMLElement)) {
     return null;
   }
   const state = CONSIGNE_HISTORY_ROW_STATE.get(row) || null;
-  if (!state || !state.track) {
+  // Prefer the tracked timeline from state, but fall back to querying the DOM directly
+  const track = state?.track || row.querySelector?.("[data-consigne-history-track]") || null;
+  if (!track) {
     return { row, items: [] };
   }
-  const nodes = Array.from(state.track.querySelectorAll(".consigne-history__item"));
+  const nodes = Array.from(track.querySelectorAll(".consigne-history__item"));
   const items = nodes.map((item, index) => {
     const details = item._historyDetails && typeof item._historyDetails === "object" ? item._historyDetails : {};
     const rawDayKey =
