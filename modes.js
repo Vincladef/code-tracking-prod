@@ -5622,6 +5622,7 @@ function inputForType(consigne, initialValue = null) {
             (hidden?.dataset?.checklistHistoryDate && hidden.dataset.checklistHistoryDate.trim()) ||
             (root?.dataset?.checklistHistoryDate && root.dataset.checklistHistoryDate.trim()) ||
             '';
+          const isHistoryContext = Boolean(historyDateKeyAttr);
           if (historyDateKeyAttr) {
             if (root?.dataset) {
               root.dataset.checklistHistoryDate = historyDateKeyAttr;
@@ -6080,7 +6081,7 @@ function inputForType(consigne, initialValue = null) {
           hydratePayload();
           ensureItemIds();
           sync();
-          if (typeof hydrate === 'function') {
+          if (typeof hydrate === 'function' && !isHistoryContext) {
             Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key', dateKey }))
               .then(() => {
                 ensureItemIds();
