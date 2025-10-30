@@ -9590,6 +9590,10 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
   const historyTarget =
     typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
   const debugLabel = typeof options.debug === "string" ? options.debug : "";
+  const expectedSummary =
+    consigne?.type === "checklist" && options.expectedSummary && typeof options.expectedSummary === "object"
+      ? options.expectedSummary
+      : null;
 
   const scoredMatches = [];
 
@@ -9601,6 +9605,8 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
     const candidateKey = normalizeHistoryDayKey(keyInfo?.dayKey);
     const resolvedHistoryId = resolveHistoryDocumentId(entry, keyInfo?.dayKey || dayKey || candidateKey || "");
     const resolvedResponseId = resolveHistoryResponseId(entry);
+    const checklistSummary =
+      consigne?.type === "checklist" ? summarizeChecklistValue(entry?.value) : null;
     const timestamp =
       typeof keyInfo?.timestamp === "number"
         ? keyInfo.timestamp
@@ -9621,6 +9627,19 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
     if (historyMatch) weight += 1000;
     if (responseMatch) weight += 200;
     if (dayMatch) weight += 50;
+    let summaryDiff = [];
+    if (expectedSummary) {
+      if (checklistSummary) {
+        summaryDiff = diffChecklistSummaries(expectedSummary, checklistSummary);
+        if (summaryDiff.length === 0) {
+          weight += 400;
+        } else {
+          weight -= summaryDiff.length * 40;
+        }
+      } else {
+        weight -= 120;
+      }
+    }
     if (keyInfo?.isSummary) weight -= 10;
     if (typeof entry?.source === "string" && entry.source.includes("summary")) {
       weight -= 5;
@@ -9634,6 +9653,8 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
       responseId: resolvedResponseId || "",
       weight,
       matchType: historyMatch ? "history" : responseMatch ? "response" : "day",
+      summaryDiff,
+      checklistSummary,
     });
   });
 
@@ -9661,15 +9682,16 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
         dayKey,
         responseTarget,
         historyTarget,
-        normalizedTarget,
-        best: {
-          historyId: best.historyId,
-          responseId: best.responseId,
-          matchType: best.matchType,
-          weight: best.weight,
-        },
-      });
-    } catch (_) {}
+      normalizedTarget,
+      best: {
+        historyId: best.historyId,
+        responseId: best.responseId,
+        matchType: best.matchType,
+        weight: best.weight,
+        summaryDiff: best.summaryDiff || [],
+      },
+    });
+  } catch (_) {}
   }
   return best;
 }
@@ -9749,10 +9771,15 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
   const explicitHistoryId =
     typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
+  const expectedSummary =
+    consigne.type === "checklist"
+      ? summarizeChecklistValue(details?.rawValue ?? details?.value ?? null)
+      : null;
   const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey, {
     responseId: explicitResponseId,
     historyId: explicitHistoryId,
     debug: consigne.type === "checklist" ? "bilan-editor" : "",
+    expectedSummary,
   });
   const entry = match?.entry || null;
   const keyInfo = match?.keyInfo || null;
@@ -10459,6 +10486,10 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     } catch (_) {}
     return "";
   })();
+  const expectedSummary =
+    consigne.type === "checklist"
+      ? options.expectedSummary || summarizeChecklistValue(details?.rawValue ?? details?.value ?? null)
+      : null;
   if (consigne.type === "checklist") {
     logChecklistHistoryInspection(consigne, {
       label: "entry-editor:history-load",
@@ -10470,6 +10501,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     responseId: explicitResponseId || triggerResponseId || detailResponseId || "",
     historyId: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
     debug: consigne.type === "checklist" ? "entry-editor" : "",
+    expectedSummary,
   });
   const entry = match?.entry || null;
   const keyInfo = match?.keyInfo || null;
@@ -10480,6 +10512,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         responseId: match.responseId || "",
         candidateDayKey: match.keyInfo?.dayKey || "",
         weight: match.weight ?? null,
+        summaryDiff: Array.isArray(match.summaryDiff) ? match.summaryDiff : [],
       }
     : null;
   const resolvedDayKey = keyInfo?.dayKey || dayKey;
@@ -11472,8 +11505,9 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       }
       const historySource =
         typeof options.mode === "string" && options.mode.trim().toLowerCase() === "practice" ? "practice" : "daily";
+      let timelineSummary = null;
       if (consigne.type === "checklist") {
-        const timelineSummary = summarizeChecklistValue(rawDetails?.rawValue ?? rawDetails?.value);
+        timelineSummary = summarizeChecklistValue(rawDetails?.rawValue ?? rawDetails?.value);
         logChecklistHistoryInspection(consigne, {
           label: "timeline:click",
           focusDayKey: historyDayKey,
@@ -11503,6 +11537,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
           responseId: responseIdCandidate,
           historyId: historyIdCandidate,
           panelEntry: row,
+          expectedSummary: timelineSummary,
         });
       } else {
         void openHistory(ctx, consigne, {
