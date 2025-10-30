@@ -10631,9 +10631,14 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       clearBtn.disabled = true;
       if (submitBtn) submitBtn.disabled = true;
       try {
+        const dayKeyToClear = resolvedDayKey;
+        try {
+          await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
+        } catch (_) {}
+  try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (e) {}
+  try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
-        try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
         // If this history entry originates from a bilan summary, also delete the underlying summary answer
         try {
           const scope = entry?.summaryScope || entry?.periodScope || "";
@@ -10658,6 +10663,12 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         triggerConsigneRowUpdateHighlight(row);
         for (const childState of baseChildStates) {
           try {
+            try {
+              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, dayKeyToClear);
+            } catch (_) {}
+      try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (e) {}
+            try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
+            try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
             await Schema.deleteHistoryEntry(
               ctx.db,
               ctx.user.uid,
@@ -10665,8 +10676,6 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               childState.historyDocumentId,
               childState.responseSyncOptions,
             );
-            try { removeRecentResponsesForDay(childState.consigne.id, resolvedDayKey); } catch (e) {}
-            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, resolvedDayKey); } catch (e) {}
             // Also delete child summary answers if present
             try {
               const cEntry = childState.entry || null;
@@ -10718,6 +10727,11 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         }
         if (typeof requestClose === 'function') requestClose();
         flushHistoryPanelRefresh();
+        try {
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+          }
+        } catch (_) {}
       } catch (error) {
         console.error("bilan.history.editor.clear", error);
         clearBtn.disabled = false;
@@ -11440,11 +11454,12 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       clearBtn.disabled = true;
       if (submitBtn) submitBtn.disabled = true;
       try {
+        const dayKeyToClear = resolvedDayKey;
+        try {
+          await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
+        } catch (_) {}
+        try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (e) {}
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-        // Clear local recent cache so Historique reflects deletion
-        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
-        // Remove any other response docs for this consigne/day (e.g., duplicate or bilan-mirrored)
-        try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
         // If this entry is a bilan-backed summary, delete the summary answer to avoid reappearance
         try {
           const scope = entry?.summaryScope || entry?.periodScope || "";
@@ -11469,6 +11484,10 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         triggerConsigneRowUpdateHighlight(row);
         for (const childState of baseChildStates) {
           try {
+            try {
+              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, dayKeyToClear);
+            } catch (_) {}
+            try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (e) {}
             await Schema.deleteHistoryEntry(
               ctx.db,
               ctx.user.uid,
@@ -11476,8 +11495,6 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               childState.historyDocumentId,
               childState.responseSyncOptions,
             );
-            try { removeRecentResponsesForDay(childState.consigne.id, resolvedDayKey); } catch (e) {}
-            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, resolvedDayKey); } catch (e) {}
             // Also handle child summary deletion
             try {
               const cEntry = childState.entry || null;
@@ -11510,6 +11527,11 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         showToast("Réponses effacées.");
         closeOverlay();
         flushHistoryPanelRefresh();
+        try {
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+          }
+        } catch (_) {}
         // Clear local recent cache and notify global listeners so "global history" views refresh
         try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
         try {
