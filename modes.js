@@ -8227,54 +8227,100 @@ function formatHistoryDayFullLabel(date) {
 }
 
 function buildHistoryTimelineLabels(date, fallbackKey) {
-  // FORCE: Always use fallbackKey (dayKey) first, ignore date parameter completely
-  if (fallbackKey) {
-    const parsed = modesParseDayKeyToDate(fallbackKey);
-    if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
-      return {
-        label: formatHistoryDayLabel(parsed),
-        weekday: formatHistoryWeekdayLabel(parsed),
-      };
+  const resolvedDate = (() => {
+    if (date instanceof Date && !Number.isNaN(date.getTime())) {
+      return date;
     }
-    if (typeof fallbackKey === "string") {
-      const sessionMatch = fallbackKey.match(/session-(\d+)/i);
+    if (fallbackKey) {
+      const canonical = canonicalDayKeyFromValue(fallbackKey);
+      if (canonical && !canonical.isSession && canonical.date instanceof Date && !Number.isNaN(canonical.date.getTime())) {
+        return canonical.date;
+      }
+      if (typeof fallbackKey === "string") {
+        const info = parseHistoryTimelineDateInfo(fallbackKey);
+        if (info && info.date instanceof Date && !Number.isNaN(info.date.getTime())) {
+          return info.date;
+        }
+      }
+    }
+    return null;
+  })();
+  if (resolvedDate) {
+    return {
+      label: formatHistoryDayLabel(resolvedDate),
+      weekday: formatHistoryWeekdayLabel(resolvedDate),
+    };
+  }
+  if (fallbackKey) {
+    const canonical = canonicalDayKeyFromValue(fallbackKey);
+    if (canonical?.isSession) {
+      const sessionMatch = /session-(\d+)/i.exec(canonical.dayKey || "");
       if (sessionMatch) {
         const sessionNumber = Number.parseInt(sessionMatch[1], 10);
         if (Number.isFinite(sessionNumber) && sessionNumber > 0) {
           return { label: String(sessionNumber), weekday: "" };
         }
       }
+      if (canonical.dayKey) {
+        return { label: canonical.dayKey, weekday: "" };
+      }
     }
-    return { label: fallbackKey, weekday: "" };
-  }
-  // Fallback to date only if no fallbackKey
-  if (date instanceof Date && !Number.isNaN(date.getTime())) {
-    return {
-      label: formatHistoryDayLabel(date),
-      weekday: formatHistoryWeekdayLabel(date),
-    };
+    if (typeof canonical?.dayKey === "string" && canonical.dayKey) {
+      return { label: canonical.dayKey, weekday: "" };
+    }
+    const rawKey = typeof fallbackKey === "string" ? fallbackKey.trim() : "";
+    if (rawKey) {
+      return { label: capitalizeHistoryLabel(rawKey), weekday: "" };
+    }
   }
   return { label: "", weekday: "" };
 }
 
 function buildHistoryTimelineTitle(date, fallbackKey, status) {
   const statusLabel = STATUS_LABELS[status] || STATUS_LABELS.na || "Statut";
-  // FORCE: Always use fallbackKey (dayKey) first, ignore date parameter completely
-  if (fallbackKey) {
-    const parsed = modesParseDayKeyToDate(fallbackKey);
-    if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
-      const longLabel = formatHistoryDayFullLabel(parsed);
-      if (longLabel) {
-        return `${longLabel} — ${statusLabel}`;
+  const resolvedDate = (() => {
+    if (date instanceof Date && !Number.isNaN(date.getTime())) {
+      return date;
+    }
+    if (fallbackKey) {
+      const canonical = canonicalDayKeyFromValue(fallbackKey);
+      if (canonical && !canonical.isSession && canonical.date instanceof Date && !Number.isNaN(canonical.date.getTime())) {
+        return canonical.date;
+      }
+      if (typeof fallbackKey === "string") {
+        const info = parseHistoryTimelineDateInfo(fallbackKey);
+        if (info && info.date instanceof Date && !Number.isNaN(info.date.getTime())) {
+          return info.date;
+        }
       }
     }
-    return `${fallbackKey} — ${statusLabel}`;
-  }
-  // Fallback to date only if no fallbackKey
-  if (date instanceof Date && !Number.isNaN(date.getTime())) {
-    const longLabel = formatHistoryDayFullLabel(date);
+    return null;
+  })();
+  if (resolvedDate) {
+    const longLabel = formatHistoryDayFullLabel(resolvedDate) || formatHistoryDayLabel(resolvedDate);
     if (longLabel) {
       return `${longLabel} — ${statusLabel}`;
+    }
+  }
+  if (fallbackKey) {
+    const canonical = canonicalDayKeyFromValue(fallbackKey);
+    if (canonical?.isSession && canonical.dayKey) {
+      const sessionMatch = /session-(\d+)/i.exec(canonical.dayKey);
+      if (sessionMatch) {
+        const sessionNumber = Number.parseInt(sessionMatch[1], 10);
+        if (Number.isFinite(sessionNumber) && sessionNumber > 0) {
+          return `Session ${sessionNumber} — ${statusLabel}`;
+        }
+      }
+      return `${canonical.dayKey} — ${statusLabel}`;
+    }
+    const rawKey = typeof canonical?.dayKey === "string" && canonical.dayKey
+      ? canonical.dayKey
+      : typeof fallbackKey === "string"
+      ? fallbackKey.trim()
+      : "";
+    if (rawKey) {
+      return `${capitalizeHistoryLabel(rawKey)} — ${statusLabel}`;
     }
   }
   return statusLabel;
@@ -8578,32 +8624,32 @@ function formatConsigneHistoryPoint(record, consigne) {
   const isSummary = record?.isSummary === true;
   const summaryScope = typeof record?.summaryScope === "string" ? record.summaryScope : "";
   const baseTitle = buildHistoryTimelineTitle(date, dayKey, status);
-  const statusLabel = STATUS_LABELS[status] || "";
-  const title = rawIterationLabel
-    ? statusLabel
-      ? `${rawIterationLabel} — ${statusLabel}`
-      : rawIterationLabel
-    : baseTitle;
   const labels = buildHistoryTimelineLabels(date, dayKey);
   let labelText = labels.label;
   let weekdayText = labels.weekday;
-  if (rawIterationLabel) {
+  if ((!labelText || !labelText.trim()) && rawIterationLabel) {
     labelText = rawIterationLabel;
     weekdayText = "";
   }
   const fullDateLabel = (() => {
     if (date) {
-      const formatted = formatHistoryDayFullLabel(date);
-      if (rawIterationLabel && formatted && formatted !== rawIterationLabel) {
-        return `${rawIterationLabel} — ${formatted}`;
+      const formatted = formatHistoryDayFullLabel(date) || formatHistoryDayLabel(date) || "";
+      if (formatted) {
+        if (rawIterationLabel && rawIterationLabel !== formatted) {
+          return `${formatted} — ${rawIterationLabel}`;
+        }
+        return formatted;
       }
-      return formatted || rawIterationLabel || labels.label || dayKey || "";
+    }
+    if (labels.label) {
+      return labels.label;
     }
     if (rawIterationLabel) {
       return rawIterationLabel;
     }
-    return labels.label || dayKey || "";
+    return dayKey || "";
   })();
+  const title = baseTitle || fullDateLabel || rawIterationLabel || STATUS_LABELS[status] || "";
   let valueHtml = "";
   let valueText = "";
   if (consigne) {
@@ -8623,11 +8669,11 @@ function formatConsigneHistoryPoint(record, consigne) {
   const historyId = typeof record?.historyId === "string" ? record.historyId : "";
   const responseId = typeof record?.responseId === "string" ? record.responseId : "";
   const srText = (() => {
-    if (rawIterationLabel) {
-      return rawIterationLabel;
-    }
     if (fullDateLabel) {
       return fullDateLabel;
+    }
+    if (rawIterationLabel) {
+      return rawIterationLabel;
     }
     return title;
   })();
@@ -9186,6 +9232,97 @@ function practiceIterationIndexFromKey(key) {
   return Math.max(0, parsed - 1);
 }
 
+function coerceDayKeyFromDate(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const normalized = new Date(date.getTime());
+  normalized.setHours(0, 0, 0, 0);
+  if (typeof Schema?.dayKeyFromDate === "function") {
+    try {
+      const derived = Schema.dayKeyFromDate(normalized);
+      if (typeof derived === "string" && derived.trim()) {
+        return derived.trim();
+      }
+    } catch (_) {}
+  }
+  const year = normalized.getFullYear();
+  const month = String(normalized.getMonth() + 1).padStart(2, "0");
+  const day = String(normalized.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function canonicalDayKeyFromValue(value) {
+  const finalize = (dayKey, date, isSession = false) => {
+    const trimmed = typeof dayKey === "string" ? dayKey.trim() : "";
+    if (!trimmed) {
+      return null;
+    }
+    let resolvedDate = null;
+    if (!isSession) {
+      if (date instanceof Date && !Number.isNaN(date.getTime())) {
+        resolvedDate = new Date(date.getTime());
+        resolvedDate.setHours(0, 0, 0, 0);
+      } else {
+        const parsed = modesParseDayKeyToDate(trimmed);
+        if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+          resolvedDate = parsed;
+        }
+      }
+    }
+    return { dayKey: trimmed, date: resolvedDate, isSession: Boolean(isSession) };
+  };
+
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (/^session-/i.test(trimmed)) {
+      return finalize(trimmed, null, true);
+    }
+    if (/^\d{4}-\d{2}-\d{2}(?:[T\s].*)?$/i.test(trimmed)) {
+      const iso = trimmed.slice(0, 10);
+      const parsed = modesParseDayKeyToDate(iso);
+      return finalize(iso, parsed, false);
+    }
+    const info = parseHistoryTimelineDateInfo(trimmed);
+    if (info && info.date instanceof Date && !Number.isNaN(info.date.getTime())) {
+      const iso = coerceDayKeyFromDate(info.date);
+      if (iso) {
+        return finalize(iso, info.date, false);
+      }
+    }
+    return null;
+  }
+  if (value instanceof Date) {
+    const iso = coerceDayKeyFromDate(value);
+    if (iso) {
+      return finalize(iso, value, false);
+    }
+    return null;
+  }
+  if (typeof value?.toDate === "function") {
+    try {
+      const converted = value.toDate();
+      return canonicalDayKeyFromValue(converted);
+    } catch (_) {
+      return null;
+    }
+  }
+  if (typeof value === "number") {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return canonicalDayKeyFromValue(date);
+    }
+    return null;
+  }
+  return null;
+}
+
 function extractPracticeIterationIndex(entry, dayKey) {
   const indexCandidates = [
     parseFiniteNumber(entry?.iterationIndex ?? entry?.iteration_index),
@@ -9238,10 +9375,23 @@ function sanitizeIterationLabel(label, iterationNumber) {
 
 function resolveHistoryTimelineKey(entry, consigne) {
   const base = resolveHistoryTimelineKeyBase(entry);
+  const rawBaseDayKey = base?.dayKey ?? null;
+  if (rawBaseDayKey) {
+    const canonicalBase = canonicalDayKeyFromValue(rawBaseDayKey);
+    if (canonicalBase) {
+      base.dayKey = canonicalBase.dayKey;
+      if (!base.date && canonicalBase.date instanceof Date) {
+        base.date = canonicalBase.date;
+      }
+    } else {
+      base.dayKey = null;
+    }
+  } else {
+    base.dayKey = null;
+  }
   const modeSource = typeof consigne?.mode === "string" ? consigne.mode : entry?.mode;
   const normalizedMode = typeof modeSource === "string" ? modeSource.trim().toLowerCase() : "";
   if (normalizedMode === "practice") {
-    const initialDayKey = base.dayKey;
     const sessionKeyCandidates = [
       entry?.sessionId,
       entry?.session_id,
@@ -9252,36 +9402,42 @@ function resolveHistoryTimelineKey(entry, consigne) {
       entry?.dateKey,
       entry?.date_key,
     ];
-    let sessionKey = "";
+    let sessionKey = null;
     for (const candidate of sessionKeyCandidates) {
-      if (typeof candidate !== "string") {
-        continue;
-      }
-      const trimmed = candidate.trim();
-      if (!trimmed) {
-        continue;
-      }
-      if (/session-/i.test(trimmed)) {
-        sessionKey = trimmed;
+      const canonicalSession = canonicalDayKeyFromValue(candidate);
+      if (canonicalSession?.isSession) {
+        sessionKey = canonicalSession.dayKey;
         break;
       }
     }
-    const fallbackKey =
-      initialDayKey ||
-      entry?.historyKey ||
-      entry?.history_key ||
-      entry?.sessionId ||
-      entry?.session_id ||
-      entry?.date ||
-      entry?.dateKey ||
-      entry?.date_key ||
-      null;
+    const fallbackCandidates = [
+      rawBaseDayKey,
+      base?.date,
+      entry?.historyKey,
+      entry?.history_key,
+      entry?.sessionId,
+      entry?.session_id,
+      entry?.date,
+      entry?.dateKey,
+      entry?.date_key,
+    ];
+    let fallbackCanonical = null;
+    for (const candidate of fallbackCandidates) {
+      const canonical = canonicalDayKeyFromValue(candidate);
+      if (canonical) {
+        fallbackCanonical = canonical;
+        break;
+      }
+    }
     if (sessionKey) {
       base.dayKey = sessionKey;
-    } else if (!base.dayKey && fallbackKey) {
-      base.dayKey = String(fallbackKey);
+    } else if (!base.dayKey && fallbackCanonical) {
+      base.dayKey = fallbackCanonical.dayKey;
+      if (!base.date && fallbackCanonical.date instanceof Date) {
+        base.date = fallbackCanonical.date;
+      }
     }
-    const iterationSourceKey = sessionKey || base.dayKey || fallbackKey;
+    const iterationSourceKey = sessionKey || base.dayKey || fallbackCanonical?.dayKey;
     const iterationIndex = extractPracticeIterationIndex(entry, iterationSourceKey);
     if (iterationIndex !== null) {
       base.iterationIndex = iterationIndex;
@@ -9523,61 +9679,62 @@ function applyConsigneHistoryPoint(item, point) {
     }
     meta.hidden = !point.label && !point.weekdayLabel;
 
-    // HAMMER: Override visible labels from the page dayKey so pills always reflect the page date
-    try {
-      const dayKey = (point.dayKey && String(point.dayKey)) || (item.dataset && item.dataset.historyDay) || "";
-      if (dayKey) {
-        let newLabel = "";
-        let newWeekday = "";
-        let useIteration = false;
-        // Preserve explicit iteration/session labels when present
-        if (point?.details?.isPractice === true || (typeof point?.label === "string" && point.label.trim() && /session-/i.test(dayKey))) {
-          useIteration = true;
-        }
-        if (!useIteration) {
-          const sessionMatch = /session-(\d+)/i.exec(dayKey);
-          if (sessionMatch) {
-            const n = Number.parseInt(sessionMatch[1], 10);
-            if (Number.isFinite(n) && n > 0) {
-              newLabel = String(n);
-              newWeekday = "";
-            }
-          } else {
-            const parsed = modesParseDayKeyToDate(dayKey);
-            if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
-              newLabel = formatHistoryDayLabel(parsed);
-              newWeekday = formatHistoryWeekdayLabel(parsed);
-              // Also normalize the title/sr from the page date for consistency
-              const long = formatHistoryDayFullLabel(parsed);
-              const statusLabel = STATUS_LABELS[status] || status;
-              const computedTitle = long ? `${long} — ${statusLabel}` : statusLabel;
-              if (computedTitle) {
-                item.title = computedTitle;
-                if (sr) sr.textContent = computedTitle;
+    const hasRecordedDate = point.date instanceof Date && !Number.isNaN(point.date.getTime());
+    if (!hasRecordedDate) {
+      // Legacy fallback: derive label from dayKey when no recorded date is available
+      try {
+        const dayKey = (point.dayKey && String(point.dayKey)) || (item.dataset && item.dataset.historyDay) || "";
+        if (dayKey) {
+          let newLabel = "";
+          let newWeekday = "";
+          let useIteration = false;
+          if (point?.details?.isPractice === true || (typeof point?.label === "string" && point.label.trim() && /session-/i.test(dayKey))) {
+            useIteration = true;
+          }
+          if (!useIteration) {
+            const sessionMatch = /session-(\d+)/i.exec(dayKey);
+            if (sessionMatch) {
+              const n = Number.parseInt(sessionMatch[1], 10);
+              if (Number.isFinite(n) && n > 0) {
+                newLabel = String(n);
+                newWeekday = "";
+              }
+            } else {
+              const parsed = modesParseDayKeyToDate(dayKey);
+              if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+                newLabel = formatHistoryDayLabel(parsed);
+                newWeekday = formatHistoryWeekdayLabel(parsed);
+                const long = formatHistoryDayFullLabel(parsed);
+                const statusLabel = STATUS_LABELS[status] || status;
+                const computedTitle = long ? `${long} — ${statusLabel}` : statusLabel;
+                if (computedTitle) {
+                  item.title = computedTitle;
+                  if (sr) sr.textContent = computedTitle;
+                }
               }
             }
           }
+          if (labelEl && newLabel) {
+            labelEl.textContent = newLabel;
+            labelEl.hidden = false;
+          }
+          if (weekdayEl) {
+            weekdayEl.textContent = newWeekday || "";
+            weekdayEl.hidden = !newWeekday;
+          }
+          meta.hidden = !(labelEl && labelEl.textContent) && !(weekdayEl && weekdayEl.textContent);
+          try {
+            modesLogger?.debug?.("timeline.hard-render", {
+              dayKey,
+              pointLabel: point.label || "",
+              appliedLabel: labelEl?.textContent || "",
+              appliedWeekday: weekdayEl?.textContent || "",
+              status,
+            });
+          } catch (_) {}
         }
-        if (labelEl && newLabel) {
-          labelEl.textContent = newLabel;
-          labelEl.hidden = false;
-        }
-        if (weekdayEl) {
-          weekdayEl.textContent = newWeekday || "";
-          weekdayEl.hidden = !newWeekday;
-        }
-        meta.hidden = !(labelEl && labelEl.textContent) && !(weekdayEl && weekdayEl.textContent);
-        try {
-          modesLogger?.debug?.("timeline.hard-render", {
-            dayKey,
-            pointLabel: point.label || "",
-            appliedLabel: labelEl?.textContent || "",
-            appliedWeekday: weekdayEl?.textContent || "",
-            status,
-          });
-        } catch (_) {}
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
   }
   if (point.isBilan) {
     item.dataset.historySource = "bilan";
@@ -9626,10 +9783,7 @@ function applyConsigneHistoryPoint(item, point) {
     delete item.dataset.historyResponseId;
   }
   if (point.title) {
-    // Avoid clobbering a title we just computed from dayKey in the hard-render section above
-    if (!item.title) {
-      item.title = point.title;
-    }
+    item.title = point.title;
   } else {
     item.removeAttribute("title");
   }
@@ -10477,9 +10631,15 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       clearBtn.disabled = true;
       if (submitBtn) submitBtn.disabled = true;
       try {
+        const dayKeyToClear = resolvedDayKey;
+        if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
+          try {
+            await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
+          } catch (_) {}
+        }
+        try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) {}
+        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
-        try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
         // If this history entry originates from a bilan summary, also delete the underlying summary answer
         try {
           const scope = entry?.summaryScope || entry?.periodScope || "";
@@ -10504,6 +10664,13 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         triggerConsigneRowUpdateHighlight(row);
         for (const childState of baseChildStates) {
           try {
+            if (ctx?.db && ctx?.user?.uid && childState?.consigne?.id && dayKeyToClear) {
+              try {
+                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, dayKeyToClear);
+              } catch (_) {}
+            }
+            try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
+            try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
             await Schema.deleteHistoryEntry(
               ctx.db,
               ctx.user.uid,
@@ -10511,8 +10678,6 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               childState.historyDocumentId,
               childState.responseSyncOptions,
             );
-            try { removeRecentResponsesForDay(childState.consigne.id, resolvedDayKey); } catch (e) {}
-            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, resolvedDayKey); } catch (e) {}
             // Also delete child summary answers if present
             try {
               const cEntry = childState.entry || null;
@@ -10542,6 +10707,22 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             triggerConsigneRowUpdateHighlight(childState.row);
           }
         }
+        try {
+          const escapeConsigneId =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(String(consigne.id ?? ""))
+              : String(consigne.id ?? "").replace(/"/g, '\\"');
+          const escapeDayKey =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(String(dayKeyToClear ?? ""))
+              : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
+          const dailyRow = document.querySelector(
+            `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
+          );
+          if (dailyRow) {
+            setConsigneRowValue(dailyRow, consigne, "");
+          }
+        } catch (_) {}
         showToast("Réponses effacées pour ce bilan.");
         // If we are inside the history panel, remove the corresponding list item immediately
         if (renderInPanel && historyPanel) {
@@ -10564,6 +10745,11 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         }
         if (typeof requestClose === 'function') requestClose();
         flushHistoryPanelRefresh();
+        try {
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+          }
+        } catch (_) {}
       } catch (error) {
         console.error("bilan.history.editor.clear", error);
         clearBtn.disabled = false;
@@ -11286,11 +11472,15 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       clearBtn.disabled = true;
       if (submitBtn) submitBtn.disabled = true;
       try {
+        const dayKeyToClear = resolvedDayKey || dayKey;
+        if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
+          try {
+            await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
+          } catch (_) {}
+        }
+        try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) {}
+        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-        // Clear local recent cache so Historique reflects deletion
-        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
-        // Remove any other response docs for this consigne/day (e.g., duplicate or bilan-mirrored)
-        try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
         // If this entry is a bilan-backed summary, delete the summary answer to avoid reappearance
         try {
           const scope = entry?.summaryScope || entry?.periodScope || "";
@@ -11315,6 +11505,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         triggerConsigneRowUpdateHighlight(row);
         for (const childState of baseChildStates) {
           try {
+            if (ctx?.db && ctx?.user?.uid && childState?.consigne?.id && dayKeyToClear) {
+              try {
+                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, dayKeyToClear);
+              } catch (_) {}
+            }
+            try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
+            try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
             await Schema.deleteHistoryEntry(
               ctx.db,
               ctx.user.uid,
@@ -11322,8 +11519,6 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               childState.historyDocumentId,
               childState.responseSyncOptions,
             );
-            try { removeRecentResponsesForDay(childState.consigne.id, resolvedDayKey); } catch (e) {}
-            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, resolvedDayKey); } catch (e) {}
             // Also handle child summary deletion
             try {
               const cEntry = childState.entry || null;
@@ -11353,14 +11548,28 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             triggerConsigneRowUpdateHighlight(childState.row);
           }
         }
+        try {
+          const escapeConsigneId =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(String(consigne.id ?? ""))
+              : String(consigne.id ?? "").replace(/"/g, '\\"');
+          const escapeDayKey =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(String(dayKeyToClear ?? ""))
+              : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
+          const dailyRow = document.querySelector(
+            `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
+          );
+          if (dailyRow) {
+            setConsigneRowValue(dailyRow, consigne, "");
+          }
+        } catch (_) {}
         showToast("Réponses effacées.");
         closeOverlay();
         flushHistoryPanelRefresh();
-        // Clear local recent cache and notify global listeners so "global history" views refresh
-        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
         try {
-          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-            window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+          if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+            window.dispatchEvent(new CustomEvent("consigne:history:refresh", { detail: { consigneId: consigne.id } }));
           }
         } catch (_) {}
       } catch (error) {
@@ -11696,8 +11905,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   if (!item) {
     item = state.track.querySelector(selector);
   }
-  // Use only dayKey (page date), ignore recording date
-  const date = modesParseDayKeyToDate(dayKey);
+  const pageDayDate = modesParseDayKeyToDate(dayKey);
   const existingDetails = item?._historyDetails || null;
   const consigne = options.consigne || null;
   const effectiveValue = options.value !== undefined ? options.value : existingDetails?.rawValue ?? null;
@@ -11712,6 +11920,45 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   }
   iterationLabel = sanitizeIterationLabel(iterationLabel, iterationNumber);
   const providedIsBilan = options.isBilan === true || existingDetails?.isBilan === true;
+  const optionDate = options?.date instanceof Date && !Number.isNaN(options.date.getTime()) ? options.date : null;
+  const optionTimestamp = typeof options?.timestamp === "number" && Number.isFinite(options.timestamp)
+    ? options.timestamp
+    : null;
+  const timestampAsDate = optionTimestamp !== null ? new Date(optionTimestamp) : null;
+  const existingTimestamp = Number.isFinite(existingDetails?.timestamp) ? existingDetails.timestamp : null;
+  const existingTimestampDate = existingTimestamp !== null ? new Date(existingTimestamp) : null;
+  const existingDate = existingDetails?.date instanceof Date && !Number.isNaN(existingDetails.date.getTime())
+    ? existingDetails.date
+    : null;
+  const recordDate = (() => {
+    if (optionDate) return optionDate;
+    if (timestampAsDate instanceof Date && !Number.isNaN(timestampAsDate.getTime())) {
+      return timestampAsDate;
+    }
+    if (existingDate) return existingDate;
+    if (existingTimestampDate instanceof Date && !Number.isNaN(existingTimestampDate.getTime())) {
+      return existingTimestampDate;
+    }
+    if (pageDayDate instanceof Date && !Number.isNaN(pageDayDate.getTime())) {
+      return pageDayDate;
+    }
+    return new Date();
+  })();
+  const normalizedRecordDate = recordDate instanceof Date && !Number.isNaN(recordDate.getTime())
+    ? new Date(recordDate.getTime())
+    : null;
+  const resolvedTimestamp = (() => {
+    if (optionTimestamp !== null) {
+      return optionTimestamp;
+    }
+    if (normalizedRecordDate) {
+      return normalizedRecordDate.getTime();
+    }
+    if (existingTimestamp !== null) {
+      return existingTimestamp;
+    }
+    return Date.now();
+  })();
   const resolvedHistoryId = (() => {
     if (normalizedHistoryId) {
       return normalizedHistoryId;
@@ -11746,12 +11993,11 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   })();
   const record = {
     dayKey,
-    date: null, // FORCE: null to ignore recording dates, use only dayKey
+    date: normalizedRecordDate,
     status,
     value: effectiveValue,
     note: derivedNote || existingDetails?.note || "",
-    timestamp:
-      existingDetails?.timestamp || (date ? date.getTime() : iterationIndex != null ? iterationIndex : Date.now()),
+    timestamp: resolvedTimestamp,
     isPlaceholder: false,
     isBilan: providedIsBilan,
     iterationIndex: iterationIndex != null ? iterationIndex : existingDetails?.iterationIndex ?? null,
@@ -11781,13 +12027,14 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       responseId: resolvedResponseId,
     });
   }
-  const fallbackTitle = buildHistoryTimelineTitle(date, dayKey, status);
-  const fallbackLabels = buildHistoryTimelineLabels(date, dayKey);
+  const timelineDate = normalizedRecordDate || pageDayDate || null;
+  const fallbackTitle = buildHistoryTimelineTitle(timelineDate, dayKey, status);
+  const fallbackLabels = buildHistoryTimelineLabels(timelineDate, dayKey);
   const point =
     formatConsigneHistoryPoint(record, consigne) ||
     {
       dayKey,
-      date,
+      date: timelineDate,
       status,
       title: iterationLabel
         ? STATUS_LABELS[status]
@@ -11801,10 +12048,10 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       isBilan: providedIsBilan,
       details: {
         dayKey: dayKey || "",
-        date,
+        date: timelineDate,
         label: iterationLabel || fallbackLabels.label || "",
         weekdayLabel: iterationLabel ? "" : fallbackLabels.weekday || "",
-        fullDateLabel: iterationLabel || fallbackLabels.label || dayKey || "",
+        fullDateLabel: fallbackLabels.label || iterationLabel || dayKey || "",
         status,
         statusLabel: STATUS_LABELS[status] || "",
         valueHtml: "",
@@ -18476,7 +18723,7 @@ async function renderDaily(ctx, root, opts = {}) {
   });
 
   const previousAnswersRaw = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
-  const previousAnswers = previousAnswersRaw instanceof Map
+  let previousAnswers = previousAnswersRaw instanceof Map
     ? previousAnswersRaw
     : new Map(previousAnswersRaw || []);
   const normalizedCurrentDayKey =
@@ -18492,6 +18739,8 @@ async function renderDaily(ctx, root, opts = {}) {
       entry.date_key,
       entry.responseDayKey,
       entry.day,
+      entry.pageDateIso,
+      entry.page_date_iso,
     ];
     for (const candidate of candidates) {
       if (typeof candidate === "string" && candidate.trim()) {
@@ -18500,6 +18749,17 @@ async function renderDaily(ctx, root, opts = {}) {
     }
     return "";
   };
+
+  if (previousAnswers && previousAnswers.size && normalizedCurrentDayKey) {
+    const filtered = new Map();
+    previousAnswers.forEach((entry, consigneId) => {
+      const entryKey = resolvePreviousEntryDayKey(entry);
+      if (entryKey && entryKey === normalizedCurrentDayKey) {
+        filtered.set(consigneId, entry);
+      }
+    });
+    previousAnswers = filtered;
+  }
 
   const observedValues = new Map();
   const autoSaveStates = new Map();
