@@ -693,6 +693,14 @@
         // ou que la dateKey ne correspond pas au jour de la page, on ignore.
         try {
           const hiddenKey = parsed && typeof parsed === 'object' && parsed.dateKey ? String(parsed.dateKey) : null;
+          const rootHistoryKey =
+            root?.dataset && typeof root.dataset.checklistHistoryDate === 'string'
+              ? root.dataset.checklistHistoryDate.trim()
+              : null;
+          const hiddenHistoryKey =
+            hiddenInput?.dataset && typeof hiddenInput.dataset.checklistHistoryDate === 'string'
+              ? hiddenInput.dataset.checklistHistoryDate.trim()
+              : null;
           const hash = typeof GLOBAL.location?.hash === 'string' ? GLOBAL.location.hash : '';
           let hashDate = null;
           try {
@@ -700,7 +708,7 @@
             hashDate = (qp.get('d') || '').trim() || null;
           } catch (_) {}
           const pageKey = typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? GLOBAL.AppCtx.dateIso : null;
-          const expectedKey = hashDate || pageKey || null;
+          const expectedKey = rootHistoryKey || hiddenHistoryKey || hashDate || pageKey || null;
           if (expectedKey) {
             if (!hiddenKey) {
               log("hydrate.hidden.skip-missing-dateKey", { pageKey: expectedKey });
