@@ -17294,6 +17294,14 @@ async function renderPractice(ctx, root, _opts = {}) {
             sessionNumber,
             sessionId,
           };
+          // Ensure a stable dayKey is persisted for practice answers to keep pills aligned with the page date
+          try {
+            const pageDayKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso)
+              || (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
+            if (pageDayKey) {
+              answer.dayKey = pageDayKey;
+            }
+          } catch (_) {}
           const normalizedSummary =
             extraSummary && typeof extraSummary === "object"
               ? normalizeSummaryMetadataInput(extraSummary)
@@ -17492,6 +17500,15 @@ async function renderPractice(ctx, root, _opts = {}) {
       ans.sessionNumber = sessionNumber;
       ans.sessionId = sessionId;
     });
+
+    // Ensure a stable dayKey is persisted for practice answers to keep pills aligned with the page date
+    try {
+      const pageDayKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso)
+        || (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
+      if (pageDayKey) {
+        answers.forEach((ans) => { ans.dayKey = pageDayKey; });
+      }
+    } catch (_) {}
 
     saveBtn.disabled = true;
     saveBtn.textContent = "Enregistrement…";
