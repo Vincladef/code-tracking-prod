@@ -661,7 +661,11 @@
       root.dataset?.consigneId ||
       null;
     const uid = resolveUid(options.uid);
-  const dateKey = options.dateKey || (typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? GLOBAL.AppCtx.dateIso : todayKey());
+  // Prefer explicit option dateKey; otherwise use the page-scoped day key propagated in AppCtx.dateIso.
+  // Fall back to today only if neither is available.
+  const dateKey = (options.dateKey && String(options.dateKey))
+    || (typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? String(GLOBAL.AppCtx.dateIso) : null)
+    || todayKey();
     
     console.log("[DEBUG HYDRATE] Called with dateKey:", options.dateKey, "resolved dateKey:", dateKey, "consigneId:", consigneId, "AppCtx.dateIso:", GLOBAL.AppCtx?.dateIso);
     
@@ -682,6 +686,16 @@
     });
 
     const hiddenInput = root.querySelector("[data-checklist-state]");
+    // If we have a concrete dateKey, surface it on the root so downstream reads are consistent
+    try {
+      if (dateKey && root && root.setAttribute) {
+        const existingHist = (root.dataset && root.dataset.checklistHistoryDate) || root.getAttribute('data-checklist-history-date') || '';
+        if (!existingHist) {
+          root.setAttribute('data-checklist-history-date', String(dateKey));
+          if (root.dataset) root.dataset.checklistHistoryDate = String(dateKey);
+        }
+      }
+    } catch (_) {}
 
     if (hiddenInput && !hiddenInput.__checklistHiddenListener) {
       const applyHiddenState = () => {
@@ -722,7 +736,8 @@
             hashDate = (qp.get('d') || '').trim() || null;
           } catch (_) {}
           const pageKey = typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? GLOBAL.AppCtx.dateIso : null;
-          const expectedKey = rootHistoryKey || hiddenHistoryKey || hashDate || pageKey || null;
+          // Use the resolved hydrate dateKey as the highest priority fallback to avoid drift to "today".
+          const expectedKey = rootHistoryKey || hiddenHistoryKey || hashDate || pageKey || dateKey || null;
           if (rawOptionsHash && currentOptionsHash && rawOptionsHash !== currentOptionsHash) {
             log("hydrate.hidden.skip-options-mismatch", { rawOptionsHash, currentOptionsHash });
             return;
