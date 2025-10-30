@@ -14220,16 +14220,43 @@ function logConsigneHistoryComparison(consigne, panelMetas, context = {}) {
       historyId: meta.historyId || "",
     }));
 
+    const buildKey = (entry) => {
+      if (!entry || typeof entry !== "object") {
+        return "";
+      }
+      const historyKey = typeof entry.historyId === "string" && entry.historyId.trim()
+        ? `history:${entry.historyId.trim()}`
+        : "";
+      if (historyKey) {
+        return historyKey;
+      }
+      const responseKey = typeof entry.responseId === "string" && entry.responseId.trim()
+        ? `response:${entry.responseId.trim()}`
+        : "";
+      if (responseKey) {
+        return responseKey;
+      }
+      const normalizedDayKey = typeof entry.normalizedDayKey === "string" && entry.normalizedDayKey.trim()
+        ? entry.normalizedDayKey.trim()
+        : "";
+      const indexPart = Number.isFinite(entry.index) ? String(entry.index) : "";
+      const dayKey = typeof entry.dayKey === "string" && entry.dayKey.trim() ? entry.dayKey.trim() : "";
+      if (normalizedDayKey || dayKey) {
+        return `day:${normalizedDayKey || dayKey}:${indexPart}`;
+      }
+      return `idx:${indexPart}`;
+    };
+
     const timelineMap = new Map();
     if (timelineEntries) {
       timelineEntries.forEach((entry) => {
-        const key = entry.normalizedDayKey || `idx:${entry.index}:${entry.dayKey || ""}`;
+        const key = buildKey(entry);
         timelineMap.set(key, entry);
       });
     }
     const panelMap = new Map();
     panelEntries.forEach((entry) => {
-      const key = entry.normalizedDayKey || `idx:${entry.index}:${entry.dayKey || ""}`;
+      const key = buildKey(entry);
       panelMap.set(key, entry);
     });
 
