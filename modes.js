@@ -9380,11 +9380,8 @@ function applyConsigneHistoryPoint(item, point) {
   } else {
     delete item.dataset.historyDay;
   }
-  if (point.date instanceof Date && !Number.isNaN(point.date.getTime())) {
-    item.dataset.dateIso = point.date.toISOString();
-  } else {
-    delete item.dataset.dateIso;
-  }
+  // Remove dateIso dataset - we only use historyDay (page date)
+  delete item.dataset.dateIso;
   const status = point.status || "na";
   item.dataset.status = status;
   item.dataset.placeholder = point.isPlaceholder ? "1" : "0";
@@ -11483,26 +11480,9 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   if (!item) {
     item = state.track.querySelector(selector);
   }
-  const dateIso = item?.dataset?.dateIso;
-  let date = null;
-  if (dateIso) {
-    // Handle UTC dateIso by extracting the date part and treating it as local
-    if (dateIso.includes('T') && dateIso.includes('Z')) {
-      const dateString = dateIso.split('T')[0]; // Extract YYYY-MM-DD part
-      const info = parseHistoryTimelineDateInfo(dateString);
-      date = info?.date || null;
-      console.log("[DEBUG TIMELINE DATE] Using dateIso UTC corrected:", dateIso, "->", dateString, "parsed date:", date);
-    } else {
-      const info = parseHistoryTimelineDateInfo(dateIso);
-      date = info?.date || null;
-      console.log("[DEBUG TIMELINE DATE] Using dateIso:", dateIso, "parsed date:", date);
-    }
-  }
-  if (!date) {
-    const info = parseHistoryTimelineDateInfo(dayKey);
-    date = info?.date || null;
-    console.log("[DEBUG TIMELINE DATE] Using dayKey:", dayKey, "parsed date:", date);
-  }
+  // Use only dayKey (page date), ignore dateIso (recording date)
+  const info = parseHistoryTimelineDateInfo(dayKey);
+  const date = info?.date || null;
   const existingDetails = item?._historyDetails || null;
   const consigne = options.consigne || null;
   const effectiveValue = options.value !== undefined ? options.value : existingDetails?.rawValue ?? null;
@@ -11831,11 +11811,11 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     }
     let details = rawDetails ? { ...rawDetails } : null;
     if (!details) {
-      const rawIso = target.dataset.dateIso || target.dataset.historyDay || null;
-      const dateInfo = parseHistoryTimelineDateInfo(rawIso);
+      const historyDay = target.dataset.historyDay || null;
+      const dateInfo = parseHistoryTimelineDateInfo(historyDay);
       const fallbackPoint = formatConsigneHistoryPoint(
         {
-          dayKey: target.dataset.historyDay || null,
+          dayKey: historyDay,
           date: dateInfo?.date || null,
           status: target.dataset.status || "na",
           value: null,
@@ -14420,8 +14400,15 @@ function fallbackAsDate(value) {
     if (Number.isFinite(numeric)) {
       return fallbackAsDate(numeric);
     }
-    const parsed = new Date(trimmed);
-    return normalizeDateInstance(parsed);
+    // Handle UTC dateIso by extracting the date part to avoid timezone conversion
+    if (trimmed.includes('T') && trimmed.includes('Z')) {
+      const dateString = trimmed.split('T')[0]; // Extract YYYY-MM-DD part
+      const parsed = new Date(dateString);
+      return normalizeDateInstance(parsed);
+    } else {
+      const parsed = new Date(trimmed);
+      return normalizeDateInstance(parsed);
+    }
   }
   return null;
 }
