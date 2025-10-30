@@ -24,10 +24,9 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-self.addEventListener("fetch", () => {
-  // Ce service worker est principalement dédié aux notifications push.
-  // La présence de ce gestionnaire garantit le comportement attendu pour la PWA.
-});
+// Note: aucun handler 'fetch' n'est nécessaire ici. Le garder vide ajoute un coût inutile
+// et peut déclencher des avertissements du navigateur. Nous laissons le Service Worker
+// gérer uniquement les notifications push.
 
 messaging.onBackgroundMessage((payload = {}) => {
   const notification = payload.notification || {};

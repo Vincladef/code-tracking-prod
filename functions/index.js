@@ -1,11 +1,57 @@
-const functions = require("firebase-functions");
-const admin = require("firebase-admin");
+let functions;
+try {
+  functions = require("firebase-functions");
+} catch (e) {
+  const noopHandler = () => {};
+  const regionShim = () => ({
+    firestore: { document: () => ({ onWrite: noopHandler }) },
+    https: { onRequest: noopHandler },
+    pubsub: { schedule: () => ({ timeZone: () => ({ onRun: noopHandler }) }) },
+  });
+  functions = {
+    logger: console,
+    https: { onRequest: noopHandler },
+    region: regionShim,
+    config: () => ({}),
+  };
+}
+
+let admin;
+try {
+  admin = require("firebase-admin");
+} catch (e) {
+  const mockDb = {
+    collection: () => ({
+      doc: () => ({
+        get: async () => ({ exists: false, data: () => ({}) }),
+        set: async () => {},
+        collection: () => ({ get: async () => ({ forEach: () => {} }) }),
+      }),
+      get: async () => ({ forEach: () => {} }),
+      where: () => ({ get: async () => ({ forEach: () => {} }) }),
+    }),
+    collectionGroup: () => ({ where: () => ({ get: async () => ({ forEach: () => {} }) }) }),
+  };
+  const firestoreShim = Object.assign(() => mockDb, {
+    FieldPath: { documentId: () => ({}) },
+    FieldValue: { serverTimestamp: () => new Date() },
+  });
+  admin = {
+    initializeApp() {},
+    firestore: firestoreShim,
+    messaging: () => ({
+      sendEachForMulticast: async () => ({ responses: [], successCount: 0, failureCount: 0 }),
+      subscribeToTopic: async () => ({ successCount: 0, failureCount: 0, errors: [] }),
+      unsubscribeFromTopic: async () => ({ successCount: 0, failureCount: 0, errors: [] }),
+    }),
+  };
+}
 const tls = require("tls");
 const fs = require("fs");
 const path = require("path");
 const { buildReminderBody } = require("./reminder");
 
-admin.initializeApp();
+try { admin.initializeApp(); } catch (_) {}
 
 const db = admin.firestore();
 

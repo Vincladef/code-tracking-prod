@@ -1714,6 +1714,7 @@
     }
 
     async function applySuffix(nextSuffix, targetUrl) {
+      // Keep the static manifest to avoid browser warnings about invalid start_url/scope from blob manifests.
       const targetSuffix = (nextSuffix || "").trim();
       const normalizedTarget = normalizeInstallTargetHash(targetUrl) || null;
       if (lastSuffix === targetSuffix && lastTarget === normalizedTarget) {
@@ -1721,40 +1722,29 @@
       }
       lastSuffix = targetSuffix;
       lastTarget = normalizedTarget;
+
       const baseData = await ensureBaseManifest();
       const manifestSource = baseData || manifestFallback;
       const baseName = manifestSource?.name || BASE_TITLE;
       const baseShortName = manifestSource?.short_name || BASE_SHORT_APP_NAME;
-      const baseStartUrl = manifestSource?.start_url || manifestFallback.start_url || "./";
-      if (!targetSuffix && !normalizedTarget) {
-        cleanupBlobUrl();
-        if (manifestLink && originalHref) {
-          manifestLink.setAttribute("href", originalHref);
-        }
-        if (appleTitleMeta) {
-          appleTitleMeta.setAttribute("content", baseAppleTitle);
-        }
-        return;
+
+      // Always point back to the original static manifest
+      cleanupBlobUrl();
+      if (manifestLink && originalHref) {
+        manifestLink.setAttribute("href", originalHref);
       }
-      const manifestCopy = JSON.parse(JSON.stringify(manifestSource || {}));
-      manifestCopy.name = computeLabel(baseName, targetSuffix, 60);
-      manifestCopy.short_name = computeLabel(baseShortName, targetSuffix, 30);
-      manifestCopy.start_url = computeStartUrl(baseStartUrl, normalizedTarget);
+
+      // Only update the Apple title (homescreen name) to reflect the suffix when applicable
       if (appleTitleMeta) {
-        appleTitleMeta.setAttribute("content", computeLabel(baseAppleTitle, targetSuffix, 48));
+        const label = targetSuffix
+          ? computeLabel(baseName, targetSuffix, 48)
+          : baseAppleTitle;
+        appleTitleMeta.setAttribute("content", label);
       }
-      if (!manifestLink) {
-        return;
-      }
-      try {
-        const blob = new Blob([JSON.stringify(manifestCopy)], { type: "application/manifest+json" });
-        cleanupBlobUrl();
-        const blobUrl = URL.createObjectURL(blob);
-        manifestLink.setAttribute("href", blobUrl);
-        currentBlobUrl = blobUrl;
-      } catch (error) {
-        console.warn("[install] manifest:update", error);
-      }
+
+      // We intentionally do not rewrite the manifest via blob/data URL to prevent
+      // 'Manifest: property … ignored, URL is invalid' warnings. The install target is
+      // remembered via storage/cookie, and the app handles route restoration on launch.
     }
 
     return { applySuffix };

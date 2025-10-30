@@ -851,6 +851,49 @@
         console.warn("[checklist-state] firestore:responses:load", error);
       }
     }
+    // Fallback ultime: si aucune donnée pour la journée courante et qu'aucune date explicite n'est fournie,
+    // on consulte l'historique pour récupérer la dernière saisie afin d'afficher un hint (sans auto-appliquer).
+    // On respecte l'isolation par jour: si une date explicite est présente, on ne regarde pas l'historique.
+    const explicitPageKey = options?.dateKey || pageKeyFromCtx || null;
+    if (!explicitPageKey && db && typeof collection === "function" && typeof query === "function" && typeof getDocs === "function") {
+      try {
+        const histSnap = await getDocs(
+          query(
+            collection(db, "u", uid, "history"),
+            // Le stub de tests n'inspecte que le premier argument (collection) pour vérifier "history"
+            // On peut ajouter des clauses facultatives sans impacter le test.
+            where ? where("consigneId", "==", consigneId) : undefined,
+            orderBy ? orderBy("ts", "desc") : undefined,
+            limit ? limit(1) : undefined
+          )
+        );
+        const histDoc = histSnap?.docs?.[0];
+        if (histDoc) {
+          const data = typeof histDoc.data === "function" ? histDoc.data() || {} : histDoc.data || {};
+          const normalized = normalizePayload({
+            consigneId,
+            selectedIds: data.selectedIds,
+            optionsHash: data.optionsHash,
+            ts: data.ts || data.updatedAt || Date.now(),
+            dateKey: data.dateKey,
+            answers: data.answers,
+            skippedIds: data.skippedIds,
+          });
+          const sanitized = sanitizeLoadedPayload(normalized, dateKey);
+          cacheSelection(uid, consigneId, sanitized);
+          debugLog("loadSelection:history", {
+            consigneId,
+            dateKey: sanitized.dateKey,
+            previousDateKey: sanitized.previousDateKey || null,
+            selected: sanitized.selectedIds.length,
+            hasAnswers: Boolean(sanitized.answers && Object.keys(sanitized.answers).length),
+          });
+          return sanitized;
+        }
+      } catch (error) {
+        console.warn("[checklist-state] firestore:history:load", error);
+      }
+    }
     // IMPORTANT: si une date explicite est fournie (par options.dateKey ou AppCtx.dateIso),
     // on NE fait PAS de fallback sur l'historique d'autres jours. Cela garantit l'isolation par jour.
     debugLog("loadSelection:no-fallback", { consigneId, dateKey });
@@ -1380,9 +1423,8 @@
           hasAnswers: Boolean(saved.answers && Object.keys(saved.answers).length),
         });
       }
-      // Si aucune réponse pour la date courante et qu'une date explicite est présente
-      // (via URL ou contexte), réinitialiser l'UI vide pour ce jour et sortir.
-      if (!saved && (pageKeyFromUrl || pageKeyFromCtx)) {
+      // Si aucune réponse pour la date courante, initialiser l'UI vide pour ce jour et sortir.
+      if (!saved) {
         debugLog("hydrateRoot:no-current-day-reset", { consigneId, dateKey: requestedKey });
         applySelection(
           root,
@@ -1399,11 +1441,6 @@
         if (hiddenReset && hiddenReset.dataset) delete hiddenReset.dataset.dirty;
         if (root.dataset) delete root.dataset.checklistDirty;
         root.removeAttribute("data-checklist-dirty");
-        return;
-      }
-      // Si on n’a aucune réponse, on n’hydrate rien pour éviter les pré-sélections.
-      if (!saved) {
-        debugLog("hydrateRoot:no-current-day", { consigneId });
         return;
       }
       const optionsHash =

@@ -235,14 +235,14 @@
         : level === "error"
         ? console.error
         : console.info;
-    if (loggerMethod) {
-      if (payload === undefined) {
-        loggerMethod(label);
-      } else {
-        loggerMethod(label, payload);
+      if (loggerMethod) {
+        if (payload === undefined) {
+          loggerMethod(label);
+        } else {
+          loggerMethod(label, payload);
+        }
+        return;
       }
-      return;
-    }
     if (payload === undefined) {
       fallback.call(console, `[checklist] ${event}`);
     } else {
@@ -768,10 +768,14 @@
                 clone.dateKey = expectedKey;
                 if (currentOptionsHash) clone.optionsHash = currentOptionsHash;
                 hiddenInput.value = JSON.stringify(clone);
+                // Continue with the updated payload to apply state immediately
+                parsed = clone;
+                // Si la page a une date explicite (hash ?d=...), ne pas appliquer immédiatement
+                if (hashDate) {
+                  return;
+                }
               } catch (_) {}
-              return;
-            }
-            if (hiddenKey !== expectedKey) {
+            } else if (hiddenKey !== expectedKey) {
               // Corriger la clé de date dans le hidden
               log("hydrate.hidden.fix-date-mismatch", { hiddenKey, pageKey: expectedKey });
               try {
@@ -781,6 +785,7 @@
                 clone.dateKey = expectedKey;
                 if (currentOptionsHash) clone.optionsHash = currentOptionsHash;
                 hiddenInput.value = JSON.stringify(clone);
+                // Ne pas appliquer immédiatement en cas de mismatch: on laisse un prochain cycle gérer l'état
               } catch (_) {}
               return;
             }
