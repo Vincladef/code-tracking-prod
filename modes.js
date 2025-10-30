@@ -5616,6 +5616,13 @@ function inputForType(consigne, initialValue = null, options = {}) {
           const hidden = script?.previousElementSibling;
           const root = hidden?.closest('[data-checklist-root]');
           if (!root || !hidden) return;
+          // Empêche les doubles initialisations si le même DOM est réutilisé
+          try {
+            if (root.dataset && root.dataset.checklistSetup === '1') {
+              return;
+            }
+            if (root.dataset) root.dataset.checklistSetup = '1';
+          } catch (_) {}
           const SKIP_DATA_KEY = 'checklistSkip';
           const PREV_CHECKED_KEY = 'checklistPrevChecked';
           const LONG_PRESS_DELAY = 600;
@@ -6118,7 +6125,10 @@ function inputForType(consigne, initialValue = null, options = {}) {
           const uid = window.AppCtx?.user?.uid || null;
           const dateKey = historyDateKeyAttr || window.AppCtx?.dateIso || (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
           const consigneId = root.getAttribute('data-consigne-id') || root.dataset.consigneId || '';
-          hydratePayload();
+          // Évite les doubles chemins d'hydratation: si une API globale existe, on la laisse faire
+          if (!(typeof hydrate === 'function')) {
+            hydratePayload();
+          }
           ensureItemIds();
           sync();
           if (typeof hydrate === 'function') {
