@@ -9279,7 +9279,27 @@ function resolveHistoryTimelineKey(entry, consigne) {
     if (sessionKey) {
       base.dayKey = sessionKey;
     } else if (!base.dayKey && fallbackKey) {
-      base.dayKey = String(fallbackKey);
+      // Only accept canonical keys for practice when no session key is available.
+      // Avoid using loose strings like "01/01" which would render literally.
+      const raw = String(fallbackKey).trim();
+      let accepted = "";
+      if (/^session-/i.test(raw)) {
+        accepted = raw;
+      } else if (/^\d{4}-\d{2}-\d{2}(?:[T\s].*)?$/i.test(raw)) {
+        // ISO-like: keep day part only
+        accepted = raw.slice(0, 10);
+      } else {
+        // Try to parse into a date (reject dd/mm without year)
+        const info = parseHistoryTimelineDateInfo(raw);
+        if (info && info.date instanceof Date && !Number.isNaN(info.date.getTime())) {
+          accepted = typeof Schema?.dayKeyFromDate === "function"
+            ? Schema.dayKeyFromDate(info.date)
+            : info.date.toISOString().slice(0, 10);
+        }
+      }
+      if (accepted) {
+        base.dayKey = accepted;
+      }
     }
     const iterationSourceKey = sessionKey || base.dayKey || fallbackKey;
     const iterationIndex = extractPracticeIterationIndex(entry, iterationSourceKey);
