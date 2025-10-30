@@ -11486,9 +11486,17 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   const dateIso = item?.dataset?.dateIso;
   let date = null;
   if (dateIso) {
-    const info = parseHistoryTimelineDateInfo(dateIso);
-    date = info?.date || null;
-    console.log("[DEBUG TIMELINE DATE] Using dateIso:", dateIso, "parsed date:", date);
+    // Handle UTC dateIso by extracting the date part and treating it as local
+    if (dateIso.includes('T') && dateIso.includes('Z')) {
+      const dateString = dateIso.split('T')[0]; // Extract YYYY-MM-DD part
+      const info = parseHistoryTimelineDateInfo(dateString);
+      date = info?.date || null;
+      console.log("[DEBUG TIMELINE DATE] Using dateIso UTC corrected:", dateIso, "->", dateString, "parsed date:", date);
+    } else {
+      const info = parseHistoryTimelineDateInfo(dateIso);
+      date = info?.date || null;
+      console.log("[DEBUG TIMELINE DATE] Using dateIso:", dateIso, "parsed date:", date);
+    }
   }
   if (!date) {
     const info = parseHistoryTimelineDateInfo(dayKey);
