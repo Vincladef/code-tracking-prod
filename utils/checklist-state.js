@@ -1362,12 +1362,14 @@
         consigneId,
         hasHidden: Boolean(root.querySelector('[data-checklist-state]')),
       });
-      // Déterminer la date de page: priorité à ?d= dans l'URL, puis AppCtx, sinon today
+      // Déterminer la date cible: priorité à un attribut explicite sur le root (contexte historique),
+      // puis à ?d= dans l'URL, puis AppCtx, sinon today.
+      const fromRoot = root.getAttribute("data-checklist-history-date") || root.dataset?.checklistHistoryDate || null;
       const pageKeyFromUrl = getPageDateKeyFromUrl();
       const pageKeyFromCtx = (typeof window !== "undefined" && window.AppCtx && window.AppCtx.dateIso)
         ? normalizeDateKey(window.AppCtx.dateIso)
         : null;
-      const requestedKey = pageKeyFromUrl || pageKeyFromCtx || currentParisDayKey();
+      const requestedKey = normalizeDateKey(fromRoot || pageKeyFromUrl || pageKeyFromCtx || currentParisDayKey());
 
       let saved = await loadSelection(db, uid, consigneId, { dateKey: requestedKey });
       if (saved) {

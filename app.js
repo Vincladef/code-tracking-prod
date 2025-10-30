@@ -344,6 +344,18 @@
       return stringValue.replace(/"/g, '\\"');
     };
 
+    const ensureRootUid = (root) => {
+      if (!root) return null;
+      const existing = root.getAttribute("data-checklist-root-uid") || (root.dataset && root.dataset.checklistRootUid) || "";
+      if (existing) return existing;
+      const uid = `chk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      try {
+        root.setAttribute("data-checklist-root-uid", uid);
+        if (root.dataset) root.dataset.checklistRootUid = uid;
+      } catch (_) {}
+      return uid;
+    };
+
     const ensureItemId = (input, root, host) => {
       if (!input || !root || !host) {
         return host?.getAttribute?.("data-item-id") || null;
@@ -654,6 +666,7 @@
         return;
       }
       const consigneId = root.getAttribute("data-consigne-id") || root.dataset.consigneId || null;
+      const rootUid = ensureRootUid(root);
       const itemId = ensureItemId(target, root, item);
       const skipped =
         (target.dataset && target.dataset.checklistSkip === "1") ||
@@ -680,12 +693,25 @@
         });
       }
       root.dataset.checklistDirty = "1";
+      // Determine event dayKey to scope updates to the correct day/root
+      const historyKey =
+        root.getAttribute("data-checklist-history-date") ||
+        (root.dataset ? root.dataset.checklistHistoryDate : null) ||
+        null;
+      const eventDayKey = historyKey && String(historyKey).trim()
+        ? String(historyKey).trim()
+        : ((typeof window !== 'undefined' && window.AppCtx?.dateIso)
+            ? String(window.AppCtx.dateIso)
+            : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null));
+
       const detail = {
         consigneId,
         itemId,
         checked: Boolean(target.checked),
         skipped,
         type: "checklist",
+        dayKey: eventDayKey || null,
+        rootUid: rootUid || null,
       };
       let queueError = null;
       if (typeof window.queueSave === "function") {
@@ -720,7 +746,43 @@
       if (detail.type !== "checklist") {
         return;
       }
-      const node = findChecklistItemNode(detail.consigneId, detail.itemId);
+      // Prioritize updates within the same root where the change originated
+      let node = null;
+      const targetRootUid = detail.rootUid || null;
+      if (targetRootUid) {
+        try {
+          const scopedRoot = document.querySelector(`[data-checklist-root][data-checklist-root-uid="${toEscapedSelector(targetRootUid)}"]`);
+          if (scopedRoot) {
+            node = scopedRoot.querySelector(`[data-checklist-item][data-item-id="${toEscapedSelector(detail.itemId)}"]`);
+          }
+        } catch (error) {
+          console.warn("[app] checklist:answer-saved:scope", error);
+        }
+      }
+      // As a secondary guard, if a dayKey was provided, restrict updates to roots matching that dayKey
+      if (!node && detail.dayKey) {
+        const roots = Array.from(document.querySelectorAll("[data-checklist-root]"));
+        const matchingRoots = roots.filter((r) => {
+          const rk = r.getAttribute("data-checklist-history-date") || (r.dataset ? r.dataset.checklistHistoryDate : null) || null;
+          if (rk && String(rk).trim()) {
+            return String(rk).trim() === String(detail.dayKey).trim();
+          }
+          // If no explicit history date, fall back to current page date
+          const pageKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso) ? String(window.AppCtx.dateIso) : null;
+          return pageKey != null && String(pageKey).trim() === String(detail.dayKey).trim();
+        });
+        for (const root of matchingRoots) {
+          const candidate = root.querySelector(`[data-checklist-item][data-item-id="${toEscapedSelector(detail.itemId)}"]`);
+          if (candidate) {
+            node = candidate;
+            break;
+          }
+        }
+      }
+      // Final fallback: do not update any node outside a scoped/matching root to avoid cross-day uniformization
+      if (!node) {
+        return;
+      }
       if (node) {
         const isSkipped = detail.skipped === true;
         if (isSkipped) {
@@ -785,7 +847,13 @@
       if (detail.type !== "checklist") {
         return;
       }
-      const node = findChecklistItemNode(detail.consigneId, detail.itemId);
+      const targetRootUid = detail.rootUid || null;
+      const root = targetRootUid
+        ? document.querySelector(`[data-checklist-root][data-checklist-root-uid="${toEscapedSelector(targetRootUid)}"]`)
+        : null;
+      const node = root
+        ? root.querySelector(`[data-checklist-item][data-item-id="${toEscapedSelector(detail.itemId)}"]`)
+        : null;
       if (node) {
         node.classList.remove("saved-burst");
         const isSkipped = detail.skipped === true;
