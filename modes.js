@@ -5532,8 +5532,29 @@ function inputForType(consigne, initialValue = null) {
     const normalizedValue = items.map((_, index) => Boolean(initialStates[index]));
     const normalizedSkipped = items.map((_, index) => Boolean(initialSkipStates[index]));
     const hasInitialStates = normalizedValue.some(Boolean) || normalizedSkipped.some(Boolean);
+    const historyDateKey = (() => {
+      if (normalizedInitial && typeof normalizedInitial === "object") {
+        const candidates = [
+          normalizedInitial.__historyDateKey,
+          normalizedInitial.historyDateKey,
+          normalizedInitial.dateKey,
+          normalizedInitial.dayKey,
+        ];
+        for (const candidate of candidates) {
+          if (typeof candidate !== "string") {
+            continue;
+          }
+          const trimmed = candidate.trim();
+          if (trimmed) {
+            return trimmed;
+          }
+        }
+      }
+      return "";
+    })();
     const optionsHash = computeChecklistOptionsHash(consigne);
     const optionsAttr = optionsHash ? ` data-checklist-options-hash="${escapeHtml(String(optionsHash))}"` : "";
+    const historyAttr = historyDateKey ? ` data-checklist-history-date="${escapeHtml(historyDateKey)}"` : "";
     const autosaveFieldName =
       consigne?.id != null && consigne.id !== ""
         ? `consigne:${String(consigne.id)}:checklist`
@@ -5571,14 +5592,21 @@ function inputForType(consigne, initialValue = null) {
           </label>`;
       })
       .join("");
+    const fallbackDateKey =
+      typeof window !== "undefined" && window.AppCtx?.dateIso
+        ? String(window.AppCtx.dateIso)
+        : typeof Schema?.todayKey === "function"
+        ? Schema.todayKey()
+        : null;
     const initialPayload = {
       items: normalizedValue,
       skipped: normalizedSkipped,
-      // Important pour éviter la réutilisation d'un autre jour
-      dateKey: (typeof window !== 'undefined' && window.AppCtx?.dateIso)
-        ? String(window.AppCtx.dateIso)
-        : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null),
     };
+    if (historyDateKey) {
+      initialPayload.dateKey = historyDateKey;
+    } else if (fallbackDateKey) {
+      initialPayload.dateKey = fallbackDateKey;
+    }
     const initialSerialized = escapeHtml(JSON.stringify(initialPayload));
     const scriptContent = String.raw`
       <script>
@@ -5590,6 +5618,22 @@ function inputForType(consigne, initialValue = null) {
           const SKIP_DATA_KEY = 'checklistSkip';
           const PREV_CHECKED_KEY = 'checklistPrevChecked';
           const LONG_PRESS_DELAY = 600;
+          const historyDateKeyAttr =
+            (hidden?.dataset?.checklistHistoryDate && hidden.dataset.checklistHistoryDate.trim()) ||
+            (root?.dataset?.checklistHistoryDate && root.dataset.checklistHistoryDate.trim()) ||
+            '';
+          if (historyDateKeyAttr) {
+            if (root?.dataset) {
+              root.dataset.checklistHistoryDate = historyDateKeyAttr;
+            } else {
+              root.setAttribute('data-checklist-history-date', historyDateKeyAttr);
+            }
+            if (hidden?.dataset) {
+              hidden.dataset.checklistHistoryDate = historyDateKeyAttr;
+            } else if (typeof hidden.setAttribute === 'function') {
+              hidden.setAttribute('data-checklist-history-date', historyDateKeyAttr);
+            }
+          }
           let pressTimer = null;
           let pressTarget = null;
 
@@ -5606,6 +5650,7 @@ function inputForType(consigne, initialValue = null) {
           };
           const resolveHost = (input) => resolveClosest(input, '[data-checklist-item]');
           const pageDateKey = (() => {
+            if (historyDateKeyAttr) return historyDateKeyAttr;
             const ctxKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso) ? String(window.AppCtx.dateIso) : null;
             let hashKey = null;
             try {
@@ -6030,7 +6075,7 @@ function inputForType(consigne, initialValue = null) {
           };
           const hydrate = window.hydrateChecklist;
           const uid = window.AppCtx?.user?.uid || null;
-          const dateKey = window.AppCtx?.dateIso || (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
+          const dateKey = historyDateKeyAttr || window.AppCtx?.dateIso || (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
           const consigneId = root.getAttribute('data-consigne-id') || root.dataset.consigneId || '';
           hydratePayload();
           ensureItemIds();
@@ -6049,9 +6094,9 @@ function inputForType(consigne, initialValue = null) {
       </script>
     `;
     return `
-      <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}"${optionsAttr}>
+      <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}"${optionsAttr}${historyAttr}>
         ${checkboxes || `<p class="text-sm text-[var(--muted)]">Aucun élément défini</p>`}
-        <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state data-autosave-track="1"${autosaveAttr} ${
+        <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state data-autosave-track="1"${historyAttr}${autosaveAttr} ${
           hasInitialStates ? 'data-dirty="1"' : ""
         }>
       </div>
@@ -9771,9 +9816,29 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
   const explicitHistoryId =
     typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
+  const normalizeChecklistValueForEditor = (raw) => {
+    if (raw == null) {
+      return null;
+    }
+    try {
+      const fallback = raw && typeof raw === "object" ? raw : null;
+      const normalized = buildChecklistValue(consigne, raw, fallback);
+      if (!normalized || (Array.isArray(normalized.items) && normalized.items.length === 0 && !normalized.skipped)) {
+        return normalized || null;
+      }
+      return normalized;
+    } catch (error) {
+      try {
+        console.warn("[checklist-history] normalize", error);
+      } catch (_) {}
+      return null;
+    }
+  };
+  const timelineNormalized =
+    consigne.type === "checklist" ? normalizeChecklistValueForEditor(details?.rawValue ?? details?.value ?? null) : null;
   const expectedSummary =
     consigne.type === "checklist"
-      ? summarizeChecklistValue(details?.rawValue ?? details?.value ?? null)
+      ? options.expectedSummary || (timelineNormalized ? summarizeChecklistValue(timelineNormalized) : null)
       : null;
   const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey, {
     responseId: explicitResponseId,
@@ -9813,32 +9878,37 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   })();
   const iterationLabel = sanitizeIterationLabel(rawIterationLabel, iterationNumber);
   const fieldId = `bilan-history-edit-${consigne?.id || "consigne"}-${Date.now().toString(36)}`;
-  const timelineRawValue = consigne.type === "checklist" ? details?.rawValue ?? details?.value ?? null : null;
-  const timelineSummary = consigne.type === "checklist" ? summarizeChecklistValue(timelineRawValue) : null;
+  const timelineSummary = consigne.type === "checklist" && timelineNormalized
+    ? summarizeChecklistValue(timelineNormalized)
+    : null;
   let displayValue = entryValue;
-  let entrySummary = consigne.type === "checklist" ? summarizeChecklistValue(displayValue) : null;
+  let entrySummary = consigne.type === "checklist" ? null : null;
   if (consigne.type === "checklist") {
-    const summaryDiffs = diffChecklistSummaries(timelineSummary, entrySummary);
-    if (!entry && timelineRawValue != null) {
-      displayValue = timelineRawValue;
-      entrySummary = summarizeChecklistValue(displayValue);
-      try {
-        console.warn("[checklist-history] using timeline value (bilan, no entry)", {
-          consigneId: consigne.id ?? null,
-          dayKey: resolvedDayKey,
-        });
-      } catch (_) {}
-    } else if (timelineSummary && summaryDiffs.length && timelineRawValue != null) {
-      displayValue = timelineRawValue;
-      entrySummary = summarizeChecklistValue(displayValue);
-      try {
-        console.warn("[checklist-history] overriding bilan entry value with timeline summary", {
-          consigneId: consigne.id ?? null,
-          dayKey: resolvedDayKey,
-          differences: summaryDiffs,
-        });
-      } catch (_) {}
+    const entryNormalized = normalizeChecklistValueForEditor(entryValue);
+    if (entryNormalized) {
+      displayValue = { ...entryNormalized };
+    } else if (timelineNormalized) {
+      displayValue = { ...timelineNormalized };
+      if (!entry) {
+        try {
+          console.warn("[checklist-history] using timeline value (bilan, no entry)", {
+            consigneId: consigne.id ?? null,
+            dayKey: resolvedDayKey,
+          });
+        } catch (_) {}
+      } else {
+        try {
+          console.warn("[checklist-history] overriding bilan entry value with timeline summary", {
+            consigneId: consigne.id ?? null,
+            dayKey: resolvedDayKey,
+          });
+        } catch (_) {}
+      }
     }
+    entrySummary = summarizeChecklistValue(displayValue);
+  }
+  if (consigne.type === "checklist" && displayValue && typeof displayValue === "object") {
+    displayValue = { ...displayValue, __historyDateKey: resolvedDayKey };
   }
   const valueField = renderConsigneValueField(consigne, displayValue, fieldId);
   const autosaveKey = ["history-entry-bilan", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
@@ -9911,7 +9981,18 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       }
       const childMatch = findHistoryEntryForDayKey(childEntries, child, resolvedDayKey);
       const childEntry = childMatch?.entry || null;
-      const childValue = childEntry?.value !== undefined ? childEntry.value : "";
+      const childRawValue = childEntry?.value !== undefined ? childEntry.value : "";
+      let childValue = childRawValue;
+      if (child.type === "checklist") {
+        try {
+          const fallbackValue =
+            childRawValue && typeof childRawValue === "object" ? childRawValue : null;
+          const normalizedChild = buildChecklistValue(child, childRawValue, fallbackValue);
+          childValue = normalizedChild ? { ...normalizedChild, __historyDateKey: resolvedDayKey } : null;
+        } catch (error) {
+          childValue = null;
+        }
+      }
       const childCreatedAtSource =
         childEntry?.createdAt ?? childEntry?.updatedAt ?? childEntry?.recordedAt ?? null;
       const childCreatedAt = asDate(childCreatedAtSource);
@@ -10145,7 +10226,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     });
   }
   // Enhance textarea and checklist scope for both rendering modes
-  initializeChecklistScope(overlay, {});
+  initializeChecklistScope(overlay, { dateKey: resolvedDayKey });
   overlay.querySelectorAll('textarea').forEach((textarea) => {
     if (typeof autoGrowTextarea === 'function') {
       autoGrowTextarea(textarea);
@@ -10513,10 +10594,32 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     } catch (_) {}
     return "";
   })();
+  const normalizeChecklistValueForEditor = (raw) => {
+    if (raw == null) {
+      return null;
+    }
+    try {
+      const fallback = raw && typeof raw === "object" ? raw : null;
+      const normalized = buildChecklistValue(consigne, raw, fallback);
+      if (!normalized || (Array.isArray(normalized.items) && normalized.items.length === 0 && !normalized.skipped)) {
+        return normalized || null;
+      }
+      return normalized;
+    } catch (error) {
+      try {
+        console.warn("[checklist-history] normalize", error);
+      } catch (_) {}
+      return null;
+    }
+  };
+  const timelineNormalized =
+    consigne.type === "checklist" ? normalizeChecklistValueForEditor(details?.rawValue ?? details?.value ?? null) : null;
   const expectedSummary =
     consigne.type === "checklist"
-      ? options.expectedSummary || summarizeChecklistValue(details?.rawValue ?? details?.value ?? null)
+      ? options.expectedSummary || (timelineNormalized ? summarizeChecklistValue(timelineNormalized) : null)
       : null;
+  const timelineSummary =
+    consigne.type === "checklist" && timelineNormalized ? summarizeChecklistValue(timelineNormalized) : null;
   if (consigne.type === "checklist") {
     logChecklistHistoryInspection(consigne, {
       label: "entry-editor:history-load",
@@ -10590,35 +10693,43 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     iterationLabel && baseDateLabel && iterationLabel !== baseDateLabel ? baseDateLabel : "";
   const relative = computeRelativeHistoryLabel(dateCandidate);
   const fieldId = `history-edit-${consigne?.id || "consigne"}-${Date.now().toString(36)}`;
-  const timelineRawValue = consigne.type === "checklist" ? details?.rawValue ?? details?.value ?? null : null;
-  const timelineSummary = consigne.type === "checklist" ? summarizeChecklistValue(timelineRawValue) : null;
   let displayValue = entryValue;
-  let entrySummary = consigne.type === "checklist" ? summarizeChecklistValue(displayValue) : null;
+  let entrySummary = consigne.type === "checklist" ? null : null;
   if (consigne.type === "checklist") {
-    const summaryDiffs = diffChecklistSummaries(timelineSummary, entrySummary);
-    if (!entry && timelineRawValue != null) {
-      displayValue = timelineRawValue;
-      entrySummary = summarizeChecklistValue(displayValue);
-      try {
-        console.warn("[checklist-history] using timeline value (no entry)", {
-          consigneId: consigne.id ?? null,
-          dayKey: resolvedDayKey,
-        });
-      } catch (_) {}
-    } else if (timelineSummary && summaryDiffs.length && timelineRawValue != null) {
-      displayValue = timelineRawValue;
-      entrySummary = summarizeChecklistValue(displayValue);
-      try {
-        console.warn("[checklist-history] overriding entry value with timeline summary", {
-          consigneId: consigne.id ?? null,
-          dayKey: resolvedDayKey,
-          differences: summaryDiffs,
-        });
-      } catch (_) {}
+    const entryNormalized = normalizeChecklistValueForEditor(entryValue);
+    if (entryNormalized) {
+      displayValue = { ...entryNormalized };
+    } else if (timelineNormalized) {
+      displayValue = { ...timelineNormalized };
+      if (!entry) {
+        try {
+          console.warn("[checklist-history] using timeline value (no entry)", {
+            consigneId: consigne.id ?? null,
+            dayKey: resolvedDayKey,
+          });
+        } catch (_) {}
+      } else {
+        try {
+          console.warn("[checklist-history] overriding entry value with timeline summary", {
+            consigneId: consigne.id ?? null,
+            dayKey: resolvedDayKey,
+          });
+        } catch (_) {}
+      }
     }
-    if (matchInfo && Array.isArray(matchInfo.summaryDiff) && matchInfo.summaryDiff.length === 0 && summaryDiffs.length) {
-      matchInfo.summaryDiff = summaryDiffs;
+    entrySummary = summarizeChecklistValue(displayValue);
+    if (matchInfo && Array.isArray(matchInfo.summaryDiff) && matchInfo.summaryDiff.length === 0) {
+      const diffs = diffChecklistSummaries(
+        expectedSummary || (timelineNormalized ? summarizeChecklistValue(timelineNormalized) : null),
+        entrySummary,
+      );
+      if (Array.isArray(diffs) && diffs.length) {
+        matchInfo.summaryDiff = diffs;
+      }
     }
+  }
+  if (consigne.type === "checklist" && displayValue && typeof displayValue === "object") {
+    displayValue = { ...displayValue, __historyDateKey: resolvedDayKey };
   }
   const valueField = renderConsigneValueField(consigne, displayValue, fieldId);
   const autosaveKey = ["history-entry-edit", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
@@ -10641,7 +10752,9 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   };
   if (consigne.type === "checklist") {
     const panelEntry = options.panelEntry || null;
-    const panelSummary = summarizeChecklistValue(panelEntry?.value);
+    const panelNormalized =
+      panelEntry && panelEntry.value != null ? normalizeChecklistValueForEditor(panelEntry.value) : null;
+    const panelSummary = panelNormalized ? summarizeChecklistValue(panelNormalized) : null;
     logChecklistHistoryInspection(consigne, {
       label: "entry-editor:resolution",
       focusDayKey: resolvedDayKey,
@@ -10649,7 +10762,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         summary: timelineSummary,
         responseId: explicitResponseId || triggerResponseId || detailResponseId || "",
         historyId: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
-        rawValue: details?.rawValue ?? details?.value ?? null,
+        rawValue: timelineNormalized,
       },
       entrySummary: {
         summary: entrySummary,
@@ -10669,7 +10782,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               (typeof panelEntry?.historyId === "string" && panelEntry.historyId.trim()) ||
               (typeof panelEntry?.history_id === "string" && panelEntry.history_id.trim()) ||
               "",
-            rawValue: panelEntry?.value ?? null,
+            rawValue: panelNormalized,
           }
         : null,
       matchInfo,
@@ -10705,7 +10818,18 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       }
       const childMatch = findHistoryEntryForDayKey(childEntries, child, resolvedDayKey);
       const childEntry = childMatch?.entry || null;
-      const childValue = childEntry?.value !== undefined ? childEntry.value : "";
+      const childRawValue = childEntry?.value !== undefined ? childEntry.value : "";
+      let childValue = childRawValue;
+      if (child.type === "checklist") {
+        try {
+          const fallbackValue =
+            childRawValue && typeof childRawValue === "object" ? childRawValue : null;
+          const normalizedChild = buildChecklistValue(child, childRawValue, fallbackValue);
+          childValue = normalizedChild ? { ...normalizedChild, __historyDateKey: resolvedDayKey } : null;
+        } catch (error) {
+          childValue = null;
+        }
+      }
       const childCreatedAtSource =
         childEntry?.createdAt ?? childEntry?.updatedAt ?? childEntry?.recordedAt ?? null;
       const childCreatedAt = asDate(childCreatedAtSource);
@@ -10820,7 +10944,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   if (!overlay) {
     return;
   }
-  initializeChecklistScope(overlay, {});
+  initializeChecklistScope(overlay, { dateKey: resolvedDayKey });
   if (consigne.type === "checklist") {
     requestAnimationFrame(() => {
       try {
@@ -10839,10 +10963,10 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             rawValue: domValue,
           },
           timelineDetails: {
-            summary: summarizeChecklistValue(details?.rawValue ?? details?.value ?? null),
+            summary: timelineSummary,
             responseId: explicitResponseId || triggerResponseId || detailResponseId || "",
             historyId: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
-            rawValue: details?.rawValue ?? details?.value ?? null,
+            rawValue: timelineNormalized,
           },
           entrySummary: {
             summary: entrySummary,
@@ -11894,7 +12018,7 @@ function enhanceRangeMeters(scope) {
   });
 }
 
-function initializeChecklistScope(scope, { consigneId = null } = {}) {
+function initializeChecklistScope(scope, { consigneId = null, dateKey = null } = {}) {
   if (!scope) return;
 
   const collectRoots = (target) => {
@@ -11973,7 +12097,32 @@ function initializeChecklistScope(scope, { consigneId = null } = {}) {
     const hydrate = window.hydrateChecklist;
     if (typeof hydrate === "function") {
       try {
-        Promise.resolve(hydrate({ container: root, consigneId: resolvedId, itemKeyAttr: "data-key" })).catch((error) => {
+        const attrValue =
+          typeof root.getAttribute === "function" ? root.getAttribute("data-checklist-history-date") : "";
+        const datasetValue =
+          root.dataset && typeof root.dataset.checklistHistoryDate === "string"
+            ? root.dataset.checklistHistoryDate.trim()
+            : "";
+        const providedDateKey =
+          datasetValue ||
+          (typeof attrValue === "string" && attrValue.trim() ? attrValue.trim() : "") ||
+          (typeof dateKey === "string" && dateKey.trim() ? dateKey.trim() : "");
+        if (providedDateKey) {
+          if (root.dataset) {
+            root.dataset.checklistHistoryDate = providedDateKey;
+          } else {
+            root.setAttribute("data-checklist-history-date", providedDateKey);
+          }
+        }
+        const hydrateOptions = {
+          container: root,
+          consigneId: resolvedId,
+          itemKeyAttr: "data-key",
+        };
+        if (providedDateKey) {
+          hydrateOptions.dateKey = providedDateKey;
+        }
+        Promise.resolve(hydrate(hydrateOptions)).catch((error) => {
           modesLogger?.warn?.("checklist:hydrate", error);
         });
       } catch (error) {
@@ -14537,12 +14686,23 @@ function summarizeChecklistValue(value) {
     if (!stats) {
       return null;
     }
+    const checkedCount =
+      stats.checkedCount ?? stats.checked ?? (Array.isArray(stats.checkedIds) ? stats.checkedIds.length : null);
+    const skippedCount = stats.skippedCount ?? stats.skipped ?? null;
+    const total = stats.total ?? null;
+    const percentage = stats.percentage ?? null;
+    const empty =
+      typeof stats.isEmpty === "boolean"
+        ? stats.isEmpty
+        : checkedCount != null
+        ? checkedCount === 0
+        : false;
     return {
-      total: stats.total ?? null,
-      checked: stats.checked ?? null,
-      skipped: stats.skipped ?? null,
-      percentage: stats.percentage ?? null,
-      empty: Boolean(stats.isEmpty),
+      total,
+      checked: checkedCount,
+      skipped: skippedCount,
+      percentage,
+      empty,
     };
   } catch (_) {
     return null;
