@@ -9682,15 +9682,15 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
         dayKey,
         responseTarget,
         historyTarget,
-      normalizedTarget,
-      best: {
-        historyId: best.historyId,
-        responseId: best.responseId,
-        matchType: best.matchType,
-        weight: best.weight,
-        summaryDiff: best.summaryDiff || [],
-      },
-    });
+        normalizedTarget,
+        best: {
+          historyId: best.historyId,
+          responseId: best.responseId,
+          matchType: best.matchType,
+          weight: best.weight,
+          summaryDiff: best.summaryDiff || [],
+        },
+      });
   } catch (_) {}
   }
   return best;
@@ -9813,7 +9813,34 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   })();
   const iterationLabel = sanitizeIterationLabel(rawIterationLabel, iterationNumber);
   const fieldId = `bilan-history-edit-${consigne?.id || "consigne"}-${Date.now().toString(36)}`;
-  const valueField = renderConsigneValueField(consigne, entryValue, fieldId);
+  const timelineRawValue = consigne.type === "checklist" ? details?.rawValue ?? details?.value ?? null : null;
+  const timelineSummary = consigne.type === "checklist" ? summarizeChecklistValue(timelineRawValue) : null;
+  let displayValue = entryValue;
+  let entrySummary = consigne.type === "checklist" ? summarizeChecklistValue(displayValue) : null;
+  if (consigne.type === "checklist") {
+    const summaryDiffs = diffChecklistSummaries(timelineSummary, entrySummary);
+    if (!entry && timelineRawValue != null) {
+      displayValue = timelineRawValue;
+      entrySummary = summarizeChecklistValue(displayValue);
+      try {
+        console.warn("[checklist-history] using timeline value (bilan, no entry)", {
+          consigneId: consigne.id ?? null,
+          dayKey: resolvedDayKey,
+        });
+      } catch (_) {}
+    } else if (timelineSummary && summaryDiffs.length && timelineRawValue != null) {
+      displayValue = timelineRawValue;
+      entrySummary = summarizeChecklistValue(displayValue);
+      try {
+        console.warn("[checklist-history] overriding bilan entry value with timeline summary", {
+          consigneId: consigne.id ?? null,
+          dayKey: resolvedDayKey,
+          differences: summaryDiffs,
+        });
+      } catch (_) {}
+    }
+  }
+  const valueField = renderConsigneValueField(consigne, displayValue, fieldId);
   const autosaveKey = ["history-entry-bilan", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
     .map((part) => String(part || ""))
     .join(":");
@@ -9870,7 +9897,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       childCandidates = [];
     }
   }
-  const parentInitialHasValue = hasValueForConsigne(consigne, entryValue);
+  const parentInitialHasValue = hasValueForConsigne(consigne, displayValue);
   const baseChildStates = await Promise.all(
     childCandidates.map(async (child) => {
       let childEntries = [];
@@ -10563,7 +10590,37 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     iterationLabel && baseDateLabel && iterationLabel !== baseDateLabel ? baseDateLabel : "";
   const relative = computeRelativeHistoryLabel(dateCandidate);
   const fieldId = `history-edit-${consigne?.id || "consigne"}-${Date.now().toString(36)}`;
-  const valueField = renderConsigneValueField(consigne, entryValue, fieldId);
+  const timelineRawValue = consigne.type === "checklist" ? details?.rawValue ?? details?.value ?? null : null;
+  const timelineSummary = consigne.type === "checklist" ? summarizeChecklistValue(timelineRawValue) : null;
+  let displayValue = entryValue;
+  let entrySummary = consigne.type === "checklist" ? summarizeChecklistValue(displayValue) : null;
+  if (consigne.type === "checklist") {
+    const summaryDiffs = diffChecklistSummaries(timelineSummary, entrySummary);
+    if (!entry && timelineRawValue != null) {
+      displayValue = timelineRawValue;
+      entrySummary = summarizeChecklistValue(displayValue);
+      try {
+        console.warn("[checklist-history] using timeline value (no entry)", {
+          consigneId: consigne.id ?? null,
+          dayKey: resolvedDayKey,
+        });
+      } catch (_) {}
+    } else if (timelineSummary && summaryDiffs.length && timelineRawValue != null) {
+      displayValue = timelineRawValue;
+      entrySummary = summarizeChecklistValue(displayValue);
+      try {
+        console.warn("[checklist-history] overriding entry value with timeline summary", {
+          consigneId: consigne.id ?? null,
+          dayKey: resolvedDayKey,
+          differences: summaryDiffs,
+        });
+      } catch (_) {}
+    }
+    if (matchInfo && Array.isArray(matchInfo.summaryDiff) && matchInfo.summaryDiff.length === 0 && summaryDiffs.length) {
+      matchInfo.summaryDiff = summaryDiffs;
+    }
+  }
+  const valueField = renderConsigneValueField(consigne, displayValue, fieldId);
   const autosaveKey = ["history-entry-edit", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
     .map((part) => String(part || ""))
     .join(":");
@@ -10583,8 +10640,6 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         : "",
   };
   if (consigne.type === "checklist") {
-    const timelineSummary = summarizeChecklistValue(details?.rawValue ?? details?.value ?? null);
-    const entrySummary = summarizeChecklistValue(entryValue);
     const panelEntry = options.panelEntry || null;
     const panelSummary = summarizeChecklistValue(panelEntry?.value);
     logChecklistHistoryInspection(consigne, {
@@ -10600,7 +10655,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         summary: entrySummary,
         responseId: resolvedResponseId,
         historyId: historyDocumentId,
-        rawValue: entryValue,
+        rawValue: displayValue,
       },
       panelSummary: panelSummary
         ? {
@@ -10636,7 +10691,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       childCandidates = [];
     }
   }
-  const parentInitialHasValue = hasValueForConsigne(consigne, entryValue);
+  const parentInitialHasValue = hasValueForConsigne(consigne, displayValue);
   const baseChildStates = await Promise.all(
     childCandidates.map(async (child) => {
       let childEntries = [];
@@ -10790,10 +10845,10 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             rawValue: details?.rawValue ?? details?.value ?? null,
           },
           entrySummary: {
-            summary: summarizeChecklistValue(entryValue),
+            summary: entrySummary,
             responseId: resolvedResponseId,
             historyId: historyDocumentId,
-            rawValue: entryValue,
+            rawValue: displayValue,
           },
           matchInfo,
         });
@@ -11496,6 +11551,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
         trigger: target,
         responseId: responseIdCandidate,
         historyId: historyIdCandidate,
+        expectedSummary: summarizeChecklistValue(rawDetails?.rawValue ?? rawDetails?.value ?? null),
       });
       return;
     }
