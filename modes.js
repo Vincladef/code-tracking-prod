@@ -6017,13 +6017,11 @@ function inputForType(consigne, initialValue = null) {
             try {
               const raw = JSON.parse(hidden.value || '[]');
               if (isHistoryContext) {
-                try {
-                  console.info('[checklist-history] hydrate.payload.raw', {
-                    dateAttr: historyDateKeyAttr,
-                    pageDateKey,
-                    raw,
-                  });
-                } catch (_) {}
+                logChecklistEvent("info", "[checklist-history] hydrate.payload.raw", {
+                  dateAttr: historyDateKeyAttr,
+                  pageDateKey,
+                  raw,
+                });
               }
               // Si le hidden payload contient une clé de date incompatible, on n'applique pas
               try {
@@ -6045,12 +6043,10 @@ function inputForType(consigne, initialValue = null) {
                     skipped: Array.isArray(raw.skipped) ? raw.skipped.map((item) => item === true) : [],
                   };
               if (isHistoryContext) {
-                try {
-                  console.info('[checklist-history] hydrate.payload.ready', {
-                    items: payload.items,
-                    skipped: payload.skipped,
-                  });
-                } catch (_) {}
+                logChecklistEvent("info", "[checklist-history] hydrate.payload.ready", {
+                  items: payload.items,
+                  skipped: payload.skipped,
+                });
               }
               const inputs = queryInputs();
               inputs.forEach((input, index) => {
@@ -8004,6 +8000,46 @@ const CONSIGNE_HISTORY_DAY_FULL_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
 const HISTORY_PANEL_FETCH_LIMIT = 120;
 const DAILY_HISTORY_MODE_KEYS = new Set(["daily"]);
 
+function formatChecklistLogPayload(payload) {
+  if (payload === undefined) {
+    return "";
+  }
+  try {
+    return JSON.stringify(
+      payload,
+      (_, value) => {
+        if (value instanceof Date) {
+          return value.toISOString();
+        }
+        if (typeof value === "bigint") {
+          return value.toString();
+        }
+        return value;
+      },
+    );
+  } catch (error) {
+    return String(error?.message || error);
+  }
+}
+
+function logChecklistEvent(level, label, payload) {
+  if (typeof console === "undefined") {
+    return;
+  }
+  const logger = console[level] || console.log;
+  try {
+    if (payload === undefined) {
+      logger(label);
+    } else {
+      logger(`${label} ${formatChecklistLogPayload(payload)}`);
+    }
+  } catch (_) {
+    try {
+      logger(label);
+    } catch (_) {}
+  }
+}
+
 function normalizeHistoryMode(row) {
   if (!row || typeof row !== "object") {
     return "";
@@ -9846,9 +9882,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       }
       return normalized;
     } catch (error) {
-      try {
-        console.warn("[checklist-history] normalize", error);
-      } catch (_) {}
+      logChecklistEvent("warn", "[checklist-history] normalize", { error: String(error) });
       return null;
     }
   };
@@ -9908,19 +9942,15 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     } else if (timelineNormalized) {
       displayValue = { ...timelineNormalized };
       if (!entry) {
-        try {
-          console.warn("[checklist-history] using timeline value (bilan, no entry)", {
-            consigneId: consigne.id ?? null,
-            dayKey: resolvedDayKey,
-          });
-        } catch (_) {}
+        logChecklistEvent("warn", "[checklist-history] using timeline value (bilan, no entry)", {
+          consigneId: consigne.id ?? null,
+          dayKey: resolvedDayKey,
+        });
       } else {
-        try {
-          console.warn("[checklist-history] overriding bilan entry value with timeline summary", {
-            consigneId: consigne.id ?? null,
-            dayKey: resolvedDayKey,
-          });
-        } catch (_) {}
+        logChecklistEvent("warn", "[checklist-history] overriding bilan entry value with timeline summary", {
+          consigneId: consigne.id ?? null,
+          dayKey: resolvedDayKey,
+        });
       }
     }
     entrySummary = summarizeChecklistValue(displayValue);
@@ -10624,9 +10654,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       }
       return normalized;
     } catch (error) {
-      try {
-        console.warn("[checklist-history] normalize", error);
-      } catch (_) {}
+      logChecklistEvent("warn", "[checklist-history] normalize", { error: String(error) });
       return null;
     }
   };
@@ -10665,16 +10693,14 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     : null;
   const resolvedDayKey = keyInfo?.dayKey || dayKey;
   if (consigne.type === "checklist" && !entry) {
-    try {
-      console.error("[checklist-history] entry-editor:missing-entry", {
-        consigneId: consigne.id ?? null,
-        dayKey,
-        resolvedDayKey,
-        responseTarget: explicitResponseId || triggerResponseId || detailResponseId || "",
-        historyTarget: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
-        availableEntries: historyEntries.length,
-      });
-    } catch (_) {}
+    logChecklistEvent("error", "[checklist-history] entry-editor:missing-entry", {
+      consigneId: consigne.id ?? null,
+      dayKey,
+      resolvedDayKey,
+      responseTarget: explicitResponseId || triggerResponseId || detailResponseId || "",
+      historyTarget: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
+      availableEntries: historyEntries.length,
+    });
   }
   const historyDocumentId = resolveHistoryDocumentId(entry, resolvedDayKey);
   const entryValue = entry?.value !== undefined ? entry.value : details?.rawValue ?? "";
@@ -10720,19 +10746,15 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     } else if (timelineNormalized) {
       displayValue = { ...timelineNormalized };
       if (!entry) {
-        try {
-          console.warn("[checklist-history] using timeline value (no entry)", {
-            consigneId: consigne.id ?? null,
-            dayKey: resolvedDayKey,
-          });
-        } catch (_) {}
+        logChecklistEvent("warn", "[checklist-history] using timeline value (no entry)", {
+          consigneId: consigne.id ?? null,
+          dayKey: resolvedDayKey,
+        });
       } else {
-        try {
-          console.warn("[checklist-history] overriding entry value with timeline summary", {
-            consigneId: consigne.id ?? null,
-            dayKey: resolvedDayKey,
-          });
-        } catch (_) {}
+        logChecklistEvent("warn", "[checklist-history] overriding entry value with timeline summary", {
+          consigneId: consigne.id ?? null,
+          dayKey: resolvedDayKey,
+        });
       }
     }
     entrySummary = summarizeChecklistValue(displayValue);
@@ -11001,9 +11023,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           matchInfo,
         });
       } catch (error) {
-        try {
-          console.warn("[checklist-history] dom-summary failed", error);
-        } catch (_) {}
+        logChecklistEvent("warn", "[checklist-history] dom-summary failed", { error: String(error) });
       }
     });
   }
@@ -11366,8 +11386,17 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     if (!item && dayKey) {
       item = state.track.querySelector(`[data-history-day="${escapeTimelineSelector(dayKey)}"]`);
     }
+    const removeLogPayload = {
+      consigneId: options?.consigne?.id ?? null,
+      dayKey,
+      historyId: normalizedHistoryId,
+      responseId: normalizedResponseId,
+    };
     if (item) {
       item.remove();
+      logChecklistEvent("info", "[checklist-history] timeline.remove", removeLogPayload);
+    } else {
+      logChecklistEvent("warn", "[checklist-history] timeline.remove.missing", removeLogPayload);
     }
     // If no more items, hide the container and mark as empty
     if (!state.track.children.length) {
@@ -11419,18 +11448,14 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       delete row.dataset.dayKey;
     }
   }
-  if (typeof console !== "undefined" && console?.info) {
-    try {
-      console.info("[checklist-history] timeline.update", {
-        consigneId: options?.consigne?.id ?? null,
-        dayKey,
-        status,
-        remove: options?.remove === true,
-        historyId: options?.historyId || "",
-        responseId: options?.responseId || "",
-      });
-    } catch (_) {}
-  }
+  logChecklistEvent("info", "[checklist-history] timeline.update", {
+    consigneId: options?.consigne?.id ?? null,
+    dayKey,
+    status,
+    remove: options?.remove === true,
+    historyId: options?.historyId || "",
+    responseId: options?.responseId || "",
+  });
   const selector = `[data-history-day="${escapeTimelineSelector(dayKey)}"]`;
   const normalizedHistoryId =
     typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
@@ -11445,6 +11470,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       `[data-history-response-id="${escapeTimelineSelector(normalizedResponseId)}"]`,
     );
   }
+  const wasMissingItem = !item;
   if (!item) {
     item = state.track.querySelector(selector);
   }
@@ -11525,6 +11551,21 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     item.className = "consigne-history__item";
     item.setAttribute("role", "listitem");
     state.track.insertBefore(item, state.track.firstElementChild || null);
+    logChecklistEvent("info", "[checklist-history] timeline.create", {
+      consigneId: consigne?.id ?? null,
+      dayKey,
+      status,
+      historyId: resolvedHistoryId,
+      responseId: resolvedResponseId,
+    });
+  } else if (wasMissingItem) {
+    logChecklistEvent("info", "[checklist-history] timeline.attach", {
+      consigneId: consigne?.id ?? null,
+      dayKey,
+      status,
+      historyId: resolvedHistoryId,
+      responseId: resolvedResponseId,
+    });
   }
   const fallbackTitle = buildHistoryTimelineTitle(date, dayKey, status);
   const fallbackLabels = buildHistoryTimelineLabels(date, dayKey);
@@ -14802,29 +14843,21 @@ function logChecklistHistoryInspection(consigne, payload = {}) {
     const label = `[checklist-history] ${payload.label || "inspection"} (#${consigne.id ?? "?"})`;
     console.log(label);
     if (payload.focusDayKey || payload.timelineDetails || payload.entrySummary || payload.panelSummary || payload.matchInfo) {
-      console.info(
-        "[checklist-history] focus",
-        {
-          dayKey: payload.focusDayKey || "",
-          timeline: payload.timelineDetails || null,
-          entry: payload.entrySummary || null,
-          panel: payload.panelSummary || null,
-          match: payload.matchInfo || null,
-          dom: payload.domSummary || null,
-        },
-      );
+      logChecklistEvent("info", "[checklist-history] focus", {
+        dayKey: payload.focusDayKey || "",
+        timeline: payload.timelineDetails || null,
+        entry: payload.entrySummary || null,
+        panel: payload.panelSummary || null,
+        match: payload.matchInfo || null,
+        dom: payload.domSummary || null,
+      });
     }
     if (payload.matchInfo && payload.matchInfo.type && payload.matchInfo.type !== "history") {
-      try {
-        console.warn(
-          `[checklist-history] attention: correspondance basée sur ${payload.matchInfo.type} (${payload.matchInfo.weight ?? "?"})`,
-          {
-            consigneId: consigne.id ?? null,
-            dayKey: payload.focusDayKey || "",
-            match: payload.matchInfo,
-          },
-        );
-      } catch (_) {}
+      logChecklistEvent("warn", `[checklist-history] attention: correspondance basée sur ${payload.matchInfo.type} (${payload.matchInfo.weight ?? "?"})`, {
+        consigneId: consigne.id ?? null,
+        dayKey: payload.focusDayKey || "",
+        match: payload.matchInfo,
+      });
     }
     const summaryMap = {
       timeline: payload.timelineDetails?.summary || null,
@@ -14834,15 +14867,12 @@ function logChecklistHistoryInspection(consigne, payload = {}) {
     };
     const summaryEntries = Object.entries(summaryMap).filter(([, summary]) => summary != null);
     if (summaryEntries.length) {
-      console.info(
-        "[checklist-history] summary-compare",
-        {
-          timeline: summaryMap.timeline || null,
-          entry: summaryMap.entry || null,
-          panel: summaryMap.panel || null,
-          dom: summaryMap.dom || null,
-        },
-      );
+      logChecklistEvent("info", "[checklist-history] summary-compare", {
+        timeline: summaryMap.timeline || null,
+        entry: summaryMap.entry || null,
+        panel: summaryMap.panel || null,
+        dom: summaryMap.dom || null,
+      });
       const keys = Object.keys(summaryMap);
       keys.forEach((baseName, index) => {
         const baseSummary = summaryMap[baseName];
@@ -14861,18 +14891,12 @@ function logChecklistHistoryInspection(consigne, payload = {}) {
               baseName === "timeline" || compareName === "timeline"
                 ? "error"
                 : "warn";
-            const logger = console[severity] || console.warn;
-            try {
-              logger(
-                `[checklist-history] mismatch ${baseName} vs ${compareName} (#${consigne.id ?? "?"})`,
-                {
-                  dayKey: payload.focusDayKey || "",
-                  differences: diffs,
-                  [baseName]: baseSummary,
-                  [compareName]: compareSummary,
-                },
-              );
-            } catch (_) {}
+            logChecklistEvent(severity, `[checklist-history] mismatch ${baseName} vs ${compareName} (#${consigne.id ?? "?"})`, {
+              dayKey: payload.focusDayKey || "",
+              differences: diffs,
+              [baseName]: baseSummary,
+              [compareName]: compareSummary,
+            });
           }
         }
       });
@@ -14904,15 +14928,18 @@ function logChecklistHistoryInspection(consigne, payload = {}) {
           empty: summary?.empty ?? null,
         };
       });
-      console.table(rows);
+      rows.forEach((row) => {
+        logChecklistEvent("info", "[checklist-history] history-entry", row);
+      });
       if (payload.entries.length > rows.length) {
-        console.info("entries truncated", { count: payload.entries.length, displayed: rows.length });
+        logChecklistEvent("info", "[checklist-history] history-entry:truncated", {
+          count: payload.entries.length,
+          displayed: rows.length,
+        });
       }
     }
   } catch (error) {
-    try {
-      console.warn("[checklist-history] inspection failed", error);
-    } catch (_) {}
+    logChecklistEvent("warn", "[checklist-history] inspection failed", { error: String(error) });
   }
 }
 
@@ -18321,15 +18348,13 @@ async function renderDaily(ctx, root, opts = {}) {
       Object.assign(answers[0], normalizedSummary);
     }
     if (consigne.type === "checklist") {
-      try {
-        console.info("[checklist-history] daily.autosave.payload", {
-          consigneId: consigne?.id ?? null,
-          dayKey,
-          items: Array.isArray(pendingValue?.items) ? pendingValue.items : null,
-          skipped: Array.isArray(pendingValue?.skipped) ? pendingValue.skipped : null,
-          hasSummary: !!normalizedSummary,
-        });
-      } catch (_) {}
+      logChecklistEvent("info", "[checklist-history] daily.autosave.payload", {
+        consigneId: consigne?.id ?? null,
+        dayKey,
+        items: Array.isArray(pendingValue?.items) ? pendingValue.items : null,
+        skipped: Array.isArray(pendingValue?.skipped) ? pendingValue.skipped : null,
+        hasSummary: !!normalizedSummary,
+      });
     }
     try {
       modesLogger?.info?.("daily.autosave.enqueue", {
