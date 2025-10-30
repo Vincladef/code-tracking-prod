@@ -1071,6 +1071,20 @@ async function saveResponses(db, uid, mode, answers) {
   }
   const batch = [];
   for (const a of answers) {
+    if (Schema?.D?.debug) {
+      try {
+        Schema.D.debug("responses.save.input", {
+          uid,
+          mode,
+          consigneId: a?.consigne?.id ?? null,
+          hasDayKey: !!a?.dayKey,
+          dayKey: a?.dayKey || null,
+          sessionId: a?.sessionId || null,
+          sessionIndex: a?.sessionIndex ?? null,
+          sessionNumber: a?.sessionNumber ?? null,
+        });
+      } catch (_) {}
+    }
     const payload = {
       ownerUid: uid,
       mode,
@@ -1208,6 +1222,19 @@ async function saveResponses(db, uid, mode, answers) {
         payload.pageDayIndex = ((parsedDay.getDay() + 6) % 7 + 7) % 7;
       }
     }
+    if (Schema?.D?.info) {
+      try {
+        Schema.D.info("responses.save.payload", {
+          consigneId: a?.consigne?.id ?? null,
+          mode,
+          payloadDayKey: payload.dayKey || null,
+          pageDateIso: payload.pageDateIso || null,
+          sessionId: payload.sessionId || null,
+          sessionIndex: payload.sessionIndex ?? null,
+          sessionNumber: payload.sessionNumber ?? null,
+        });
+      } catch (_) {}
+    }
     // SR (seulement si activée sur la consigne)
       if (a.consigne?.srEnabled !== false) {
         const prev = await readSRState(db, uid, a.consigne.id, "consigne");
@@ -1244,6 +1271,10 @@ async function saveResponses(db, uid, mode, answers) {
         mode: entry.mode || mode || null,
         createdAt: entry.createdAt,
         dayKey: entry.dayKey || null,
+        pageDateIso: entry.pageDateIso || null,
+        sessionId: entry.sessionId || null,
+        sessionIndex: entry.sessionIndex ?? null,
+        sessionNumber: entry.sessionNumber ?? null,
       });
     });
     Schema?.D?.groupEnd?.();

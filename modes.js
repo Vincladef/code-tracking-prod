@@ -9317,6 +9317,22 @@ function resolveHistoryTimelineKey(entry, consigne) {
     }
     const sanitizedLabel = sanitizeIterationLabel(resolvedLabel, base.iterationNumber);
     base.iterationLabel = sanitizedLabel;
+
+    // Debug: trace final key selection for practice timeline
+    try {
+      modesLogger?.debug?.("timeline.key.resolve.practice", {
+        consigneId: consigne?.id ?? null,
+        entryId: entry?.id || null,
+        initialDayKey: initialDayKey || null,
+        sessionKey: sessionKey || null,
+        fallbackKey: fallbackKey || null,
+        resolvedDayKey: base.dayKey || null,
+        createdAt: entry?.createdAt || entry?.updatedAt || null,
+        iterationIndex: base.iterationIndex ?? null,
+        iterationNumber: base.iterationNumber ?? null,
+        iterationLabel: base.iterationLabel || "",
+      });
+    } catch (_) {}
   } else {
     base.iterationIndex = null;
     base.iterationNumber = null;
