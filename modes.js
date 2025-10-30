@@ -4374,7 +4374,7 @@ function setupRichTextEditor(root) {
     return text.replace(/\u00a0/g, " ").trim().length === 0;
   };
 
-  const ensureCheckboxWrapper = (input) => {
+  function ensureCheckboxWrapper(input) {
     if (!input || input.nodeName !== "INPUT") return null;
     input.setAttribute("type", "checkbox");
     input.setAttribute("data-rich-checkbox", "1");
@@ -4409,7 +4409,7 @@ function setupRichTextEditor(root) {
       }
     }
     return wrapper || null;
-  };
+  }
 
   const createCheckboxWrapper = () => {
     if (!ownerDocument || typeof ownerDocument.createElement !== "function") return null;
