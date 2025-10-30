@@ -857,8 +857,7 @@
       const handler = () => {
         applyHiddenState();
       };
-      hiddenInput.addEventListener("input", handler);
-      hiddenInput.addEventListener("change", handler);
+  hiddenInput.addEventListener("input", handler);
       hiddenInput.__checklistHiddenListener = handler;
       applyHiddenState();
     }
