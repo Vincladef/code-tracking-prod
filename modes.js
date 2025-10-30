@@ -8140,11 +8140,11 @@ function formatHistoryDayFullLabel(date) {
 function buildHistoryTimelineLabels(date, fallbackKey) {
   // FORCE: Always use fallbackKey (dayKey) first, ignore date parameter completely
   if (fallbackKey) {
-    const info = parseHistoryTimelineDateInfo(fallbackKey);
-    if (info?.date instanceof Date && !Number.isNaN(info.date.getTime())) {
+    const parsed = modesParseDayKeyToDate(fallbackKey);
+    if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
       return {
-        label: formatHistoryDayLabel(info.date),
-        weekday: formatHistoryWeekdayLabel(info.date),
+        label: formatHistoryDayLabel(parsed),
+        weekday: formatHistoryWeekdayLabel(parsed),
       };
     }
     if (typeof fallbackKey === "string") {
@@ -8172,9 +8172,9 @@ function buildHistoryTimelineTitle(date, fallbackKey, status) {
   const statusLabel = STATUS_LABELS[status] || STATUS_LABELS.na || "Statut";
   // FORCE: Always use fallbackKey (dayKey) first, ignore date parameter completely
   if (fallbackKey) {
-    const info = parseHistoryTimelineDateInfo(fallbackKey);
-    if (info?.date instanceof Date && !Number.isNaN(info.date.getTime())) {
-      const longLabel = formatHistoryDayFullLabel(info.date);
+    const parsed = modesParseDayKeyToDate(fallbackKey);
+    if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+      const longLabel = formatHistoryDayFullLabel(parsed);
       if (longLabel) {
         return `${longLabel} — ${statusLabel}`;
       }
@@ -9386,6 +9386,14 @@ function applyConsigneHistoryPoint(item, point) {
   if (!item || !point) {
     return;
   }
+  try {
+    modesLogger?.debug?.("timeline.apply", {
+      incomingDayKey: point?.dayKey || null,
+      incomingLabel: point?.label || "",
+      incomingWeekday: point?.weekdayLabel || "",
+      status: point?.status || "",
+    });
+  } catch (_) {}
   if (point.dayKey) {
     item.dataset.historyDay = point.dayKey;
   } else {
@@ -9442,12 +9450,12 @@ function applyConsigneHistoryPoint(item, point) {
               newWeekday = "";
             }
           } else {
-            const info = parseHistoryTimelineDateInfo(dayKey);
-            if (info?.date instanceof Date && !Number.isNaN(info.date.getTime())) {
-              newLabel = formatHistoryDayLabel(info.date);
-              newWeekday = formatHistoryWeekdayLabel(info.date);
+            const parsed = modesParseDayKeyToDate(dayKey);
+            if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+              newLabel = formatHistoryDayLabel(parsed);
+              newWeekday = formatHistoryWeekdayLabel(parsed);
               // Also normalize the title/sr from the page date for consistency
-              const long = formatHistoryDayFullLabel(info.date);
+              const long = formatHistoryDayFullLabel(parsed);
               const statusLabel = STATUS_LABELS[status] || status;
               const computedTitle = long ? `${long} — ${statusLabel}` : statusLabel;
               if (computedTitle) {
@@ -9466,6 +9474,15 @@ function applyConsigneHistoryPoint(item, point) {
           weekdayEl.hidden = !newWeekday;
         }
         meta.hidden = !(labelEl && labelEl.textContent) && !(weekdayEl && weekdayEl.textContent);
+        try {
+          modesLogger?.debug?.("timeline.hard-render", {
+            dayKey,
+            pointLabel: point.label || "",
+            appliedLabel: labelEl?.textContent || "",
+            appliedWeekday: weekdayEl?.textContent || "",
+            status,
+          });
+        } catch (_) {}
       }
     } catch (_) {}
   }
