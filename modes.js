@@ -11274,6 +11274,25 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       }
       const historySource =
         typeof options.mode === "string" && options.mode.trim().toLowerCase() === "practice" ? "practice" : "daily";
+      if (consigne.type === "checklist") {
+        const timelineSummary = summarizeChecklistValue(rawDetails?.rawValue ?? rawDetails?.value);
+        logChecklistHistoryInspection(consigne, {
+          label: "timeline:click",
+          focusDayKey: historyDayKey,
+          timelineDetails: {
+            summary: timelineSummary,
+            responseId:
+              (typeof rawDetails?.responseId === "string" && rawDetails.responseId.trim()) ||
+              (typeof target.dataset.historyResponseId === "string" && target.dataset.historyResponseId.trim()) ||
+              "",
+            historyId:
+              (typeof rawDetails?.historyId === "string" && rawDetails.historyId.trim()) ||
+              (typeof target.dataset.historyId === "string" && target.dataset.historyId.trim()) ||
+              "",
+          },
+          entries: [],
+        });
+      }
       if (isSummaryPoint) {
         void openHistory(ctx, consigne, {
           source: historySource,
