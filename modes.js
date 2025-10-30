@@ -14692,8 +14692,16 @@ async function openHistory(ctx, consigne, options = {}) {
         r.updated_at,
       ]);
       const primaryDate = resolveHistoryEntryDate(r);
-      const dayKey = resolveHistoryResponseDayKey(r, primaryDate || recordedAt);
-      const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
+      const timelineKeyInfo = resolveHistoryTimelineKey(r, consigne);
+      const canonicalDayKey = timelineKeyInfo?.dayKey || "";
+      const dayKeyFallback = resolveHistoryResponseDayKey(r, primaryDate || recordedAt);
+      const dayKey = canonicalDayKey || dayKeyFallback;
+      const dayDate =
+        timelineKeyInfo?.date instanceof Date && !Number.isNaN(timelineKeyInfo.date.getTime())
+          ? timelineKeyInfo.date
+          : dayKey
+          ? modesParseDayKeyToDate(dayKey)
+          : null;
       const displayDate = firstValidDate([dayDate, primaryDate, recordedAt]);
       const iso = displayDate instanceof Date ? displayDate.toISOString() : "";
       const dateText = displayDate instanceof Date
@@ -14715,15 +14723,17 @@ async function openHistory(ctx, consigne, options = {}) {
       const note = r.note && String(r.note).trim();
       const summaryInfo = resolveHistoryEntrySummaryInfo(r);
       const normalizedDayKey = normalizeHistoryDayKey(dayKey);
+      const computedHistoryId = resolveHistoryDocumentId(r, dayKey);
       const historyId =
         (typeof r.historyId === "string" && r.historyId.trim()) ||
         (typeof r.history_id === "string" && r.history_id.trim()) ||
-        "";
+        (typeof computedHistoryId === "string" && computedHistoryId.trim() ? computedHistoryId.trim() : "");
+      const computedResponseId = resolveHistoryResponseId(r);
       const responseId =
         (typeof r.responseId === "string" && r.responseId.trim()) ||
         (typeof r.response_id === "string" && r.response_id.trim()) ||
         (typeof r.id === "string" && r.id.trim()) ||
-        "";
+        (typeof computedResponseId === "string" && computedResponseId.trim() ? computedResponseId.trim() : "");
       rowMetas.push({
         index,
         dayKey,
