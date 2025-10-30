@@ -506,9 +506,9 @@
           payload.answers = answers;
         }
   hidden.value = JSON.stringify(payload);
-        hidden.dataset.dirty = "1";
-        hidden.dispatchEvent(new Event("input", { bubbles: true }));
-        hidden.dispatchEvent(new Event("change", { bubbles: true }));
+  hidden.dataset.dirty = "1";
+  // Un seul événement suffit; cela évite un double traitement dans les listeners
+  hidden.dispatchEvent(new Event("input", { bubbles: true }));
       } catch (error) {
         console.warn("[app] checklist:hidden", error);
       }
@@ -711,9 +711,14 @@
         });
       } catch (_) {}
       if (skipped) {
+        // L'élément est skippé: on réapplique le skip pour garantir la cohérence
         applySkipState(target, item, true);
       } else {
-        applySkipState(target, item, false);
+        // Chemin normal: ne pas appeler applySkipState(false) ici pour éviter de restaurer
+        // un ancien état via data-checklist-prev-checked. On se contente de marquer validé.
+        if (item) {
+          item.setAttribute("data-validated", target.checked ? "true" : "false");
+        }
       }
       // Marquer la saisie locale tout de suite pour protéger contre une réhydratation immédiate
       try {
@@ -733,12 +738,6 @@
           (root.dataset ? root.dataset.checklistHistoryDate : null) ||
           null;
         // Derive page date from URL as a strong fallback (bilan pages)
-          try {
-            console.info("[checklist-debug] dayKey:resolve", {
-              consigneId,
-              persistDayKey: persistDayKey || null,
-            });
-          } catch (_) {}
         let urlDayKey = null;
         try {
           const hash = typeof window.location?.hash === "string" ? window.location.hash : "";
@@ -751,6 +750,12 @@
           urlDayKey = pick(search) || pick(hash) || null;
         } catch (_) {}
         const persistDayKey = historyKey || urlDayKey || (window.AppCtx?.dateIso || undefined);
+        try {
+          console.info("[checklist-debug] dayKey:resolve", {
+            consigneId,
+            persistDayKey: persistDayKey || null,
+          });
+        } catch (_) {}
         Promise.resolve(
           persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb, dateKey: persistDayKey })
         ).catch((error) => {
@@ -775,18 +780,18 @@
         };
         urlDayKey = pick(search) || pick(hash) || null;
       } catch (_) {}
-        try {
-          console.info("[checklist-debug] event:emit", {
-            consigneId,
-            itemId,
-            dayKey: eventDayKey || null,
-          });
-        } catch (_) {}
       const eventDayKey = historyKey && String(historyKey).trim()
         ? String(historyKey).trim()
         : (urlDayKey || ((typeof window !== 'undefined' && window.AppCtx?.dateIso)
             ? String(window.AppCtx.dateIso)
             : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null)));
+      try {
+        console.info("[checklist-debug] event:emit", {
+          consigneId,
+          itemId,
+          dayKey: eventDayKey || null,
+        });
+      } catch (_) {}
 
       const detail = {
         consigneId,
