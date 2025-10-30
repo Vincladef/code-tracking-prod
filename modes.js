@@ -15653,10 +15653,12 @@ async function openHistory(ctx, consigne, options = {}) {
         ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
         : "Date inconnue";
       const relative = displayDate instanceof Date ? relativeLabel(displayDate) : "";
-      const formattedText = formatConsigneValue(consigne.type, r.value, { consigne });
-      const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html", consigne });
-      const status = dotColor(consigne.type, r.value, consigne) || "na";
-      const numericValue = numericPoint(consigne.type, r.value, consigne);
+  const formattedText = formatConsigneValue(consigne.type, r.value, { consigne });
+  const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html", consigne });
+  // Align panel status computation with timeline by normalizing the value first
+  const normalizedValueForStatus = resolveHistoryTimelineValue(r, consigne);
+  const status = dotColor(consigne.type, normalizedValueForStatus ?? r.value, consigne) || "na";
+  const numericValue = numericPoint(consigne.type, normalizedValueForStatus ?? r.value, consigne);
       const montantDetails =
         consigne.type === "montant" ? normalizeMontantValue(r.value, consigne) : null;
       const chartValue =
