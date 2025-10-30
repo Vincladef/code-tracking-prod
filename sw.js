@@ -1,5 +1,5 @@
 // sw.js — alias conservé pour compatibilité. Le service worker principal est firebase-messaging-sw.js.
-const CACHE_V = "v2025-10-06-01";
+const CACHE_V = "v2025-10-06-02";
 const CACHE_NAME = `app-${CACHE_V}`;
 self.__APP_CACHE_VERSION = CACHE_V;
 
