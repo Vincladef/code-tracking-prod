@@ -11715,7 +11715,9 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
         return;
       }
       const entries = Array.isArray(result.rows) ? result.rows : [];
+      console.log("[DEBUG FETCH] Consigne", consigne.id, "fetched", entries.length, "entries:", entries.map(e => ({ consigneId: e.consigneId, dayKey: e.dayKey, createdAt: e.createdAt })));
       const points = buildConsigneHistoryTimeline(entries, consigne);
+      console.log("[DEBUG BUILD] Consigne", consigne.id, "built", points.length, "points:", points.map(p => ({ dayKey: p.details?.dayKey, status: p.status })));
       state.hasDayTimeline = renderConsigneHistoryTimeline(row, points);
       scheduleConsigneHistoryNavUpdate(state);
     })
