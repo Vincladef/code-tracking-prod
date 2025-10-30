@@ -784,6 +784,19 @@
         return;
       }
       if (node) {
+        const ownerRoot = node.closest && node.closest("[data-checklist-root]");
+        const isHistoryRoot = ownerRoot && (
+          ownerRoot.getAttribute("data-checklist-history-date") ||
+          (ownerRoot.dataset && ownerRoot.dataset.checklistHistoryDate)
+        );
+        // In history overlays, the native click already applied the UI change.
+        // Avoid re-applying state here to prevent weird toggles; just add the visual feedback.
+        if (isHistoryRoot) {
+          node.classList.remove("saved-burst");
+          void node.offsetWidth;
+          node.classList.add("saved-burst");
+          return;
+        }
         const isSkipped = detail.skipped === true;
         if (isSkipped) {
           if (node.dataset) {
@@ -851,9 +864,20 @@
       const root = targetRootUid
         ? document.querySelector(`[data-checklist-root][data-checklist-root-uid="${toEscapedSelector(targetRootUid)}"]`)
         : null;
-      const node = root
+      let node = root
         ? root.querySelector(`[data-checklist-item][data-item-id="${toEscapedSelector(detail.itemId)}"]`)
         : null;
+      if (node) {
+        const ownerRoot = node.closest && node.closest("[data-checklist-root]");
+        const isHistoryRoot = ownerRoot && (
+          ownerRoot.getAttribute("data-checklist-history-date") ||
+          (ownerRoot.dataset && ownerRoot.dataset.checklistHistoryDate)
+        );
+        // Avoid re-applying in history overlays (same rationale as in answer:saved)
+        if (isHistoryRoot) {
+          return;
+        }
+      }
       if (node) {
         node.classList.remove("saved-burst");
         const isSkipped = detail.skipped === true;
