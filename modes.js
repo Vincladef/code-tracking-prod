@@ -8229,12 +8229,27 @@ function formatHistoryDayFullLabel(date) {
 function buildHistoryTimelineLabels(date, fallbackKey) {
   // FORCE: Always use fallbackKey (dayKey) first, ignore date parameter completely
   if (fallbackKey) {
-    const parsed = modesParseDayKeyToDate(fallbackKey);
-    if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
-      return {
-        label: formatHistoryDayLabel(parsed),
-        weekday: formatHistoryWeekdayLabel(parsed),
-      };
+    const canonical = canonicalDayKeyFromValue(fallbackKey);
+    if (canonical) {
+      if (canonical.isSession) {
+        const sessionMatch = /session-(\d+)/i.exec(canonical.dayKey);
+        if (sessionMatch) {
+          const sessionNumber = Number.parseInt(sessionMatch[1], 10);
+          if (Number.isFinite(sessionNumber) && sessionNumber > 0) {
+            return { label: String(sessionNumber), weekday: "" };
+          }
+        }
+        return { label: canonical.dayKey, weekday: "" };
+      }
+      if (canonical.date instanceof Date && !Number.isNaN(canonical.date.getTime())) {
+        return {
+          label: formatHistoryDayLabel(canonical.date),
+          weekday: formatHistoryWeekdayLabel(canonical.date),
+        };
+      }
+      if (typeof canonical.dayKey === "string" && canonical.dayKey) {
+        return { label: canonical.dayKey, weekday: "" };
+      }
     }
     if (typeof fallbackKey === "string") {
       const sessionMatch = fallbackKey.match(/session-(\d+)/i);
@@ -9186,6 +9201,97 @@ function practiceIterationIndexFromKey(key) {
   return Math.max(0, parsed - 1);
 }
 
+function coerceDayKeyFromDate(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const normalized = new Date(date.getTime());
+  normalized.setHours(0, 0, 0, 0);
+  if (typeof Schema?.dayKeyFromDate === "function") {
+    try {
+      const derived = Schema.dayKeyFromDate(normalized);
+      if (typeof derived === "string" && derived.trim()) {
+        return derived.trim();
+      }
+    } catch (_) {}
+  }
+  const year = normalized.getFullYear();
+  const month = String(normalized.getMonth() + 1).padStart(2, "0");
+  const day = String(normalized.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function canonicalDayKeyFromValue(value) {
+  const finalize = (dayKey, date, isSession = false) => {
+    const trimmed = typeof dayKey === "string" ? dayKey.trim() : "";
+    if (!trimmed) {
+      return null;
+    }
+    let resolvedDate = null;
+    if (!isSession) {
+      if (date instanceof Date && !Number.isNaN(date.getTime())) {
+        resolvedDate = new Date(date.getTime());
+        resolvedDate.setHours(0, 0, 0, 0);
+      } else {
+        const parsed = modesParseDayKeyToDate(trimmed);
+        if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+          resolvedDate = parsed;
+        }
+      }
+    }
+    return { dayKey: trimmed, date: resolvedDate, isSession: Boolean(isSession) };
+  };
+
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (/^session-/i.test(trimmed)) {
+      return finalize(trimmed, null, true);
+    }
+    if (/^\d{4}-\d{2}-\d{2}(?:[T\s].*)?$/i.test(trimmed)) {
+      const iso = trimmed.slice(0, 10);
+      const parsed = modesParseDayKeyToDate(iso);
+      return finalize(iso, parsed, false);
+    }
+    const info = parseHistoryTimelineDateInfo(trimmed);
+    if (info && info.date instanceof Date && !Number.isNaN(info.date.getTime())) {
+      const iso = coerceDayKeyFromDate(info.date);
+      if (iso) {
+        return finalize(iso, info.date, false);
+      }
+    }
+    return null;
+  }
+  if (value instanceof Date) {
+    const iso = coerceDayKeyFromDate(value);
+    if (iso) {
+      return finalize(iso, value, false);
+    }
+    return null;
+  }
+  if (typeof value?.toDate === "function") {
+    try {
+      const converted = value.toDate();
+      return canonicalDayKeyFromValue(converted);
+    } catch (_) {
+      return null;
+    }
+  }
+  if (typeof value === "number") {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return canonicalDayKeyFromValue(date);
+    }
+    return null;
+  }
+  return null;
+}
+
 function extractPracticeIterationIndex(entry, dayKey) {
   const indexCandidates = [
     parseFiniteNumber(entry?.iterationIndex ?? entry?.iteration_index),
@@ -9238,10 +9344,23 @@ function sanitizeIterationLabel(label, iterationNumber) {
 
 function resolveHistoryTimelineKey(entry, consigne) {
   const base = resolveHistoryTimelineKeyBase(entry);
+  const rawBaseDayKey = base?.dayKey ?? null;
+  if (rawBaseDayKey) {
+    const canonicalBase = canonicalDayKeyFromValue(rawBaseDayKey);
+    if (canonicalBase) {
+      base.dayKey = canonicalBase.dayKey;
+      if (!base.date && canonicalBase.date instanceof Date) {
+        base.date = canonicalBase.date;
+      }
+    } else {
+      base.dayKey = null;
+    }
+  } else {
+    base.dayKey = null;
+  }
   const modeSource = typeof consigne?.mode === "string" ? consigne.mode : entry?.mode;
   const normalizedMode = typeof modeSource === "string" ? modeSource.trim().toLowerCase() : "";
   if (normalizedMode === "practice") {
-    const initialDayKey = base.dayKey;
     const sessionKeyCandidates = [
       entry?.sessionId,
       entry?.session_id,
@@ -9252,56 +9371,42 @@ function resolveHistoryTimelineKey(entry, consigne) {
       entry?.dateKey,
       entry?.date_key,
     ];
-    let sessionKey = "";
+    let sessionKey = null;
     for (const candidate of sessionKeyCandidates) {
-      if (typeof candidate !== "string") {
-        continue;
-      }
-      const trimmed = candidate.trim();
-      if (!trimmed) {
-        continue;
-      }
-      if (/session-/i.test(trimmed)) {
-        sessionKey = trimmed;
+      const canonicalSession = canonicalDayKeyFromValue(candidate);
+      if (canonicalSession?.isSession) {
+        sessionKey = canonicalSession.dayKey;
         break;
       }
     }
-    const fallbackKey =
-      initialDayKey ||
-      entry?.historyKey ||
-      entry?.history_key ||
-      entry?.sessionId ||
-      entry?.session_id ||
-      entry?.date ||
-      entry?.dateKey ||
-      entry?.date_key ||
-      null;
-    if (sessionKey) {
-      base.dayKey = sessionKey;
-    } else if (!base.dayKey && fallbackKey) {
-      // Only accept canonical keys for practice when no session key is available.
-      // Avoid using loose strings like "01/01" which would render literally.
-      const raw = String(fallbackKey).trim();
-      let accepted = "";
-      if (/^session-/i.test(raw)) {
-        accepted = raw;
-      } else if (/^\d{4}-\d{2}-\d{2}(?:[T\s].*)?$/i.test(raw)) {
-        // ISO-like: keep day part only
-        accepted = raw.slice(0, 10);
-      } else {
-        // Try to parse into a date (reject dd/mm without year)
-        const info = parseHistoryTimelineDateInfo(raw);
-        if (info && info.date instanceof Date && !Number.isNaN(info.date.getTime())) {
-          accepted = typeof Schema?.dayKeyFromDate === "function"
-            ? Schema.dayKeyFromDate(info.date)
-            : info.date.toISOString().slice(0, 10);
-        }
-      }
-      if (accepted) {
-        base.dayKey = accepted;
+    const fallbackCandidates = [
+      rawBaseDayKey,
+      base?.date,
+      entry?.historyKey,
+      entry?.history_key,
+      entry?.sessionId,
+      entry?.session_id,
+      entry?.date,
+      entry?.dateKey,
+      entry?.date_key,
+    ];
+    let fallbackCanonical = null;
+    for (const candidate of fallbackCandidates) {
+      const canonical = canonicalDayKeyFromValue(candidate);
+      if (canonical) {
+        fallbackCanonical = canonical;
+        break;
       }
     }
-    const iterationSourceKey = sessionKey || base.dayKey || fallbackKey;
+    if (sessionKey) {
+      base.dayKey = sessionKey;
+    } else if (!base.dayKey && fallbackCanonical) {
+      base.dayKey = fallbackCanonical.dayKey;
+      if (!base.date && fallbackCanonical.date instanceof Date) {
+        base.date = fallbackCanonical.date;
+      }
+    }
+    const iterationSourceKey = sessionKey || base.dayKey || fallbackCanonical?.dayKey;
     const iterationIndex = extractPracticeIterationIndex(entry, iterationSourceKey);
     if (iterationIndex !== null) {
       base.iterationIndex = iterationIndex;
