@@ -5851,19 +5851,7 @@ function inputForType(consigne, initialValue = null, options = {}) {
             root.dataset.checklistDirtyAt = String(now());
             sync({ markDirty: true, notify: true });
             // Déclenche une persistance immédiate via le handler global (app.js)
-            try {
-              input.dispatchEvent(new Event('change', { bubbles: true }));
-            } catch (err) {
-              // En cas d’environnement sans Event standard, fallback direct via le manager
-              const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
-              if (typeof persistFn === 'function') {
-                const ctxUid = window.AppCtx?.user?.uid || null;
-                const ctxDb = window.AppCtx?.db || null;
-                Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
-                  console.warn('[checklist] persist:toggleSkip', e);
-                });
-              }
-            }
+            try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
           };
           root.addEventListener('click', (event) => {
             const button = resolveClosest(event.target, '[data-checklist-skip-btn]');
@@ -6043,7 +6031,7 @@ function inputForType(consigne, initialValue = null, options = {}) {
                   return;
                 }
               } catch (_) {}
-              const raw = JSON.parse(hidden.value || '[]');
+              let raw = JSON.parse(hidden.value || '[]');
               if (isHistoryContext) {
                 logChecklistEvent("info", "[checklist-history] hydrate.payload.raw", {
                   dateAttr: historyDateKeyAttr,
@@ -6062,27 +6050,26 @@ function inputForType(consigne, initialValue = null, options = {}) {
                 }
                 if (hiddenKey && pageDateKey && hiddenKey !== pageDateKey) {
                   console.info('[checklist] hydrate.hidden.fix-date-mismatch', { hiddenKey, pageDateKey });
-                  // Réécrit la clé de date dans le hidden pour éviter de futurs rebonds
                   try {
                     const clone = Array.isArray(raw)
                       ? { items: raw.map((v) => v === true) }
                       : { ...raw };
                     clone.dateKey = pageDateKey;
+                    raw = clone;
                     hidden.value = JSON.stringify(clone);
                   } catch (_) {}
-                  return;
                 }
                 if (pageDateKey && !hiddenKey) {
-                  // Page avec date explicite mais payload sans dateKey → injecter la clé et attendre prochain cycle
+                  // Page avec date explicite mais payload sans dateKey → injecter la clé et continuer
                   console.info('[checklist] hydrate.hidden.inject-dateKey', { pageDateKey });
                   try {
                     const clone = Array.isArray(raw)
                       ? { items: raw.map((v) => v === true) }
                       : { ...raw };
                     clone.dateKey = pageDateKey;
+                    raw = clone;
                     hidden.value = JSON.stringify(clone);
                   } catch (_) {}
-                  return;
                 }
               } catch (e) {}
               const payload = Array.isArray(raw)
