@@ -6015,9 +6015,10 @@ function inputForType(consigne, initialValue = null, options = {}) {
           root.addEventListener('change', (event) => {
             if (event.target instanceof Element && event.target.matches('[data-checklist-input]')) {
               closeContextMenu();
-              // Ignorer les changements déclenchés pendant l'hydratation
+              // Ne pas ignorer le premier clic pendant l'hydratation: marquer et continuer
               if (root.dataset && root.dataset.checklistHydrating === '1') {
-                return;
+                root.dataset.checklistHydrationLocalDirty = '1';
+                // continue without returning so the user's action is applied
               }
               const input = event.target;
               const host = resolveHost(input);
@@ -6140,16 +6141,33 @@ function inputForType(consigne, initialValue = null, options = {}) {
             // Use the computed page dateKey; avoid defaulting to today to prevent mismatches
             const effectiveDateKey = dateKey;
             console.log("[DEBUG] Calling hydrateChecklist with effectiveDateKey:", effectiveDateKey, "isHistoryContext:", isHistoryContext, "pageDateKey:", pageDateKey);
-            if (root.dataset) root.dataset.checklistHydrating = '1';
+            if (root.dataset) {
+              root.dataset.checklistHydrating = '1';
+              root.dataset.checklistHydrationLocalDirty = root.dataset.checklistHydrationLocalDirty || '0';
+              root.dataset.checklistHydrationStartedAt = String(now());
+            }
             Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key', dateKey: effectiveDateKey }))
               .then(() => {
-                ensureItemIds();
-                sync();
-                if (root.dataset) delete root.dataset.checklistHydrating;
+                const hadLocalChange = root?.dataset?.checklistHydrationLocalDirty === '1';
+                if (!hadLocalChange) {
+                  ensureItemIds();
+                  sync();
+                } else {
+                  console.info('[checklist] hydrate.skip-remote-due-local-change');
+                }
+                if (root.dataset) {
+                  delete root.dataset.checklistHydrating;
+                  delete root.dataset.checklistHydrationLocalDirty;
+                  delete root.dataset.checklistHydrationStartedAt;
+                }
               })
               .catch((error) => {
                 console.warn('[checklist] hydrate', error);
-                if (root.dataset) delete root.dataset.checklistHydrating;
+                if (root.dataset) {
+                  delete root.dataset.checklistHydrating;
+                  delete root.dataset.checklistHydrationLocalDirty;
+                  delete root.dataset.checklistHydrationStartedAt;
+                }
               });
           }
         })();
