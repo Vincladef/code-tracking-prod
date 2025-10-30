@@ -5421,7 +5421,7 @@ if (window.Modes?.richText) {
   window.Modes.richText.setupAll = initializeRichTextEditors;
 }
 
-function inputForType(consigne, initialValue = null) {
+function inputForType(consigne, initialValue = null, options = {}) {
   const skipLikeInitial = initialValue && typeof initialValue === "object" && initialValue.skipped === true;
   const normalizedInitial = skipLikeInitial ? null : initialValue;
   if (consigne.type === "info") {
@@ -5592,12 +5592,13 @@ function inputForType(consigne, initialValue = null) {
           </label>`;
       })
       .join("");
-    const fallbackDateKey =
-      typeof window !== "undefined" && window.AppCtx?.dateIso
+    const fallbackDateKey = 
+      options.pageContext?.pageDateIso ||
+      (typeof window !== "undefined" && window.AppCtx?.dateIso
         ? String(window.AppCtx.dateIso)
         : typeof Schema?.todayKey === "function"
         ? Schema.todayKey()
-        : null;
+        : null);
     const initialPayload = {
       items: normalizedValue,
       skipped: normalizedSkipped,
@@ -18675,7 +18676,7 @@ async function renderDaily(ctx, root, opts = {}) {
     setupConsignePriorityMenu(row, item, ctx);
     const holder = row.querySelector("[data-consigne-input-holder]");
     if (holder) {
-      holder.innerHTML = inputForType(item, previous?.value ?? null);
+      holder.innerHTML = inputForType(item, previous?.value ?? null, { pageContext });
       enhanceRangeMeters(holder);
       initializeChecklistScope(holder, { consigneId: item?.id ?? null });
       ensureConsigneSkipField(row, item);
