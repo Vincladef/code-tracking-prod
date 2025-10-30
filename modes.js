@@ -9421,6 +9421,53 @@ function applyConsigneHistoryPoint(item, point) {
       weekdayEl.hidden = !point.weekdayLabel;
     }
     meta.hidden = !point.label && !point.weekdayLabel;
+
+    // HAMMER: Override visible labels from the page dayKey so pills always reflect the page date
+    try {
+      const dayKey = (point.dayKey && String(point.dayKey)) || (item.dataset && item.dataset.historyDay) || "";
+      if (dayKey) {
+        let newLabel = "";
+        let newWeekday = "";
+        let useIteration = false;
+        // Preserve explicit iteration/session labels when present
+        if (point?.details?.isPractice === true || (typeof point?.label === "string" && point.label.trim() && /session-/i.test(dayKey))) {
+          useIteration = true;
+        }
+        if (!useIteration) {
+          const sessionMatch = /session-(\d+)/i.exec(dayKey);
+          if (sessionMatch) {
+            const n = Number.parseInt(sessionMatch[1], 10);
+            if (Number.isFinite(n) && n > 0) {
+              newLabel = String(n);
+              newWeekday = "";
+            }
+          } else {
+            const info = parseHistoryTimelineDateInfo(dayKey);
+            if (info?.date instanceof Date && !Number.isNaN(info.date.getTime())) {
+              newLabel = formatHistoryDayLabel(info.date);
+              newWeekday = formatHistoryWeekdayLabel(info.date);
+              // Also normalize the title/sr from the page date for consistency
+              const long = formatHistoryDayFullLabel(info.date);
+              const statusLabel = STATUS_LABELS[status] || status;
+              const computedTitle = long ? `${long} — ${statusLabel}` : statusLabel;
+              if (computedTitle) {
+                item.title = computedTitle;
+                if (sr) sr.textContent = computedTitle;
+              }
+            }
+          }
+        }
+        if (labelEl && newLabel) {
+          labelEl.textContent = newLabel;
+          labelEl.hidden = false;
+        }
+        if (weekdayEl) {
+          weekdayEl.textContent = newWeekday || "";
+          weekdayEl.hidden = !newWeekday;
+        }
+        meta.hidden = !(labelEl && labelEl.textContent) && !(weekdayEl && weekdayEl.textContent);
+      }
+    } catch (_) {}
   }
   if (point.isBilan) {
     item.dataset.historySource = "bilan";
