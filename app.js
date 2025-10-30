@@ -462,6 +462,22 @@
         if (Array.isArray(payload.skipped) && payload.skipped.every((value) => value === false)) {
           delete payload.skipped;
         }
+        // Debug visibility: summarize what will be written to the hidden field
+        try {
+          const consigneId = root.getAttribute("data-consigne-id") || root.dataset?.consigneId || null;
+          const checkedCount = inputs.reduce((n, node) => (node.checked ? n + 1 : n), 0);
+          const skippedCount = inputs.reduce(
+            (n, node) => (node.dataset?.checklistSkip === "1" ? n + 1 : n),
+            0
+          );
+          console.info("[checklist-debug] hidden:update", {
+            consigneId,
+            dateKey: payload?.dateKey || null,
+            items: inputs.length,
+            checked: checkedCount,
+            skipped: skippedCount,
+          });
+        } catch (_) {}
         const answers = {};
         inputs.forEach((input, index) => {
           const host = input.closest("[data-checklist-item]");
@@ -683,6 +699,17 @@
       const skipped =
         (target.dataset && target.dataset.checklistSkip === "1") ||
         (item.dataset && item.dataset.checklistSkipped === "1");
+      // Log the raw change event context before any side effects
+      try {
+        console.info("[checklist-debug] change:event", {
+          consigneId,
+          itemId,
+          checked: Boolean(target.checked),
+          skipped,
+          hydrating: root?.dataset?.checklistHydrating === "1",
+          localDirty: root?.dataset?.checklistHydrationLocalDirty === "1",
+        });
+      } catch (_) {}
       if (skipped) {
         applySkipState(target, item, true);
       } else {
@@ -706,6 +733,12 @@
           (root.dataset ? root.dataset.checklistHistoryDate : null) ||
           null;
         // Derive page date from URL as a strong fallback (bilan pages)
+          try {
+            console.info("[checklist-debug] dayKey:resolve", {
+              consigneId,
+              persistDayKey: persistDayKey || null,
+            });
+          } catch (_) {}
         let urlDayKey = null;
         try {
           const hash = typeof window.location?.hash === "string" ? window.location.hash : "";
@@ -742,6 +775,13 @@
         };
         urlDayKey = pick(search) || pick(hash) || null;
       } catch (_) {}
+        try {
+          console.info("[checklist-debug] event:emit", {
+            consigneId,
+            itemId,
+            dayKey: eventDayKey || null,
+          });
+        } catch (_) {}
       const eventDayKey = historyKey && String(historyKey).trim()
         ? String(historyKey).trim()
         : (urlDayKey || ((typeof window !== 'undefined' && window.AppCtx?.dateIso)
