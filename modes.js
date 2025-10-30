@@ -14504,20 +14504,19 @@ function logChecklistHistoryInspection(consigne, payload = {}) {
   }
   try {
     const label = `[checklist-history] ${payload.label || "inspection"} (#${consigne.id ?? "?"})`;
-    const groupMethod = console.groupCollapsed || console.group;
-    if (typeof groupMethod !== "function") {
-      return;
-    }
-    groupMethod.call(console, label);
+    console.log(label);
     if (payload.focusDayKey || payload.timelineDetails || payload.entrySummary || payload.panelSummary || payload.matchInfo) {
-      console.info("focus", {
-        dayKey: payload.focusDayKey || "",
-        timeline: payload.timelineDetails || null,
-        entry: payload.entrySummary || null,
-        panel: payload.panelSummary || null,
-        match: payload.matchInfo || null,
-        dom: payload.domSummary || null,
-      });
+      console.info(
+        "[checklist-history] focus",
+        {
+          dayKey: payload.focusDayKey || "",
+          timeline: payload.timelineDetails || null,
+          entry: payload.entrySummary || null,
+          panel: payload.panelSummary || null,
+          match: payload.matchInfo || null,
+          dom: payload.domSummary || null,
+        },
+      );
     }
     if (payload.matchInfo && payload.matchInfo.type && payload.matchInfo.type !== "history") {
       try {
@@ -14539,12 +14538,15 @@ function logChecklistHistoryInspection(consigne, payload = {}) {
     };
     const summaryEntries = Object.entries(summaryMap).filter(([, summary]) => summary != null);
     if (summaryEntries.length) {
-      console.info("summary-compare", {
-        timeline: summaryMap.timeline || null,
-        entry: summaryMap.entry || null,
-        panel: summaryMap.panel || null,
-        dom: summaryMap.dom || null,
-      });
+      console.info(
+        "[checklist-history] summary-compare",
+        {
+          timeline: summaryMap.timeline || null,
+          entry: summaryMap.entry || null,
+          panel: summaryMap.panel || null,
+          dom: summaryMap.dom || null,
+        },
+      );
       const keys = Object.keys(summaryMap);
       keys.forEach((baseName, index) => {
         const baseSummary = summaryMap[baseName];
@@ -14611,7 +14613,6 @@ function logChecklistHistoryInspection(consigne, payload = {}) {
         console.info("entries truncated", { count: payload.entries.length, displayed: rows.length });
       }
     }
-    console.groupEnd();
   } catch (error) {
     try {
       console.warn("[checklist-history] inspection failed", error);
