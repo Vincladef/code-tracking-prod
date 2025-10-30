@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Checklist History</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-case {
+            border: 1px solid #ccc;
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .log {
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            border-radius: 3px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Checklist History Bug Fix</h1>
+    
+    <div class="test-case">
+        <h2>Test 1: Hydration avec différentes dateKey</h2>
+        <p>Ce test simule le problème où différentes dateKey causent l'affichage des mauvaises données.</p>
+        
+        <div id="test1-log" class="log">Test en cours...</div>
+        
+        <!-- Simulation d'une checklist avec data-checklist-history-date -->
+        <div id="test1-checklist" data-checklist-root data-consigne-id="test-consigne-1">
+            <label class="checklist-item" data-checklist-item data-item-id="item1">
+                <input type="checkbox" data-checklist-input data-key="item1">
+                <span>Test Item 1</span>
+            </label>
+            <label class="checklist-item" data-checklist-item data-item-id="item2">
+                <input type="checkbox" data-checklist-input data-key="item2">
+                <span>Test Item 2</span>
+            </label>
+            <input type="hidden" name="checklist:test-consigne-1" value="[]" data-checklist-state>
+        </div>
+        
+        <button onclick="testHydrationWithDifferentDates()">Tester l'hydratation avec différentes dates</button>
+    </div>
+
+    <script src="schema.js"></script>
+    <script src="checklist-fix.js"></script>
+    
+    <script>
+        // Mock des objets globaux nécessaires
+        window.GLOBAL = {
+            AppCtx: {
+                dateIso: '2024-01-15',
+                user: { uid: 'test-user' },
+                db: {}
+            },
+            ChecklistState: {
+                loadSelection: async (db, uid, consigneId, options) => {
+                    const log = document.getElementById('test1-log');
+                    log.textContent += `[MOCK] loadSelection called with dateKey: ${options.dateKey}\n`;
+                    
+                    // Simuler différentes données selon la dateKey
+                    if (options.dateKey === '2024-01-14') {
+                        // Données du 14 janvier (jour précédent)
+                        return {
+                            dateKey: '2024-01-14',
+                            selectedIds: ['item1'],
+                            skippedIds: [],
+                            selected: ['item1'],
+                            skipped: []
+                        };
+                    } else if (options.dateKey === '2024-01-13') {
+                        // Données du 13 janvier
+                        return {
+                            dateKey: '2024-01-13',
+                            selectedIds: ['item2'],
+                            skippedIds: ['item1'],
+                            selected: ['item2'],
+                            skipped: ['item1']
+                        };
+                    } else {
+                        // Données par défaut (aujourd'hui)
+                        return {
+                            dateKey: options.dateKey,
+                            selectedIds: ['item1', 'item2'],
+                            skippedIds: [],
+                            selected: ['item1', 'item2'],
+                            skipped: []
+                        };
+                    }
+                },
+                applySelection: (root, data, options) => {
+                    const log = document.getElementById('test1-log');
+                    log.textContent += `[MOCK] applySelection called for dateKey: ${options.dateKey} with selected: ${data.selected.length}\n`;
+                    
+                    // Appliquer les données au DOM
+                    const inputs = root.querySelectorAll('[data-checklist-input]');
+                    inputs.forEach((input, index) => {
+                        const itemId = input.getAttribute('data-key');
+                        input.checked = data.selected.includes(itemId);
+                        
+                        // Simuler l'état skipped
+                        const host = input.closest('[data-checklist-item]');
+                        if (data.skipped.includes(itemId)) {
+                            host.classList.add('checklist-item--skipped');
+                        } else {
+                            host.classList.remove('checklist-item--skipped');
+                        }
+                    });
+                }
+            }
+        };
+
+        async function testHydrationWithDifferentDates() {
+            const log = document.getElementById('test1-log');
+            log.textContent = 'Début du test d\'hydratation...\n';
+            
+            const checklist = document.getElementById('test1-checklist');
+            
+            // Test 1: Hydratation avec dateKey du 14 janvier
+            log.textContent += '\n=== Test 1: Hydratation avec dateKey 2024-01-14 ===\n';
+            checklist.setAttribute('data-checklist-history-date', '2024-01-14');
+            
+            try {
+                await window.hydrateChecklist({
+                    uid: 'test-user',
+                    consigneId: 'test-consigne-1',
+                    container: checklist,
+                    itemKeyAttr: 'data-key',
+                    dateKey: '2024-01-14'
+                });
+                
+                const checked = Array.from(checklist.querySelectorAll('[data-checklist-input]:checked')).map(i => i.getAttribute('data-key'));
+                log.textContent += `Résultat: éléments cochés = ${checked.join(', ')}\n`;
+                log.textContent += `Attendu: item1\n`;
+                log.textContent += `✓ ${checked.join(',') === 'item1' ? 'RÉUSSI' : 'ÉCHEC'}\n`;
+                
+            } catch (error) {
+                log.textContent += `❌ ERREUR: ${error.message}\n`;
+            }
+            
+            // Test 2: Hydratation avec dateKey du 13 janvier
+            await new Promise(resolve => setTimeout(resolve, 100));
+            log.textContent += '\n=== Test 2: Hydratation avec dateKey 2024-01-13 ===\n';
+            checklist.setAttribute('data-checklist-history-date', '2024-01-13');
+            
+            try {
+                await window.hydrateChecklist({
+                    uid: 'test-user',
+                    consigneId: 'test-consigne-1',
+                    container: checklist,
+                    itemKeyAttr: 'data-key',
+                    dateKey: '2024-01-13'
+                });
+                
+                const checked = Array.from(checklist.querySelectorAll('[data-checklist-input]:checked')).map(i => i.getAttribute('data-key'));
+                const skipped = Array.from(checklist.querySelectorAll('.checklist-item--skipped [data-checklist-input]')).map(i => i.getAttribute('data-key'));
+                log.textContent += `Résultat: éléments cochés = ${checked.join(', ')}, éléments passés = ${skipped.join(', ')}\n`;
+                log.textContent += `Attendu: cochés = item2, passés = item1\n`;
+                log.textContent += `✓ ${checked.join(',') === 'item2' && skipped.join(',') === 'item1' ? 'RÉUSSI' : 'ÉCHEC'}\n`;
+                
+            } catch (error) {
+                log.textContent += `❌ ERREUR: ${error.message}\n`;
+            }
+            
+            log.textContent += '\n=== FIN DES TESTS ===\n';
+        }
+
+        // Auto-lancer le test au chargement
+        window.addEventListener('load', () => {
+            setTimeout(testHydrationWithDifferentDates, 500);
+        });
+    </script>
+</body>
+</html>
