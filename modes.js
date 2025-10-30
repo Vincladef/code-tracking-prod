@@ -6094,8 +6094,11 @@ function inputForType(consigne, initialValue = null) {
           hydratePayload();
           ensureItemIds();
           sync();
-          if (typeof hydrate === 'function' && !isHistoryContext) {
-            Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key', dateKey }))
+          if (typeof hydrate === 'function') {
+            // En contexte historique, utiliser historyDateKeyAttr comme dateKey
+            const effectiveDateKey = isHistoryContext ? historyDateKeyAttr : dateKey;
+            console.log("[DEBUG] Calling hydrateChecklist with effectiveDateKey:", effectiveDateKey, "isHistoryContext:", isHistoryContext);
+            Promise.resolve(hydrate({ uid, consigneId, container: root, itemKeyAttr: 'data-key', dateKey: effectiveDateKey }))
               .then(() => {
                 ensureItemIds();
                 sync();
@@ -11765,6 +11768,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       let timelineSummary = null;
       if (consigne.type === "checklist") {
         timelineSummary = summarizeChecklistValue(rawDetails?.rawValue ?? rawDetails?.value);
+        console.log("[DEBUG TIMELINE] Clicked on pill for day:", historyDayKey, "rawValue:", rawDetails?.rawValue ?? rawDetails?.value);
         logChecklistHistoryInspection(consigne, {
           label: "timeline:click",
           focusDayKey: historyDayKey,
@@ -11786,6 +11790,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
         return;
       }
       if (EDITABLE_HISTORY_TYPES.has(consigne.type)) {
+        console.log("[DEBUG] Opening history editor for day:", historyDayKey, "consigne:", consigne.id, "type:", consigne.type);
         void openConsigneHistoryEntryEditor(row, consigne, ctx, {
           dayKey: historyDayKey,
           details: rawDetails,

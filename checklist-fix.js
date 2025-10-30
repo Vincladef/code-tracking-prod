@@ -662,6 +662,9 @@
       null;
     const uid = resolveUid(options.uid);
   const dateKey = options.dateKey || (typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? GLOBAL.AppCtx.dateIso : todayKey());
+    
+    console.log("[DEBUG HYDRATE] Called with dateKey:", options.dateKey, "resolved dateKey:", dateKey, "consigneId:", consigneId, "AppCtx.dateIso:", GLOBAL.AppCtx?.dateIso);
+    
     const manager = GLOBAL.ChecklistState || null;
     const db = options.db || GLOBAL.AppCtx?.db || null;
     const log = (event, extra = {}, level = "info") => {
@@ -910,6 +913,7 @@
       if (manager && typeof manager.loadSelection === "function" && db) {
         try {
           saved = await manager.loadSelection(db, effectiveUid, consigneId, { dateKey });
+          console.log("[DEBUG HYDRATE] Manager loadSelection result:", { dateKey, savedDateKey: saved?.dateKey, selectedCount: selectedCount(saved), saved });
           if (saved) {
             log("hydrate.manager", { dateKey: saved.dateKey || null, selected: selectedCount(saved) });
           } else {
@@ -922,6 +926,7 @@
       }
         if (!saved) {
           saved = await fallbackLoadAnswer(effectiveUid, consigneId, dateKey);
+          console.log("[DEBUG HYDRATE] Fallback loadAnswer result:", { dateKey, savedDateKey: saved?.dateKey, selectedCount: selectedCount(saved), saved });
           if (saved) {
             log("hydrate.fallback", { dateKey: saved.dateKey || null, selected: selectedCount(saved) });
           } else {
