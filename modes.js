@@ -10321,6 +10321,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     showToast("Impossible de charger cette réponse.");
     return;
   }
+  if (consigne.type === "checklist") {
+    logChecklistHistoryInspection(consigne, {
+      label: "entry-editor:history-load",
+      entries: historyEntries,
+      focusDayKey: dayKey,
+    });
+  }
   const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey);
   const entry = match?.entry || null;
   const keyInfo = match?.keyInfo || null;
@@ -10404,6 +10411,31 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         ? createdAtSource
         : "",
   };
+  if (consigne.type === "checklist") {
+    const timelineSummary = summarizeChecklistValue(details?.rawValue);
+    const entrySummary = summarizeChecklistValue(entryValue);
+    const detailHistoryId =
+      (typeof details?.historyId === "string" && details.historyId.trim()) ||
+      (typeof details?.history_id === "string" && details.history_id.trim()) ||
+      "";
+    const detailResponseId = resolveHistoryResponseId(details);
+    logChecklistHistoryInspection(consigne, {
+      label: "entry-editor:resolution",
+      focusDayKey: resolvedDayKey,
+      timelineDetails: {
+        summary: timelineSummary,
+        responseId: detailResponseId,
+        historyId: detailHistoryId,
+      },
+      entrySummary: {
+        summary: entrySummary,
+        responseId: entryResponseId,
+        historyId: historyDocumentId,
+      },
+      entries: historyEntries,
+      maxEntries: 20,
+    });
+  }
   let childCandidates = [];
   if (ctx?.db && ctx?.user?.uid && consigne?.id) {
     try {
@@ -14194,6 +14226,82 @@ function refreshConsigneTimelineWithRows(consigne, rows) {
   }
 }
 
+function summarizeChecklistValue(value) {
+  try {
+    const stats = deriveChecklistStats(value);
+    if (!stats) {
+      return null;
+    }
+    return {
+      total: stats.total ?? null,
+      checked: stats.checked ?? null,
+      skipped: stats.skipped ?? null,
+      percentage: stats.percentage ?? null,
+      empty: Boolean(stats.isEmpty),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function logChecklistHistoryInspection(consigne, payload = {}) {
+  if (!consigne || consigne.type !== "checklist") {
+    return;
+  }
+  try {
+    const label = `[checklist-history] ${payload.label || "inspection"} (#${consigne.id ?? "?"})`;
+    const groupMethod = console.groupCollapsed || console.group;
+    if (typeof groupMethod !== "function") {
+      return;
+    }
+    groupMethod.call(console, label);
+    if (payload.focusDayKey || payload.timelineDetails || payload.entrySummary) {
+      console.info("focus", {
+        dayKey: payload.focusDayKey || "",
+        timeline: payload.timelineDetails || null,
+        entry: payload.entrySummary || null,
+      });
+    }
+    if (Array.isArray(payload.entries)) {
+      const rows = payload.entries.slice(0, payload.maxEntries ?? 40).map((entry, index) => {
+        const keyInfo = resolveHistoryTimelineKey(entry, consigne);
+        const summary = summarizeChecklistValue(entry?.value);
+        const historyId =
+          (typeof entry?.historyId === "string" && entry.historyId.trim()) ||
+          (typeof entry?.history_id === "string" && entry.history_id.trim()) ||
+          "";
+        const responseId =
+          (typeof entry?.responseId === "string" && entry.responseId.trim()) ||
+          (typeof entry?.response_id === "string" && entry.response_id.trim()) ||
+          (typeof entry?.id === "string" && entry.id.trim()) ||
+          "";
+        return {
+          index,
+          dayKey: keyInfo?.dayKey || "",
+          normalizedDayKey: normalizeHistoryDayKey(keyInfo?.dayKey),
+          status: dotColor(consigne.type, entry?.value, consigne) || "na",
+          historyId,
+          responseId,
+          checked: summary?.checked ?? null,
+          total: summary?.total ?? null,
+          skipped: summary?.skipped ?? null,
+          percentage: summary?.percentage ?? null,
+          empty: summary?.empty ?? null,
+        };
+      });
+      console.table(rows);
+      if (payload.entries.length > rows.length) {
+        console.info("entries truncated", { count: payload.entries.length, displayed: rows.length });
+      }
+    }
+    console.groupEnd();
+  } catch (error) {
+    try {
+      console.warn("[checklist-history] inspection failed", error);
+    } catch (_) {}
+  }
+}
+
 function logConsigneHistoryComparison(consigne, panelMetas, context = {}) {
   if (!consigne || !Array.isArray(panelMetas)) {
     return;
@@ -14943,6 +15051,10 @@ async function openHistory(ctx, consigne, options = {}) {
     source: historySource || options.source || "",
     size,
     panelCount: rowMetas.length,
+  });
+  logChecklistHistoryInspection(consigne, {
+    label: "panel:rows",
+    entries: rows,
   });
 
   const totalLabel = rows.length === 0 ? "Aucune entrée" : rows.length === 1 ? "1 entrée" : `${rows.length} entrées`;
