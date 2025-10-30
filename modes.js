@@ -7992,6 +7992,9 @@ function historyStatusFromAverage(type, values) {
 
 const CONSIGNE_HISTORY_TIMELINE_DAY_COUNT = 21;
 const CONSIGNE_HISTORY_ROW_STATE = new WeakMap();
+// Keep the last rendered points per consigne id to allow robust comparisons
+// even when the DOM timeline is not yet hydrated or is off-screen (e.g., bilan pages).
+const CONSIGNE_HISTORY_LAST_POINTS = new Map();
 const CONSIGNE_HISTORY_SCROLL_MIN_STEP = 160;
 const CONSIGNE_HISTORY_SCROLL_EPSILON = 6;
 const CONSIGNE_HISTORY_DAY_LABEL_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
@@ -14900,6 +14903,10 @@ function refreshConsigneTimelineWithRows(consigne, rows) {
     return;
   }
   const points = buildConsigneHistoryTimeline(rows, consigne);
+  try {
+    // Cache for later comparison/logging when DOM snapshot isn't available yet
+    CONSIGNE_HISTORY_LAST_POINTS.set(String(consigne.id), Array.isArray(points) ? points.slice() : []);
+  } catch (_) {}
   const state = CONSIGNE_HISTORY_ROW_STATE.get(snapshot.row) || null;
   const rendered = renderConsigneHistoryTimeline(snapshot.row, points);
   if (state) {
@@ -15095,7 +15102,23 @@ function logConsigneHistoryComparison(consigne, panelMetas, context = {}) {
   }
   try {
     const timelineSnapshot = collectConsigneTimelineSnapshot(consigne);
-    const timelineItems = Array.isArray(timelineSnapshot?.items) ? timelineSnapshot.items : null;
+    let timelineItems = Array.isArray(timelineSnapshot?.items) ? timelineSnapshot.items : null;
+    // If DOM snapshot is empty (e.g., bilan row not yet hydrated), fall back to the last rendered points cache
+    if (timelineItems && timelineItems.length === 0) {
+      try {
+        const cachedPoints = CONSIGNE_HISTORY_LAST_POINTS.get(String(consigne.id)) || [];
+        if (Array.isArray(cachedPoints) && cachedPoints.length) {
+          timelineItems = cachedPoints.map((pt, index) => ({
+            index,
+            dayKey: pt?.dayKey || "",
+            normalizedDayKey: normalizeHistoryDayKey(pt?.dayKey || ""),
+            status: pt?.status || "",
+            responseId: pt?.responseId || "",
+            historyId: pt?.historyId || "",
+          }));
+        }
+      } catch (_) {}
+    }
     const timelineEntries = timelineItems
       ? timelineItems.map((item) => ({
           index: item.index,
