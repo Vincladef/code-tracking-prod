@@ -8138,12 +8138,7 @@ function formatHistoryDayFullLabel(date) {
 }
 
 function buildHistoryTimelineLabels(date, fallbackKey) {
-  if (date instanceof Date && !Number.isNaN(date.getTime())) {
-    return {
-      label: formatHistoryDayLabel(date),
-      weekday: formatHistoryWeekdayLabel(date),
-    };
-  }
+  // FORCE: Always use fallbackKey (dayKey) first, ignore date parameter completely
   if (fallbackKey) {
     const info = parseHistoryTimelineDateInfo(fallbackKey);
     if (info?.date instanceof Date && !Number.isNaN(info.date.getTime())) {
@@ -8163,19 +8158,35 @@ function buildHistoryTimelineLabels(date, fallbackKey) {
     }
     return { label: fallbackKey, weekday: "" };
   }
+  // Fallback to date only if no fallbackKey
+  if (date instanceof Date && !Number.isNaN(date.getTime())) {
+    return {
+      label: formatHistoryDayLabel(date),
+      weekday: formatHistoryWeekdayLabel(date),
+    };
+  }
   return { label: "", weekday: "" };
 }
 
 function buildHistoryTimelineTitle(date, fallbackKey, status) {
   const statusLabel = STATUS_LABELS[status] || STATUS_LABELS.na || "Statut";
+  // FORCE: Always use fallbackKey (dayKey) first, ignore date parameter completely
+  if (fallbackKey) {
+    const info = parseHistoryTimelineDateInfo(fallbackKey);
+    if (info?.date instanceof Date && !Number.isNaN(info.date.getTime())) {
+      const longLabel = formatHistoryDayFullLabel(info.date);
+      if (longLabel) {
+        return `${longLabel} — ${statusLabel}`;
+      }
+    }
+    return `${fallbackKey} — ${statusLabel}`;
+  }
+  // Fallback to date only if no fallbackKey
   if (date instanceof Date && !Number.isNaN(date.getTime())) {
     const longLabel = formatHistoryDayFullLabel(date);
     if (longLabel) {
       return `${longLabel} — ${statusLabel}`;
     }
-  }
-  if (fallbackKey) {
-    return `${fallbackKey} — ${statusLabel}`;
   }
   return statusLabel;
 }
@@ -11531,7 +11542,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   })();
   const record = {
     dayKey,
-    date,
+    date: null, // FORCE: null to ignore recording dates, use only dayKey
     status,
     value: effectiveValue,
     note: derivedNote || existingDetails?.note || "",
