@@ -419,11 +419,20 @@
           skipped: inputs.map((node) => (node.dataset?.checklistSkip === "1" ? true : false)),
         };
         try {
-          const pageKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso)
-            ? String(window.AppCtx.dateIso)
-            : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
-          if (pageKey) {
-            payload.dateKey = pageKey;
+          // Prefer the explicit history date when present (in history editor contexts),
+          // otherwise fall back to the current page date or today.
+          const historyKeyAttr =
+            root.getAttribute("data-checklist-history-date") ||
+            (root.dataset ? root.dataset.checklistHistoryDate : null) ||
+            (hidden.getAttribute && hidden.getAttribute("data-checklist-history-date")) ||
+            (hidden.dataset ? hidden.dataset.checklistHistoryDate : null);
+          const effectiveKey = historyKeyAttr && String(historyKeyAttr).trim()
+            ? String(historyKeyAttr).trim()
+            : ((typeof window !== 'undefined' && window.AppCtx?.dateIso)
+                ? String(window.AppCtx.dateIso)
+                : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null));
+          if (effectiveKey) {
+            payload.dateKey = effectiveKey;
           }
         } catch (e) {}
         if (Array.isArray(payload.skipped) && payload.skipped.every((value) => value === false)) {
@@ -659,8 +668,13 @@
       if (typeof persistFn === "function") {
         const ctxUid = window.AppCtx?.user?.uid || null;
         const ctxDb = window.AppCtx?.db || null;
+        // If a history date is set on this root, propagate it explicitly to ensure correct scoping
+        const historyKey =
+          root.getAttribute("data-checklist-history-date") ||
+          (root.dataset ? root.dataset.checklistHistoryDate : null) ||
+          null;
         Promise.resolve(
-          persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })
+          persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb, dateKey: historyKey || undefined })
         ).catch((error) => {
           console.warn("[app] checklist:persist", error);
         });
