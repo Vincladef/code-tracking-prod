@@ -10955,12 +10955,18 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         const domState = readChecklistDomState(domRoot);
         const domValue = buildChecklistValue(consigne, domState || []);
         const domSummary = summarizeChecklistValue(domValue);
+        const hiddenInput = domRoot.querySelector("[data-checklist-state]");
         logChecklistHistoryInspection(consigne, {
           label: "entry-editor:dom",
           focusDayKey: resolvedDayKey,
           domSummary: {
             summary: domSummary,
             rawValue: domValue,
+          },
+          domAttrs: {
+            rootHistoryDate: domRoot.dataset?.checklistHistoryDate || domRoot.getAttribute?.("data-checklist-history-date") || "",
+            hiddenHistoryDate:
+              (hiddenInput?.dataset?.checklistHistoryDate || hiddenInput?.getAttribute?.("data-checklist-history-date") || ""),
           },
           timelineDetails: {
             summary: timelineSummary,
