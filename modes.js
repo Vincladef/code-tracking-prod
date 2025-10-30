@@ -16124,6 +16124,10 @@ async function openHistory(ctx, consigne, options = {}) {
     `;
     panel.appendChild(overlay);
     const dialog = overlay.querySelector('.history-panel__edit-dialog');
+    // Initialize checklist behaviors and scoping for history inline editor
+    try {
+      initializeChecklistScope(overlay, { dateKey: dayKey });
+    } catch (_) {}
     const form = overlay.querySelector('form');
     const cancelBtn = form?.querySelector('[data-cancel]');
     const clearBtn = form?.querySelector('[data-clear]');
