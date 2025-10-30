@@ -9218,7 +9218,6 @@ function resolveHistoryTimelineKey(entry, consigne) {
 }
 
 function buildConsigneHistoryTimeline(entries, consigne) {
-  console.log("[DEBUG buildConsigneHistoryTimeline] Processing", entries.length, "entries for consigne", consigne?.id);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const records = [];
@@ -9302,7 +9301,6 @@ function buildConsigneHistoryTimeline(entries, consigne) {
     )
     .filter(Boolean);
   
-  console.log("[DEBUG buildConsigneHistoryTimeline] Returning", result.length, "points for consigne", consigne?.id, "first 3:", result.slice(0, 3).map(p => ({ dayKey: p.details?.dayKey, status: p.status })));
   return result;
 }
 
@@ -11319,40 +11317,28 @@ function renderConsigneHistoryTimeline(row, points) {
   const container = row?.querySelector?.("[data-consigne-history]");
   const track = row?.querySelector?.("[data-consigne-history-track]");
   
-  console.log("[DEBUG TIMELINE] renderConsigneHistoryTimeline called with:", {
-    hasContainer: !!container,
-    hasTrack: !!track,
-    pointsCount: Array.isArray(points) ? points.length : 0,
-    points: points
-  });
-  
   if (!container || !track) {
-    console.log("[DEBUG TIMELINE] Missing container or track - returning false");
     return false;
   }
   track.innerHTML = "";
   track.setAttribute("role", "list");
   track.setAttribute("aria-label", "Historique des derniers jours");
   if (!Array.isArray(points) || !points.length) {
-    console.log("[DEBUG TIMELINE] No points - hiding container");
     container.hidden = true;
     track.dataset.historyMode = "empty";
     return false;
   }
   
-  console.log("[DEBUG TIMELINE] Creating", points.length, "timeline items");
   points.forEach((point, index) => {
     const item = document.createElement("div");
     item.className = "consigne-history__item";
     item.setAttribute("role", "listitem");
     applyConsigneHistoryPoint(item, point);
     track.appendChild(item);
-    console.log("[DEBUG TIMELINE] Created item", index, "for day:", point.details?.dayKey, "status:", point.status);
   });
   
   container.hidden = false;
   track.dataset.historyMode = "day";
-  console.log("[DEBUG TIMELINE] Timeline rendered successfully - container visible");
   return true;
 }
 
@@ -11695,8 +11681,8 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
   };
   setupConsigneHistoryNavigation(state);
   CONSIGNE_HISTORY_ROW_STATE.set(row, state);
-  const initialPoints = buildConsigneHistoryTimeline([], consigne);
-  state.hasDayTimeline = renderConsigneHistoryTimeline(row, initialPoints);
+  // Ne pas afficher la timeline avec des données vides - attendre les vraies données
+  state.hasDayTimeline = false;
   scheduleConsigneHistoryNavUpdate(state);
   if (!ctx?.db || !ctx?.user?.uid || !consigne?.id) {
     return;
@@ -11719,10 +11705,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
         return;
       }
       const entries = Array.isArray(result.rows) ? result.rows : [];
-      console.log("[DEBUG FETCH] Consigne", consigne.id, "fetched", entries.length, "entries:", entries.slice(0, 3).map(e => ({ consigneId: e.consigneId, dayKey: e.dayKey, createdAt: e.createdAt })));
       const points = buildConsigneHistoryTimeline(entries, consigne);
-      console.log("[DEBUG BUILD] Consigne", consigne.id, "built", points.length, "points:", points.slice(0, 5).map(p => ({ dayKey: p.details?.dayKey, status: p.status, consigneId: p.details?.consigneId })));
-      console.log("[DEBUG RENDER] About to render timeline for consigne", consigne.id, "with", points.length, "points");
       state.hasDayTimeline = renderConsigneHistoryTimeline(row, points);
       scheduleConsigneHistoryNavUpdate(state);
     })
@@ -11733,25 +11716,13 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       scheduleConsigneHistoryNavUpdate(state);
     });
   const handleHistoryActivation = (event) => {
-    console.log("[DEBUG TIMELINE] handleHistoryActivation called", {
-      type: event.type,
-      target: event.target,
-      className: event.target?.className
-    });
-    
     const isKeyboard = event.type === "keydown";
     if (isKeyboard && event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") {
       return;
     }
     const target = event.target.closest(".consigne-history__item");
-    console.log("[DEBUG TIMELINE] Target found:", {
-      hasTarget: !!target,
-      inTrack: target ? state.track.contains(target) : false,
-      targetClassName: target?.className
-    });
     
     if (!target || !state.track.contains(target)) {
-      console.log("[DEBUG TIMELINE] No valid target - ignoring click");
       return;
     }
     const rawDetails = target._historyDetails || null;
@@ -11804,7 +11775,6 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       let timelineSummary = null;
       if (consigne.type === "checklist") {
         timelineSummary = summarizeChecklistValue(rawDetails?.rawValue ?? rawDetails?.value);
-        console.log("[DEBUG TIMELINE] Clicked on pill for day:", historyDayKey, "rawValue:", rawDetails?.rawValue ?? rawDetails?.value);
         logChecklistHistoryInspection(consigne, {
           label: "timeline:click",
           focusDayKey: historyDayKey,
