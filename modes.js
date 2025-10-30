@@ -11313,26 +11313,41 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
 function renderConsigneHistoryTimeline(row, points) {
   const container = row?.querySelector?.("[data-consigne-history]");
   const track = row?.querySelector?.("[data-consigne-history-track]");
+  
+  console.log("[DEBUG TIMELINE] renderConsigneHistoryTimeline called with:", {
+    hasContainer: !!container,
+    hasTrack: !!track,
+    pointsCount: Array.isArray(points) ? points.length : 0,
+    points: points
+  });
+  
   if (!container || !track) {
+    console.log("[DEBUG TIMELINE] Missing container or track - returning false");
     return false;
   }
   track.innerHTML = "";
   track.setAttribute("role", "list");
   track.setAttribute("aria-label", "Historique des derniers jours");
   if (!Array.isArray(points) || !points.length) {
+    console.log("[DEBUG TIMELINE] No points - hiding container");
     container.hidden = true;
     track.dataset.historyMode = "empty";
     return false;
   }
-  points.forEach((point) => {
+  
+  console.log("[DEBUG TIMELINE] Creating", points.length, "timeline items");
+  points.forEach((point, index) => {
     const item = document.createElement("div");
     item.className = "consigne-history__item";
     item.setAttribute("role", "listitem");
     applyConsigneHistoryPoint(item, point);
     track.appendChild(item);
+    console.log("[DEBUG TIMELINE] Created item", index, "for day:", point.details?.dayKey, "status:", point.status);
   });
+  
   container.hidden = false;
   track.dataset.historyMode = "day";
+  console.log("[DEBUG TIMELINE] Timeline rendered successfully - container visible");
   return true;
 }
 
@@ -11710,12 +11725,25 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       scheduleConsigneHistoryNavUpdate(state);
     });
   const handleHistoryActivation = (event) => {
+    console.log("[DEBUG TIMELINE] handleHistoryActivation called", {
+      type: event.type,
+      target: event.target,
+      className: event.target?.className
+    });
+    
     const isKeyboard = event.type === "keydown";
     if (isKeyboard && event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") {
       return;
     }
     const target = event.target.closest(".consigne-history__item");
+    console.log("[DEBUG TIMELINE] Target found:", {
+      hasTarget: !!target,
+      inTrack: target ? state.track.contains(target) : false,
+      targetClassName: target?.className
+    });
+    
     if (!target || !state.track.contains(target)) {
+      console.log("[DEBUG TIMELINE] No valid target - ignoring click");
       return;
     }
     const rawDetails = target._historyDetails || null;
