@@ -692,10 +692,21 @@
           console.warn("[checklist-fix] hidden:parse", error);
           return;
         }
+        // Anti-rebond: si une saisie locale vient d'avoir lieu, ne pas réappliquer tout de suite
+        try {
+          const ts = root?.dataset?.checklistDirtyAt ? Number(root.dataset.checklistDirtyAt) : 0;
+          const now = Date.now ? Date.now() : performance.now();
+          if (ts && now - ts < 400) {
+            log("hydrate.hidden.skip-recent-local-change", { delta: now - ts });
+            return;
+          }
+        } catch (_) {}
         // Si la page a une date explicite et que la valeur cachée n'a pas de dateKey
         // ou que la dateKey ne correspond pas au jour de la page, on ignore.
         try {
           const hiddenKey = parsed && typeof parsed === 'object' && parsed.dateKey ? String(parsed.dateKey) : null;
+          const rawOptionsHash = parsed && typeof parsed === 'object' && parsed.optionsHash ? String(parsed.optionsHash) : '';
+          const currentOptionsHash = (root?.dataset && root.dataset.checklistOptionsHash) || '';
           const rootHistoryKey =
             root?.dataset && typeof root.dataset.checklistHistoryDate === 'string'
               ? root.dataset.checklistHistoryDate.trim()
@@ -712,13 +723,35 @@
           } catch (_) {}
           const pageKey = typeof GLOBAL.AppCtx?.dateIso === 'string' && GLOBAL.AppCtx.dateIso ? GLOBAL.AppCtx.dateIso : null;
           const expectedKey = rootHistoryKey || hiddenHistoryKey || hashDate || pageKey || null;
+          if (rawOptionsHash && currentOptionsHash && rawOptionsHash !== currentOptionsHash) {
+            log("hydrate.hidden.skip-options-mismatch", { rawOptionsHash, currentOptionsHash });
+            return;
+          }
           if (expectedKey) {
             if (!hiddenKey) {
-              log("hydrate.hidden.skip-missing-dateKey", { pageKey: expectedKey });
+              // Injecter la clé manquante dans le hidden pour rétablir la cohérence
+              log("hydrate.hidden.inject-dateKey", { pageKey: expectedKey });
+              try {
+                const clone = Array.isArray(parsed)
+                  ? { items: parsed.map((v) => v === true) }
+                  : { ...parsed };
+                clone.dateKey = expectedKey;
+                if (currentOptionsHash) clone.optionsHash = currentOptionsHash;
+                hiddenInput.value = JSON.stringify(clone);
+              } catch (_) {}
               return;
             }
             if (hiddenKey !== expectedKey) {
-              log("hydrate.hidden.skip-date-mismatch", { hiddenKey, pageKey: expectedKey });
+              // Corriger la clé de date dans le hidden
+              log("hydrate.hidden.fix-date-mismatch", { hiddenKey, pageKey: expectedKey });
+              try {
+                const clone = Array.isArray(parsed)
+                  ? { items: parsed.map((v) => v === true) }
+                  : { ...parsed };
+                clone.dateKey = expectedKey;
+                if (currentOptionsHash) clone.optionsHash = currentOptionsHash;
+                hiddenInput.value = JSON.stringify(clone);
+              } catch (_) {}
               return;
             }
           }
@@ -736,6 +769,7 @@
                 : [],
             };
         const inputs = collectInputs(root);
+        if (root.dataset) root.dataset.checklistHydrating = "1";
         inputs.forEach((input, index) => {
           if (!(input instanceof HTMLInputElement)) {
             return;
@@ -790,6 +824,7 @@
           0
         );
         log("hydrate.hidden", { checked: checkedCount, skipped: skippedCount });
+        if (root.dataset) delete root.dataset.checklistHydrating;
       };
       const handler = () => {
         applyHiddenState();
