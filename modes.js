@@ -7,6 +7,14 @@ const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () 
 
 let checkboxBehaviorSetupPromise = null;
 
+let flushAutoSaveForConsigne = async () => {};
+let runWithAutoSaveSuppressed = async (_consigneId, _scopeDayKey, task) => {
+  if (typeof task === "function") {
+    return await task();
+  }
+  return undefined;
+};
+
 function waitForCheckboxSetupFunction() {
   if (typeof window === "undefined") {
     return Promise.resolve(null);
@@ -10045,7 +10053,7 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
         : "";
     const isSummaryEntry = Boolean(keyInfo?.isSummary) || Boolean(summaryScopeCandidate);
 
-    if (!allowSummaries && !historyMatch && !responseMatch && isSummaryEntry) {
+    if (!allowSummaries && isSummaryEntry) {
       return;
     }
 
@@ -10072,7 +10080,7 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
       }
     }
     if (isSummaryEntry) {
-      weight -= allowSummaries ? 40 : 250;
+      weight -= allowSummaries ? 40 : 0;
     } else if (typeof entry?.source === "string" && entry.source.includes("summary")) {
       weight -= 40;
     }
@@ -10640,104 +10648,103 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       if (submitBtn) submitBtn.disabled = true;
       try {
         const dayKeyToClear = resolvedDayKey;
-        if (consigne?.id) {
-          await flushAutoSaveForConsigne(consigne.id);
-        }
-        if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
-          try {
-            await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
-          } catch (_) {}
-        }
-        try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) {}
-        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
-        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-        // If this history entry originates from a bilan summary, also delete the underlying summary answer
-        try {
-          const scope = entry?.summaryScope || entry?.periodScope || "";
-          const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
-          const answerKey = entry?.summaryKey || "";
-          if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
-            await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
-          }
-        } catch (err) {
-          console.error("bilan.history.editor.clear.summaryDelete", err);
-        }
-        const status = dotColor(consigne.type, "", consigne) || "na";
-        updateConsigneHistoryTimeline(row, status, {
-          consigne,
-          value: "",
-          dayKey: resolvedDayKey,
-          historyId: historyDocumentId,
-          responseId: responseSyncOptions?.responseId || "",
-          isBilan: true,
-          remove: true,
-        });
-        triggerConsigneRowUpdateHighlight(row);
-        for (const childState of baseChildStates) {
-          try {
-            const childConsigneId = childState?.consigne?.id;
-            if (childConsigneId) {
-              await flushAutoSaveForConsigne(childConsigneId);
-            }
-            if (ctx?.db && ctx?.user?.uid && childConsigneId && dayKeyToClear) {
-              try {
-                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
-              } catch (_) {}
-            }
-            try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
-            try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
-            await Schema.deleteHistoryEntry(
-              ctx.db,
-              ctx.user.uid,
-              childState.consigne.id,
-              childState.historyDocumentId,
-              childState.responseSyncOptions,
-            );
-            // Also delete child summary answers if present
+        await runWithAutoSaveSuppressed(consigne?.id, dayKeyToClear, async () => {
+          if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
             try {
-              const cEntry = childState.entry || null;
-              const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
-              const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
-              const cAnswerKey = cEntry?.summaryKey || "";
-              if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
-                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
-              }
-            } catch (err) {
-              console.error("bilan.history.editor.child.clear.summaryDelete", err);
+              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
+            } catch (_) {}
+          }
+          try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) {}
+          try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
+          // If this history entry originates from a bilan summary, also delete the underlying summary answer
+          try {
+            const scope = entry?.summaryScope || entry?.periodScope || "";
+            const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
+            const answerKey = entry?.summaryKey || "";
+            if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
             }
-          } catch (error) {
-            console.error("bilan.history.editor.child.clear", error);
+          } catch (err) {
+            console.error("bilan.history.editor.clear.summaryDelete", err);
           }
-          const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
-          if (childState.row) {
-            updateConsigneHistoryTimeline(childState.row, childStatus, {
-              consigne: childState.consigne,
-              value: "",
-              dayKey: resolvedDayKey,
-              historyId: childState.historyDocumentId,
-              responseId: childState.responseSyncOptions?.responseId || "",
-              iterationLabel,
-              remove: true,
+          const status = dotColor(consigne.type, "", consigne) || "na";
+          updateConsigneHistoryTimeline(row, status, {
+            consigne,
+            value: "",
+            dayKey: resolvedDayKey,
+            historyId: historyDocumentId,
+            responseId: responseSyncOptions?.responseId || "",
+            isBilan: true,
+            remove: true,
+          });
+          triggerConsigneRowUpdateHighlight(row);
+          applyDailyPrefillUpdate(null);
+          for (const childState of baseChildStates) {
+            const childConsigneId = childState?.consigne?.id;
+            if (!childConsigneId) {
+              continue;
+            }
+            await runWithAutoSaveSuppressed(childConsigneId, dayKeyToClear, async () => {
+              if (ctx?.db && ctx?.user?.uid && dayKeyToClear) {
+                try {
+                  await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
+                } catch (_) {}
+              }
+              try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
+              try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
+              await Schema.deleteHistoryEntry(
+                ctx.db,
+                ctx.user.uid,
+                childState.consigne.id,
+                childState.historyDocumentId,
+                childState.responseSyncOptions,
+              );
+              // Also delete child summary answers if present
+              try {
+                const cEntry = childState.entry || null;
+                const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
+                const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
+                const cAnswerKey = cEntry?.summaryKey || "";
+                if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+                  await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
+                }
+              } catch (err) {
+                console.error("bilan.history.editor.child.clear.summaryDelete", err);
+              }
+              const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
+              if (childState.row) {
+                updateConsigneHistoryTimeline(childState.row, childStatus, {
+                  consigne: childState.consigne,
+                  value: "",
+                  dayKey: resolvedDayKey,
+                  historyId: childState.historyDocumentId,
+                  responseId: childState.responseSyncOptions?.responseId || "",
+                  iterationLabel,
+                  remove: true,
+                });
+                triggerConsigneRowUpdateHighlight(childState.row);
+              }
             });
-            triggerConsigneRowUpdateHighlight(childState.row);
           }
-        }
-        try {
-          const escapeConsigneId =
-            typeof CSS !== "undefined" && typeof CSS.escape === "function"
-              ? CSS.escape(String(consigne.id ?? ""))
-              : String(consigne.id ?? "").replace(/"/g, '\\"');
-          const escapeDayKey =
-            typeof CSS !== "undefined" && typeof CSS.escape === "function"
-              ? CSS.escape(String(dayKeyToClear ?? ""))
-              : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
-          const dailyRow = document.querySelector(
-            `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
-          );
-          if (dailyRow) {
-            setConsigneRowValue(dailyRow, consigne, "");
-          }
-        } catch (_) {}
+          try {
+            const escapeConsigneId =
+              typeof CSS !== "undefined" && typeof CSS.escape === "function"
+                ? CSS.escape(String(consigne.id ?? ""))
+                : String(consigne.id ?? "").replace(/"/g, '\\"');
+            const escapeDayKey =
+              typeof CSS !== "undefined" && typeof CSS.escape === "function"
+                ? CSS.escape(String(dayKeyToClear ?? ""))
+                : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
+            const dailyRow = document.querySelector(
+              `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
+            );
+            if (dailyRow) {
+              setConsigneRowValue(dailyRow, consigne, "");
+              clearConsigneSummaryMetadata(dailyRow);
+            }
+          } catch (_) {}
+        });
         showToast("Réponses effacées pour ce bilan.");
         // If we are inside the history panel, remove the corresponding list item immediately
         if (renderInPanel && historyPanel) {
@@ -10795,21 +10802,28 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         };
       });
       if (!parentHasValue) {
-        await flushAutoSaveForConsigne(consigne.id);
-        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
-        try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
-        // Also remove the corresponding summary answer if present
-        try {
-          const scope = entry?.summaryScope || entry?.periodScope || "";
-          const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
-          const answerKey = entry?.summaryKey || "";
-          if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
-            await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
+        await runWithAutoSaveSuppressed(consigne.id, resolvedDayKey, async () => {
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
+          try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
+          try { clearRecentResponsesForConsigne(consigne.id); } catch (e) {}
+          if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
+            try {
+              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey);
+            } catch (e) {}
           }
-        } catch (err) {
-          console.error("bilan.history.editor.save.summaryDelete", err);
-        }
+          // Also remove the corresponding summary answer if present
+          try {
+            const scope = entry?.summaryScope || entry?.periodScope || "";
+            const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
+            const answerKey = entry?.summaryKey || "";
+            if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
+            }
+          } catch (err) {
+            console.error("bilan.history.editor.save.summaryDelete", err);
+          }
+        });
+        applyDailyPrefillUpdate(null);
       } else {
         await Schema.saveHistoryEntry(
           ctx.db,
@@ -10819,6 +10833,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           { value: rawValue },
           responseSyncOptions,
         );
+        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
       }
       const parentStatus = dotColor(
         consigne.type,
@@ -10836,40 +10851,49 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       });
       triggerConsigneRowUpdateHighlight(row);
       for (const { state, value, hasValue } of childResults) {
+        const childConsigneId = state?.consigne?.id;
+        if (!childConsigneId) {
+          continue;
+        }
         if (!hasValue) {
-          if (state?.consigne?.id) {
-            await flushAutoSaveForConsigne(state.consigne.id);
-          }
-          await Schema.deleteHistoryEntry(
-            ctx.db,
-            ctx.user.uid,
-            state.consigne.id,
-            state.historyDocumentId,
-            state.responseSyncOptions,
-          );
-          try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
-          try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, state.consigne.id, resolvedDayKey); } catch (e) {}
-          // Remove child summary answer if present
-          try {
-            const cEntry = state.entry || null;
-            const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
-            const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
-            const cAnswerKey = cEntry?.summaryKey || "";
-            if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
-              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
+          await runWithAutoSaveSuppressed(childConsigneId, resolvedDayKey, async () => {
+            await Schema.deleteHistoryEntry(
+              ctx.db,
+              ctx.user.uid,
+              childConsigneId,
+              state.historyDocumentId,
+              state.responseSyncOptions,
+            );
+            try { removeRecentResponsesForDay(childConsigneId, resolvedDayKey); } catch (e) {}
+            try { clearRecentResponsesForConsigne(childConsigneId); } catch (e) {}
+            if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
+              try {
+                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, resolvedDayKey);
+              } catch (e) {}
             }
-          } catch (err) {
-            console.error("bilan.history.editor.child.save.summaryDelete", err);
-          }
+            // Remove child summary answer if present
+            try {
+              const cEntry = state.entry || null;
+              const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
+              const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
+              const cAnswerKey = cEntry?.summaryKey || "";
+              if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
+              }
+            } catch (err) {
+              console.error("bilan.history.editor.child.save.summaryDelete", err);
+            }
+          });
         } else {
           await Schema.saveHistoryEntry(
             ctx.db,
             ctx.user.uid,
-            state.consigne.id,
+            childConsigneId,
             state.historyDocumentId,
             { value },
             state.responseSyncOptions,
           );
+          try { removeRecentResponsesForDay(childConsigneId, resolvedDayKey); } catch (e) {}
         }
         const childStatus = dotColor(
           state.consigne.type,
@@ -11492,104 +11516,103 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       if (submitBtn) submitBtn.disabled = true;
       try {
         const dayKeyToClear = resolvedDayKey || dayKey;
-        if (consigne?.id) {
-          await flushAutoSaveForConsigne(consigne.id);
-        }
-        if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
-          try {
-            await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
-          } catch (_) {}
-        }
-        try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) {}
-        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
-        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-        // If this entry is a bilan-backed summary, delete the summary answer to avoid reappearance
-        try {
-          const scope = entry?.summaryScope || entry?.periodScope || "";
-          const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
-          const answerKey = entry?.summaryKey || "";
-          if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
-            await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
-          }
-        } catch (err) {
-          console.error("consigne.history.editor.clear.summaryDelete", err);
-        }
-        const status = dotColor(consigne.type, "", consigne) || "na";
-        updateConsigneHistoryTimeline(row, status, {
-          consigne,
-          value: "",
-          dayKey: resolvedDayKey,
-          historyId: historyDocumentId,
-          responseId: responseSyncOptions?.responseId || "",
-          iterationLabel,
-          remove: true,
-        });
-        triggerConsigneRowUpdateHighlight(row);
-        for (const childState of baseChildStates) {
-          try {
-            const childConsigneId = childState?.consigne?.id;
-            if (childConsigneId) {
-              await flushAutoSaveForConsigne(childConsigneId);
-            }
-            if (ctx?.db && ctx?.user?.uid && childConsigneId && dayKeyToClear) {
-              try {
-                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
-              } catch (_) {}
-            }
-            try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
-            try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
-            await Schema.deleteHistoryEntry(
-              ctx.db,
-              ctx.user.uid,
-              childState.consigne.id,
-              childState.historyDocumentId,
-              childState.responseSyncOptions,
-            );
-            // Also handle child summary deletion
+        await runWithAutoSaveSuppressed(consigne?.id, dayKeyToClear, async () => {
+          if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
             try {
-              const cEntry = childState.entry || null;
-              const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
-              const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
-              const cAnswerKey = cEntry?.summaryKey || "";
-              if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
-                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
-              }
-            } catch (err) {
-              console.error("consigne.history.child.clear.summaryDelete", err);
+              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
+            } catch (_) {}
+          }
+          try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) {}
+          try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
+          // If this entry is a bilan-backed summary, delete the summary answer to avoid reappearance
+          try {
+            const scope = entry?.summaryScope || entry?.periodScope || "";
+            const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
+            const answerKey = entry?.summaryKey || "";
+            if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
             }
-          } catch (error) {
-            console.error("consigne.history.child.clear", error);
+          } catch (err) {
+            console.error("consigne.history.editor.clear.summaryDelete", err);
           }
-          const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
-          if (childState.row) {
-            updateConsigneHistoryTimeline(childState.row, childStatus, {
-              consigne: childState.consigne,
-              value: "",
-              dayKey: resolvedDayKey,
-              historyId: childState.historyDocumentId,
-              responseId: childState.responseSyncOptions?.responseId || "",
-              iterationLabel,
-              remove: true,
+          const status = dotColor(consigne.type, "", consigne) || "na";
+          updateConsigneHistoryTimeline(row, status, {
+            consigne,
+            value: "",
+            dayKey: resolvedDayKey,
+            historyId: historyDocumentId,
+            responseId: responseSyncOptions?.responseId || "",
+            iterationLabel,
+            remove: true,
+          });
+          triggerConsigneRowUpdateHighlight(row);
+          applyDailyPrefillUpdate(null);
+          for (const childState of baseChildStates) {
+            const childConsigneId = childState?.consigne?.id;
+            if (!childConsigneId) {
+              continue;
+            }
+            await runWithAutoSaveSuppressed(childConsigneId, dayKeyToClear, async () => {
+              if (ctx?.db && ctx?.user?.uid && dayKeyToClear) {
+                try {
+                  await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
+                } catch (_) {}
+              }
+              try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
+              try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
+              await Schema.deleteHistoryEntry(
+                ctx.db,
+                ctx.user.uid,
+                childState.consigne.id,
+                childState.historyDocumentId,
+                childState.responseSyncOptions,
+              );
+              // Also handle child summary deletion
+              try {
+                const cEntry = childState.entry || null;
+                const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
+                const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
+                const cAnswerKey = cEntry?.summaryKey || "";
+                if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+                  await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
+                }
+              } catch (err) {
+                console.error("consigne.history.child.clear.summaryDelete", err);
+              }
+              const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
+              if (childState.row) {
+                updateConsigneHistoryTimeline(childState.row, childStatus, {
+                  consigne: childState.consigne,
+                  value: "",
+                  dayKey: resolvedDayKey,
+                  historyId: childState.historyDocumentId,
+                  responseId: childState.responseSyncOptions?.responseId || "",
+                  iterationLabel,
+                  remove: true,
+                });
+                triggerConsigneRowUpdateHighlight(childState.row);
+              }
             });
-            triggerConsigneRowUpdateHighlight(childState.row);
           }
-        }
-        try {
-          const escapeConsigneId =
-            typeof CSS !== "undefined" && typeof CSS.escape === "function"
-              ? CSS.escape(String(consigne.id ?? ""))
-              : String(consigne.id ?? "").replace(/"/g, '\\"');
-          const escapeDayKey =
-            typeof CSS !== "undefined" && typeof CSS.escape === "function"
-              ? CSS.escape(String(dayKeyToClear ?? ""))
-              : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
-          const dailyRow = document.querySelector(
-            `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
-          );
-          if (dailyRow) {
-            setConsigneRowValue(dailyRow, consigne, "");
-          }
-        } catch (_) {}
+          try {
+            const escapeConsigneId =
+              typeof CSS !== "undefined" && typeof CSS.escape === "function"
+                ? CSS.escape(String(consigne.id ?? ""))
+                : String(consigne.id ?? "").replace(/"/g, '\\"');
+            const escapeDayKey =
+              typeof CSS !== "undefined" && typeof CSS.escape === "function"
+                ? CSS.escape(String(dayKeyToClear ?? ""))
+                : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
+            const dailyRow = document.querySelector(
+              `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
+            );
+            if (dailyRow) {
+              setConsigneRowValue(dailyRow, consigne, "");
+              clearConsigneSummaryMetadata(dailyRow);
+            }
+          } catch (_) {}
+        });
         showToast("Réponses effacées.");
         closeOverlay();
         flushHistoryPanelRefresh();
@@ -11628,20 +11651,28 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         };
       });
       if (!parentHasValue) {
-        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
-        try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
-        // Also delete summary answer if this entry originated from a bilan
-        try {
-          const scope = entry?.summaryScope || entry?.periodScope || "";
-          const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
-          const answerKey = entry?.summaryKey || "";
-          if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
-            await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
+        await runWithAutoSaveSuppressed(consigne.id, resolvedDayKey, async () => {
+          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
+          try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
+          try { clearRecentResponsesForConsigne(consigne.id); } catch (e) {}
+          if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
+            try {
+              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey);
+            } catch (e) {}
           }
-        } catch (err) {
-          console.error("consigne.history.editor.save.summaryDelete", err);
-        }
+          // Also delete summary answer if this entry originated from a bilan
+          try {
+            const scope = entry?.summaryScope || entry?.periodScope || "";
+            const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
+            const answerKey = entry?.summaryKey || "";
+            if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
+            }
+          } catch (err) {
+            console.error("consigne.history.editor.save.summaryDelete", err);
+          }
+        });
+        applyDailyPrefillUpdate(null);
       } else {
         await Schema.saveHistoryEntry(
           ctx.db,
@@ -11670,27 +11701,37 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       triggerConsigneRowUpdateHighlight(row);
       for (const { state, value, hasValue } of childResults) {
         if (!hasValue) {
-          await Schema.deleteHistoryEntry(
-            ctx.db,
-            ctx.user.uid,
-            state.consigne.id,
-            state.historyDocumentId,
-            state.responseSyncOptions,
-          );
-          try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
-          try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, state.consigne.id, resolvedDayKey); } catch (e) {}
-          // Delete child summary answer if present
-          try {
-            const cEntry = state.entry || null;
-            const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
-            const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
-            const cAnswerKey = cEntry?.summaryKey || "";
-            if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
-              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
-            }
-          } catch (err) {
-            console.error("consigne.history.child.save.summaryDelete", err);
+          if (!state?.consigne?.id) {
+            continue;
           }
+          await runWithAutoSaveSuppressed(state.consigne.id, resolvedDayKey, async () => {
+            await Schema.deleteHistoryEntry(
+              ctx.db,
+              ctx.user.uid,
+              state.consigne.id,
+              state.historyDocumentId,
+              state.responseSyncOptions,
+            );
+            try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
+            try { clearRecentResponsesForConsigne(state.consigne.id); } catch (e) {}
+            if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
+              try {
+                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, state.consigne.id, resolvedDayKey);
+              } catch (e) {}
+            }
+            // Delete child summary answer if present
+            try {
+              const cEntry = state.entry || null;
+              const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
+              const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
+              const cAnswerKey = cEntry?.summaryKey || "";
+              if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
+              }
+            } catch (err) {
+              console.error("consigne.history.child.save.summaryDelete", err);
+            }
+          });
         } else {
           await Schema.saveHistoryEntry(
             ctx.db,
@@ -16666,32 +16707,36 @@ async function openHistory(ctx, consigne, options = {}) {
         clearBtn.disabled = true;
         if (submitBtn) submitBtn.disabled = true;
         try {
-          await flushAutoSaveForConsigne(consigne.id);
           const targetDocId = await ensureHistoryDocumentId();
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
-          try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
-          try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
-          syncTimelineAfterPanelChange({
-            remove: true,
-            historyId: targetDocId,
-            responseId: responseSyncOptions?.responseId || "",
+          await runWithAutoSaveSuppressed(consigne.id, dayKey, async () => {
+            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
+            try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
+            try { clearRecentResponsesForConsigne(consigne.id); } catch (e) {}
+            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
+            syncTimelineAfterPanelChange({
+              remove: true,
+              historyId: targetDocId,
+              responseId: responseSyncOptions?.responseId || "",
+            });
+            applyDailyPrefillUpdate(null);
           });
-          applyDailyPrefillUpdate(null);
           // Remove the item immediately in the UI for instant feedback
           try {
-              const li = itemNode && itemNode.closest('[data-history-entry]');
-              if (li && li.parentElement) {
-                li.parentElement.removeChild(li);
-                // Update header badge and empty state if needed
-                const listEl = panel.querySelector('.history-panel__list');
-                const badge = panel.querySelector('.history-panel__badge');
-                const count = listEl ? listEl.querySelectorAll('[data-history-entry]').length : 0;
-                if (badge) badge.textContent = count === 0 ? 'Aucune entrée' : (count === 1 ? '1 entrée' : `${count} entrées`);
-                if (listEl && count === 0) {
-                  listEl.innerHTML = '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>';
-                }
+            const li = itemNode && itemNode.closest('[data-history-entry]');
+            if (li && li.parentElement) {
+              li.parentElement.removeChild(li);
+              // Update header badge and empty state if needed
+              const listEl = panel.querySelector('.history-panel__list');
+              const badge = panel.querySelector('.history-panel__badge');
+              const count = listEl ? listEl.querySelectorAll('[data-history-entry]').length : 0;
+              if (badge) {
+                badge.textContent = count === 0 ? 'Aucune entrée' : (count === 1 ? '1 entrée' : `${count} entrées`);
               }
-            } catch (_) {}
+              if (listEl && count === 0) {
+                listEl.innerHTML = '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>';
+              }
+            }
+          } catch (_) {}
           closeEditor();
           reopenHistory();
           // Clear local recent cache and notify global listeners so other views refresh
@@ -16719,16 +16764,18 @@ async function openHistory(ctx, consigne, options = {}) {
         const isRawEmpty = rawValue === '' || rawValue == null;
         const targetDocId = await ensureHistoryDocumentId();
         if (isRawEmpty && !note) {
-          await flushAutoSaveForConsigne(consigne.id);
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
-          try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
-          try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
-          syncTimelineAfterPanelChange({
-            remove: true,
-            historyId: targetDocId,
-            responseId: responseSyncOptions?.responseId || "",
+          await runWithAutoSaveSuppressed(consigne.id, dayKey, async () => {
+            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
+            try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
+            try { clearRecentResponsesForConsigne(consigne.id); } catch (e) {}
+            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
+            syncTimelineAfterPanelChange({
+              remove: true,
+              historyId: targetDocId,
+              responseId: responseSyncOptions?.responseId || "",
+            });
+            applyDailyPrefillUpdate(null);
           });
-          applyDailyPrefillUpdate(null);
         } else {
           await Schema.saveHistoryEntry(
             ctx.db,
@@ -18818,11 +18865,34 @@ async function renderDaily(ctx, root, opts = {}) {
     return "";
   };
 
+  const isSummaryLikeEntry = (entry) => {
+    if (!entry || typeof entry !== "object") {
+      return false;
+    }
+    const scope =
+      (typeof entry.summaryScope === "string" && entry.summaryScope.trim()) ||
+      (typeof entry.summary_scope === "string" && entry.summary_scope.trim()) ||
+      "";
+    if (scope) {
+      return true;
+    }
+    const source = typeof entry.source === "string" ? entry.source.toLowerCase() : "";
+    const origin = typeof entry.origin === "string" ? entry.origin.toLowerCase() : "";
+    if (source.includes("summary") || origin.includes("summary")) {
+      return true;
+    }
+    return false;
+  };
+
   if (previousAnswers && previousAnswers.size && normalizedCurrentDayKey) {
     const filtered = new Map();
     previousAnswers.forEach((entry, consigneId) => {
       const entryKey = resolvePreviousEntryDayKey(entry);
-      if (entryKey && entryKey === normalizedCurrentDayKey) {
+      if (
+        entryKey &&
+        entryKey === normalizedCurrentDayKey &&
+        !isSummaryLikeEntry(entry)
+      ) {
         filtered.set(consigneId, entry);
       }
     });
@@ -18832,6 +18902,18 @@ async function renderDaily(ctx, root, opts = {}) {
   const observedValues = new Map();
   const autoSaveStates = new Map();
   const autoSaveErrorState = { lastShownAt: 0 };
+  const suppressedAutoSaveScopes = new Set();
+
+  const resolveAutoSaveScopeKey = (consigneId, scopeDayKey = dayKey) => {
+    const safeConsigneId = typeof consigneId === "string" || typeof consigneId === "number"
+      ? String(consigneId)
+      : "";
+    const normalizedScopeDayKey =
+      typeof scopeDayKey === "string" && scopeDayKey.trim()
+        ? normalizeHistoryDayKey(scopeDayKey)
+        : "";
+    return `${safeConsigneId}::${normalizedScopeDayKey}`;
+  };
 
   const AUTO_SAVE_DEFAULT_DELAY = 900;
   const AUTO_SAVE_LONG_DELAY = 1400;
@@ -19064,12 +19146,23 @@ async function renderDaily(ctx, root, opts = {}) {
       });
   };
 
-  const flushAutoSaveForConsigne = async (consigneId) => {
+  const flushAutoSaveForConsigneImpl = async (consigneId, targetDayKey = null) => {
     if (!consigneId) {
       return;
     }
     const state = autoSaveStates.get(consigneId);
     if (!state) {
+      const existing = previousAnswers.get(consigneId);
+      if (existing) {
+        const normalizedTarget =
+          typeof targetDayKey === "string" && targetDayKey.trim()
+            ? normalizeHistoryDayKey(targetDayKey)
+            : normalizedCurrentDayKey;
+        const entryKey = resolvePreviousEntryDayKey(existing);
+        if (!normalizedTarget || !entryKey || normalizedTarget === entryKey) {
+          previousAnswers.delete(consigneId);
+        }
+      }
       return;
     }
     if (state.timeout) {
@@ -19104,13 +19197,43 @@ async function renderDaily(ctx, root, opts = {}) {
         poll();
       });
     }
-    previousAnswers.delete(consigneId);
+    const normalizedTarget =
+      typeof targetDayKey === "string" && targetDayKey.trim()
+        ? normalizeHistoryDayKey(targetDayKey)
+        : normalizedCurrentDayKey;
+    const existing = previousAnswers.get(consigneId);
+    if (existing) {
+      const entryKey = resolvePreviousEntryDayKey(existing);
+      if (!normalizedTarget || !entryKey || normalizedTarget === entryKey) {
+        previousAnswers.delete(consigneId);
+      }
+    }
     autoSaveStates.delete(consigneId);
   };
+  flushAutoSaveForConsigne = flushAutoSaveForConsigneImpl;
+
+  const runWithAutoSaveSuppressedImpl = async (consigneId, scopeDayKey, task) => {
+    if (!consigneId || typeof task !== "function") {
+      return typeof task === "function" ? task() : undefined;
+    }
+    const scopeKey = resolveAutoSaveScopeKey(consigneId, scopeDayKey);
+    const alreadySuppressed = suppressedAutoSaveScopes.has(scopeKey);
+    suppressedAutoSaveScopes.add(scopeKey);
+    try {
+      await flushAutoSaveForConsigneImpl(consigneId, scopeDayKey);
+      return await task();
+    } finally {
+      if (!alreadySuppressed) {
+        suppressedAutoSaveScopes.delete(scopeKey);
+      }
+    }
+  };
+  runWithAutoSaveSuppressed = runWithAutoSaveSuppressedImpl;
 
   const scheduleAutoSave = (consigne, value, { serialized, hasContent, summary } = {}) => {
     if (!consigne || !consigne.id) return;
     const consigneId = consigne.id;
+    const scopeKey = resolveAutoSaveScopeKey(consigneId, dayKey);
     const computedSerialized = serialized !== undefined ? serialized : serializeValueForComparison(consigne, value);
     const effectiveHasContent = hasContent !== undefined ? hasContent : hasValueForConsigne(consigne, value);
     const state = autoSaveStates.get(consigneId) || {
@@ -19133,6 +19256,23 @@ async function renderDaily(ctx, root, opts = {}) {
     state.pendingSummary = effectiveHasContent
       ? normalizeSummaryMetadataInput(summary)
       : null;
+
+    if (suppressedAutoSaveScopes.has(scopeKey)) {
+      if (state.timeout) {
+        clearTimeout(state.timeout);
+        state.timeout = null;
+      }
+      if (!state.inFlight) {
+        autoSaveStates.delete(consigneId);
+      } else {
+        state.pendingHasContent = false;
+        state.pendingValue = null;
+        state.pendingSerialized = null;
+        state.pendingSummary = null;
+        autoSaveStates.set(consigneId, state);
+      }
+      return;
+    }
 
     const savedEntry = previousAnswers.get(consigneId);
     if (savedEntry && savedEntry.__serialized === undefined && Object.prototype.hasOwnProperty.call(savedEntry, "value")) {
