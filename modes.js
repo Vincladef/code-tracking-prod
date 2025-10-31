@@ -12,6 +12,19 @@ const prefillLog = (...args) => {
     try { console.info("[prefill-audit]", ...args); } catch (_) {}
   }
 };
+// Emphasized alert for problematic prefill states (styled red in console)
+const prefillAlert = (label, payload = {}) => {
+  try {
+    const msg = `[prefill-audit] ${label}`;
+    if (typeof console?.log === "function") {
+      console.log(`%c${msg}`, "color:#b91c1c; font-weight:700", payload);
+    } else if (typeof console?.error === "function") {
+      console.error(msg, payload);
+    } else if (typeof modesLogger?.warn === "function") {
+      modesLogger.warn(msg, payload);
+    }
+  } catch (_) {}
+};
 
 let checkboxBehaviorSetupPromise = null;
 
@@ -12251,6 +12264,20 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
           status,
           rendered: state.hasDayTimeline,
         });
+        // Highlight if row shows an answer but no timeline point exists for the day
+        try {
+          const rowStatus = row?.dataset?.status || null;
+          const rowHasAnswer = row?.dataset?.hasAnswer === "1";
+          if (!hasPoint && rowStatus && rowStatus !== "na") {
+            prefillAlert("timeline-mismatch", {
+              consigneId: consigne.id,
+              dayKey: dayKeyForAudit,
+              rowStatus,
+              rowHasAnswer,
+              timelineHasPoint: hasPoint,
+            });
+          }
+        } catch (_) {}
       } catch (_) {}
       scheduleConsigneHistoryNavUpdate(state);
     })
@@ -12437,6 +12464,15 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
     ? { skipped: true }
     : rawValue;
   let status = dotColor(consigne.type, valueForStatus, consigne);
+  // Track whether this row truly has an answer
+  let hasOwnAnswer = false;
+  try {
+    hasOwnAnswer = consigne.type === "checklist"
+      ? hasChecklistResponse(consigne, row, valueForStatus)
+      : hasValueForConsigne(consigne, valueForStatus);
+  } catch (_) {
+    hasOwnAnswer = false;
+  }
   try {
     prefillLog("status.compute", {
       at: "updateConsigneStatusUI",
@@ -12447,6 +12483,7 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
       valueType: valueForStatus == null ? "null" : typeof valueForStatus,
       incomingStatus: status,
       prevStatus: row?.dataset?.status || null,
+      hasOwnAnswer,
     });
   } catch (_) {}
   try {
@@ -12456,6 +12493,12 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
       status,
     });
   } catch (_) {}
+  // Persist hasAnswer flag for parent propagation logic
+  if (hasOwnAnswer) {
+    row.dataset.hasAnswer = "1";
+  } else {
+    delete row.dataset.hasAnswer;
+  }
   if (status === "na" && row.dataset.childAnswered === "1") {
     status = "note";
   }
@@ -13240,8 +13283,8 @@ function attachConsigneEditor(row, consigne, options = {}) {
     const hasChildAnswered = childConsignes.some((childState) => {
       const childRow = childState?.row;
       if (!(childRow instanceof HTMLElement)) return false;
-      const status = childRow.dataset?.status;
-      return status && status !== "na";
+      // Only consider a child answered if it actually has an answer, not just a non-na visual
+      return childRow.dataset?.hasAnswer === "1";
     });
     if (hasChildAnswered) {
       row.dataset.childAnswered = "1";
@@ -19405,8 +19448,9 @@ async function renderDaily(ctx, root, opts = {}) {
           // Ensure flags that can force non-NA status are cleared
           try {
             delete dailyRow.dataset.currentValue;
-            dailyRow.dataset.skipAnswered = "0";
-            dailyRow.dataset.childAnswered = "0";
+            delete dailyRow.dataset.skipAnswered;
+            delete dailyRow.dataset.childAnswered;
+            delete dailyRow.dataset.hasAnswer;
           } catch (_) {}
           try { updateConsigneStatusUI(dailyRow, consigne, nextValue); } catch (_) {}
           triggerConsigneRowUpdateHighlight(dailyRow);
@@ -19731,7 +19775,7 @@ async function renderDaily(ctx, root, opts = {}) {
             isSummaryLikePrev: isSummaryLike,
           });
           if (mismatch) {
-            prefillLog("row-mismatch", {
+            prefillAlert("row-mismatch", {
               consigneId: item.id,
               reason: "status-not-na-without-day-prev",
               at: "renderItemCard:post",
