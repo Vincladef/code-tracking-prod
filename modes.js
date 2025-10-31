@@ -6073,28 +6073,19 @@ function inputForType(consigne, initialValue = null, options = {}) {
                   console.info('[checklist] hydrate.hidden.skip-options-mismatch', { rawOptionsHash, currentOptionsHash });
                   return;
                 }
-                if (hiddenKey && pageDateKey && hiddenKey !== pageDateKey) {
-                  console.info('[checklist] hydrate.hidden.fix-date-mismatch', { hiddenKey, pageDateKey });
+                if (hiddenKey && pageDateKey && hiddenKey !== pageDateKey && !isHistoryContext) {
+                  console.info('[checklist] hydrate.hidden.skip-date-mismatch', { hiddenKey, pageDateKey });
                   try {
-                    const clone = Array.isArray(raw)
-                      ? { items: raw.map((v) => v === true) }
-                      : { ...raw };
-                    clone.dateKey = pageDateKey;
-                    raw = clone;
-                    hidden.value = JSON.stringify(clone);
+                    hidden.value = '';
                   } catch (_) {}
+                  return;
                 }
-                if (pageDateKey && !hiddenKey) {
-                  // Page avec date explicite mais payload sans dateKey → injecter la clé et continuer
-                  console.info('[checklist] hydrate.hidden.inject-dateKey', { pageDateKey });
+                if (pageDateKey && !hiddenKey && !isHistoryContext) {
+                  console.info('[checklist] hydrate.hidden.skip-missing-dateKey', { pageDateKey });
                   try {
-                    const clone = Array.isArray(raw)
-                      ? { items: raw.map((v) => v === true) }
-                      : { ...raw };
-                    clone.dateKey = pageDateKey;
-                    raw = clone;
-                    hidden.value = JSON.stringify(clone);
+                    hidden.value = '';
                   } catch (_) {}
+                  return;
                 }
               } catch (e) {}
               const payload = Array.isArray(raw)
@@ -10012,6 +10003,7 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
     return null;
   }
   const normalizedTarget = normalizeHistoryDayKey(dayKey);
+  const allowSummaries = options.allowSummaries === true;
   const responseTarget =
     typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
   const historyTarget =
@@ -10045,6 +10037,18 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
     const responseMatch = responseTarget && resolvedResponseId && resolvedResponseId === responseTarget;
     const dayMatch = normalizedTarget && candidateKey && candidateKey === normalizedTarget;
 
+    const summaryScopeCandidate =
+      typeof entry?.summaryScope === "string"
+        ? entry.summaryScope
+        : typeof entry?.summary_scope === "string"
+        ? entry.summary_scope
+        : "";
+    const isSummaryEntry = Boolean(keyInfo?.isSummary) || Boolean(summaryScopeCandidate);
+
+    if (!allowSummaries && !historyMatch && !responseMatch && isSummaryEntry) {
+      return;
+    }
+
     // Skip obvious non-matches when neither ids nor day align.
     if (!historyMatch && !responseMatch && !dayMatch) {
       return;
@@ -10067,8 +10071,9 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
         weight -= 120;
       }
     }
-    if (keyInfo?.isSummary) weight -= 250;
-    if (typeof entry?.source === "string" && entry.source.includes("summary")) {
+    if (isSummaryEntry) {
+      weight -= allowSummaries ? 40 : 250;
+    } else if (typeof entry?.source === "string" && entry.source.includes("summary")) {
       weight -= 40;
     }
 
@@ -10225,6 +10230,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     historyId: explicitHistoryId,
     debug: consigne.type === "checklist" ? "bilan-editor" : "",
     expectedSummary,
+    allowSummaries: true,
   });
   const entry = match?.entry || null;
   const keyInfo = match?.keyInfo || null;
@@ -10357,7 +10363,9 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         } catch (_) {}
         childEntries = [];
       }
-      const childMatch = findHistoryEntryForDayKey(childEntries, child, resolvedDayKey);
+      const childMatch = findHistoryEntryForDayKey(childEntries, child, resolvedDayKey, {
+        allowSummaries: true,
+      });
       const childEntry = childMatch?.entry || null;
       const childRawValue = childEntry?.value !== undefined ? childEntry.value : "";
       let childValue = childRawValue;
@@ -10632,6 +10640,9 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       if (submitBtn) submitBtn.disabled = true;
       try {
         const dayKeyToClear = resolvedDayKey;
+        if (consigne?.id) {
+          await flushAutoSaveForConsigne(consigne.id);
+        }
         if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
           try {
             await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
@@ -10664,9 +10675,13 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         triggerConsigneRowUpdateHighlight(row);
         for (const childState of baseChildStates) {
           try {
-            if (ctx?.db && ctx?.user?.uid && childState?.consigne?.id && dayKeyToClear) {
+            const childConsigneId = childState?.consigne?.id;
+            if (childConsigneId) {
+              await flushAutoSaveForConsigne(childConsigneId);
+            }
+            if (ctx?.db && ctx?.user?.uid && childConsigneId && dayKeyToClear) {
               try {
-                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, dayKeyToClear);
+                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
               } catch (_) {}
             }
             try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
@@ -10780,6 +10795,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         };
       });
       if (!parentHasValue) {
+        await flushAutoSaveForConsigne(consigne.id);
         await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
         try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
         try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey); } catch (e) {}
@@ -10821,6 +10837,9 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       triggerConsigneRowUpdateHighlight(row);
       for (const { state, value, hasValue } of childResults) {
         if (!hasValue) {
+          if (state?.consigne?.id) {
+            await flushAutoSaveForConsigne(state.consigne.id);
+          }
           await Schema.deleteHistoryEntry(
             ctx.db,
             ctx.user.uid,
@@ -11473,6 +11492,9 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       if (submitBtn) submitBtn.disabled = true;
       try {
         const dayKeyToClear = resolvedDayKey || dayKey;
+        if (consigne?.id) {
+          await flushAutoSaveForConsigne(consigne.id);
+        }
         if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
           try {
             await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
@@ -11505,9 +11527,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         triggerConsigneRowUpdateHighlight(row);
         for (const childState of baseChildStates) {
           try {
-            if (ctx?.db && ctx?.user?.uid && childState?.consigne?.id && dayKeyToClear) {
+            const childConsigneId = childState?.consigne?.id;
+            if (childConsigneId) {
+              await flushAutoSaveForConsigne(childConsigneId);
+            }
+            if (ctx?.db && ctx?.user?.uid && childConsigneId && dayKeyToClear) {
               try {
-                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childState.consigne.id, dayKeyToClear);
+                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
               } catch (_) {}
             }
             try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
@@ -16493,46 +16519,6 @@ async function openHistory(ctx, consigne, options = {}) {
       });
       triggerConsigneRowUpdateHighlight(timelineRow);
     };
-    const waitForAutoSaveFlush = async (targetConsigneId) => {
-      if (!targetConsigneId) {
-        return;
-      }
-      const state = autoSaveStates.get(targetConsigneId);
-      if (!state) {
-        return;
-      }
-      if (state.timeout) {
-        clearTimeout(state.timeout);
-        state.timeout = null;
-      }
-      state.pendingHasContent = false;
-      autoSaveStates.set(targetConsigneId, state);
-      const promise = state.inFlightPromise;
-      if (promise && typeof promise.then === "function") {
-        try {
-          await promise;
-        } catch (_) {}
-      } else if (state.inFlight) {
-        await new Promise((resolve) => {
-          let attempts = 0;
-          const poll = () => {
-            const latest = autoSaveStates.get(targetConsigneId);
-            if (!latest || !latest.inFlight) {
-              resolve();
-              return;
-            }
-            attempts += 1;
-            if (attempts >= 10) {
-              resolve();
-              return;
-            }
-            setTimeout(poll, 80);
-          };
-          poll();
-        });
-      }
-      autoSaveStates.delete(targetConsigneId);
-    };
     const applyDailyPrefillUpdate = (nextValue) => {
       if (nextValue === null) {
         previousAnswers.delete(consigne.id);
@@ -16680,7 +16666,7 @@ async function openHistory(ctx, consigne, options = {}) {
         clearBtn.disabled = true;
         if (submitBtn) submitBtn.disabled = true;
         try {
-          await waitForAutoSaveFlush(consigne.id);
+          await flushAutoSaveForConsigne(consigne.id);
           const targetDocId = await ensureHistoryDocumentId();
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
           try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
@@ -16733,7 +16719,7 @@ async function openHistory(ctx, consigne, options = {}) {
         const isRawEmpty = rawValue === '' || rawValue == null;
         const targetDocId = await ensureHistoryDocumentId();
         if (isRawEmpty && !note) {
-          await waitForAutoSaveFlush(consigne.id);
+          await flushAutoSaveForConsigne(consigne.id);
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
           try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
           try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
@@ -19076,6 +19062,50 @@ async function renderDaily(ctx, root, opts = {}) {
         }
         autoSaveStates.delete(consigneId);
       });
+  };
+
+  const flushAutoSaveForConsigne = async (consigneId) => {
+    if (!consigneId) {
+      return;
+    }
+    const state = autoSaveStates.get(consigneId);
+    if (!state) {
+      return;
+    }
+    if (state.timeout) {
+      clearTimeout(state.timeout);
+      state.timeout = null;
+    }
+    state.pendingHasContent = false;
+    state.pendingValue = null;
+    state.pendingSerialized = null;
+    state.pendingSummary = null;
+    autoSaveStates.set(consigneId, state);
+    const promise = state.inFlightPromise;
+    if (promise && typeof promise.then === "function") {
+      try {
+        await promise;
+      } catch (_) {}
+    } else if (state.inFlight) {
+      await new Promise((resolve) => {
+        const startedAt = Date.now();
+        const poll = () => {
+          const latest = autoSaveStates.get(consigneId);
+          if (!latest || !latest.inFlight) {
+            resolve();
+            return;
+          }
+          if (Date.now() - startedAt > 2000) {
+            resolve();
+            return;
+          }
+          setTimeout(poll, 80);
+        };
+        poll();
+      });
+    }
+    previousAnswers.delete(consigneId);
+    autoSaveStates.delete(consigneId);
   };
 
   const scheduleAutoSave = (consigne, value, { serialized, hasContent, summary } = {}) => {
