@@ -10067,9 +10067,9 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
         weight -= 120;
       }
     }
-    if (keyInfo?.isSummary) weight -= 10;
+    if (keyInfo?.isSummary) weight -= 250;
     if (typeof entry?.source === "string" && entry.source.includes("summary")) {
-      weight -= 5;
+      weight -= 40;
     }
 
     scoredMatches.push({
@@ -16493,7 +16493,61 @@ async function openHistory(ctx, consigne, options = {}) {
       });
       triggerConsigneRowUpdateHighlight(timelineRow);
     };
+    const waitForAutoSaveFlush = async (targetConsigneId) => {
+      if (!targetConsigneId) {
+        return;
+      }
+      const state = autoSaveStates.get(targetConsigneId);
+      if (!state) {
+        return;
+      }
+      if (state.timeout) {
+        clearTimeout(state.timeout);
+        state.timeout = null;
+      }
+      state.pendingHasContent = false;
+      autoSaveStates.set(targetConsigneId, state);
+      const promise = state.inFlightPromise;
+      if (promise && typeof promise.then === "function") {
+        try {
+          await promise;
+        } catch (_) {}
+      } else if (state.inFlight) {
+        await new Promise((resolve) => {
+          let attempts = 0;
+          const poll = () => {
+            const latest = autoSaveStates.get(targetConsigneId);
+            if (!latest || !latest.inFlight) {
+              resolve();
+              return;
+            }
+            attempts += 1;
+            if (attempts >= 10) {
+              resolve();
+              return;
+            }
+            setTimeout(poll, 80);
+          };
+          poll();
+        });
+      }
+      autoSaveStates.delete(targetConsigneId);
+    };
     const applyDailyPrefillUpdate = (nextValue) => {
+      if (nextValue === null) {
+        previousAnswers.delete(consigne.id);
+      } else if (nextValue !== undefined) {
+        const base = previousAnswers.get(consigne.id) || { consigneId: consigne.id };
+        const entry = {
+          ...base,
+          consigneId: consigne.id,
+          value: nextValue,
+          dayKey,
+          updatedAt: new Date().toISOString(),
+        };
+        delete entry.__serialized;
+        previousAnswers.set(consigne.id, entry);
+      }
       if (!dayKey) {
         return;
       }
@@ -16626,6 +16680,7 @@ async function openHistory(ctx, consigne, options = {}) {
         clearBtn.disabled = true;
         if (submitBtn) submitBtn.disabled = true;
         try {
+          await waitForAutoSaveFlush(consigne.id);
           const targetDocId = await ensureHistoryDocumentId();
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
           try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
@@ -16678,6 +16733,7 @@ async function openHistory(ctx, consigne, options = {}) {
         const isRawEmpty = rawValue === '' || rawValue == null;
         const targetDocId = await ensureHistoryDocumentId();
         if (isRawEmpty && !note) {
+          await waitForAutoSaveFlush(consigne.id);
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
           try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
           try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
@@ -18961,7 +19017,10 @@ async function renderDaily(ctx, root, opts = {}) {
         skipped: !!(pendingValue && typeof pendingValue === 'object' && pendingValue.skipped === true),
       });
     } catch (_) {}
-    Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers)
+    const savePromise = Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers);
+    state.inFlightPromise = savePromise;
+    autoSaveStates.set(consigneId, state);
+    savePromise
       .then(async () => {
         try {
           modesLogger?.info?.("daily.autosave.saved", {
@@ -18997,6 +19056,7 @@ async function renderDaily(ctx, root, opts = {}) {
           return;
         }
         latest.inFlight = false;
+        latest.inFlightPromise = null;
         const hasPendingChange = latest.pendingHasContent && latest.pendingSerialized !== pendingSerialized;
         if (hasPendingChange && !latest.timeout) {
           const delay = resolveAutoSaveDelay(latest.consigne);
@@ -19031,7 +19091,11 @@ async function renderDaily(ctx, root, opts = {}) {
       pendingSummary: null,
       timeout: null,
       inFlight: false,
+      inFlightPromise: null,
     };
+    if (state.inFlightPromise === undefined) {
+      state.inFlightPromise = null;
+    }
     state.consigne = consigne;
     state.pendingValue = value;
     state.pendingSerialized = computedSerialized;
