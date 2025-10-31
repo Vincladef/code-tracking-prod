@@ -12461,6 +12461,172 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
 const consigneRowUpdateTimers = new WeakMap();
 const CONSIGNE_ROW_UPDATE_DURATION = 900;
 
+const PREFILL_DEBUG_STATE = new WeakMap();
+const PREFILL_DEBUG_CONTEXT_STACK = [];
+const PREFILL_UNEXPECTED_LOGGED = new Set();
+
+function pushPrefillDebugContext(context) {
+  PREFILL_DEBUG_CONTEXT_STACK.push(context || null);
+}
+
+function popPrefillDebugContext() {
+  if (PREFILL_DEBUG_CONTEXT_STACK.length) {
+    PREFILL_DEBUG_CONTEXT_STACK.pop();
+  }
+}
+
+function peekPrefillDebugContext() {
+  if (!PREFILL_DEBUG_CONTEXT_STACK.length) {
+    return null;
+  }
+  return PREFILL_DEBUG_CONTEXT_STACK[PREFILL_DEBUG_CONTEXT_STACK.length - 1] || null;
+}
+
+function safeJsonSample(value, maxLength = 160) {
+  try {
+    const raw = JSON.stringify(value);
+    if (typeof raw === "string") {
+      return raw.length > maxLength ? `${raw.slice(0, maxLength)}…` : raw;
+    }
+  } catch (_) {}
+  try {
+    const str = String(value);
+    return str.length > maxLength ? `${str.slice(0, maxLength)}…` : str;
+  } catch (_) {}
+  return null;
+}
+
+function summarizePrefillValue(value) {
+  if (value == null) {
+    return { type: value === null ? "null" : "undefined" };
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return {
+      type: "string",
+      length: value.length,
+      preview: trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed,
+    };
+  }
+  if (Array.isArray(value)) {
+    return {
+      type: "array",
+      length: value.length,
+      preview: safeJsonSample(value),
+    };
+  }
+  if (typeof value === "object") {
+    const keys = Object.keys(value);
+    return {
+      type: "object",
+      keys,
+      preview: safeJsonSample(value),
+    };
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return { type: typeof value, value };
+  }
+  return { type: typeof value };
+}
+
+function recordPrefillDebug(row, info = {}) {
+  if (!(row instanceof HTMLElement)) {
+    return;
+  }
+  const existing = PREFILL_DEBUG_STATE.get(row) || { history: [] };
+  const entry = {
+    timestamp: info.timestamp || Date.now(),
+    consigneId: info.consigneId ?? null,
+    consigneType: info.consigneType ?? null,
+    context: info.context || null,
+    directSource: info.directSource || null,
+    valueSummary: summarizePrefillValue(info.value),
+    stack: typeof info.stack === "string" ? info.stack : "",
+  };
+  existing.last = entry;
+  existing.history.push(entry);
+  if (existing.history.length > 8) {
+    existing.history.shift();
+  }
+  PREFILL_DEBUG_STATE.set(row, existing);
+}
+
+function readPrefillDebug(row) {
+  if (!(row instanceof HTMLElement)) {
+    return null;
+  }
+  return PREFILL_DEBUG_STATE.get(row) || null;
+}
+
+function deriveStackFrame(stack) {
+  if (!stack) return "";
+  const lines = String(stack)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) return "";
+  const projectLine = lines.find((line) => line.includes("modes.js"));
+  return projectLine || lines[1] || lines[0] || "";
+}
+
+function maybeReportUnexpectedPrefill(consigne, row, { status, value, note, hasOwnAnswer, skipFlag }) {
+  if (!row || !consigne) {
+    return;
+  }
+  if (status === "na") {
+    return;
+  }
+  const rawDayKey = row.dataset?.dayKey || "";
+  const normalizedDayKey = normalizeHistoryDayKey(rawDayKey || "");
+  const logKey = `${consigne.id ?? "unknown"}::${normalizedDayKey || rawDayKey || "none"}::${status}`;
+  if (PREFILL_UNEXPECTED_LOGGED.has(logKey)) {
+    return;
+  }
+  const snapshot = collectConsigneTimelineSnapshot(consigne);
+  const timelineItems = Array.isArray(snapshot?.items) ? snapshot.items : [];
+  const timelineHasMatchingDay = timelineItems.some((item) => {
+    const itemKey = item?.normalizedDayKey || normalizeHistoryDayKey(item?.dayKey || "");
+    if (!itemKey && !normalizedDayKey) {
+      return false;
+    }
+    const comparable = itemKey || item?.dayKey || "";
+    return comparable && comparable === (normalizedDayKey || rawDayKey);
+  });
+  if (timelineHasMatchingDay) {
+    return;
+  }
+  const debugInfo = readPrefillDebug(row);
+  const lastEntry = debugInfo?.last || null;
+  const lastStackFrame = deriveStackFrame(lastEntry?.stack || "");
+  const payload = {
+    consigneId: consigne?.id ?? null,
+    consigneType: consigne?.type || null,
+    dayKey: rawDayKey || null,
+    normalizedDayKey: normalizedDayKey || null,
+    status,
+    skipFlag,
+    hasOwnAnswer,
+    notePreview: note || "",
+    valueSummary: summarizePrefillValue(value),
+    timelineCount: timelineItems.length,
+    timelineHasMatchingDay,
+    timelineSample: timelineItems.slice(0, 5).map((item) => ({
+      dayKey: item?.dayKey || null,
+      normalizedDayKey: item?.normalizedDayKey || null,
+      status: item?.status || null,
+      historyId: item?.historyId || null,
+      responseId: item?.responseId || null,
+    })),
+    debugContext: lastEntry?.context || null,
+    debugValueSummary: lastEntry?.valueSummary || null,
+    debugDirectSource: lastEntry?.directSource || null,
+    triggerStackFrame: lastStackFrame,
+    stackExcerpt: lastEntry?.stack ? lastEntry.stack.split("\n").slice(0, 8) : [],
+  };
+  prefillAlert("❌ unexpected daily prefill without history", payload);
+  PREFILL_UNEXPECTED_LOGGED.add(logKey);
+}
+
 function clearConsigneRowUpdateHighlight(row) {
   if (!row) return;
   const timer = consigneRowUpdateTimers.get(row);
@@ -12619,6 +12785,17 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
         dayKey: row?.dataset?.dayKey || null,
       },
     }));
+  }
+  try {
+    maybeReportUnexpectedPrefill(consigne, row, {
+      status,
+      value: valueForStatus,
+      note: textualNote,
+      hasOwnAnswer,
+      skipFlag,
+    });
+  } catch (error) {
+    prefillLog("prefill.debug.unexpected.log.error", { error: String(error?.message || error) });
   }
 }
 
@@ -13057,6 +13234,18 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
 
 function setConsigneRowValue(row, consigne, value) {
   const skipWasActive = row?.dataset?.skipAnswered === "1";
+  const currentDebugContext = peekPrefillDebugContext();
+  try {
+    recordPrefillDebug(row, {
+      timestamp: Date.now(),
+      consigneId: consigne?.id ?? null,
+      consigneType: consigne?.type || null,
+      value,
+      context: currentDebugContext,
+      directSource: currentDebugContext?.source || null,
+      stack: new Error("prefill-update-trace").stack,
+    });
+  } catch (_) {}
   const maintainOrClearSkip = (hasAnswer) => {
     if (skipWasActive && !hasAnswer) {
       applyConsigneSkipState(row, consigne, true, { updateUI: true });
@@ -16770,7 +16959,18 @@ async function openHistory(ctx, consigne, options = {}) {
           return;
         }
         const valueToApply = nextValue === undefined ? null : nextValue;
-        setConsigneRowValue(dailyRow, consigne, valueToApply);
+        const context = {
+          source: "history:updateDailyPrefillCacheForHistoryEdit",
+          consigneId: consigne?.id ?? null,
+          dayKey,
+          action: valueToApply === null ? "clear" : "apply",
+        };
+        pushPrefillDebugContext(context);
+        try {
+          setConsigneRowValue(dailyRow, consigne, valueToApply);
+        } finally {
+          popPrefillDebugContext();
+        }
         triggerConsigneRowUpdateHighlight(dailyRow);
       } catch (_) {}
     };
@@ -16779,6 +16979,13 @@ async function openHistory(ctx, consigne, options = {}) {
         updateDailyPrefillCacheForHistoryEdit(nextValue);
       } catch (_) {}
       const normalizedValue = nextValue === undefined ? null : nextValue;
+      const context = {
+        source: "history:propagateDailyPrefillUpdate",
+        consigneId: consigne?.id ?? null,
+        dayKey,
+        action: normalizedValue === null ? "clear" : "apply",
+      };
+      pushPrefillDebugContext(context);
       try {
         if (typeof window !== "undefined" && window?.Modes?.applyDailyPrefillUpdate) {
           window.Modes.applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue);
@@ -16786,6 +16993,7 @@ async function openHistory(ctx, consigne, options = {}) {
           applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue);
         }
       } catch (_) {}
+      popPrefillDebugContext();
     };
     const labelForAttr3 = consigne.type === "checklist" ? "" : ` for="${fieldId}"`;
     const editorHtml = `
