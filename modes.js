@@ -12501,9 +12501,8 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
   } else {
     delete row.dataset.hasAnswer;
   }
-  if (status === "na" && row.dataset.childAnswered === "1") {
-    status = "note";
-  }
+  // Do not elevate parent status based solely on child activity; keep parent 'na'
+  // until it has its own explicit answer. This avoids pre-coloring without a dot.
   if (consigne.type === "checklist") {
     const highlight =
       checklistIsComplete(valueForStatus) ||
