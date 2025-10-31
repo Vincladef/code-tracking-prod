@@ -16493,6 +16493,29 @@ async function openHistory(ctx, consigne, options = {}) {
       });
       triggerConsigneRowUpdateHighlight(timelineRow);
     };
+    const applyDailyPrefillUpdate = (nextValue) => {
+      if (!dayKey) {
+        return;
+      }
+      try {
+        const escapeConsigneId =
+          typeof CSS !== "undefined" && typeof CSS.escape === "function"
+            ? CSS.escape(String(consigne.id ?? ""))
+            : String(consigne.id ?? "").replace(/"/g, '\\"');
+        const escapeDayKey =
+          typeof CSS !== "undefined" && typeof CSS.escape === "function"
+            ? CSS.escape(String(dayKey ?? ""))
+            : String(dayKey ?? "").replace(/"/g, '\\"');
+        const selector = `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`;
+        const dailyRow = document.querySelector(selector);
+        if (!dailyRow) {
+          return;
+        }
+        const valueToApply = nextValue === undefined ? null : nextValue;
+        setConsigneRowValue(dailyRow, consigne, valueToApply);
+        triggerConsigneRowUpdateHighlight(dailyRow);
+      } catch (_) {}
+    };
     const labelForAttr3 = consigne.type === "checklist" ? "" : ` for="${fieldId}"`;
     const editorHtml = `
       <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
@@ -16612,8 +16635,9 @@ async function openHistory(ctx, consigne, options = {}) {
             historyId: targetDocId,
             responseId: responseSyncOptions?.responseId || "",
           });
-            // Remove the item immediately in the UI for instant feedback
-            try {
+          applyDailyPrefillUpdate(null);
+          // Remove the item immediately in the UI for instant feedback
+          try {
               const li = itemNode && itemNode.closest('[data-history-entry]');
               if (li && li.parentElement) {
                 li.parentElement.removeChild(li);
@@ -16662,6 +16686,7 @@ async function openHistory(ctx, consigne, options = {}) {
             historyId: targetDocId,
             responseId: responseSyncOptions?.responseId || "",
           });
+          applyDailyPrefillUpdate(null);
         } else {
           await Schema.saveHistoryEntry(
             ctx.db,
@@ -16682,6 +16707,7 @@ async function openHistory(ctx, consigne, options = {}) {
             historyId: targetDocId,
             responseId: responseSyncOptions?.responseId || "",
           });
+          applyDailyPrefillUpdate(rawValue);
         }
         closeEditor();
         reopenHistory();
