@@ -1217,6 +1217,8 @@
       const hasValue = typeof Modes.hasValueForConsigne === "function"
         ? Modes.hasValueForConsigne(consigne, value)
         : !(value === null || value === undefined || value === "");
+      // Snapshot current presence before we mutate the in-memory map
+      const existedBefore = answersMap.has(key);
 
       const baseAnswer = {
         id: key,
@@ -1252,20 +1254,22 @@
             metadataForPersist,
           );
           await syncObjectiveEntryFromSummary(ctx, consigne, value, false, period);
-          // Update timeline immediately: remove bilan point for this period
-          try {
-            const status = typeof Modes?.dotColor === 'function' ? (Modes.dotColor(consigne.type, '', consigne) || 'na') : 'na';
-            if (typeof Modes?.updateConsigneHistoryTimeline === 'function' && row) {
-              Modes.updateConsigneHistoryTimeline(row, status, {
-                consigne,
-                value: '',
-                dayKey: summaryDayKey,
-                isBilan: true,
-                summaryScope: normalizedSummaryScope,
-                remove: true,
-              });
-            }
-          } catch (_) {}
+          // UI: only remove the star if one existed previously for this key
+          if (existedBefore) {
+            try {
+              const status = typeof Modes?.dotColor === 'function' ? (Modes.dotColor(consigne.type, '', consigne) || 'na') : 'na';
+              if (typeof Modes?.updateConsigneHistoryTimeline === 'function' && row) {
+                Modes.updateConsigneHistoryTimeline(row, status, {
+                  consigne,
+                  value: '',
+                  dayKey: summaryDayKey,
+                  isBilan: true,
+                  summaryScope: normalizedSummaryScope,
+                  remove: true,
+                });
+              }
+            } catch (_) {}
+          }
           try {
             if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
               window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
@@ -1295,7 +1299,7 @@
           metadataForPersist,
         );
         await syncObjectiveEntryFromSummary(ctx, consigne, value, true, period);
-        // Update timeline immediately: add/update bilan point for this period
+        // UI: add/update the star for this period immediately
         try {
           const status = typeof Modes?.dotColor === 'function' ? (Modes.dotColor(consigne.type, value, consigne) || 'na') : 'na';
           if (typeof Modes?.updateConsigneHistoryTimeline === 'function' && row) {
