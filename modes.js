@@ -10681,7 +10681,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             remove: true,
           });
           triggerConsigneRowUpdateHighlight(row);
-          applyDailyPrefillUpdate(null);
+          try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, ""); } catch (_) {}
           for (const childState of baseChildStates) {
             const childConsigneId = childState?.consigne?.id;
             if (!childConsigneId) {
@@ -10825,7 +10825,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             console.error("bilan.history.editor.save.summaryDelete", err);
           }
         });
-        applyDailyPrefillUpdate(null);
+          try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, ""); } catch (_) {}
       } else {
         await Schema.saveHistoryEntry(
           ctx.db,
@@ -11549,7 +11549,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             remove: true,
           });
           triggerConsigneRowUpdateHighlight(row);
-          applyDailyPrefillUpdate(null);
+          try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) {}
           for (const childState of baseChildStates) {
             const childConsigneId = childState?.consigne?.id;
             if (!childConsigneId) {
@@ -11674,7 +11674,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             console.error("consigne.history.editor.save.summaryDelete", err);
           }
         });
-        applyDailyPrefillUpdate(null);
+  try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) {}
       } else {
         await Schema.saveHistoryEntry(
           ctx.db,
@@ -19322,6 +19322,65 @@ async function renderDaily(ctx, root, opts = {}) {
     state.timeout = setTimeout(() => runAutoSave(consigneId), delay);
     autoSaveStates.set(consigneId, state);
   };
+
+  // Expose a robust global updater for daily UI/caches after external edits
+  // Signature: applyDailyPrefillUpdate(consigneId, targetDayKey = dayKey, nextValue = "")
+  // Backward-compat: if called with a single argument (nextValue), it's ignored here; callers should pass ids.
+  try {
+    const cssEscape = (v) => (typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(String(v)) : String(v).replace(/"/g, '\\"'));
+    const inferTypeFromRow = (row, consigneId) => {
+      const field = row?.querySelector?.(`[name$=":${cssEscape(consigneId)}"]`);
+      const prefix = field && typeof field.name === "string" ? field.name.split(":")[0] : "";
+      if (row?.querySelector?.("[data-checklist-root]")) return "checklist";
+      if (prefix === "yesno") return "yesno";
+      if (prefix === "likert6") return "likert6";
+      if (prefix === "likert5") return "likert5";
+      if (prefix === "montant") return "montant";
+      if (prefix === "num") return "num";
+      if (prefix === "long") return "long";
+      if (prefix === "short") return "short";
+      return "short";
+    };
+    applyDailyPrefillUpdate = (consigneId, targetDayKey = dayKey, nextValue = "") => {
+      if (!consigneId) return;
+      const normalizedTarget = typeof targetDayKey === "string" && targetDayKey.trim() ? normalizeHistoryDayKey(targetDayKey) : normalizeHistoryDayKey(dayKey || "");
+      try { observedValues.delete(consigneId); } catch (_) {}
+      try {
+        const existing = previousAnswers.get(consigneId);
+        const entryKey = existing ? resolvePreviousEntryDayKey(existing) : null;
+        if (!existing || !entryKey || !normalizedTarget || entryKey === normalizedTarget) {
+          previousAnswers.delete(consigneId);
+        }
+      } catch (_) {}
+      try { removeRecentResponsesForDay(consigneId, normalizedTarget); } catch (_) {}
+
+      // Prevent autosave relaunch while clearing
+      try {
+        const scopeKey = resolveAutoSaveScopeKey(consigneId, normalizedTarget);
+        suppressedAutoSaveScopes.add(scopeKey);
+        setTimeout(() => suppressedAutoSaveScopes.delete(scopeKey), 1500);
+      } catch (_) {}
+
+      // Update DOM row
+      try {
+        const sel = `[data-consigne-id="${cssEscape(consigneId)}"][data-day-key="${cssEscape(normalizedTarget)}"]`;
+        const dailyRow = document.querySelector(sel);
+        if (dailyRow) {
+          const type = inferTypeFromRow(dailyRow, consigneId);
+          const consigne = { id: consigneId, type };
+          setConsigneRowValue(dailyRow, consigne, nextValue);
+          clearConsigneSummaryMetadata(dailyRow);
+          triggerConsigneRowUpdateHighlight(dailyRow);
+        }
+      } catch (_) {}
+    };
+    // Also expose on window for safety
+    try {
+      window.Modes = window.Modes || {};
+      window.Modes.applyDailyPrefillUpdate = applyDailyPrefillUpdate;
+      window.applyDailyPrefillUpdate = applyDailyPrefillUpdate;
+    } catch (_) {}
+  } catch (_) {}
 
   const handleValueChange = (consigne, row, value, { serialized, summary, baseSerialized } = {}) => {
     const normalizedValue = normalizeConsigneValueForPersistence(consigne, row, value);
