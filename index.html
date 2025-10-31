@@ -1142,6 +1142,10 @@
       transition:background .2s ease, box-shadow .2s ease, transform .2s ease;
       box-shadow:0 0 0 3px var(--consigne-status-dot-shadow, rgba(148,163,184,.15));
     }
+    /* Hide the neutral dot when no status/value is set */
+    .consigne-row__status[data-status="na"] .consigne-row__dot {
+      display:none;
+    }
     .consigne-history {
       margin-top:.75rem;
       position:relative;
