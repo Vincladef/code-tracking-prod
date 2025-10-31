@@ -12657,6 +12657,7 @@ function initializeChecklistScope(scope, { consigneId = null, dateKey = null } =
           pageDateKey = ctxKey || (typeof Schema?.todayKey === "function" ? Schema.todayKey() : "");
         }
         const providedDateKey =
+          (dateKey && String(dateKey).trim()) ||
           datasetValue ||
           (typeof attrValue === "string" && attrValue.trim() ? attrValue.trim() : "") ||
           (typeof pageDateKey === "string" && pageDateKey.trim() ? pageDateKey.trim() : "");
