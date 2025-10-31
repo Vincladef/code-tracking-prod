@@ -19452,6 +19452,21 @@ async function renderDaily(ctx, root, opts = {}) {
             delete dailyRow.dataset.childAnswered;
             delete dailyRow.dataset.hasAnswer;
           } catch (_) {}
+          // Also clear any restored skip/autosave footprint for this consigne in the enclosing form
+          try {
+            const form = dailyRow.closest && dailyRow.closest("form");
+            if (form && typeof window !== "undefined" && window.formAutosave && typeof window.formAutosave.clear === "function") {
+              window.formAutosave.clear(form);
+            }
+            const skipInput = dailyRow.querySelector('[data-consigne-skip-input]');
+            if (skipInput) {
+              if (skipInput.value !== "") {
+                skipInput.value = "";
+                skipInput.dispatchEvent(new Event("input", { bubbles: true }));
+                skipInput.dispatchEvent(new Event("change", { bubbles: true }));
+              }
+            }
+          } catch (_) {}
           try { updateConsigneStatusUI(dailyRow, consigne, nextValue); } catch (_) {}
           triggerConsigneRowUpdateHighlight(dailyRow);
         }
