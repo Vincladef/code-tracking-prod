@@ -14,6 +14,8 @@ let runWithAutoSaveSuppressed = async (_consigneId, _scopeDayKey, task) => {
   }
   return undefined;
 };
+// History editors may call this to reflect changes in daily UI; rebound in views
+let applyDailyPrefillUpdate = (_nextValue) => {};
 
 function waitForCheckboxSetupFunction() {
   if (typeof window === "undefined") {
