@@ -16720,7 +16720,7 @@ async function openHistory(ctx, consigne, options = {}) {
               historyId: targetDocId,
               responseId: responseSyncOptions?.responseId || "",
             });
-            applyDailyPrefillUpdate(null);
+            try { applyDailyPrefillUpdate(consigne.id, dayKey, ""); } catch (_) {}
           });
           // Remove the item immediately in the UI for instant feedback
           try {
@@ -16776,7 +16776,7 @@ async function openHistory(ctx, consigne, options = {}) {
               historyId: targetDocId,
               responseId: responseSyncOptions?.responseId || "",
             });
-            applyDailyPrefillUpdate(null);
+            try { applyDailyPrefillUpdate(consigne.id, dayKey, ""); } catch (_) {}
           });
         } else {
           await Schema.saveHistoryEntry(
@@ -16798,7 +16798,7 @@ async function openHistory(ctx, consigne, options = {}) {
             historyId: targetDocId,
             responseId: responseSyncOptions?.responseId || "",
           });
-          applyDailyPrefillUpdate(rawValue);
+          try { applyDailyPrefillUpdate(consigne.id, dayKey, rawValue); } catch (_) {}
         }
         closeEditor();
         reopenHistory();
