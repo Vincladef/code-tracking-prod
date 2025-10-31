@@ -10857,28 +10857,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         };
       });
       if (!parentHasValue) {
-        await runWithAutoSaveSuppressed(consigne.id, resolvedDayKey, async () => {
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-          try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
-          try { clearRecentResponsesForConsigne(consigne.id); } catch (e) {}
-          if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
-            try {
-              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey);
-            } catch (e) {}
-          }
-          // Also remove the corresponding summary answer if present
-          try {
-            const scope = entry?.summaryScope || entry?.periodScope || "";
-            const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
-            const answerKey = entry?.summaryKey || "";
-            if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
-              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
-            }
-          } catch (err) {
-            console.error("bilan.history.editor.save.summaryDelete", err);
-          }
-        });
-          try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, ""); } catch (_) {}
+        // Do not delete implicitly when value is vide; require explicit Effacer.
+        try { showToast && showToast('Réponse vide non enregistrée. Utilise le bouton Effacer pour supprimer.'); } catch (_) {}
       } else {
         await Schema.saveHistoryEntry(
           ctx.db,
@@ -17248,18 +17228,11 @@ async function openHistory(ctx, consigne, options = {}) {
         const isRawEmpty = rawValue === '' || rawValue == null;
         const targetDocId = await ensureHistoryDocumentId();
         if (isRawEmpty && !note) {
-          await runWithAutoSaveSuppressed(consigne.id, dayKey, async () => {
-            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
-            try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
-            try { clearRecentResponsesForConsigne(consigne.id); } catch (e) {}
-            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
-            syncTimelineAfterPanelChange({
-              remove: true,
-              historyId: targetDocId,
-              responseId: responseSyncOptions?.responseId || "",
-            });
-            try { propagateDailyPrefillUpdate(null); } catch (_) {}
-          });
+          // Do not delete implicitly on empty submit. Ask user to use "Effacer" instead.
+          try { showToast && showToast('Réponse vide non enregistrée. Utilise le bouton Effacer pour supprimer.'); } catch (_) {}
+          submitBtn.disabled = false;
+          if (clearBtn) clearBtn.disabled = false;
+          return;
         } else {
           await Schema.saveHistoryEntry(
             ctx.db,
