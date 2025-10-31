@@ -12627,6 +12627,56 @@ function maybeReportUnexpectedPrefill(consigne, row, { status, value, note, hasO
   PREFILL_UNEXPECTED_LOGGED.add(logKey);
 }
 
+function reportUnexpectedPrefillOnEditorOpen(consigne, row, currentValue) {
+  try {
+    if (!row || !consigne) return;
+    const rawDayKey = row?.dataset?.dayKey || (typeof window !== 'undefined' && window.AppCtx && window.AppCtx.dateIso) || "";
+    const normalizedDayKey = normalizeHistoryDayKey(rawDayKey || "");
+    const skipFlag = row?.dataset?.skipAnswered === "1";
+    const valueForStatus = skipFlag && (!(currentValue && typeof currentValue === "object" && currentValue.skipped))
+      ? { skipped: true }
+      : currentValue;
+    const status = dotColor(consigne.type, valueForStatus, consigne);
+    const hasOwnAnswer = consigne.type === "checklist"
+      ? hasChecklistResponse(consigne, row, valueForStatus)
+      : hasValueForConsigne(consigne, valueForStatus);
+    if (!hasOwnAnswer && status === "na") {
+      return;
+    }
+    const snapshot = collectConsigneTimelineSnapshot(consigne);
+    const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+    const hasMatching = normalizedDayKey
+      ? items.some((it) => (it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "")) === normalizedDayKey)
+      : items.length > 0 ? false : false;
+    // If there's no history match for this day (or no timeline items at all), flag it.
+    if (!hasMatching) {
+      const debugInfo = readPrefillDebug(row);
+      const lastEntry = debugInfo?.last || null;
+      const lastStackFrame = deriveStackFrame(lastEntry?.stack || "");
+      const payload = {
+        consigneId: consigne?.id ?? null,
+        consigneType: consigne?.type || null,
+        dayKey: rawDayKey || null,
+        normalizedDayKey: normalizedDayKey || null,
+        status,
+        skipFlag,
+        hasOwnAnswer,
+        datasetStatus: row?.dataset?.status || null,
+        valueSummary: summarizePrefillValue(currentValue),
+        timelineCount: items.length,
+        timelineSample: items.slice(0, 5).map((it) => ({ dayKey: it?.dayKey || null, normalizedDayKey: it?.normalizedDayKey || null, status: it?.status || null })),
+        debugContext: lastEntry?.context || null,
+        debugDirectSource: lastEntry?.directSource || null,
+        triggerStackFrame: deriveStackFrame(new Error('click-prefill-check').stack),
+        lastUpdateStack: lastStackFrame,
+      };
+      prefillAlert("❌ unexpected prefill on click — no history", payload);
+    }
+  } catch (error) {
+    prefillLog("prefill.debug.onClick.error", { error: String(error?.message || error) });
+  }
+}
+
 function clearConsigneRowUpdateHighlight(row) {
   if (!row) return;
   const timer = consigneRowUpdateTimers.get(row);
@@ -13567,6 +13617,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
       trigger.setAttribute("aria-expanded", "true");
     }
     const currentValue = readConsigneCurrentValue(consigne, row);
+    try { reportUnexpectedPrefillOnEditorOpen(consigne, row, currentValue); } catch (_) {}
     const title = consigne.text || consigne.titre || consigne.name || consigne.id;
     const description = consigne.description || consigne.details || consigne.helper || "";
     const requiresValidation = consigne.type !== "info" || childConsignes.length > 0;
