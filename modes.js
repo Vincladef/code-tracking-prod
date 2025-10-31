@@ -9563,33 +9563,7 @@ function buildConsigneHistoryTimeline(entries, consigne) {
     return (b.date?.getTime?.() || 0) - (a.date?.getTime?.() || 0);
   });
   const limited = records.slice(0, CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
-  // Filtrer les points vides: pas de pastille grise par défaut quand rien n'est marqué
-  // Conserver toujours les bilans (étoile), même si le status calculé est 'na'.
-  const filtered = limited.filter((r) => {
-    if (r.isBilan === true) return true;
-    if (r.status !== "na") return true;
-    const hasNote = typeof r.note === "string" && r.note.trim() !== "";
-    let hasValue = false;
-    const v = r.value;
-    if (v === null || v === undefined) {
-      hasValue = false;
-    } else if (typeof v === "string") {
-      hasValue = v.trim().length > 0;
-    } else if (Array.isArray(v)) {
-      hasValue = v.length > 0;
-    } else if (typeof v === "object") {
-      try {
-        hasValue = Object.keys(v).length > 0;
-      } catch (_) {
-        hasValue = true;
-      }
-    } else {
-      // numbers/booleans indicate an explicit answer
-      hasValue = true;
-    }
-    return hasNote || hasValue;
-  });
-  const result = filtered
+  const result = limited
     .map((record) =>
       formatConsigneHistoryPoint(
         {
@@ -9718,14 +9692,9 @@ function applyConsigneHistoryPoint(item, point) {
   } catch (_) {}
   const dot = ensureConsigneHistoryDot(item);
   if (dot) {
-    if (status === "na" && !(point.isBilan || point.isSummary)) {
-      // Ne pas afficher la pastille de base grise lorsqu'il n'y a rien de marqué
-      dot.remove();
-    } else {
-      dot.className = `consigne-history__dot consigne-row__dot consigne-row__dot--${status}`;
-      dot.textContent = "";
-      dot.setAttribute("aria-hidden", "true");
-    }
+    dot.className = `consigne-history__dot consigne-row__dot consigne-row__dot--${status}`;
+    dot.textContent = "";
+    dot.setAttribute("aria-hidden", "true");
   }
   const sr = ensureConsigneHistorySr(item);
   const srText = point.srLabel || point.title || STATUS_LABELS[status] || status;
