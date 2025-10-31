@@ -11874,6 +11874,27 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
     const normalizedResponseId =
       typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
+    // Defensive: avoid removing freshly re-attached items during id convergence
+    // Scenario: we first created a point with fallback id=dayKey, then attach with real historyId.
+    // If a remove arrives targeting the fallback id while a real-id node exists, skip removal.
+    try {
+      const isDayKeyLike = /^(\d{4}-\d{2}-\d{2})$/.test(normalizedHistoryId);
+      if (isDayKeyLike && normalizedResponseId) {
+        const existingReal = state.track.querySelector(
+          `[data-history-id="${escapeTimelineSelector(normalizedResponseId)}"]`
+        );
+        if (existingReal) {
+          logChecklistEvent("info", "[checklist-history] timeline.remove.safeguardSkip", {
+            consigneId: options?.consigne?.id ?? null,
+            dayKey: options?.dayKey ?? null,
+            historyId: normalizedHistoryId,
+            responseId: normalizedResponseId,
+          });
+          scheduleConsigneHistoryNavUpdate(state);
+          return;
+        }
+      }
+    } catch (_) {}
     const normalizedScope =
       typeof options.summaryScope === "string" && options.summaryScope.trim() ? options.summaryScope.trim() : "";
     const resolveDayKey = () => {
