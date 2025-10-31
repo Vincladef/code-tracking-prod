@@ -9974,7 +9974,23 @@ function computeRelativeHistoryLabel(date) {
 }
 
 function normalizeHistoryDayKey(value) {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
+  const canonical = canonicalDayKeyFromValue(value);
+  if (canonical?.dayKey) {
+    if (canonical.isSession) {
+      return canonical.dayKey.trim().toLowerCase();
+    }
+    return canonical.dayKey.trim();
+  }
+  if (typeof value === "string") {
+    return value.trim().toLowerCase();
+  }
+  if (value instanceof Date || typeof value === "number") {
+    const fallback = canonicalDayKeyFromValue(value);
+    if (fallback?.dayKey) {
+      return fallback.isSession ? fallback.dayKey.trim().toLowerCase() : fallback.dayKey.trim();
+    }
+  }
+  return "";
 }
 
 function resolveHistoryDocumentId(entry, fallback) {
@@ -13113,8 +13129,10 @@ function setConsigneRowValue(row, consigne, value) {
       });
     }
     const hidden = container.querySelector(`[name="checklist:${String(consigne.id ?? "")}"]`);
+    const domState = readChecklistDomState(container);
+    const valueForStatus = normalizedValue || { items: domState.items, skipped: domState.skipped };
+    const hasChecklistAnswer = hasChecklistResponse(consigne, row, valueForStatus);
     if (hidden) {
-      const domState = readChecklistDomState(container);
       const payload = {
         items: domState.items,
         skipped: domState.skipped,
@@ -13124,21 +13142,26 @@ function setConsigneRowValue(row, consigne, value) {
       } catch (error) {
         hidden.value = JSON.stringify({ items: domState.items });
       }
-      if (normalizedValue) {
-        hidden.dataset.dirty = "1";
-      } else {
-        delete hidden.dataset.dirty;
+      if (hidden.dataset) {
+        if (hasChecklistAnswer) {
+          hidden.dataset.dirty = "1";
+        } else {
+          delete hidden.dataset.dirty;
+        }
       }
       hidden.dispatchEvent(new Event("input", { bubbles: true }));
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
     }
-    if (normalizedValue) {
-      container.dataset.checklistDirty = "1";
-    } else {
-      delete container.dataset.checklistDirty;
+    if (container.dataset) {
+      if (hasChecklistAnswer) {
+        container.dataset.checklistDirty = "1";
+      } else {
+        delete container.dataset.checklistDirty;
+        delete container.dataset.checklistDirtyAt;
+        delete container.dataset.checklistHydrationLocalDirty;
+      }
     }
-    updateConsigneStatusUI(row, consigne, normalizedValue);
-    const hasChecklistAnswer = normalizedValue ? hasChecklistResponse(consigne, row, normalizedValue) : false;
+    updateConsigneStatusUI(row, consigne, hasChecklistAnswer ? valueForStatus : "");
     maintainOrClearSkip(hasChecklistAnswer);
     return;
   }
@@ -14924,7 +14947,14 @@ function removeRecentResponsesForDay(consigneId, dayKey) {
   try {
     const list = store.get(consigneId) || [];
     if (!Array.isArray(list) || !list.length) return;
-    const filtered = list.filter((entry) => String(entry?.dayKey || "") !== String(dayKey));
+    const normalizedTarget = normalizeHistoryDayKey(dayKey);
+    const filtered = list.filter((entry) => {
+      const entryKey = normalizeHistoryDayKey(entry?.dayKey);
+      if (!normalizedTarget) {
+        return Boolean(entryKey);
+      }
+      return entryKey !== normalizedTarget;
+    });
     if (filtered.length) {
       store.set(consigneId, filtered);
     } else {
@@ -14942,22 +14972,35 @@ async function deleteAllResponsesForDay(db, uid, consigneId, dayKey) {
     return;
   }
   try {
-    const qy = query(
-      collection(db, 'u', uid, 'responses'),
-      where('consigneId', '==', consigneId),
-      where('dayKey', '==', dayKey)
-    );
-    const snap = await getDocs(qy);
-    const tasks = (snap?.docs || []).map((docSnap) => {
-      try {
-        return deleteDoc(docSnap.ref);
-      } catch (error) {
-        console.warn('history.deleteAllResponsesForDay:delete', error);
-        return null;
+    const keysToDelete = new Set();
+    if (typeof dayKey === 'string' && dayKey.trim()) {
+      keysToDelete.add(dayKey.trim());
+    }
+    const canonical = canonicalDayKeyFromValue(dayKey);
+    if (canonical?.dayKey) {
+      keysToDelete.add(canonical.dayKey.trim());
+    }
+    for (const key of keysToDelete) {
+      if (!key) {
+        continue;
       }
-    });
-    if (tasks.length) {
-      await Promise.all(tasks);
+      const qy = query(
+        collection(db, 'u', uid, 'responses'),
+        where('consigneId', '==', consigneId),
+        where('dayKey', '==', key)
+      );
+      const snap = await getDocs(qy);
+      const tasks = (snap?.docs || []).map((docSnap) => {
+        try {
+          return deleteDoc(docSnap.ref);
+        } catch (error) {
+          console.warn('history.deleteAllResponsesForDay:delete', error);
+          return null;
+        }
+      });
+      if (tasks.length) {
+        await Promise.all(tasks);
+      }
     }
   } catch (error) {
     console.warn('history.deleteAllResponsesForDay', error);
@@ -19442,10 +19485,24 @@ async function renderDaily(ctx, root, opts = {}) {
     };
     applyDailyPrefillUpdate = (consigneId, targetDayKey = dayKey, nextValue = "") => {
       if (!consigneId) return;
-      const normalizedTarget = typeof targetDayKey === "string" && targetDayKey.trim() ? normalizeHistoryDayKey(targetDayKey) : normalizeHistoryDayKey(dayKey || "");
+      const canonicalInfo =
+        canonicalDayKeyFromValue(targetDayKey) ||
+        canonicalDayKeyFromValue(dayKey) ||
+        null;
+      const canonicalTargetKey = canonicalInfo?.dayKey
+        ? canonicalInfo.dayKey
+        : typeof targetDayKey === "string" && targetDayKey.trim()
+        ? targetDayKey.trim()
+        : typeof dayKey === "string" && dayKey.trim()
+        ? dayKey.trim()
+        : "";
+      const normalizedTarget = canonicalTargetKey
+        ? normalizeHistoryDayKey(canonicalTargetKey)
+        : normalizeHistoryDayKey(targetDayKey || dayKey || "");
       try { observedValues.delete(consigneId); } catch (_) {}
       try { previousAnswers.delete(consigneId); } catch (_) {}
-      try { removeRecentResponsesForDay(consigneId, normalizedTarget); } catch (_) {}
+      try { removeRecentResponsesForDay(consigneId, canonicalTargetKey || normalizedTarget); } catch (_) {}
+      try { clearRecentResponsesForConsigne(consigneId); } catch (_) {}
 
       // Prevent autosave relaunch while clearing
       try {
@@ -19458,7 +19515,8 @@ async function renderDaily(ctx, root, opts = {}) {
 
       // Update DOM row
       try {
-        const sel = `[data-consigne-id="${cssEscape(consigneId)}"][data-day-key="${cssEscape(normalizedTarget)}"]`;
+        const domTargetKey = canonicalTargetKey || normalizedTarget;
+        const sel = `[data-consigne-id="${cssEscape(consigneId)}"][data-day-key="${cssEscape(domTargetKey)}"]`;
         const dailyRow = document.querySelector(sel);
         if (dailyRow) {
           const type = inferTypeFromRow(dailyRow, consigneId);
