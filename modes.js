@@ -16721,7 +16721,7 @@ async function openHistory(ctx, consigne, options = {}) {
       });
       triggerConsigneRowUpdateHighlight(timelineRow);
     };
-    const applyDailyPrefillUpdate = (nextValue) => {
+    const updateDailyPrefillCacheForHistoryEdit = (nextValue) => {
       if (nextValue === null) {
         previousAnswers.delete(consigne.id);
       } else if (nextValue !== undefined) {
@@ -16756,6 +16756,19 @@ async function openHistory(ctx, consigne, options = {}) {
         const valueToApply = nextValue === undefined ? null : nextValue;
         setConsigneRowValue(dailyRow, consigne, valueToApply);
         triggerConsigneRowUpdateHighlight(dailyRow);
+      } catch (_) {}
+    };
+    const propagateDailyPrefillUpdate = (nextValue) => {
+      try {
+        updateDailyPrefillCacheForHistoryEdit(nextValue);
+      } catch (_) {}
+      const normalizedValue = nextValue === undefined ? "" : nextValue;
+      try {
+        if (typeof window !== "undefined" && window?.Modes?.applyDailyPrefillUpdate) {
+          window.Modes.applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue);
+        } else if (typeof applyDailyPrefillUpdate === "function") {
+          applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue);
+        }
       } catch (_) {}
     };
     const labelForAttr3 = consigne.type === "checklist" ? "" : ` for="${fieldId}"`;
@@ -16879,7 +16892,7 @@ async function openHistory(ctx, consigne, options = {}) {
               historyId: targetDocId,
               responseId: responseSyncOptions?.responseId || "",
             });
-            try { applyDailyPrefillUpdate(consigne.id, dayKey, ""); } catch (_) {}
+            try { propagateDailyPrefillUpdate(""); } catch (_) {}
           });
           // Remove the item immediately in the UI for instant feedback
           try {
@@ -16935,7 +16948,7 @@ async function openHistory(ctx, consigne, options = {}) {
               historyId: targetDocId,
               responseId: responseSyncOptions?.responseId || "",
             });
-            try { applyDailyPrefillUpdate(consigne.id, dayKey, ""); } catch (_) {}
+            try { propagateDailyPrefillUpdate(""); } catch (_) {}
           });
         } else {
           await Schema.saveHistoryEntry(
@@ -16957,7 +16970,7 @@ async function openHistory(ctx, consigne, options = {}) {
             historyId: targetDocId,
             responseId: responseSyncOptions?.responseId || "",
           });
-          try { applyDailyPrefillUpdate(consigne.id, dayKey, rawValue); } catch (_) {}
+          try { propagateDailyPrefillUpdate(rawValue); } catch (_) {}
         }
         closeEditor();
         reopenHistory();
