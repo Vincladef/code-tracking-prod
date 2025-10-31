@@ -10729,6 +10729,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             historyId: historyDocumentId,
             responseId: responseSyncOptions?.responseId || "",
             isBilan: true,
+            keepPlaceholder: true,
             remove: true,
           });
           triggerConsigneRowUpdateHighlight(row);
@@ -10774,6 +10775,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
                   historyId: childState.historyDocumentId,
                   responseId: childState.responseSyncOptions?.responseId || "",
                   iterationLabel,
+                  keepPlaceholder: true,
                   remove: true,
                 });
                 triggerConsigneRowUpdateHighlight(childState.row);
@@ -11590,6 +11592,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             historyId: historyDocumentId,
             responseId: responseSyncOptions?.responseId || "",
             iterationLabel,
+            keepPlaceholder: true,
             remove: true,
           });
           triggerConsigneRowUpdateHighlight(row);
@@ -11628,15 +11631,16 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               }
               const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
               if (childState.row) {
-                updateConsigneHistoryTimeline(childState.row, childStatus, {
-                  consigne: childState.consigne,
-                  value: "",
-                  dayKey: resolvedDayKey,
-                  historyId: childState.historyDocumentId,
-                  responseId: childState.responseSyncOptions?.responseId || "",
-                  iterationLabel,
-                  remove: true,
-                });
+                  updateConsigneHistoryTimeline(childState.row, childStatus, {
+                    consigne: childState.consigne,
+                    value: "",
+                    dayKey: resolvedDayKey,
+                    historyId: childState.historyDocumentId,
+                    responseId: childState.responseSyncOptions?.responseId || "",
+                    iterationLabel,
+                    keepPlaceholder: true,
+                    remove: true,
+                  });
                 triggerConsigneRowUpdateHighlight(childState.row);
               }
             });
@@ -11837,35 +11841,37 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
 function renderConsigneHistoryTimeline(row, points) {
   const container = row?.querySelector?.("[data-consigne-history]");
   const track = row?.querySelector?.("[data-consigne-history-track]");
-
   if (!container || !track) {
     return false;
   }
   track.setAttribute("role", "list");
   track.setAttribute("aria-label", "Historique des derniers jours");
-
-  while (track.firstChild) {
-    track.removeChild(track.firstChild);
-  }
-
   const timelinePoints = Array.isArray(points) ? points.filter(Boolean) : [];
-  if (!timelinePoints.length) {
+  if (timelinePoints.length) {
+    while (track.firstChild) {
+      track.removeChild(track.firstChild);
+    }
+    timelinePoints.forEach((point) => {
+      const item = document.createElement("div");
+      item.className = "consigne-history__item";
+      item.setAttribute("role", "listitem");
+      applyConsigneHistoryPoint(item, point);
+      track.appendChild(item);
+    });
+    container.hidden = false;
+    track.dataset.historyMode = "day";
+    return true;
+  }
+  if (!track.children.length) {
     container.hidden = true;
     track.dataset.historyMode = "empty";
     return false;
   }
-
-  timelinePoints.forEach((point) => {
-    const item = document.createElement("div");
-    item.className = "consigne-history__item";
-    item.setAttribute("role", "listitem");
-    applyConsigneHistoryPoint(item, point);
-    track.appendChild(item);
-  });
-
   container.hidden = false;
-  track.dataset.historyMode = "day";
-  return true;
+  if (!track.dataset.historyMode) {
+    track.dataset.historyMode = "day";
+  }
+  return Boolean(track.children.length);
 }
 
 function updateConsigneHistoryTimeline(row, status, options = {}) {
@@ -11952,14 +11958,75 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       historyId: normalizedHistoryId,
       responseId: normalizedResponseId,
     };
+    const keepPlaceholder = options.keepPlaceholder === true;
     if (item) {
-      item.remove();
-      logChecklistEvent("info", "[checklist-history] timeline.remove", removeLogPayload);
+      if (keepPlaceholder && dayKey) {
+        const consigne = options?.consigne || null;
+        const practiceMode =
+          typeof consigne?.mode === "string" && consigne.mode.trim().toLowerCase() === "practice";
+        const scope = normalizedScope || "";
+        const timelineDate = modesParseDayKeyToDate(dayKey);
+        const normalizedDate =
+          timelineDate instanceof Date && !Number.isNaN(timelineDate.getTime()) ? timelineDate : null;
+        const placeholderTitle = buildHistoryTimelineTitle(normalizedDate, dayKey, "na");
+        const placeholderLabels = buildHistoryTimelineLabels(normalizedDate, dayKey);
+        const placeholderPoint = {
+          dayKey,
+          date: normalizedDate,
+          status: "na",
+          title: placeholderTitle,
+          srLabel: placeholderTitle || STATUS_LABELS.na || "Sans donnée",
+          label: placeholderLabels.label,
+          weekdayLabel: placeholderLabels.weekday,
+          isPlaceholder: true,
+          isBilan: options.isBilan === true,
+          summaryScope: scope,
+          historyId: "",
+          responseId: "",
+          details: {
+            dayKey,
+            date: normalizedDate,
+            label: placeholderLabels.label || "",
+            weekdayLabel: placeholderLabels.weekday || "",
+            fullDateLabel: placeholderLabels.label || dayKey || "",
+            status: "na",
+            statusLabel: STATUS_LABELS.na || "Sans donnée",
+            valueHtml: "",
+            valueText: "",
+            note: "",
+            hasContent: false,
+            rawValue: "",
+            iterationIndex: null,
+            iterationNumber: null,
+            iterationLabel: "",
+            isPractice: practiceMode,
+            isBilan: options.isBilan === true,
+            isSummary: false,
+            summaryScope: scope,
+            historyId: "",
+            responseId: "",
+            timestamp: null,
+          },
+        };
+        applyConsigneHistoryPoint(item, placeholderPoint);
+        item.dataset.historyId = "";
+        item.dataset.historyResponseId = "";
+        logChecklistEvent("info", "[checklist-history] timeline.placeholder", {
+          ...removeLogPayload,
+          scope,
+        });
+        state.container.hidden = false;
+        state.track.dataset.historyMode = "day";
+        state.hasDayTimeline = true;
+      } else {
+        item.remove();
+        logChecklistEvent("info", "[checklist-history] timeline.remove", removeLogPayload);
+      }
     } else {
       logChecklistEvent("warn", "[checklist-history] timeline.remove.missing", removeLogPayload);
     }
-    // If no more items, hide the container and mark as empty
-    if (!state.track.children.length) {
+    // If no more items (or placeholders), hide the container and mark as empty
+    if (!keepPlaceholder && !state.track.children.length) {
       if (state.container) state.container.hidden = true;
       state.track.dataset.historyMode = "empty";
       state.hasDayTimeline = false;
@@ -16976,6 +17043,7 @@ async function openHistory(ctx, consigne, options = {}) {
       note = "",
       historyId = "",
       responseId = "",
+      keepPlaceholder = false,
     } = {}) => {
       const snapshot = collectConsigneTimelineSnapshot(consigne);
       const timelineRow = snapshot?.row || null;
@@ -17003,6 +17071,7 @@ async function openHistory(ctx, consigne, options = {}) {
         dayKey,
         historyId,
         responseId,
+        keepPlaceholder: remove ? keepPlaceholder : false,
         remove,
       });
       triggerConsigneRowUpdateHighlight(timelineRow);
@@ -17212,6 +17281,7 @@ async function openHistory(ctx, consigne, options = {}) {
               remove: true,
               historyId: targetDocId,
               responseId: responseSyncOptions?.responseId || "",
+              keepPlaceholder: true,
             });
             try { propagateDailyPrefillUpdate(null); } catch (_) {}
           });
