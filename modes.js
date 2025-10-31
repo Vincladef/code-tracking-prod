@@ -11989,47 +11989,6 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     scheduleConsigneHistoryNavUpdate(state);
     return;
   }
-  // Si le statut est 'na' et qu'il ne s'agit pas d'un bilan, ne crée pas de pastille.
-  // Supprimer toute pastille existante pour ce jour afin de masquer la pastille grise de base.
-  if (status === "na" && options?.isBilan !== true && options?.remove !== true) {
-    const normalizedScope =
-      typeof options.summaryScope === "string" && options.summaryScope.trim() ? options.summaryScope.trim() : "";
-    const resolveNaDayKey = () => {
-      if (typeof options.dayKey === "string" && options.dayKey.trim()) {
-        return options.dayKey.trim();
-      }
-      if (row?.dataset?.dayKey && row.dataset.dayKey.trim()) {
-        return row.dataset.dayKey.trim();
-      }
-      if (typeof Schema?.todayKey === "function") {
-        const today = Schema.todayKey();
-        if (typeof today === "string" && today.trim()) return today.trim();
-      }
-      return null;
-    };
-    const dayKey = resolveNaDayKey();
-    const state = CONSIGNE_HISTORY_ROW_STATE.get(row);
-    if (state && state.track && dayKey) {
-      const scopeFilter = normalizedScope ? `[data-summary-scope="${escapeTimelineSelector(normalizedScope)}"]` : "";
-      const item = state.track.querySelector(
-        `[data-history-day="${escapeTimelineSelector(dayKey)}"]${scopeFilter}`
-      );
-      if (item) {
-        item.remove();
-        logChecklistEvent("info", "[checklist-history] timeline.remove.na", {
-          consigneId: options?.consigne?.id ?? null,
-          dayKey,
-        });
-      }
-      if (!state.track.children.length) {
-        if (state.container) state.container.hidden = true;
-        state.track.dataset.historyMode = "empty";
-        state.hasDayTimeline = false;
-      }
-      scheduleConsigneHistoryNavUpdate(state);
-    }
-    return;
-  }
   const resolveStateDayKey = () => {
     if (typeof options.dayKey === "string" && options.dayKey.trim()) {
       return options.dayKey.trim();
