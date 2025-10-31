@@ -4,6 +4,14 @@ window.Modes = window.Modes || {};
 const modesFirestore = Schema.firestore || window.firestoreAPI || {};
 
 const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
+// Lightweight audit logger for prefill issues
+const prefillLog = (...args) => {
+  try {
+    modesLogger?.info?.("[prefill-audit]", ...args);
+  } catch (_) {
+    try { console.info("[prefill-audit]", ...args); } catch (_) {}
+  }
+};
 
 let checkboxBehaviorSetupPromise = null;
 
@@ -12228,6 +12236,22 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       const entries = Array.isArray(result.rows) ? result.rows : [];
       const points = buildConsigneHistoryTimeline(entries, consigne);
       state.hasDayTimeline = renderConsigneHistoryTimeline(row, points);
+      // Audit: is there a point for the current day? What status?
+      try {
+        const dayKeyForAudit = state.dayKey || row?.dataset?.dayKey || null;
+        const item = dayKeyForAudit
+          ? state.track.querySelector(`[data-history-day="${escapeTimelineSelector(dayKeyForAudit)}"]`)
+          : null;
+        const hasPoint = Boolean(item);
+        const status = item?.dataset?.status || null;
+        prefillLog("timeline.presence", {
+          consigneId: consigne.id,
+          dayKey: dayKeyForAudit,
+          hasPoint,
+          status,
+          rendered: state.hasDayTimeline,
+        });
+      } catch (_) {}
       scheduleConsigneHistoryNavUpdate(state);
     })
     .catch((error) => {
@@ -12413,6 +12437,18 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
     ? { skipped: true }
     : rawValue;
   let status = dotColor(consigne.type, valueForStatus, consigne);
+  try {
+    prefillLog("status.compute", {
+      at: "updateConsigneStatusUI",
+      consigneId: consigne?.id ?? null,
+      type: consigne?.type || null,
+      dayKey: row?.dataset?.dayKey || null,
+      skipFlag,
+      valueType: valueForStatus == null ? "null" : typeof valueForStatus,
+      incomingStatus: status,
+      prevStatus: row?.dataset?.status || null,
+    });
+  } catch (_) {}
   try {
     modesLogger?.debug?.("consigne.status.update", {
       consigneId: consigne?.id ?? null,
@@ -19667,6 +19703,43 @@ async function renderDaily(ctx, root, opts = {}) {
         });
       },
     });
+
+    // Post-render audit: detect pre-marked rows without matching history/pre-fills for the current day
+    try {
+      const auditDay = normalizedCurrentDayKey || dayKey || null;
+      window.requestAnimationFrame(() => {
+        try {
+          const datasetStatus = row?.dataset?.status || null;
+          const currentVal = readConsigneCurrentValue(item, row);
+          const computedStatus = dotColor(item.type, currentVal, item);
+          const prevEntry = previousAnswers.get(item.id) || null;
+          const prevKey = prevEntry ? resolvePreviousEntryDayKey(prevEntry) : null;
+          const hasPrevForToday = Boolean(prevKey && auditDay && prevKey === auditDay);
+          const isSummaryLike = prevEntry ? Boolean((prevEntry.summaryScope || prevEntry.summary_scope || "").trim()) ||
+            (typeof prevEntry.source === "string" && prevEntry.source.toLowerCase().includes("summary")) ||
+            (typeof prevEntry.origin === "string" && prevEntry.origin.toLowerCase().includes("summary")) : false;
+          const mismatch = (datasetStatus && datasetStatus !== "na") && !hasPrevForToday;
+          prefillLog("row-init", {
+            at: "renderItemCard",
+            consigneId: item.id,
+            type: item.type,
+            dayKey: auditDay,
+            datasetStatus,
+            computedStatus,
+            hasPrevForToday,
+            prevEntryDayKey: prevKey || null,
+            isSummaryLikePrev: isSummaryLike,
+          });
+          if (mismatch) {
+            prefillLog("row-mismatch", {
+              consigneId: item.id,
+              reason: "status-not-na-without-day-prev",
+              at: "renderItemCard:post",
+            });
+          }
+        } catch (_) {}
+      });
+    } catch (_) {}
 
     return row;
   };
