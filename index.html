@@ -2202,6 +2202,8 @@
     .history-panel__value--summary{ gap:.75rem; }
     .history-panel__summary-marker{ display:inline-flex; align-items:center; justify-content:center; width:1.5rem; height:1.5rem; border-radius:999px; background:rgba(139,92,246,0.18); color:#6d28d9; font-size:.8rem; font-weight:700; line-height:1; box-shadow:0 0 0 1.5px rgba(139,92,246,0.22); margin-top:.1rem; }
     .history-panel__summary-marker::before{ content:"★"; }
+    /* Avoid duplicate star when dot is rendered as a star for bilan */
+    .history-panel__item[data-history-source="bilan"] .history-panel__summary-marker{ display:none; }
     .history-panel__value[data-status="ok-strong"]{ color:#166534; }
     .history-panel__value[data-status="ok-soft"]{ color:#15803d; }
     .history-panel__value[data-status="mid"]{ color:#92400e; }
@@ -2238,6 +2240,23 @@
     .history-panel__item[data-summary-scope="weekly"] .history-panel__dot,
     .history-panel__item[data-summary-scope="yearly"] .history-panel__dot,
     .history-panel__item[data-history-source="bilan"] .history-panel__dot{ background:#7c3aed; }
+    /* Render bilan entries as a purple star in the history panel */
+    .history-panel__item[data-history-source="bilan"] .history-panel__dot{
+      width:auto;
+      height:auto;
+      padding:0;
+      background:none;
+      box-shadow:none;
+      margin-right:.35rem;
+      color:#7c3aed;
+      font-size:.9rem;
+      font-weight:700;
+      line-height:1;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .history-panel__item[data-history-source="bilan"] .history-panel__dot::before{ content:"★"; }
     .history-panel__date{ font-size:.8rem; color:#475569; }
     .history-panel__item[data-summary-scope="monthly"] .history-panel__date,
     .history-panel__item[data-summary-scope="weekly"] .history-panel__date,
