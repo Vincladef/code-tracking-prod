@@ -9563,7 +9563,33 @@ function buildConsigneHistoryTimeline(entries, consigne) {
     return (b.date?.getTime?.() || 0) - (a.date?.getTime?.() || 0);
   });
   const limited = records.slice(0, CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
-  const result = limited
+  // Filtrer les points vides: pas de pastille grise par défaut quand rien n'est marqué
+  // Conserver toujours les bilans (étoile), même si le status calculé est 'na'.
+  const filtered = limited.filter((r) => {
+    if (r.isBilan === true) return true;
+    if (r.status !== "na") return true;
+    const hasNote = typeof r.note === "string" && r.note.trim() !== "";
+    let hasValue = false;
+    const v = r.value;
+    if (v === null || v === undefined) {
+      hasValue = false;
+    } else if (typeof v === "string") {
+      hasValue = v.trim().length > 0;
+    } else if (Array.isArray(v)) {
+      hasValue = v.length > 0;
+    } else if (typeof v === "object") {
+      try {
+        hasValue = Object.keys(v).length > 0;
+      } catch (_) {
+        hasValue = true;
+      }
+    } else {
+      // numbers/booleans indicate an explicit answer
+      hasValue = true;
+    }
+    return hasNote || hasValue;
+  });
+  const result = filtered
     .map((record) =>
       formatConsigneHistoryPoint(
         {
@@ -9692,9 +9718,14 @@ function applyConsigneHistoryPoint(item, point) {
   } catch (_) {}
   const dot = ensureConsigneHistoryDot(item);
   if (dot) {
-    dot.className = `consigne-history__dot consigne-row__dot consigne-row__dot--${status}`;
-    dot.textContent = "";
-    dot.setAttribute("aria-hidden", "true");
+    if (status === "na" && !(point.isBilan || point.isSummary)) {
+      // Ne pas afficher la pastille de base grise lorsqu'il n'y a rien de marqué
+      dot.remove();
+    } else {
+      dot.className = `consigne-history__dot consigne-row__dot consigne-row__dot--${status}`;
+      dot.textContent = "";
+      dot.setAttribute("aria-hidden", "true");
+    }
   }
   const sr = ensureConsigneHistorySr(item);
   const srText = point.srLabel || point.title || STATUS_LABELS[status] || status;
@@ -11841,14 +11872,10 @@ function renderConsigneHistoryTimeline(row, points) {
   if (!container || !track) {
     return false;
   }
-  track.innerHTML = "";
+  // Do not clear or hide timeline when data is momentarily unavailable.
+  // Keep existing dots to avoid flicker during async refresh.
   track.setAttribute("role", "list");
   track.setAttribute("aria-label", "Historique des derniers jours");
-  if (!Array.isArray(points) || !points.length) {
-    container.hidden = true;
-    track.dataset.historyMode = "empty";
-    return false;
-  }
   
   points.forEach((point, index) => {
     const item = document.createElement("div");
@@ -11960,6 +11987,47 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       state.hasDayTimeline = false;
     }
     scheduleConsigneHistoryNavUpdate(state);
+    return;
+  }
+  // Si le statut est 'na' et qu'il ne s'agit pas d'un bilan, ne crée pas de pastille.
+  // Supprimer toute pastille existante pour ce jour afin de masquer la pastille grise de base.
+  if (status === "na" && options?.isBilan !== true && options?.remove !== true) {
+    const normalizedScope =
+      typeof options.summaryScope === "string" && options.summaryScope.trim() ? options.summaryScope.trim() : "";
+    const resolveNaDayKey = () => {
+      if (typeof options.dayKey === "string" && options.dayKey.trim()) {
+        return options.dayKey.trim();
+      }
+      if (row?.dataset?.dayKey && row.dataset.dayKey.trim()) {
+        return row.dataset.dayKey.trim();
+      }
+      if (typeof Schema?.todayKey === "function") {
+        const today = Schema.todayKey();
+        if (typeof today === "string" && today.trim()) return today.trim();
+      }
+      return null;
+    };
+    const dayKey = resolveNaDayKey();
+    const state = CONSIGNE_HISTORY_ROW_STATE.get(row);
+    if (state && state.track && dayKey) {
+      const scopeFilter = normalizedScope ? `[data-summary-scope="${escapeTimelineSelector(normalizedScope)}"]` : "";
+      const item = state.track.querySelector(
+        `[data-history-day="${escapeTimelineSelector(dayKey)}"]${scopeFilter}`
+      );
+      if (item) {
+        item.remove();
+        logChecklistEvent("info", "[checklist-history] timeline.remove.na", {
+          consigneId: options?.consigne?.id ?? null,
+          dayKey,
+        });
+      }
+      if (!state.track.children.length) {
+        if (state.container) state.container.hidden = true;
+        state.track.dataset.historyMode = "empty";
+        state.hasDayTimeline = false;
+      }
+      scheduleConsigneHistoryNavUpdate(state);
+    }
     return;
   }
   const resolveStateDayKey = () => {
@@ -16668,6 +16736,11 @@ async function openHistory(ctx, consigne, options = {}) {
       const summaryMarker = summaryInfo.isBilan
         ? `<span class="history-panel__summary-marker"${markerTitle ? ` title="${escapeHtml(markerTitle)}"` : ""} aria-hidden="true"></span>`
         : "";
+      // Hide base grey dot when empty and replace with purple star for bilan
+      const showStatusDot = !summaryInfo.isBilan && status !== "na";
+      const statusDotMarkup = showStatusDot
+        ? `<span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>`
+        : "";
       const valueClasses = ["history-panel__value"];
       if (summaryInfo.isSummary) {
         valueClasses.push("history-panel__value--summary");
@@ -16709,7 +16782,7 @@ async function openHistory(ctx, consigne, options = {}) {
         <li class="history-panel__item${summaryClass}${bilanClass}" data-history-entry data-history-index="${index}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}${responseIdAttr}${historyIdAttr}${bilanAttr}>
           <div class="history-panel__item-row">
             <span class="${valueClasses.join(" ")}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}">
-              <span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>
+              ${statusDotMarkup}
               ${summaryMarker}
               <span class="history-panel__value-text">${formattedMarkup}</span>
               ${checklistBadgeMarkup}
