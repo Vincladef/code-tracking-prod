@@ -547,10 +547,15 @@
       .filter(Boolean);
   }
 
-  function applySelectedKeys(root, itemKeyAttr, selectedKeys = [], skippedKeys = []) {
+  function applySelectedKeys(root, itemKeyAttr, selectedKeys = [], skippedKeys = [], options = {}) {
     if (!(root instanceof Element)) {
       return;
     }
+    const opts = {
+      // When hydrating from saved state, don't emit events or mark dirty
+      emitEvents: options.emitEvents !== false,
+      markDirty: options.markDirty !== false,
+    };
     const consigneId = resolveConsigneId(root);
     const inputs = collectInputs(root);
     const keySet = new Set(selectedKeys.map((value) => String(value)));
@@ -614,10 +619,10 @@
       } catch (error) {
         console.warn("[checklist-fix] hidden", error);
       }
-      if (hidden.dataset) {
+      if (opts.markDirty && hidden.dataset) {
         hidden.dataset.dirty = "1";
       }
-      if (typeof hidden.dispatchEvent === "function" && typeof Event === "function") {
+      if (opts.emitEvents && typeof hidden.dispatchEvent === "function" && typeof Event === "function") {
         try {
           hidden.dispatchEvent(new Event("input", { bubbles: true }));
           hidden.dispatchEvent(new Event("change", { bubbles: true }));
@@ -626,7 +631,7 @@
         }
       }
     }
-    if (root && root.dataset) {
+    if (root && root.dataset && opts.markDirty) {
       root.dataset.checklistDirty = "1";
     }
   }
@@ -975,6 +980,26 @@
         return null;
       }
       let saved = null;
+      const hasInlineDailyState = () => {
+        try {
+          const hidden = root.querySelector('[data-checklist-state]');
+          if (!hidden) return false;
+          if (hidden.dataset && hidden.dataset.dirty === '1') return true;
+          if (root.dataset && root.dataset.checklistDirty === '1') return true;
+          const parsed = hidden.value ? JSON.parse(hidden.value) : null;
+          const items = Array.isArray(parsed?.items)
+            ? parsed.items
+            : Array.isArray(parsed)
+            ? parsed
+            : [];
+          const skipped = Array.isArray(parsed?.skipped) ? parsed.skipped : [];
+          const hasSelected = items.some(Boolean);
+          const hasSkipped = skipped.some(Boolean);
+          return hasSelected || hasSkipped;
+        } catch (_) {
+          return false;
+        }
+      };
       try {
         const hydrating = root?.dataset?.checklistHydrating === "1";
         const localDirty = root?.dataset?.checklistHydrationLocalDirty === "1";
@@ -1013,16 +1038,42 @@
       }
       let appliedWithManager = false;
       if (saved && !hadLocalChange && manager && typeof manager.applySelection === "function") {
+        // If there is no existing inline daily state for this day, don't apply manager selections
+        // to the UI on the daily screen. This prevents pre-coloring after deleting a day's dot.
+        if (!hasInlineDailyState()) {
+          log("hydrate.apply.manager.skip-no-daily-state");
+        } else {
         try {
-          manager.applySelection(root, saved, { consigneId, dateKey, uid: effectiveUid, db });
+          // Shield hidden input events while the manager applies its selection to the DOM
+          const hidden = root.querySelector("[data-checklist-state]");
+          let stopInput = null;
+          let stopChange = null;
+          if (hidden && typeof hidden.addEventListener === "function") {
+            stopInput = (e) => { try { e.stopImmediatePropagation(); e.stopPropagation(); } catch (_) {} };
+            stopChange = (e) => { try { e.stopImmediatePropagation(); e.stopPropagation(); } catch (_) {} };
+            hidden.addEventListener("input", stopInput, true);
+            hidden.addEventListener("change", stopChange, true);
+          }
+          try {
+            manager.applySelection(root, saved, { consigneId, dateKey, uid: effectiveUid, db });
+          } finally {
+            if (hidden && typeof hidden.removeEventListener === "function") {
+              if (stopInput) hidden.removeEventListener("input", stopInput, true);
+              if (stopChange) hidden.removeEventListener("change", stopChange, true);
+            }
+          }
           appliedWithManager = true;
           log("hydrate.apply.manager", { selected: selectedCount(saved) });
         } catch (error) {
           console.warn("[checklist-fix] applySelection", error);
           log("hydrate.apply.error", { message: error?.message || String(error) }, "warn");
         }
+        }
       }
         if (saved && !appliedWithManager && !hadLocalChange) {
+          if (!hasInlineDailyState()) {
+            log("hydrate.apply.dom.skip-no-daily-state");
+          } else {
           const selected = Array.isArray(saved?.selectedIds)
             ? saved.selectedIds
             : Array.isArray(saved?.selected)
@@ -1033,8 +1084,12 @@
             : Array.isArray(saved?.skipped)
             ? saved.skipped
             : [];
-          applySelectedKeys(root, itemKeyAttr, selected, skipped);
+            // Apply silently during hydration so we don't emit input/change events
+            // and we don't mark the hidden input as dirty. This avoids triggering
+            // daily autosave and keeps rows in "Sans donnée" until the user acts.
+            applySelectedKeys(root, itemKeyAttr, selected, skipped, { emitEvents: false, markDirty: false });
           log("hydrate.apply.dom", { selected: selected.length, skipped: skipped.length });
+          }
       }
       if (hadLocalChange) {
         log("hydrate.skip-apply-due-local-change");
