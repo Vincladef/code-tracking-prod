@@ -13133,21 +13133,29 @@ function setConsigneRowValue(row, consigne, value) {
     const valueForStatus = normalizedValue || { items: domState.items, skipped: domState.skipped };
     const hasChecklistAnswer = hasChecklistResponse(consigne, row, valueForStatus);
     if (hidden) {
-      const payload = {
-        items: domState.items,
-        skipped: domState.skipped,
-      };
-      try {
-        hidden.value = JSON.stringify(payload);
-      } catch (error) {
-        hidden.value = JSON.stringify({ items: domState.items });
-      }
-      if (hidden.dataset) {
-        if (hasChecklistAnswer) {
-          hidden.dataset.dirty = "1";
-        } else {
-          delete hidden.dataset.dirty;
+      if (hasChecklistAnswer) {
+        const payload = {
+          items: domState.items,
+          skipped: domState.skipped,
+        };
+        try {
+          hidden.value = JSON.stringify(payload);
+        } catch (error) {
+          hidden.value = JSON.stringify({ items: domState.items });
         }
+        if (hidden.dataset) {
+          hidden.dataset.dirty = "1";
+        }
+      } else {
+        hidden.value = "";
+        if (hidden.dataset) {
+          delete hidden.dataset.dirty;
+          delete hidden.dataset.checklistHistoryDate;
+          delete hidden.dataset.checklistHydrationLocalDirty;
+        }
+        hidden.removeAttribute("data-checklist-history-date");
+        hidden.removeAttribute("data-checklist-dirty");
+        hidden.removeAttribute("data-checklist-dirty-at");
       }
       hidden.dispatchEvent(new Event("input", { bubbles: true }));
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
@@ -13160,6 +13168,15 @@ function setConsigneRowValue(row, consigne, value) {
         delete container.dataset.checklistDirtyAt;
         delete container.dataset.checklistHydrationLocalDirty;
       }
+    }
+    if (!hasChecklistAnswer) {
+      container.removeAttribute("data-checklist-dirty");
+      container.removeAttribute("data-checklist-dirty-at");
+      container.removeAttribute("data-checklist-hydration-local-dirty");
+    }
+    if (!hasChecklistAnswer && row?.dataset) {
+      delete row.dataset.checklistHydrationLocalDirty;
+      delete row.dataset.checklistDirty;
     }
     updateConsigneStatusUI(row, consigne, hasChecklistAnswer ? valueForStatus : "");
     maintainOrClearSkip(hasChecklistAnswer);
