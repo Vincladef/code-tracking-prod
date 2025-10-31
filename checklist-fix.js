@@ -763,30 +763,9 @@
             return;
           }
           if (expectedKey) {
-            if (!hiddenKey) {
-              // Injecter la clé manquante dans le hidden pour rétablir la cohérence
-              log("hydrate.hidden.inject-dateKey", { pageKey: expectedKey });
-              try {
-                const clone = Array.isArray(parsed)
-                  ? { items: parsed.map((v) => v === true) }
-                  : { ...parsed };
-                clone.dateKey = expectedKey;
-                if (currentOptionsHash) clone.optionsHash = currentOptionsHash;
-                hiddenInput.value = JSON.stringify(clone);
-              } catch (_) {}
-              return;
-            }
-            if (hiddenKey !== expectedKey) {
-              // Corriger la clé de date dans le hidden
-              log("hydrate.hidden.fix-date-mismatch", { hiddenKey, pageKey: expectedKey });
-              try {
-                const clone = Array.isArray(parsed)
-                  ? { items: parsed.map((v) => v === true) }
-                  : { ...parsed };
-                clone.dateKey = expectedKey;
-                if (currentOptionsHash) clone.optionsHash = currentOptionsHash;
-                hiddenInput.value = JSON.stringify(clone);
-              } catch (_) {}
+            if (!hiddenKey || hiddenKey !== expectedKey) {
+              // Ignore hidden state from another day; don't rewrite it for today
+              log("hydrate.hidden.ignore-date-mismatch", { hiddenKey: hiddenKey || null, pageKey: expectedKey });
               return;
             }
           }
@@ -987,6 +966,13 @@
           if (hidden.dataset && hidden.dataset.dirty === '1') return true;
           if (root.dataset && root.dataset.checklistDirty === '1') return true;
           const parsed = hidden.value ? JSON.parse(hidden.value) : null;
+          // Only consider inline state valid if it targets the current page day
+          const parsedKey = parsed && typeof parsed === 'object' && parsed.dateKey ? String(parsed.dateKey) : null;
+          const normalizedParsedKey = parsedKey || null;
+          const normalizedCurrentKey = dateKey || null;
+          if (!normalizedParsedKey || (normalizedCurrentKey && normalizedParsedKey !== normalizedCurrentKey)) {
+            return false;
+          }
           const items = Array.isArray(parsed?.items)
             ? parsed.items
             : Array.isArray(parsed)
@@ -1055,7 +1041,7 @@
             hidden.addEventListener("change", stopChange, true);
           }
           try {
-            manager.applySelection(root, saved, { consigneId, dateKey, uid: effectiveUid, db });
+            manager.applySelection(root, saved, { consigneId, dateKey, uid: effectiveUid, db, markDirty: false, showHint: false });
           } finally {
             if (hidden && typeof hidden.removeEventListener === "function") {
               if (stopInput) hidden.removeEventListener("input", stopInput, true);
