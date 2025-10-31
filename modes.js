@@ -20757,6 +20757,9 @@ Modes.setupConsigneActionMenus = setupConsigneActionMenus;
 Modes.setupConsignePriorityMenu = setupConsignePriorityMenu;
 Modes.closeConsigneActionMenuFromNode = closeConsigneActionMenuFromNode;
 Modes.setupConsigneHistoryTimeline = setupConsigneHistoryTimeline;
+// Expose timeline updater and status resolver for other modules (bilan)
+Modes.updateConsigneHistoryTimeline = updateConsigneHistoryTimeline;
+Modes.dotColor = dotColor;
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {

@@ -1238,6 +1238,9 @@
 
       const metadataForPersist = { ...metadata, summaryLabel };
 
+      const summaryDayKey = (typeof Schema?.dayKeyFromDate === 'function' && period?.end)
+        ? Schema.dayKeyFromDate(period.end)
+        : '';
       try {
         if (!hasValue) {
           await Schema.deleteSummaryAnswer(
@@ -1249,6 +1252,25 @@
             metadataForPersist,
           );
           await syncObjectiveEntryFromSummary(ctx, consigne, value, false, period);
+          // Update timeline immediately: remove bilan point for this period
+          try {
+            const status = typeof Modes?.dotColor === 'function' ? (Modes.dotColor(consigne.type, '', consigne) || 'na') : 'na';
+            if (typeof Modes?.updateConsigneHistoryTimeline === 'function' && row) {
+              Modes.updateConsigneHistoryTimeline(row, status, {
+                consigne,
+                value: '',
+                dayKey: summaryDayKey,
+                isBilan: true,
+                summaryScope: normalizedSummaryScope,
+                remove: true,
+              });
+            }
+          } catch (_) {}
+          try {
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+              window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+            }
+          } catch (_) {}
           return;
         }
 
@@ -1273,6 +1295,24 @@
           metadataForPersist,
         );
         await syncObjectiveEntryFromSummary(ctx, consigne, value, true, period);
+        // Update timeline immediately: add/update bilan point for this period
+        try {
+          const status = typeof Modes?.dotColor === 'function' ? (Modes.dotColor(consigne.type, value, consigne) || 'na') : 'na';
+          if (typeof Modes?.updateConsigneHistoryTimeline === 'function' && row) {
+            Modes.updateConsigneHistoryTimeline(row, status, {
+              consigne,
+              value,
+              dayKey: summaryDayKey,
+              isBilan: true,
+              summaryScope: normalizedSummaryScope,
+            });
+          }
+        } catch (_) {}
+        try {
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+          }
+        } catch (_) {}
       } catch (error) {
         bilanLogger?.error?.("bilan.summary.persist", { error, key });
       }
