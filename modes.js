@@ -7961,7 +7961,9 @@ function dotColor(type, v, consigne){
       medium: "mid",
       rather_no: "ko-soft",
       no: "ko-strong",
-      no_answer: "note",
+      // The default placeholder "no_answer" should not be treated as an answer
+      // and should not pre-color rows. Keep it as "na".
+      no_answer: "na",
     };
     return map[v] || "na";
   }
@@ -14244,6 +14246,16 @@ function hasValueForConsigne(consigne, value) {
     return false;
   }
   const type = consigne?.type;
+  if (type === "yesno") {
+    // Only explicit selections count as answers
+    return value === "yes" || value === "no";
+  }
+  if (type === "likert6") {
+    // Treat the placeholder option as no answer
+    if (value === "no_answer" || value === "") return false;
+    const allowed = new Set(["yes", "rather_yes", "medium", "rather_no", "no"]);
+    return allowed.has(String(value));
+  }
   if (type === "long") {
     return richTextHasContent(value);
   }
