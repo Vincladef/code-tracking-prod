@@ -16722,7 +16722,23 @@ async function openHistory(ctx, consigne, options = {}) {
       triggerConsigneRowUpdateHighlight(timelineRow);
     };
     const updateDailyPrefillCacheForHistoryEdit = (nextValue) => {
-      if (nextValue === null) {
+      const hasContent = (() => {
+        if (nextValue === null || nextValue === undefined) {
+          return false;
+        }
+        try {
+          if (consigne?.type === "checklist") {
+            return hasChecklistResponse(consigne, null, nextValue);
+          }
+          return hasValueForConsigne(consigne, nextValue);
+        } catch (_) {
+          return Boolean(
+            nextValue !== "" &&
+              !(typeof nextValue === "object" && Object.keys(nextValue || {}).length === 0),
+          );
+        }
+      })();
+      if (!hasContent) {
         previousAnswers.delete(consigne.id);
       } else if (nextValue !== undefined) {
         const base = previousAnswers.get(consigne.id) || { consigneId: consigne.id };
@@ -16762,7 +16778,7 @@ async function openHistory(ctx, consigne, options = {}) {
       try {
         updateDailyPrefillCacheForHistoryEdit(nextValue);
       } catch (_) {}
-      const normalizedValue = nextValue === undefined ? "" : nextValue;
+      const normalizedValue = nextValue === undefined ? null : nextValue;
       try {
         if (typeof window !== "undefined" && window?.Modes?.applyDailyPrefillUpdate) {
           window.Modes.applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue);
@@ -16892,7 +16908,7 @@ async function openHistory(ctx, consigne, options = {}) {
               historyId: targetDocId,
               responseId: responseSyncOptions?.responseId || "",
             });
-            try { propagateDailyPrefillUpdate(""); } catch (_) {}
+            try { propagateDailyPrefillUpdate(null); } catch (_) {}
           });
           // Remove the item immediately in the UI for instant feedback
           try {
@@ -16948,7 +16964,7 @@ async function openHistory(ctx, consigne, options = {}) {
               historyId: targetDocId,
               responseId: responseSyncOptions?.responseId || "",
             });
-            try { propagateDailyPrefillUpdate(""); } catch (_) {}
+            try { propagateDailyPrefillUpdate(null); } catch (_) {}
           });
         } else {
           await Schema.saveHistoryEntry(
