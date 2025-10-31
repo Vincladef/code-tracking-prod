@@ -11837,23 +11837,32 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
 function renderConsigneHistoryTimeline(row, points) {
   const container = row?.querySelector?.("[data-consigne-history]");
   const track = row?.querySelector?.("[data-consigne-history-track]");
-  
+
   if (!container || !track) {
     return false;
   }
-  // Do not clear or hide timeline when data is momentarily unavailable.
-  // Keep existing dots to avoid flicker during async refresh.
   track.setAttribute("role", "list");
   track.setAttribute("aria-label", "Historique des derniers jours");
-  
-  points.forEach((point, index) => {
+
+  while (track.firstChild) {
+    track.removeChild(track.firstChild);
+  }
+
+  const timelinePoints = Array.isArray(points) ? points.filter(Boolean) : [];
+  if (!timelinePoints.length) {
+    container.hidden = true;
+    track.dataset.historyMode = "empty";
+    return false;
+  }
+
+  timelinePoints.forEach((point) => {
     const item = document.createElement("div");
     item.className = "consigne-history__item";
     item.setAttribute("role", "listitem");
     applyConsigneHistoryPoint(item, point);
     track.appendChild(item);
   });
-  
+
   container.hidden = false;
   track.dataset.historyMode = "day";
   return true;
