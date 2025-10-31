@@ -7999,7 +7999,10 @@ function dotColor(type, v, consigne){
     if (pct >= 60) return "ok-soft";
     if (pct >= 40) return "mid";
     if (pct >= 20) return "ko-soft";
-    if (stats.total > 0 || stats.isEmpty) return "ko-strong";
+    // If there are items considered but none checked, it's very negative.
+    // If there is no data at all (empty value, no items considered), treat as NA.
+    if (stats.total > 0) return "ko-strong";
+    if (stats.isEmpty) return "na";
     return "na";
   }
   if (type === "short" || type === "long") {
@@ -10750,6 +10753,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
                 });
                 triggerConsigneRowUpdateHighlight(childState.row);
               }
+              // Fully clear the daily UI and autosave footprint for the child as well
+              try { applyDailyPrefillUpdate(childState.consigne.id, resolvedDayKey, ""); } catch (_) {}
             });
           }
           try {
@@ -10936,6 +10941,10 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             remove: hasValue ? false : true,
           });
           triggerConsigneRowUpdateHighlight(state.row);
+        }
+        // Ensure child daily row is purged when cleared (no value)
+        if (!hasValue) {
+          try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, ""); } catch (_) {}
         }
       }
       const childCleared = childResults.some(
