@@ -19345,13 +19345,7 @@ async function renderDaily(ctx, root, opts = {}) {
       if (!consigneId) return;
       const normalizedTarget = typeof targetDayKey === "string" && targetDayKey.trim() ? normalizeHistoryDayKey(targetDayKey) : normalizeHistoryDayKey(dayKey || "");
       try { observedValues.delete(consigneId); } catch (_) {}
-      try {
-        const existing = previousAnswers.get(consigneId);
-        const entryKey = existing ? resolvePreviousEntryDayKey(existing) : null;
-        if (!existing || !entryKey || !normalizedTarget || entryKey === normalizedTarget) {
-          previousAnswers.delete(consigneId);
-        }
-      } catch (_) {}
+      try { previousAnswers.delete(consigneId); } catch (_) {}
       try { removeRecentResponsesForDay(consigneId, normalizedTarget); } catch (_) {}
 
       // Prevent autosave relaunch while clearing
@@ -19360,6 +19354,8 @@ async function renderDaily(ctx, root, opts = {}) {
         suppressedAutoSaveScopes.add(scopeKey);
         setTimeout(() => suppressedAutoSaveScopes.delete(scopeKey), 1500);
       } catch (_) {}
+      // Flush any pending autosave state for this consigne
+      try { if (typeof flushAutoSaveForConsigneImpl === "function") { flushAutoSaveForConsigneImpl(consigneId, normalizedTarget); } } catch (_) {}
 
       // Update DOM row
       try {
@@ -19370,6 +19366,13 @@ async function renderDaily(ctx, root, opts = {}) {
           const consigne = { id: consigneId, type };
           setConsigneRowValue(dailyRow, consigne, nextValue);
           clearConsigneSummaryMetadata(dailyRow);
+          // Ensure flags that can force non-NA status are cleared
+          try {
+            delete dailyRow.dataset.currentValue;
+            dailyRow.dataset.skipAnswered = "0";
+            dailyRow.dataset.childAnswered = "0";
+          } catch (_) {}
+          try { updateConsigneStatusUI(dailyRow, consigne, nextValue); } catch (_) {}
           triggerConsigneRowUpdateHighlight(dailyRow);
         }
       } catch (_) {}
