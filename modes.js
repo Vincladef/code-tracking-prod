@@ -9681,6 +9681,15 @@ function applyConsigneHistoryPoint(item, point) {
   item.dataset.status = status;
   item.dataset.placeholder = point.isPlaceholder ? "1" : "0";
   item.tabIndex = 0;
+  // Tag scope to allow styling (weekly/monthly/yearly) for bilan points
+  try {
+    const scope = typeof point.summaryScope === "string" ? point.summaryScope.trim() : "";
+    if (scope) {
+      item.dataset.summaryScope = scope;
+    } else {
+      delete item.dataset.summaryScope;
+    }
+  } catch (_) {}
   const dot = ensureConsigneHistoryDot(item);
   if (dot) {
     dot.className = `consigne-history__dot consigne-row__dot consigne-row__dot--${status}`;
@@ -10886,11 +10895,18 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         parentHasValue ? rawValue : "",
         consigne,
       ) || "na";
+      const resolvedSummaryScope =
+        (typeof entry?.summaryScope === "string" && entry.summaryScope.trim()) ||
+        (typeof entry?.summary_scope === "string" && entry.summary_scope.trim()) ||
+        (typeof details?.summaryScope === "string" && details.summaryScope.trim()) ||
+        (typeof details?.summary_scope === "string" && details.summary_scope.trim()) ||
+        "";
       updateConsigneHistoryTimeline(row, parentStatus, {
         consigne,
         value: parentHasValue ? rawValue : "",
         dayKey: resolvedDayKey,
         isBilan: true,
+        summaryScope: resolvedSummaryScope,
         historyId: historyDocumentId,
         responseId: resolvedResponseId,
         remove: parentHasValue ? false : true,
@@ -11878,6 +11894,8 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
     const normalizedResponseId =
       typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
+    const normalizedScope =
+      typeof options.summaryScope === "string" && options.summaryScope.trim() ? options.summaryScope.trim() : "";
     const resolveDayKey = () => {
       if (typeof options.dayKey === "string" && options.dayKey.trim()) {
         return options.dayKey.trim();
@@ -11918,7 +11936,9 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       );
     }
     if (!item && dayKey) {
-      item = state.track.querySelector(`[data-history-day="${escapeTimelineSelector(dayKey)}"]`);
+      const scopeFilter = normalizedScope ? `[data-summary-scope="${escapeTimelineSelector(normalizedScope)}"]` : "";
+      const sourceFilter = options.isBilan === true ? '[data-history-source="bilan"]' : '';
+      item = state.track.querySelector(`[data-history-day="${escapeTimelineSelector(dayKey)}"]${scopeFilter}${sourceFilter}`);
     }
     const removeLogPayload = {
       consigneId: options?.consigne?.id ?? null,
@@ -12037,6 +12057,11 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   }
   iterationLabel = sanitizeIterationLabel(iterationLabel, iterationNumber);
   const providedIsBilan = options.isBilan === true || existingDetails?.isBilan === true;
+  const providedScope =
+    (typeof options.summaryScope === "string" && options.summaryScope.trim()) ||
+    (typeof existingDetails?.summaryScope === "string" && existingDetails.summaryScope.trim()) ||
+    (typeof item?.dataset?.summaryScope === "string" && item.dataset.summaryScope.trim()) ||
+    "";
   const optionDate = options?.date instanceof Date && !Number.isNaN(options.date.getTime()) ? options.date : null;
   const optionTimestamp = typeof options?.timestamp === "number" && Number.isFinite(options.timestamp)
     ? options.timestamp
@@ -12117,6 +12142,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     timestamp: resolvedTimestamp,
     isPlaceholder: false,
     isBilan: providedIsBilan,
+    summaryScope: providedScope,
     iterationIndex: iterationIndex != null ? iterationIndex : existingDetails?.iterationIndex ?? null,
     iterationNumber,
     iterationLabel,
@@ -12153,6 +12179,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       dayKey,
       date: timelineDate,
       status,
+      summaryScope: providedScope,
       title: iterationLabel
         ? STATUS_LABELS[status]
           ? `${iterationLabel} — ${STATUS_LABELS[status]}`
@@ -15004,7 +15031,14 @@ function renderHistoryChart(data, { type, mode } = {}) {
       const ariaParts = [valueLabel, tooltipMeta].filter(Boolean);
       const ariaLabel = ariaParts.join(" — ");
       const metaAttr = tooltipMeta ? ` data-meta="${escapeHtml(tooltipMeta)}"` : "";
-      const pointColor = point.isBilan ? "#7c3aed" : colorPalette.circle;
+      const scopeColor = (() => {
+        const s = typeof point.summaryScope === 'string' ? point.summaryScope : '';
+        if (s === 'monthly') return '#6d28d9';
+        if (s === 'yearly') return '#5b21b6';
+        // weekly and default
+        return '#7c3aed';
+      })();
+      const pointColor = point.isBilan ? scopeColor : colorPalette.circle;
       const pointClasses = ["history-chart__point"];
       if (point.isBilan) {
         pointClasses.push("history-chart__point--bilan");
@@ -16904,6 +16938,7 @@ async function openHistory(ctx, consigne, options = {}) {
         renderInPanel: true,
         panel,
         responseId: responseIdAttr,
+        summaryScope: itemNode?.getAttribute('data-summary-scope') || '',
         onChange: reopenHistory,
       });
       return;

@@ -1261,7 +1261,7 @@
       padding:0;
       background:none;
       margin-right:.35rem;
-      color:#7c3aed; /* violet */
+      color:#7c3aed; /* weekly default */
       font-size:.9rem;
       font-weight:700;
       line-height:1;
@@ -1270,6 +1270,9 @@
       justify-content:center;
       box-shadow:none;
     }
+    /* Scope-specific colors for bilan in timeline */
+    .consigne-history__item[data-summary-scope="monthly"] .consigne-history__dot--bilan{ color:#6d28d9; }
+    .consigne-history__item[data-summary-scope="yearly"] .consigne-history__dot--bilan{ color:#5b21b6; }
     .history-dialog__value {
       width:100%;
     }
@@ -2248,7 +2251,7 @@
       background:none;
       box-shadow:none;
       margin-right:.35rem;
-      color:#7c3aed;
+      color:#7c3aed; /* weekly default */
       font-size:.9rem;
       font-weight:700;
       line-height:1;
@@ -2257,11 +2260,14 @@
       justify-content:center;
     }
     .history-panel__item[data-history-source="bilan"] .history-panel__dot::before{ content:"★"; }
+    /* Scope-specific star colors in panel */
+    .history-panel__item[data-history-source="bilan"][data-summary-scope="monthly"] .history-panel__dot{ color:#6d28d9; }
+    .history-panel__item[data-history-source="bilan"][data-summary-scope="yearly"] .history-panel__dot{ color:#5b21b6; }
     .history-panel__date{ font-size:.8rem; color:#475569; }
-    .history-panel__item[data-summary-scope="monthly"] .history-panel__date,
-    .history-panel__item[data-summary-scope="weekly"] .history-panel__date,
-    .history-panel__item[data-summary-scope="yearly"] .history-panel__date,
-    .history-panel__item[data-history-source="bilan"] .history-panel__date{ color:#5b21b6; }
+    /* Scope-specific date colors (match star tones) */
+    .history-panel__item[data-history-source="bilan"][data-summary-scope="weekly"] .history-panel__date{ color:#7c3aed; }
+    .history-panel__item[data-history-source="bilan"][data-summary-scope="monthly"] .history-panel__date{ color:#6d28d9; }
+    .history-panel__item[data-history-source="bilan"][data-summary-scope="yearly"] .history-panel__date{ color:#5b21b6; }
     .history-panel__meta-row{ font-size:.75rem; color:#64748b; }
     .history-panel__meta{ display:inline-flex; align-items:center; gap:.25rem; background:rgba(148,163,184,0.16); padding:.25rem .55rem; border-radius:.75rem; }
     .history-panel__note{ margin:0; font-size:.85rem; color:#475569; line-height:1.45; word-break:break-word; }
