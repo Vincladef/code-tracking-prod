@@ -8158,6 +8158,8 @@ function historyStatusFromAverage(type, values) {
 }
 
 const CONSIGNE_HISTORY_TIMELINE_DAY_COUNT = 21;
+const CONSIGNE_ROW_UPDATE_DURATION = 1200;
+const consigneRowUpdateTimers = new WeakMap();
 const CONSIGNE_HISTORY_ROW_STATE = new WeakMap();
 // Keep the last rendered points per consigne id to allow robust comparisons
 // even when the DOM timeline is not yet hydrated or is off-screen (e.g., bilan pages).
