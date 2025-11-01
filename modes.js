@@ -11468,6 +11468,68 @@ function readConsigneCurrentValue(consigne, scope) {
     if (!input || input.value === "" || input.value == null) {
       return "";
     }
+    const amount = Number(input.value);
+    if (!Number.isFinite(amount)) {
+      return "";
+    }
+    return buildMontantValue(consigne, amount);
+  }
+  if (type === "likert5") {
+    const select = scope.querySelector(`[name="likert5:${id}"]`);
+    if (!select || select.value === "" || select.value == null) return "";
+    const num = Number(select.value);
+    return Number.isFinite(num) ? num : "";
+  }
+  if (type === "yesno") {
+    const select = scope.querySelector(`[name="yesno:${id}"]`);
+    return select ? select.value : "";
+  }
+  if (type === "likert6") {
+    const select = scope.querySelector(`[name="likert6:${id}"]`);
+    return select ? select.value : "";
+  }
+  if (type === "checklist") {
+    const hidden = scope.querySelector(`[name="checklist:${id}"]`);
+    let parsedValues = null;
+    let isDirty = false;
+    if (hidden) {
+      isDirty = hidden.dataset?.dirty === "1";
+      try {
+        const parsed = JSON.parse(hidden.value || "[]");
+        const value = buildChecklistValue(consigne, parsed);
+        const items = Array.isArray(value?.items) ? value.items : [];
+        const skipped = Array.isArray(value?.skipped) ? value.skipped : [];
+        const hasMeaningfulState =
+          items.some(Boolean) || skipped.some(Boolean) || (value && value.__hasAnswer === true);
+        if (!isDirty && !hasMeaningfulState) {
+          return null;
+        }
+        return value;
+      } catch (error) {
+        console.warn("readConsigneCurrentValue:checklist", error);
+      }
+    }
+    const container = scope.querySelector(
+      `[data-checklist-root][data-consigne-id="${String(id ?? "")}"]`
+    );
+    if (container) {
+      const domState = readChecklistDomState(container);
+      if (domState.items.length) {
+        const isDirty = container.dataset && container.dataset.checklistDirty === "1";
+        const hasMeaningfulState =
+          domState.items.some((checked, index) => checked && !domState.skipped[index]) ||
+          domState.skipped.some(Boolean);
+        if (!isDirty && !hasMeaningfulState) {
+          return null;
+        }
+        return buildChecklistValue(consigne, domState);
+      }
+    }
+    return buildChecklistValue(consigne, []);
+  }
+  const input = scope.querySelector(`[name$=":${id}"]`);
+  return input ? input.value : "";
+}
 
 function hasChecklistResponse(consigne, scopeOrValue, rawValue) {
   let value = typeof rawValue !== "undefined" ? rawValue : scopeOrValue;
@@ -11543,7 +11605,6 @@ function hasValueForConsigne(consigne, scopeOrValue) {
   const type = typeof consigne.type === "string" ? consigne.type.toLowerCase() : "";
   let value = scopeOrValue;
   if (value && typeof value === "object" && value.nodeType === 1) {
-    // It's probably a DOM node (row).
     value = readConsigneCurrentValue(consigne, value);
   }
   if (value == null) {
@@ -11566,9 +11627,8 @@ function hasValueForConsigne(consigne, scopeOrValue) {
         return false;
       }
     }
-    case "checklist": {
+    case "checklist":
       return evaluateChecklistResponse(consigne, null, value);
-    }
     case "long":
     case "long_text":
     case "texte": {
@@ -11583,7 +11643,7 @@ function hasValueForConsigne(consigne, scopeOrValue) {
     case "oui_non":
     case "choice":
     case "select":
-    default: {
+    default:
       if (typeof value === "string") {
         return value.trim().length > 0;
       }
@@ -11591,74 +11651,11 @@ function hasValueForConsigne(consigne, scopeOrValue) {
         return value.length > 0;
       }
       return Boolean(value);
-    }
   }
 }
 
 if (typeof window !== "undefined") {
   window.hasValueForConsigne = hasValueForConsigne;
-}
-    const amount = Number(input.value);
-    if (!Number.isFinite(amount)) {
-      return "";
-    }
-    return buildMontantValue(consigne, amount);
-  }
-  if (type === "likert5") {
-    const select = scope.querySelector(`[name="likert5:${id}"]`);
-    if (!select || select.value === "" || select.value == null) return "";
-    const num = Number(select.value);
-    return Number.isFinite(num) ? num : "";
-  }
-  if (type === "yesno") {
-    const select = scope.querySelector(`[name="yesno:${id}"]`);
-    return select ? select.value : "";
-  }
-  if (type === "likert6") {
-    const select = scope.querySelector(`[name="likert6:${id}"]`);
-    return select ? select.value : "";
-  }
-  if (type === "checklist") {
-    const hidden = scope.querySelector(`[name="checklist:${id}"]`);
-    let parsedValues = null;
-    let isDirty = false;
-    if (hidden) {
-      isDirty = hidden.dataset?.dirty === "1";
-      try {
-        const parsed = JSON.parse(hidden.value || "[]");
-        const value = buildChecklistValue(consigne, parsed);
-        const items = Array.isArray(value?.items) ? value.items : [];
-        const skipped = Array.isArray(value?.skipped) ? value.skipped : [];
-        const hasMeaningfulState =
-          items.some(Boolean) || skipped.some(Boolean) || (value && value.__hasAnswer === true);
-        if (!isDirty && !hasMeaningfulState) {
-          return null;
-        }
-        return value;
-      } catch (error) {
-        console.warn("readConsigneCurrentValue:checklist", error);
-      }
-    }
-    const container = scope.querySelector(
-      `[data-checklist-root][data-consigne-id="${String(id ?? "")}"]`
-    );
-    if (container) {
-      const domState = readChecklistDomState(container);
-      if (domState.items.length) {
-        const isDirty = container.dataset && container.dataset.checklistDirty === "1";
-        const hasMeaningfulState =
-          domState.items.some((checked, index) => checked && !domState.skipped[index]) ||
-          domState.skipped.some(Boolean);
-        if (!isDirty && !hasMeaningfulState) {
-          return null;
-        }
-        return buildChecklistValue(consigne, domState);
-      }
-    }
-    return buildChecklistValue(consigne, []);
-  }
-  const input = scope.querySelector(`[name$=":${id}"]`);
-  return input ? input.value : "";
 }
 
 function enhanceRangeMeters(scope) {
