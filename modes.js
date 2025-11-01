@@ -5,7 +5,8 @@ const modesFirestore = Schema.firestore || window.firestoreAPI || {};
 
 const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
 // Lightweight audit logger for prefill issues
-// prefillLog and prefillAlert removed
+const prefillLog = () => {};
+const prefillAlert = () => {};
 
 if (typeof window !== "undefined") {
   // history mutation debug disabled
