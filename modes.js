@@ -12014,22 +12014,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     try {
       let rawValue = readConsigneValueFromForm(consigne, form);
       let parentHasValue = hasValueForConsigne(consigne, rawValue);
-      let usedFallbackValue = false;
-      const canUseInitialValue = parentInitialHasValue
-        && hasValueForConsigne(consigne, parentInitialValue);
-      if (!parentHasValue && canUseInitialValue) {
-        rawValue = parentInitialValue;
-        parentHasValue = true;
-        usedFallbackValue = true;
-        logHistoryDebug("editor.submit.valueFallback", {
-          consigneId: consigne?.id ?? null,
-          dayKey: resolvedDayKey,
-          reason: parentValueTouched ? "retain-after-touch" : "retain-initial",
-          parentTouched: parentValueTouched,
-          parentInitialHasValue,
-          initialSummary: summarizeHistoryValue(parentInitialValue),
-        });
-      }
+      const usedFallbackValue = false;
       const childResults = baseChildStates.map((childState) => {
         const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
         const childValue = childNode
@@ -12101,7 +12086,6 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         iterationLabel,
         historyId: historyDocumentId,
         responseId: responseSyncOptions?.responseId || "",
-        remove: parentHasValue ? false : true,
       });
       logHistoryDebug("editor.submit.timeline-parent", {
         consigneId: consigne?.id ?? null,
