@@ -11573,6 +11573,113 @@ function callOpenHistory(ctx, consigne, options = {}) {
   return null;
 }
 
+function ensureConsigneSkipField(row, consigne) {
+  if (!row) return null;
+  let hidden = row.querySelector("[data-consigne-skip-input]");
+  if (!hidden) {
+    hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.setAttribute("data-consigne-skip-input", "");
+    row.appendChild(hidden);
+  }
+  if (consigne?.id != null) {
+    const id = String(consigne.id);
+    hidden.name = `skip:${id}`;
+    hidden.setAttribute("data-autosave-field", `consigne:${id}:skip`);
+  }
+  return hidden;
+}
+
+function setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents = true, updateUI = true } = {}) {
+  if (!row || !consigne) return false;
+  const hidden = ensureConsigneSkipField(row, consigne);
+  if (hidden) {
+    hidden.value = shouldSkip ? "1" : "";
+    hidden.dataset.consigneSkipValue = shouldSkip ? "1" : "0";
+    if (emitInputEvents) {
+      try {
+        hidden.dispatchEvent(new Event("input", { bubbles: true }));
+        hidden.dispatchEvent(new Event("change", { bubbles: true }));
+      } catch (_) {}
+    }
+  }
+
+  if (shouldSkip) {
+    row.dataset.skipAnswered = "1";
+    row.classList.add("consigne-row--skipped");
+  } else {
+    delete row.dataset.skipAnswered;
+    row.classList.remove("consigne-row--skipped");
+  }
+
+  if (updateUI) {
+    let valueForStatus;
+    if (shouldSkip) {
+      valueForStatus = { skipped: true };
+    } else {
+      try {
+        valueForStatus = readConsigneCurrentValue(consigne, row);
+      } catch (_) {
+        valueForStatus = null;
+      }
+    }
+    try {
+      updateConsigneStatusUI(row, consigne, valueForStatus);
+    } catch (_) {}
+  }
+
+  return shouldSkip;
+}
+
+function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
+  if (!row || !consigne) {
+    return { dispose() {} };
+  }
+
+  ensureConsigneSkipField(row, consigne);
+
+  const holder = row.querySelector("[data-consigne-input-holder]");
+  const controls = holder
+    ? Array.from(holder.querySelectorAll("input, textarea, select"))
+    : [];
+
+  const notifyChange = () => {
+    if (typeof onChange !== "function") return;
+    try {
+      const value = readConsigneCurrentValue(consigne, row);
+      onChange(value);
+    } catch (error) {
+      try {
+        modesLogger?.warn?.("consigne.bind.read", error);
+      } catch (_) {}
+    }
+  };
+
+  controls.forEach((control) => {
+    control.addEventListener("input", notifyChange);
+    control.addEventListener("change", notifyChange);
+  });
+
+  if (typeof initialValue !== "undefined") {
+    try {
+      if (initialValue && typeof initialValue === "object" && initialValue.skipped) {
+        setConsigneSkipState(row, consigne, true, { emitInputEvents: false, updateUI: true });
+      }
+    } catch (_) {}
+  }
+
+  notifyChange();
+
+  return {
+    dispose() {
+      controls.forEach((control) => {
+        control.removeEventListener("input", notifyChange);
+        control.removeEventListener("change", notifyChange);
+      });
+    },
+  };
+}
+
 const CONSIGNE_PRIORITY_OPTIONS = [
   { value: 1, tone: "high", label: "Priorité haute" },
   { value: 2, tone: "medium", label: "Priorité moyenne" },
