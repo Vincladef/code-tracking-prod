@@ -11748,7 +11748,10 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     return null;
   })();
   if (parentValueField) {
-    const markParentTouched = () => {
+    const markParentTouched = (event) => {
+      if (event && event.isTrusted === false) {
+        return;
+      }
       parentValueTouched = true;
     };
     parentValueField.addEventListener('input', markParentTouched);
@@ -12057,6 +12060,25 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           valueSummary: summarizeHistoryValue(value),
         })),
       });
+      if (
+        !parentHasValue &&
+        parentInitialHasValue &&
+        !parentValueTouched &&
+        historyDocumentId &&
+        hasValueForConsigne(consigne, parentInitialValue)
+      ) {
+        rawValue = parentInitialValue;
+        parentHasValue = true;
+        usedFallbackValue = true;
+        logHistoryDebug("editor.submit.valueFallback", {
+          consigneId: consigne?.id ?? null,
+          dayKey: resolvedDayKey,
+          reason: "retain-before-delete",
+          parentTouched: parentValueTouched,
+          parentInitialHasValue,
+          initialSummary: summarizeHistoryValue(parentInitialValue),
+        });
+      }
       if (!parentHasValue) {
         await runWithAutoSaveSuppressed(consigne.id, resolvedDayKey, async () => {
           logHistoryDebug("editor.submit.deleteHistoryEntry", {
