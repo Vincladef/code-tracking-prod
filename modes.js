@@ -11573,6 +11573,39 @@ function callOpenHistory(ctx, consigne, options = {}) {
   return null;
 }
 
+function fallbackAsDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value?.toDate === "function") {
+    try {
+      const converted = value.toDate();
+      return converted instanceof Date && !Number.isNaN(converted.getTime()) ? converted : null;
+    } catch (_) {
+      return null;
+    }
+  }
+  if (typeof value === "number") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = new Date(trimmed);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (typeof value === "object" && value) {
+    const timestamp = value.seconds != null ? Number(value.seconds) * 1000 : Number(value);
+    if (Number.isFinite(timestamp)) {
+      const date = new Date(timestamp);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+  }
+  return null;
+}
+
 function ensureConsigneSkipField(row, consigne) {
   if (!row) return null;
   let hidden = row.querySelector("[data-consigne-skip-input]");
@@ -11678,6 +11711,135 @@ function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
       });
     },
   };
+}
+
+function normalizeConsigneValueForPersistence(consigne, scope, value) {
+  const type = typeof consigne?.type === "string" ? consigne.type.toLowerCase() : "";
+  let current = value;
+  if (typeof current === "undefined") {
+    try {
+      current = readConsigneCurrentValue(consigne, scope);
+    } catch (_) {
+      current = null;
+    }
+  }
+
+  if (current == null) {
+    return current;
+  }
+
+  if (typeof current === "object" && current && current.skipped) {
+    return { skipped: true };
+  }
+
+  switch (type) {
+    case "num":
+    case "number": {
+      const num = Number(current);
+      return Number.isFinite(num) ? num : null;
+    }
+    case "montant": {
+      try {
+        return normalizeMontantValue(current, consigne);
+      } catch (_) {
+        return null;
+      }
+    }
+    case "checklist": {
+      try {
+        const fallback = typeof current === "object" ? current : null;
+        return buildChecklistValue(consigne, current, fallback);
+      } catch (_) {
+        return null;
+      }
+    }
+    case "likert5":
+    case "likert6":
+    case "yesno":
+    case "oui_non":
+    case "choice":
+    case "select":
+      return current === "" ? "" : String(current);
+    case "long":
+    case "long_text":
+    case "texte":
+    case "short":
+    case "text":
+    default: {
+      if (typeof current === "string") {
+        return current.trim();
+      }
+      return current;
+    }
+  }
+}
+
+function attachConsigneEditor(row, consigne, options = {}) {
+  if (!row || !consigne) {
+    return { dispose() {} };
+  }
+
+  const delegate = typeof window.attachConsigneEditor === "function" ? window.attachConsigneEditor : null;
+  if (delegate) {
+    try {
+      const result = delegate(row, consigne, options);
+      if (result) {
+        return result;
+      }
+    } catch (error) {
+      try {
+        modesLogger?.warn?.("consigne.editor.delegate", error);
+      } catch (_) {}
+    }
+  }
+
+  const toggle = row.querySelector("[data-consigne-open]");
+  const holder = row.querySelector("[data-consigne-input-holder]");
+  if (!toggle || !holder) {
+    return { dispose() {} };
+  }
+
+  const open = () => {
+    holder.hidden = false;
+    row.classList.add("consigne-row--open");
+    toggle.setAttribute("aria-expanded", "true");
+  };
+  const close = () => {
+    holder.hidden = true;
+    row.classList.remove("consigne-row--open");
+    toggle.setAttribute("aria-expanded", "false");
+  };
+
+  const handleToggle = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (holder.hidden) {
+      open();
+    } else {
+      close();
+    }
+  };
+
+  toggle.setAttribute("aria-expanded", holder.hidden ? "false" : "true");
+  toggle.addEventListener("click", handleToggle);
+
+  return {
+    open,
+    close,
+    dispose() {
+      toggle.removeEventListener("click", handleToggle);
+    },
+  };
+}
+
+function createHiddenConsigneRow(consigne, { initialValue, editorOptions = null, historyChildren = [] } = {}) {
+  const row = renderItemCard(consigne, {
+    isChild: true,
+    deferEditor: false,
+    editorOptions,
+    historyChildren,
+  });
+  return row;
 }
 
 const CONSIGNE_PRIORITY_OPTIONS = [
