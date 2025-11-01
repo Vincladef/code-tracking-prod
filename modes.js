@@ -26,6 +26,31 @@ const prefillAlert = (label, payload = {}) => {
   } catch (_) {}
 };
 
+if (typeof window !== "undefined" && !window.__historyMutationDebugInstalled) {
+  window.__historyMutationDebugInstalled = true;
+  const wrapMutation = (fnName) => {
+    const original = Schema?.[fnName];
+    if (typeof original !== "function") {
+      return;
+    }
+    Schema[fnName] = async function historyMutationDebugWrapper(...args) {
+      const trace = new Error();
+      try {
+        console.warn(`[history-mutation] ${fnName}:start`, { args });
+        const result = await original.apply(this, args);
+        console.warn(`[history-mutation] ${fnName}:success`, { args });
+        return result;
+      } catch (error) {
+        console.warn(`[history-mutation] ${fnName}:error`, { args, error: String(error?.message || error) });
+        throw error;
+      } finally {
+        console.warn(`[history-mutation] ${fnName}:trace`, trace.stack);
+      }
+    };
+  };
+  ["saveHistoryEntry", "deleteHistoryEntry", "deleteAllResponsesForDay"].forEach(wrapMutation);
+}
+
 let checkboxBehaviorSetupPromise = null;
 
 let flushAutoSaveForConsigne = async () => {};
