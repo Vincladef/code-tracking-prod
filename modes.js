@@ -5685,8 +5685,8 @@ function inputForType(consigne, initialValue = null, options = {}) {
         const skipButtonPressed = skipped ? "true" : "false";
         const checkedAttr = checked ? "checked" : "";
         return `
-          <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm${skipClass}" data-checklist-item data-item-id="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-checklist-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" data-checklist-label="${escapeHtml(trimmedLabel)}" data-validated="${validatedAttr}"${skipAttr}>
-            <input type="checkbox" class="h-4 w-4" data-checklist-input data-key="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" ${inputSkipAttr} ${checkedAttr}>
+          <label class="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm${skipClass}" data-checklist-item data-item-id="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-checklist-legacy-key="${escapeHtml(legacyId)}" data-checklist-stable-key="${escapeHtml(itemId)}" data-checklist-index="${index}" data-checklist-label="${escapeHtml(trimmedLabel)}" data-validated="${validatedAttr}"${skipAttr}>
+            <input type="checkbox" class="h-4 w-4" data-checklist-input data-key="${escapeHtml(itemId)}" data-checklist-key="${escapeHtml(itemId)}" data-stable-key="${escapeHtml(itemId)}" data-legacy-key="${escapeHtml(legacyId)}" data-checklist-index="${index}" ${inputSkipAttr} ${checkedAttr}>
             <span class="flex-1">${escapeHtml(label)}</span>
             <button type="button" class="${skipButtonClass}" data-checklist-skip-btn aria-pressed="${skipButtonPressed}" title="Passer cet élément (ne pas le compter)">⏭</button>
           </label>`;
@@ -7199,9 +7199,6 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
       renderChecklistEmptyState();
       setupChecklistDragAndDrop();
     } else {
-      if (checklistList) {
-        checklistList.innerHTML = '';
-      }
       unmountChecklistEditor();
     }
     if (selectedType === 'montant') {
@@ -7508,9 +7505,6 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
           ensureSubChecklistHasRow();
           renderSubChecklistEmptyState();
         } else {
-          if (subChecklistList) {
-            subChecklistList.innerHTML = '';
-          }
           setSubChecklistVisibility(false);
           renderSubChecklistEmptyState();
         }
