@@ -7575,6 +7575,25 @@ function historyStatusFromAverage(type, values) {
 }
 
 const CONSIGNE_HISTORY_TIMELINE_DAY_COUNT = 21;
+const OPEN_HISTORY_PANEL_REGISTRY = new Map();
+
+function refreshOpenHistoryPanel(identifier) {
+  if (identifier == null) {
+    return;
+  }
+  const state = OPEN_HISTORY_PANEL_REGISTRY.get(String(identifier));
+  if (!state) {
+    return;
+  }
+  if (typeof state.refresh === "function") {
+    try {
+      state.refresh();
+    } catch (error) {
+      console.error("history.panel.refresh", error);
+    }
+  }
+}
+
 const CONSIGNE_ROW_UPDATE_DURATION = 1200;
 const consigneRowUpdateTimers = new WeakMap();
 const CONSIGNE_HISTORY_ROW_STATE = new WeakMap();
@@ -11531,6 +11550,29 @@ function showToast(msg){
   setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; setTimeout(()=>el.remove(), 250); }, 1200);
 }
 
+function callOpenHistory(ctx, consigne, options = {}) {
+  const fn =
+    (typeof openHistory === "function" && openHistory) ||
+    (typeof Modes?.openHistory === "function" && Modes.openHistory) ||
+    null;
+
+  if (fn) {
+    return fn(ctx, consigne, options);
+  }
+
+  try {
+    modesLogger?.warn?.("history.open.unavailable", {
+      consigneId: consigne?.id ?? null,
+      source: options?.source || "",
+    });
+  } catch (_) {}
+
+  if (typeof showToast === "function") {
+    showToast("Historique indisponible pour cette consigne.");
+  }
+  return null;
+}
+
 const CONSIGNE_PRIORITY_OPTIONS = [
   { value: 1, tone: "high", label: "Priorité haute" },
   { value: 2, tone: "medium", label: "Priorité moyenne" },
@@ -14119,7 +14161,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (historyTrigger) {
         const consigneData = item.__consigneData;
         if (consigneData) {
-          openHistory(ctxRef, consigneData, { source: "practice" });
+          callOpenHistory(ctxRef, consigneData, { source: "practice" });
         }
         return;
       }
@@ -14329,11 +14371,11 @@ async function renderPractice(ctx, root, _opts = {}) {
         ensureConsigneSkipField(row, c);
       }
       setupConsigneHistoryTimeline(row, c, ctx, { mode: "practice", childConsignes: Array.isArray(historyChildren) ? historyChildren : [] });
-      const bH = row.querySelector(".js-histo");
-      const bE = row.querySelector(".js-edit");
-      const bD = row.querySelector(".js-del");
-      const bA = row.querySelector(".js-archive");
-      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c, { source: "practice" }); };
+  const bH = row.querySelector(".js-histo");
+  const bE = row.querySelector(".js-edit");
+  const bD = row.querySelector(".js-del");
+  const bA = row.querySelector(".js-archive");
+  bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); callOpenHistory(ctx, c, { source: "practice" }); };
       bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
       bD.onclick = async (e) => {
         e.preventDefault(); e.stopPropagation();
@@ -14560,7 +14602,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           srEnabled,
           onHistory: () => {
             Schema.D.info("ui.history.click", child.id);
-            openHistory(ctx, child, { source: "practice" });
+            callOpenHistory(ctx, child, { source: "practice" });
           },
           onEdit: ({ close } = {}) => {
             Schema.D.info("ui.editConsigne.click", child.id);
@@ -16339,7 +16381,7 @@ async function renderDaily(ctx, root, opts = {}) {
     const bH = row.querySelector(".js-histo");
     const bE = row.querySelector(".js-edit");
     const bD = row.querySelector(".js-del");
-    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item, { source: "daily" }); };
+    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", item.id); callOpenHistory(ctx, item, { source: "daily" }); };
     bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
     bD.onclick = async (e) => {
       e.preventDefault(); e.stopPropagation();
@@ -16556,7 +16598,7 @@ async function renderDaily(ctx, root, opts = {}) {
         srEnabled,
         onHistory: () => {
           Schema.D.info("ui.history.click", child.id);
-          openHistory(ctx, child, { source: "daily" });
+          callOpenHistory(ctx, child, { source: "daily" });
         },
         onEdit: ({ close } = {}) => {
           Schema.D.info("ui.editConsigne.click", child.id);
@@ -16829,7 +16871,7 @@ async function renderDaily(ctx, root, opts = {}) {
       if (!id) return;
       if (e.target.classList.contains("js-histo-hidden")) {
         const c = hidden.find((x) => x.c.id === id)?.c;
-        if (c) openHistory(ctx, c, { source: "daily" });
+        if (c) callOpenHistory(ctx, c, { source: "daily" });
       } else if (e.target.classList.contains("js-reset-sr")) {
         await Schema.resetSRForConsigne(ctx.db, ctx.user.uid, id);
         renderDaily(ctx, root, { day: currentDay });
@@ -16852,6 +16894,359 @@ async function renderDaily(ctx, root, opts = {}) {
   if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
     window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
   }
+}
+
+async function openHistory(ctx, consigne, options = {}) {
+  if (!consigne || consigne.id == null) {
+    showToast("Consigne introuvable.");
+    return;
+  }
+  if (!ctx?.db || !ctx?.user?.uid) {
+    showToast("Connexion requise pour consulter l’historique.");
+    return;
+  }
+
+  const consigneId = String(consigne.id);
+  const consigneName = safeConsigneLabel(consigne);
+  const normalizedSource = typeof options.source === "string" ? options.source.toLowerCase() : "";
+  const subtitleMap = {
+    practice: "Historique (Pratique)",
+    daily: "Historique (Journalier)",
+  };
+  const subtitle = subtitleMap[normalizedSource] || "Historique des réponses";
+
+  const overlay = modal(`
+    <div class="history-panel" data-history-panel>
+      <header class="history-panel__header">
+        <div class="history-panel__heading">
+          <p class="history-panel__subtitle">${escapeHtml(subtitle)}</p>
+          <h2 class="history-panel__title">${escapeHtml(consigneName)}</h2>
+        </div>
+        <div class="history-panel__actions">
+          <button type="button" class="btn btn-ghost" data-history-close>Fermer</button>
+        </div>
+      </header>
+      <div class="history-panel__body">
+        <div class="history-panel__chart history-panel__chart--simple" data-history-timeline>
+          <div class="consigne-history" data-history-timeline-row data-consigne-history data-consigne-id="${escapeHtml(consigneId)}">
+            <div class="consigne-history__track" data-consigne-history-track></div>
+          </div>
+        </div>
+        <div class="history-panel__list-wrapper">
+          <div class="history-panel__badge" data-history-count>Chargement…</div>
+          <ul class="history-panel__list" data-history-list>
+            <li class="history-panel__empty">Chargement…</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  `);
+
+  if (!overlay) {
+    return;
+  }
+
+  const historyPanel = overlay.querySelector("[data-history-panel]");
+  const listEl = overlay.querySelector("[data-history-list]");
+  const badgeEl = overlay.querySelector("[data-history-count]");
+  const timelineRow = overlay.querySelector("[data-history-timeline-row]");
+  const timelineTrack = overlay.querySelector("[data-consigne-history-track]");
+  const closeBtn = overlay.querySelector("[data-history-close]");
+
+  if (historyPanel) {
+    historyPanel.dataset.historyPanelId = consigneId;
+    if (normalizedSource) {
+      historyPanel.dataset.historyPanelSource = normalizedSource;
+    }
+  }
+  if (timelineRow) {
+    timelineRow.dataset.consigneId = consigneId;
+  }
+
+  const initialDayKey = typeof options.dayKey === "string" ? options.dayKey.trim() : "";
+  let initialScrollDone = initialDayKey === "";
+
+  const loadingMarkup = '<li class="history-panel__empty">Chargement…</li>';
+  const formatNoteHtml = (value) => (value ? escapeHtml(value).replace(/\n/g, "<br>") : "");
+  const summaryScopeBadge = (scope) => {
+    if (!scope) return "";
+    const label = summaryScopeLabel(scope);
+    return `<span class="history-panel__summary-marker" title="${escapeHtml(label)}">★</span>`;
+  };
+
+  const panelState = {
+    overlay,
+    refresh: () => {},
+  };
+
+  const cleanups = [];
+
+  const cleanupState = () => {
+    if (OPEN_HISTORY_PANEL_REGISTRY.get(consigneId)?.overlay === overlay) {
+      OPEN_HISTORY_PANEL_REGISTRY.delete(consigneId);
+    }
+    while (cleanups.length) {
+      const disposer = cleanups.pop();
+      try {
+        disposer?.();
+      } catch (_) {}
+    }
+  };
+
+  const originalRemove = overlay.remove.bind(overlay);
+  overlay.remove = () => {
+    cleanupState();
+    originalRemove();
+  };
+
+  if (closeBtn) {
+    closeBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      overlay.remove();
+    });
+  }
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      overlay.remove();
+    }
+  });
+
+  let timelineClickHandler = null;
+
+  const renderTimeline = (points) => {
+    if (!timelineRow || !timelineTrack) {
+      return;
+    }
+    renderConsigneHistoryTimeline(timelineRow, Array.isArray(points) ? points : []);
+    if (timelineClickHandler) {
+      timelineTrack.removeEventListener("click", timelineClickHandler);
+      timelineClickHandler = null;
+    }
+    if (!points || !points.length) {
+      timelineRow.dataset.historyMode = "empty";
+      return;
+    }
+    timelineRow.dataset.historyMode = "day";
+    timelineClickHandler = (event) => {
+      const item = event.target instanceof HTMLElement ? event.target.closest(".consigne-history__item") : null;
+      if (!item) {
+        return;
+      }
+      event.preventDefault();
+      const details = item._historyDetails && typeof item._historyDetails === "object" ? item._historyDetails : {};
+      const historyDay = typeof details.dayKey === "string" && details.dayKey ? details.dayKey : item.dataset.historyDay || initialDayKey;
+      openConsigneHistoryEntryEditor(timelineRow, consigne, ctx, {
+        dayKey: historyDay,
+        historyId: details.historyId || item.dataset.historyId || "",
+        responseId: details.responseId || item.dataset.historyResponseId || "",
+        details,
+        panel: historyPanel,
+        onChange: refreshHistory,
+      });
+    };
+    timelineTrack.addEventListener("click", timelineClickHandler);
+    cleanups.push(() => {
+      if (timelineClickHandler) {
+        timelineTrack.removeEventListener("click", timelineClickHandler);
+        timelineClickHandler = null;
+      }
+    });
+  };
+
+  const renderList = (items) => {
+    if (!listEl) {
+      return;
+    }
+    listEl.innerHTML = "";
+    if (!items.length) {
+      listEl.innerHTML = '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>';
+      if (badgeEl) {
+        badgeEl.textContent = "Aucune entrée";
+      }
+      return;
+    }
+    if (badgeEl) {
+      badgeEl.textContent = items.length === 1 ? "1 entrée" : `${items.length} entrées`;
+    }
+    const fragment = document.createDocumentFragment();
+    items.forEach(({ point, entry, rawValue }, index) => {
+      const li = document.createElement("li");
+      li.className = "history-panel__item";
+      li.dataset.historyEntry = "1";
+      li.dataset.historyIndex = String(index);
+      li.dataset.dayKey = point.dayKey || "";
+      li.dataset.historyDay = point.dayKey || "";
+      if (point.historyId) {
+        li.dataset.historyId = point.historyId;
+      }
+      if (point.responseId) {
+        li.dataset.responseId = point.responseId;
+      }
+      if (point.summaryScope) {
+        li.dataset.summaryScope = point.summaryScope;
+        li.dataset.historySource = "bilan";
+      }
+      li.dataset.status = point.status || "na";
+
+      const valueHtml = point.details?.valueHtml && point.details.valueHtml.trim()
+        ? point.details.valueHtml
+        : "";
+      const noteHtml = formatNoteHtml(entry?.note ?? point.details?.note ?? "");
+      const hasValue = Boolean(valueHtml);
+      const hasNote = Boolean(noteHtml);
+      const mainHtml = hasValue
+        ? valueHtml
+        : hasNote
+        ? noteHtml
+        : '<span class="history-panel__empty">Aucune réponse enregistrée.</span>';
+      const extraNote = hasValue && hasNote ? `<p class="history-panel__note">${noteHtml}</p>` : "";
+      const dateLabel = point.details?.fullDateLabel || point.label || point.dayKey || "";
+      const summaryBadge = summaryScopeBadge(point.summaryScope);
+
+      li.innerHTML = `
+        <div class="history-panel__item-row">
+          <span class="history-panel__value" data-status="${point.status}">
+            <span class="consigne-row__dot consigne-row__dot--${point.status}" data-status-dot aria-hidden="true"></span>
+            <span class="history-panel__value-text">${mainHtml}</span>
+          </span>
+          <div class="history-panel__item-meta-group">
+            ${summaryBadge}
+            <time class="history-panel__date" datetime="${escapeHtml(point.dayKey || "")}">${escapeHtml(dateLabel)}</time>
+            <button type="button" class="history-panel__item-edit" data-history-edit>Modifier</button>
+          </div>
+        </div>
+        ${extraNote}
+      `;
+
+      const editBtn = li.querySelector("[data-history-edit]");
+      if (editBtn) {
+        editBtn.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openConsigneHistoryEntryEditor(li, consigne, ctx, {
+            dayKey: point.dayKey,
+            historyId: point.historyId || "",
+            responseId: point.responseId || "",
+            details: {
+              rawValue,
+              valueText: point.details?.valueText || "",
+              valueHtml: point.details?.valueHtml || "",
+              note: entry?.note ?? point.details?.note ?? "",
+            },
+            panel: historyPanel,
+            onChange: refreshHistory,
+          });
+        });
+      }
+
+      li.addEventListener("click", (event) => {
+        if (event.target instanceof HTMLElement && event.target.closest("[data-history-edit]")) {
+          return;
+        }
+        if (point.details) {
+          openConsigneHistoryPointDialog(consigne, point.details);
+        }
+      });
+
+      fragment.appendChild(li);
+    });
+    listEl.appendChild(fragment);
+
+    if (!initialScrollDone && initialDayKey) {
+      try {
+        const selector = `[data-day-key="${CSS.escape(initialDayKey)}"]`;
+        const target = listEl.querySelector(selector);
+        if (target && typeof target.scrollIntoView === "function") {
+          target.scrollIntoView({ block: "center", behavior: "smooth" });
+          initialScrollDone = true;
+        }
+      } catch (_) {}
+    }
+  };
+
+  const mapEntryToPoint = (entry) => {
+    if (!entry) {
+      return null;
+    }
+    const summaryInfo = resolveHistoryEntrySummaryInfo(entry);
+    const keyInfo = resolveHistoryTimelineKey(entry, consigne);
+    if (!keyInfo || !keyInfo.dayKey) {
+      return null;
+    }
+    const normalizedDayKey = normalizeHistoryDayKey(keyInfo.dayKey);
+    if (!normalizedDayKey) {
+      return null;
+    }
+    const rawValue = resolveHistoryTimelineValue(entry, consigne);
+    const note = resolveHistoryTimelineNote(entry);
+    const status = dotColor(consigne?.type, rawValue, consigne) || "na";
+    const timestamp = typeof keyInfo.timestamp === "number"
+      ? keyInfo.timestamp
+      : keyInfo.date instanceof Date && !Number.isNaN(keyInfo.date.getTime())
+      ? keyInfo.date.getTime()
+      : Date.now();
+    const historyId = resolveHistoryDocumentId(entry, normalizedDayKey) || "";
+    const responseId = resolveHistoryResponseId(entry) || "";
+
+    const point = formatConsigneHistoryPoint(
+      {
+        dayKey: normalizedDayKey,
+        date: keyInfo.date,
+        status,
+        value: rawValue,
+        note,
+        timestamp,
+        isSummary: Boolean(summaryInfo?.isSummary),
+        isBilan: Boolean(summaryInfo?.isBilan),
+        summaryScope: typeof summaryInfo?.scope === "string" ? summaryInfo.scope : "",
+        historyId,
+        responseId,
+      },
+      consigne,
+    );
+
+    if (!point) {
+      return null;
+    }
+
+    return {
+      point,
+      entry,
+      rawValue,
+    };
+  };
+
+  const refreshHistory = async () => {
+    if (listEl) {
+      listEl.innerHTML = loadingMarkup;
+    }
+    if (badgeEl) {
+      badgeEl.textContent = "Chargement…";
+    }
+    try {
+      const entries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+      const listData = entries
+        .map(mapEntryToPoint)
+        .filter(Boolean)
+        .sort((a, b) => {
+          const at = a.point?.timestamp ?? 0;
+          const bt = b.point?.timestamp ?? 0;
+          return bt - at;
+        });
+      const timelinePoints = buildConsigneHistoryTimeline(entries, consigne);
+      renderTimeline(timelinePoints);
+      renderList(listData);
+    } catch (error) {
+      console.error("history.open.load", error);
+      showToast("Impossible de charger l’historique.");
+      overlay.remove();
+    }
+  };
+
+  panelState.refresh = refreshHistory;
+  OPEN_HISTORY_PANEL_REGISTRY.set(consigneId, panelState);
+
+  refreshHistory();
 }
 
 function renderHistory() {}
