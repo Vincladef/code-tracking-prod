@@ -15,6 +15,18 @@ const PREFILL_UNEXPECTED_LOGGED = new Set();
 // Désactiver complètement l'hydratation pour éviter les pré-coches indésirables
 const HYDRATION_DISABLED = true;
 
+let createHiddenConsigneRowDelegate = null;
+
+function createHiddenConsigneRow(consigne, options = {}) {
+  if (typeof createHiddenConsigneRowDelegate === "function") {
+    return createHiddenConsigneRowDelegate(consigne, options);
+  }
+  const row = document.createElement("div");
+  row.className = "consigne-row consigne-row--child";
+  row.hidden = true;
+  return row;
+}
+
 if (typeof window !== "undefined") {
   // history mutation debug disabled
 }
@@ -11455,6 +11467,51 @@ function readConsigneCurrentValue(consigne, scope) {
       return "";
     }
 
+function hasChecklistResponse(consigne, scopeOrValue, rawValue) {
+  let value = typeof rawValue !== "undefined" ? rawValue : scopeOrValue;
+  if (value && typeof value === "object" && value.nodeType === 1) {
+    try {
+      value = readConsigneCurrentValue(consigne, value);
+    } catch (_) {
+      value = null;
+    }
+  }
+
+  if (value == null) {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some(Boolean);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    try {
+      const parsed = JSON.parse(trimmed);
+      return hasChecklistResponse(consigne, null, parsed);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  if (value && typeof value === "object") {
+    if (Array.isArray(value.items)) {
+      return value.items.some(Boolean);
+    }
+    if (Array.isArray(value.answers)) {
+      return value.answers.some(Boolean);
+    }
+    if (Array.isArray(value.checked)) {
+      return value.checked.some(Boolean);
+    }
+    return Object.values(value).some(Boolean);
+  }
+
+  return Boolean(value);
+}
+
 function hasValueForConsigne(consigne, scopeOrValue) {
   if (!consigne) return false;
   const type = typeof consigne.type === "string" ? consigne.type.toLowerCase() : "";
@@ -11484,15 +11541,7 @@ function hasValueForConsigne(consigne, scopeOrValue) {
       }
     }
     case "checklist": {
-      if (value && typeof value === "object") {
-        if (Array.isArray(value.items)) {
-          return value.items.some(Boolean);
-        }
-        if (Array.isArray(value)) {
-          return value.some(Boolean);
-        }
-      }
-      return false;
+      return hasChecklistResponse(consigne, null, value);
     }
     case "long":
     case "long_text":
@@ -16883,7 +16932,7 @@ async function renderDaily(ctx, root, opts = {}) {
     return row;
   };
 
-  const createHiddenConsigneRow = (consigne, { initialValue, editorOptions = null, historyChildren = [] } = {}) => {
+  const createHiddenDailyRow = (consigne, { initialValue, editorOptions = null, historyChildren = [] } = {}) => {
     const row = renderItemCard(consigne, {
       isChild: true,
       deferEditor: false,
@@ -16912,6 +16961,8 @@ async function renderDaily(ctx, root, opts = {}) {
     return row;
   };
 
+  createHiddenConsigneRowDelegate = createHiddenDailyRow;
+
   const renderGroup = (group, target) => {
     const wrapper = document.createElement("div");
     wrapper.className = "consigne-group";
@@ -16937,7 +16988,7 @@ async function renderDaily(ctx, root, opts = {}) {
         }
       }
       const initialValue = hasPrevValue ? previous.value : null;
-      const childRow = createHiddenConsigneRow(child, { initialValue });
+      const childRow = createHiddenDailyRow(child, { initialValue });
       childRow.dataset.parentId = child.parentId || group.consigne.id || "";
       childRow.draggable = false;
       parentCard.appendChild(childRow);
