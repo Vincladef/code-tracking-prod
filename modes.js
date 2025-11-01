@@ -1656,27 +1656,6 @@ function navigate(hash) {
   else window.location.hash = hash;
 }
 
-function showToast(msg){
-  const el = document.createElement("div");
-  el.className = "fixed top-4 right-4 z-50 card px-3 py-2 text-sm shadow-lg";
-  el.style.transition = "opacity .25s ease, transform .25s ease";
-  el.style.opacity = "0";
-  el.style.transform = "translateY(6px)";
-  el.textContent = msg;
-  document.body.appendChild(el);
-  requestAnimationFrame(() => { el.style.opacity = "1"; el.style.transform = "translateY(0)"; });
-  setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; setTimeout(()=>el.remove(), 250); }, 1200);
-}
-
-const CONSIGNE_PRIORITY_OPTIONS = [
-  { value: 1, tone: "high", label: "Priorité haute" },
-  { value: 2, tone: "medium", label: "Priorité moyenne" },
-  { value: 3, tone: "low", label: "Priorité basse" },
-];
-
-let openConsignePriorityMenuState = null;
-let consignePriorityMenuListenersBound = false;
-
 function removeConsignePriorityMenuListeners() {
   if (!consignePriorityMenuListenersBound) return;
   document.removeEventListener("click", onDocumentClickConsignePriorityMenu, true);
