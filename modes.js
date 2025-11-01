@@ -12,6 +12,23 @@ const prefillLog = (...args) => {
     try { console.info("[prefill-audit]", ...args); } catch (_) {}
   }
 };
+
+function cloneHistoryValue(value) {
+  if (value == null) {
+    return value;
+  }
+  if (typeof value !== "object") {
+    return value;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (_) {
+    if (Array.isArray(value)) {
+      return value.slice();
+    }
+    return { ...value };
+  }
+}
 // Emphasized alert for problematic prefill states (styled red in console)
 const prefillAlert = (label, payload = {}) => {
   try {
@@ -10608,6 +10625,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         responseSyncOptions: childResponseSyncOptions,
         historyDocumentId: childHistoryDocumentId,
         initialHasValue: childInitialHasValue,
+        initialValue: cloneHistoryValue(childValue),
+        touched: false,
       };
     }),
   );
@@ -11010,14 +11029,34 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       }
       const childResults = baseChildStates.map((childState) => {
         const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
-        const childValue = childNode
+        let childValue = childNode
           ? readConsigneValueFromForm(childState.consigne, childNode)
           : "";
-        const hasValue = hasValueForConsigne(childState.consigne, childValue);
+        let hasValue = hasValueForConsigne(childState.consigne, childValue);
+        const childTouched = Boolean(childState.touched);
+        let usedFallback = false;
+        if (!hasValue && childState.initialHasValue && !childTouched) {
+          childValue = cloneHistoryValue(childState.initialValue);
+          hasValue = hasValueForConsigne(childState.consigne, childValue);
+          if (hasValue) {
+            usedFallback = true;
+            logHistoryDebug("editor.submit.child.valueFallback", {
+              parentConsigneId: consigne?.id ?? null,
+              childConsigneId: childState?.consigne?.id ?? null,
+              dayKey: resolvedDayKey,
+              reason: "retain-initial",
+              childTouched,
+              childInitialHasValue: childState.initialHasValue,
+              initialSummary: summarizeHistoryValue(childState.initialValue),
+            });
+          }
+        }
         return {
           state: childState,
           value: childValue,
           hasValue,
+          touched: childTouched,
+          usedFallback,
         };
       });
       if (!parentHasValue) {
@@ -11056,12 +11095,15 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         remove: parentHasValue ? false : true,
       });
       triggerConsigneRowUpdateHighlight(row);
-      for (const { state, value, hasValue } of childResults) {
+      for (const { state, value, hasValue, touched } of childResults) {
         const childConsigneId = state?.consigne?.id;
         if (!childConsigneId) {
           continue;
         }
         if (!hasValue) {
+          if (!touched && state.initialHasValue) {
+            continue;
+          }
           await runWithAutoSaveSuppressed(childConsigneId, resolvedDayKey, async () => {
             await Schema.deleteHistoryEntry(
               ctx.db,
@@ -11602,6 +11644,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         responseSyncOptions: childResponseSyncOptions,
         historyDocumentId: childHistoryDocumentId,
         initialHasValue: childInitialHasValue,
+        initialValue: cloneHistoryValue(childValue),
+        touched: false,
       };
     }),
   );
@@ -11759,6 +11803,28 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     parentValueField.addEventListener('input', markParentTouched);
     parentValueField.addEventListener('change', markParentTouched);
   }
+  baseChildStates.forEach((childState) => {
+    const childContainer = form?.querySelector(`[data-history-child="${childState.domId}"]`);
+    if (!childContainer) {
+      return;
+    }
+    const markChildTouched = () => {
+      childState.touched = true;
+    };
+    childContainer.addEventListener('input', markChildTouched, true);
+    childContainer.addEventListener('change', markChildTouched, true);
+  });
+  baseChildStates.forEach((childState) => {
+    const childContainer = form?.querySelector(`[data-history-child="${childState.domId}"]`);
+    if (!childContainer) {
+      return;
+    }
+    const markChildTouched = () => {
+      childState.touched = true;
+    };
+    childContainer.addEventListener('input', markChildTouched, true);
+    childContainer.addEventListener('change', markChildTouched, true);
+  });
   const restoreFocus = () => {
     if (trigger && typeof trigger.focus === "function") {
       try {
@@ -12036,14 +12102,34 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       }
       const childResults = baseChildStates.map((childState) => {
         const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
-        const childValue = childNode
+        let childValue = childNode
           ? readConsigneValueFromForm(childState.consigne, childNode)
           : "";
-        const hasValue = hasValueForConsigne(childState.consigne, childValue);
+        let hasValue = hasValueForConsigne(childState.consigne, childValue);
+        const childTouched = Boolean(childState.touched);
+        let usedFallback = false;
+        if (!hasValue && childState.initialHasValue && !childTouched) {
+          childValue = cloneHistoryValue(childState.initialValue);
+          hasValue = hasValueForConsigne(childState.consigne, childValue);
+          if (hasValue) {
+            usedFallback = true;
+            logHistoryDebug("editor.submit.child.valueFallback", {
+              parentConsigneId: consigne?.id ?? null,
+              childConsigneId: childState?.consigne?.id ?? null,
+              dayKey: resolvedDayKey,
+              reason: "retain-initial",
+              childTouched,
+              childInitialHasValue: childState.initialHasValue,
+              initialSummary: summarizeHistoryValue(childState.initialValue),
+            });
+          }
+        }
         return {
           state: childState,
           value: childValue,
           hasValue,
+          touched: childTouched,
+          usedFallback,
         };
       });
       logHistoryDebug("editor.submit.values", {
@@ -12054,12 +12140,14 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         parentInitialHasValue,
         parentTouched: parentValueTouched,
         usedFallback: usedFallbackValue,
-        children: childResults.map(({ state, hasValue, value }) => ({
+        children: childResults.map(({ state, hasValue, value, touched, usedFallback }) => ({
           consigneId: state?.consigne?.id ?? null,
           historyId: state?.historyDocumentId || null,
           responseId: state?.responseSyncOptions?.responseId || null,
           hasValue,
           valueSummary: summarizeHistoryValue(value),
+          touched,
+          usedFallback,
         })),
       });
       if (!parentHasValue) {
@@ -12149,8 +12237,11 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         valueSummary: summarizeHistoryValue(parentHasValue ? rawValue : ""),
       });
       triggerConsigneRowUpdateHighlight(row);
-      for (const { state, value, hasValue } of childResults) {
+      for (const { state, value, hasValue, touched } of childResults) {
         if (!hasValue) {
+          if (!touched && state.initialHasValue) {
+            continue;
+          }
           if (!state?.consigne?.id) {
             continue;
           }
