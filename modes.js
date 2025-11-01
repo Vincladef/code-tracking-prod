@@ -11,7 +11,7 @@ const prefillLog = (...args) => {
   } catch (_) {
     try { console.info("[prefill-audit]", ...args); } catch (_) {}
   }
-};c
+};
 // Emphasized alert for problematic prefill states (styled red in console)
 const prefillAlert = (label, payload = {}) => {
   try {
