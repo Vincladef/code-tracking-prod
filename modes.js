@@ -12476,6 +12476,23 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       delete row.dataset.dayKey;
     }
   }
+  if (!options) {
+    options = {};
+  }
+  if (!options.historyId && !options.responseId && state?.track) {
+    const existingItem = state.track.querySelector(
+      `[data-history-day="${escapeTimelineSelector(dayKey)}"]`,
+    );
+    if (existingItem) {
+      const existingHistoryId = existingItem.dataset?.historyId;
+      const existingResponseId = existingItem.dataset?.historyResponseId;
+      if (existingHistoryId) {
+        options.historyId = existingHistoryId;
+      } else if (existingResponseId) {
+        options.responseId = existingResponseId;
+      }
+    }
+  }
   logChecklistEvent("info", "[checklist-history] timeline.update", {
     consigneId: options?.consigne?.id ?? null,
     dayKey,
