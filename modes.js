@@ -11,7 +11,7 @@ const prefillLog = (...args) => {
   } catch (_) {
     try { console.info("[prefill-audit]", ...args); } catch (_) {}
   }
-};
+};c
 // Emphasized alert for problematic prefill states (styled red in console)
 const prefillAlert = (label, payload = {}) => {
   try {
@@ -11534,6 +11534,10 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     }
   }
   const parentInitialHasValue = hasValueForConsigne(consigne, displayValue);
+  const parentInitialValue = parentInitialHasValue
+    ? (entry?.value !== undefined ? entry.value : displayValue)
+    : "";
+  let parentValueTouched = false;
   const baseChildStates = await Promise.all(
     childCandidates.map(async (child) => {
       let childEntries = [];
