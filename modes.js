@@ -10896,6 +10896,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             isBilan: true,
             keepPlaceholder: true,
             remove: true,
+            fromEditor: true,
           });
           triggerConsigneRowUpdateHighlight(row);
           try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, ""); } catch (_) {}
@@ -10942,6 +10943,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
                   iterationLabel,
                   keepPlaceholder: true,
                   remove: true,
+                  fromEditor: true,
                 });
                 triggerConsigneRowUpdateHighlight(childState.row);
               }
@@ -11077,6 +11079,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         historyId: historyDocumentId,
         responseId: resolvedResponseId,
         remove: parentHasValue ? false : true,
+        fromEditor: true,
       });
       triggerConsigneRowUpdateHighlight(row);
       for (const { state, value, hasValue } of childResults) {
@@ -11107,6 +11110,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             historyId: state.historyDocumentId,
             responseId: state.responseSyncOptions?.responseId || "",
             remove: false,
+            fromEditor: true,
           });
           triggerConsigneRowUpdateHighlight(state.row);
         }
@@ -11878,6 +11882,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             iterationLabel,
             keepPlaceholder: true,
             remove: true,
+            fromEditor: true,
           });
           logHistoryDebug("editor.clear.timeline-parent", {
             consigneId: consigne?.id ?? null,
@@ -11949,16 +11954,17 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               }
               const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
               if (childState.row) {
-                  updateConsigneHistoryTimeline(childState.row, childStatus, {
-                    consigne: childState.consigne,
-                    value: "",
-                    dayKey: resolvedDayKey,
-                    historyId: childState.historyDocumentId,
-                    responseId: childState.responseSyncOptions?.responseId || "",
-                    iterationLabel,
-                    keepPlaceholder: true,
-                    remove: true,
-                  });
+                updateConsigneHistoryTimeline(childState.row, childStatus, {
+                  consigne: childState.consigne,
+                  value: "",
+                  dayKey: resolvedDayKey,
+                  historyId: childState.historyDocumentId,
+                  responseId: childState.responseSyncOptions?.responseId || "",
+                  iterationLabel,
+                  keepPlaceholder: true,
+                  remove: true,
+                  fromEditor: true,
+                });
                 logHistoryDebug("editor.clear.timeline-child", {
                   parentConsigneId: consigne?.id ?? null,
                   childConsigneId,
@@ -12103,6 +12109,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         iterationLabel,
         historyId: historyDocumentId,
         responseId: responseSyncOptions?.responseId || "",
+        fromEditor: true,
       });
       logHistoryDebug("editor.submit.timeline-parent", {
         consigneId: consigne?.id ?? null,
@@ -12149,6 +12156,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             historyId: state.historyDocumentId,
             responseId: state.responseSyncOptions?.responseId || "",
             remove: false,
+            fromEditor: true,
           });
           logHistoryDebug("editor.submit.timeline-child", {
             parentConsigneId: consigne?.id ?? null,
@@ -12232,6 +12240,9 @@ function renderConsigneHistoryTimeline(row, points) {
 }
 
 function updateConsigneHistoryTimeline(row, status, options = {}) {
+  if (!options || options.fromEditor !== true) {
+    return;
+  }
   const state = CONSIGNE_HISTORY_ROW_STATE.get(row);
   if (!state || !state.track) {
     return;
@@ -12477,11 +12488,6 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   const normalizedResponseId =
     typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
   if (!normalizedHistoryId && !normalizedResponseId && options.remove !== true) {
-    logChecklistEvent("info", "[checklist-history] timeline.skip-empty", {
-      consigneId: options?.consigne?.id ?? null,
-      dayKey,
-      status,
-    });
     return;
   }
   let item = null;
@@ -17487,6 +17493,7 @@ async function openHistory(ctx, consigne, options = {}) {
         responseId,
         keepPlaceholder: remove ? keepPlaceholder : false,
         remove,
+        fromEditor: true,
       });
       triggerConsigneRowUpdateHighlight(timelineRow);
     };
