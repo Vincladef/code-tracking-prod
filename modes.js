@@ -18490,6 +18490,23 @@ async function renderDaily(ctx, root, opts = {}) {
           });
         } catch (_) {}
         markAnswerAsSaved(consigne, pendingValue, pendingSerialized, normalizedSummary);
+        try {
+          const escapeConsigneId =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(String(consigne?.id ?? ""))
+              : String(consigne?.id ?? "").replace(/"/g, '\\"');
+          const escapeDayKey =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(String(dayKey ?? ""))
+              : String(dayKey ?? "").replace(/"/g, '\\"');
+          const selector = `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`;
+          const row = typeof document !== "undefined" ? document.querySelector(selector) : null;
+          if (row && typeof updateConsigneHistoryTimeline === "function") {
+            updateConsigneHistoryTimeline(row);
+          }
+        } catch (error) {
+          console.warn("daily.autosave.timeline.refresh", error);
+        }
         if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
           try {
             await window.__appBadge.refresh(ctx.user?.uid);

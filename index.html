@@ -283,7 +283,7 @@
     .install-banner__action:hover,
     .install-banner__action:focus-visible{ text-decoration:underline; outline:none; }
 
-    /* Animation de changement d’onglet */
+    /* Animation de changement d'onglet */
     @keyframes fadeSlideIn{ from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:translateY(0);} }
     .route-enter{ animation: fadeSlideIn .25s ease-out; }
 
@@ -1705,6 +1705,7 @@
     .user-actions__trigger:hover,
     .user-actions__trigger:focus-visible{ background:var(--accent-50); border-color:var(--accent-200); outline:none; color:#0f172a; }
     .user-actions__panel{ position:absolute; right:0; top:calc(100% + .5rem); display:flex; flex-direction:column; min-width:16rem; background:#fff; border:1px solid #E2E8F0; border-radius:1rem; box-shadow:0 20px 40px rgba(15,23,42,.16); padding:.5rem; z-index:40; }
+    .user-actions__panel.hidden{ display:none; }
     .user-actions__item{ width:100%; text-align:left; background:none; border:none; padding:.65rem .85rem; border-radius:.75rem; font:inherit; color:inherit; display:flex; align-items:center; gap:.5rem; cursor:pointer; transition:background .15s ease,color .15s ease; }
     .user-actions__item:hover,
     .user-actions__item:focus-visible{ background:var(--accent-50); outline:none; }
@@ -2525,8 +2526,8 @@
           <div class="install-banner__content">
             <span class="install-banner__icon" aria-hidden="true">📲</span>
             <div class="install-banner__text">
-              <span class="install-banner__title">Télécharger l’application</span>
-              <span class="install-banner__subtitle">Ajoutez-la à votre écran d’accueil pour un accès rapide.</span>
+              <span class="install-banner__title">Télécharger l'application</span>
+              <span class="install-banner__subtitle">Ajoutez-la à votre écran d'accueil pour un accès rapide.</span>
             </div>
           </div>
           <button type="button" class="install-banner__action" id="install-banner-action" data-install-trigger>Télécharger</button>
@@ -2571,7 +2572,7 @@
                     id="install-app-button"
                     data-install-trigger
                     role="menuitem">
-              📱 Ajouter à l’écran d’accueil
+              📱 Ajouter à l'écran d'accueil
             </button>
           </div>
         </div>
@@ -2695,16 +2696,16 @@
       });
 
       const primaryButton = document.getElementById("install-app-button") || installButtons[0];
-      const primaryDefaultLabel = (buttonDefaults.get(primaryButton) || "📱 Ajouter à l’écran d’accueil");
+      const primaryDefaultLabel = (buttonDefaults.get(primaryButton) || "📱 Ajouter à l'écran d'accueil");
       const supportsMatchMedia = typeof window.matchMedia === "function";
       const mediaMatches = (query) => (supportsMatchMedia ? window.matchMedia(query).matches : false);
       const isStandalone = mediaMatches("(display-mode: standalone)") || window.navigator.standalone === true;
       const userAgent = (window.navigator.userAgent || "").toLowerCase();
-      const isiOS = /iphone|ipad|ipod/.test(userAgent);
+      const isiOSMatch = /iphone|ipad|ipod/.test(userAgent);
       const isAndroid = /android/.test(userAgent);
-      const hasTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
-      const isSmallViewport = mediaMatches("(max-width: 768px)");
-      const isMobileDevice = (isiOS || isAndroid || (hasTouch && isSmallViewport));
+      const isIpadOs = !isiOSMatch && /mac os x/.test(userAgent) && navigator.maxTouchPoints > 1;
+      const isiOS = isiOSMatch || isIpadOs;
+      const isMobileDevice = isiOS || isAndroid;
 
       let deferredPrompt = null;
 
@@ -2733,7 +2734,7 @@
       }
 
       function showButton({ label } = {}) {
-        if (isStandalone) return;
+        if (isStandalone || !isMobileDevice) return;
         installButtons.forEach((button) => {
           const defaultLabel = buttonDefaults.get(button) || primaryDefaultLabel;
           const nextLabel = label && button === primaryButton ? label : defaultLabel;
@@ -2759,6 +2760,10 @@
 
       window.addEventListener("beforeinstallprompt", (event) => {
         event.preventDefault();
+        if (!isMobileDevice) {
+          deferredPrompt = null;
+          return;
+        }
         deferredPrompt = event;
         showButton({ label: primaryDefaultLabel });
       });
@@ -2775,7 +2780,7 @@
 
       if (isiOS && !isStandalone) {
         showButton({ label: "📱 Ajouter via Safari" });
-      } else if (isMobileDevice && !isStandalone) {
+      } else if (isAndroid && !isStandalone) {
         showButton({ label: primaryDefaultLabel });
       }
 
@@ -2802,22 +2807,27 @@
 
           if (isiOS && !isStandalone) {
             const message = [
-              "Pour installer l’app sur iPhone/iPad :",
+              "Pour installer l'app sur iPhone/iPad :",
               "1. Ouvre cette page dans Safari.",
               "2. Appuie sur le bouton « Partager » (carré avec une flèche).",
-              "3. Choisis « Ajouter à l’écran d’accueil ».",
-              "4. Valide avec « Ajouter », puis lance l’app depuis la nouvelle icône.",
+              "3. Choisis « Ajouter à l'écran d'accueil ».",
+              "4. Valide avec « Ajouter », puis lance l'app depuis la nouvelle icône.",
             ].join("\n");
             alert(message);
             return;
           }
 
-          if ((isAndroid || isMobileDevice) && !isStandalone) {
-            alert("Pour installer cette app, utilise le menu du navigateur (⋮) puis sélectionne « Ajouter à l’écran d’accueil ».");
+          if (isAndroid && !isStandalone) {
+            alert("Pour installer cette app, utilise le menu du navigateur (⋮) puis sélectionne « Ajouter à l'écran d'accueil ».");
             return;
           }
 
-          alert("Utilise les options du navigateur pour ajouter cette page à l’écran d’accueil.");
+          if (isMobileDevice && !isStandalone) {
+            alert("Utilise les options du navigateur pour ajouter cette page à l'écran d'accueil.");
+            return;
+          }
+
+          alert("Cette option est réservée aux appareils mobiles.");
         });
       });
     })();
