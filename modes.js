@@ -11512,6 +11512,10 @@ function hasChecklistResponse(consigne, scopeOrValue, rawValue) {
   return Boolean(value);
 }
 
+if (typeof window !== "undefined") {
+  window.hasChecklistResponse = hasChecklistResponse;
+}
+
 function hasValueForConsigne(consigne, scopeOrValue) {
   if (!consigne) return false;
   const type = typeof consigne.type === "string" ? consigne.type.toLowerCase() : "";
@@ -14992,7 +14996,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       const parentCard = makeItem(group.consigne, { isChild: false, deferEditor: true, historyChildren: group.children });
       wrapper.appendChild(parentCard);
       const childConfigs = group.children.map((child) => {
-        const childRow = createHiddenConsigneRow(child);
+      const childRow = makeItem(child, { isChild: true, deferEditor: true });
         childRow.dataset.parentId = child.parentId || group.consigne.id || "";
         childRow.draggable = false;
         parentCard.appendChild(childRow);
@@ -17844,6 +17848,7 @@ Modes.bindConsigneRowValue = bindConsigneRowValue;
 Modes.attachConsigneEditor = attachConsigneEditor;
 Modes.createHiddenConsigneRow = createHiddenConsigneRow;
 Modes.hasValueForConsigne = hasValueForConsigne;
+Modes.hasChecklistResponse = hasChecklistResponse;
 Modes.setConsigneSummaryMetadata = setConsigneSummaryMetadata;
 Modes.clearConsigneSummaryMetadata = clearConsigneSummaryMetadata;
 Modes.readConsigneSummaryMetadata = readConsigneSummaryMetadata;
