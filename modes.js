@@ -12,6 +12,9 @@ const PREFILL_DEBUG_CONTEXT_STACK = [];
 const PREFILL_DEBUG_STATE = new WeakMap();
 const PREFILL_UNEXPECTED_LOGGED = new Set();
 
+// Désactiver complètement l'hydratation pour éviter les pré-coches indésirables
+const HYDRATION_DISABLED = true;
+
 if (typeof window !== "undefined") {
   // history mutation debug disabled
 }
@@ -10459,13 +10462,13 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   const timelineSummary = consigne.type === "checklist" && timelineNormalized
     ? summarizeChecklistValue(timelineNormalized)
     : null;
-  let displayValue = entryValue;
+  let displayValue = HYDRATION_DISABLED ? null : entryValue;
   let entrySummary = consigne.type === "checklist" ? null : null;
   if (consigne.type === "checklist") {
-    const entryNormalized = normalizeChecklistValueForEditor(entryValue);
+    const entryNormalized = HYDRATION_DISABLED ? null : normalizeChecklistValueForEditor(entryValue);
     if (entryNormalized) {
       displayValue = { ...entryNormalized };
-    } else if (timelineNormalized) {
+    } else if (!HYDRATION_DISABLED && timelineNormalized) {
       displayValue = { ...timelineNormalized };
       if (!entry) {
         logChecklistEvent("warn", "[checklist-history] using timeline value (bilan, no entry)", {
@@ -10562,15 +10565,19 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       });
       const childEntry = childMatch?.entry || null;
       const childRawValue = childEntry?.value !== undefined ? childEntry.value : "";
-      let childValue = childRawValue;
+      let childValue = HYDRATION_DISABLED ? "" : childRawValue;
       if (child.type === "checklist") {
-        try {
-          const fallbackValue =
-            childRawValue && typeof childRawValue === "object" ? childRawValue : null;
-          const normalizedChild = buildChecklistValue(child, childRawValue, fallbackValue);
-          childValue = normalizedChild ? { ...normalizedChild, __historyDateKey: resolvedDayKey } : null;
-        } catch (error) {
-          childValue = null;
+        if (!HYDRATION_DISABLED) {
+          try {
+            const fallbackValue =
+              childRawValue && typeof childRawValue === "object" ? childRawValue : null;
+            const normalizedChild = buildChecklistValue(child, childRawValue, fallbackValue);
+            childValue = normalizedChild ? { ...normalizedChild, __historyDateKey: resolvedDayKey } : null;
+          } catch (error) {
+            childValue = null;
+          }
+        } else {
+          childValue = "";
         }
       }
       const childCreatedAtSource =
@@ -17003,9 +17010,11 @@ async function renderPractice(ctx, root, _opts = {}) {
       setupConsignePriorityMenu(row, c, ctx);
       const holder = row.querySelector("[data-consigne-input-holder]");
       if (holder) {
-        holder.innerHTML = inputForType(c);
+        holder.innerHTML = inputForType(c, HYDRATION_DISABLED ? null : undefined);
         enhanceRangeMeters(holder);
-        initializeChecklistScope(holder, { consigneId: c?.id ?? null });
+        if (!HYDRATION_DISABLED) {
+          initializeChecklistScope(holder, { consigneId: c?.id ?? null });
+        }
         ensureConsigneSkipField(row, c);
       }
       setupConsigneHistoryTimeline(row, c, ctx, { mode: "practice", childConsignes: Array.isArray(historyChildren) ? historyChildren : [] });
@@ -18997,9 +19006,11 @@ async function renderDaily(ctx, root, opts = {}) {
     setupConsignePriorityMenu(row, item, ctx);
     const holder = row.querySelector("[data-consigne-input-holder]");
     if (holder) {
-      holder.innerHTML = inputForType(item, previous?.value ?? null, { pageContext });
+      holder.innerHTML = inputForType(item, HYDRATION_DISABLED ? null : (previous?.value ?? null), { pageContext });
       enhanceRangeMeters(holder);
-      initializeChecklistScope(holder, { consigneId: item?.id ?? null });
+      if (!HYDRATION_DISABLED) {
+        initializeChecklistScope(holder, { consigneId: item?.id ?? null });
+      }
       ensureConsigneSkipField(row, item);
       // Si la valeur précédente indiquait un « Passer », applique l’état dès le rendu initial
       try {
