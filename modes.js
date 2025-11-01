@@ -11534,6 +11534,10 @@ function evaluateChecklistResponse(consigne, scope, value) {
   return false;
 }
 
+if (typeof window !== "undefined") {
+  window.evaluateChecklistResponse = evaluateChecklistResponse;
+}
+
 function hasValueForConsigne(consigne, scopeOrValue) {
   if (!consigne) return false;
   const type = typeof consigne.type === "string" ? consigne.type.toLowerCase() : "";
@@ -11589,6 +11593,10 @@ function hasValueForConsigne(consigne, scopeOrValue) {
       return Boolean(value);
     }
   }
+}
+
+if (typeof window !== "undefined") {
+  window.hasValueForConsigne = hasValueForConsigne;
 }
     const amount = Number(input.value);
     if (!Number.isFinite(amount)) {
