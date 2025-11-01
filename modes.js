@@ -12015,20 +12015,20 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       let rawValue = readConsigneValueFromForm(consigne, form);
       let parentHasValue = hasValueForConsigne(consigne, rawValue);
       let usedFallbackValue = false;
-      if (!parentHasValue && parentInitialHasValue && !parentValueTouched) {
+      const canUseInitialValue = parentInitialHasValue
+        && hasValueForConsigne(consigne, parentInitialValue);
+      if (!parentHasValue && canUseInitialValue) {
         rawValue = parentInitialValue;
-        parentHasValue = hasValueForConsigne(consigne, rawValue);
-        usedFallbackValue = parentHasValue;
-        if (usedFallbackValue) {
-          logHistoryDebug("editor.submit.valueFallback", {
-            consigneId: consigne?.id ?? null,
-            dayKey: resolvedDayKey,
-            reason: "retain-initial",
-            parentTouched: parentValueTouched,
-            parentInitialHasValue,
-            initialSummary: summarizeHistoryValue(parentInitialValue),
-          });
-        }
+        parentHasValue = true;
+        usedFallbackValue = true;
+        logHistoryDebug("editor.submit.valueFallback", {
+          consigneId: consigne?.id ?? null,
+          dayKey: resolvedDayKey,
+          reason: parentValueTouched ? "retain-after-touch" : "retain-initial",
+          parentTouched: parentValueTouched,
+          parentInitialHasValue,
+          initialSummary: summarizeHistoryValue(parentInitialValue),
+        });
       }
       const childResults = baseChildStates.map((childState) => {
         const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
@@ -12059,51 +12059,19 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         })),
       });
       if (!parentHasValue) {
-        await runWithAutoSaveSuppressed(consigne.id, resolvedDayKey, async () => {
-          logHistoryDebug("editor.submit.deleteHistoryEntry", {
-            consigneId: consigne?.id ?? null,
-            dayKey: resolvedDayKey,
-            historyId: historyDocumentId,
-            responseId: responseSyncOptions?.responseId || null,
-          });
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-          try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
-          try { clearRecentResponsesForConsigne(consigne.id); } catch (e) {}
-          if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
-            logHistoryDebug("editor.submit.deleteAllResponses", {
-              consigneId: consigne?.id ?? null,
-              dayKey: resolvedDayKey,
-            });
-            try {
-              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey);
-            } catch (error) {
-              logHistoryDebug("editor.submit.deleteAllResponses.error", {
-                consigneId: consigne?.id ?? null,
-                dayKey: resolvedDayKey,
-                error: String(error?.message || error),
-              }, "error");
-            }
-          }
-          // Also delete summary answer if this entry originated from a bilan
-          try {
-            const scope = entry?.summaryScope || entry?.periodScope || "";
-            const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
-            const answerKey = entry?.summaryKey || "";
-            if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
-              logHistoryDebug("editor.submit.deleteSummary", {
-                consigneId: consigne?.id ?? null,
-                dayKey: resolvedDayKey,
-                scope,
-                periodKey,
-                answerKey,
-              });
-              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
-            }
-          } catch (err) {
-            console.error("consigne.history.editor.save.summaryDelete", err);
-          }
+        logHistoryDebug("editor.submit.abort-empty", {
+          consigneId: consigne?.id ?? null,
+          dayKey: resolvedDayKey,
+          historyId: historyDocumentId,
+          parentInitialHasValue,
+          parentTouched: parentValueTouched,
         });
-  try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) {}
+        submitBtn.disabled = false;
+        if (clearBtn) clearBtn.disabled = false;
+        try {
+          showToast && showToast("Réponse vide non enregistrée. Utilise le bouton Effacer pour supprimer.");
+        } catch (_) {}
+        return;
       } else {
         logHistoryDebug("editor.submit.saveHistoryEntry", {
           consigneId: consigne?.id ?? null,
