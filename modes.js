@@ -1488,6 +1488,35 @@ function buildChecklistValue(consigne, rawValue, fallbackValue = null) {
   return result;
 }
 
+function summarizeChecklistValue(value) {
+  if (!value) return null;
+
+  let payload = value;
+  if (Array.isArray(payload)) {
+    payload = { items: payload };
+  } else if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch (_) {
+      payload = { items: [] };
+    }
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const items = Array.isArray(payload.items)
+    ? payload.items.map((entry) => Boolean(entry))
+    : [];
+  const total = items.length;
+  const checked = items.filter(Boolean).length;
+  if (total === 0) {
+    return checked > 0 ? `${checked}` : null;
+  }
+  return `${checked}/${total}`;
+}
+
 function checklistHasSelection(value) {
   const { items, skipped } = normalizeChecklistStateArrays(value);
   return items.some((checked, index) => checked && !skipped[index]);
@@ -11425,6 +11454,71 @@ function readConsigneCurrentValue(consigne, scope) {
     if (!input || input.value === "" || input.value == null) {
       return "";
     }
+
+function hasValueForConsigne(consigne, scopeOrValue) {
+  if (!consigne) return false;
+  const type = typeof consigne.type === "string" ? consigne.type.toLowerCase() : "";
+  let value = scopeOrValue;
+  if (value && typeof value === "object" && value.nodeType === 1) {
+    // It's probably a DOM node (row).
+    value = readConsigneCurrentValue(consigne, value);
+  }
+  if (value == null) {
+    return false;
+  }
+
+  if (typeof value === "object" && value.skipped) {
+    return true;
+  }
+
+  switch (type) {
+    case "num":
+    case "number":
+      return Number.isFinite(Number(value));
+    case "montant": {
+      try {
+        const normalized = normalizeMontantValue(value, consigne);
+        return normalized && (Number.isFinite(normalized.amount) || normalized.operator || normalized.unit);
+      } catch (_) {
+        return false;
+      }
+    }
+    case "checklist": {
+      if (value && typeof value === "object") {
+        if (Array.isArray(value.items)) {
+          return value.items.some(Boolean);
+        }
+        if (Array.isArray(value)) {
+          return value.some(Boolean);
+        }
+      }
+      return false;
+    }
+    case "long":
+    case "long_text":
+    case "texte": {
+      const text = typeof value === "string" ? value : normalizeRichTextValue(String(value || ""));
+      return text.trim().length > 0;
+    }
+    case "short":
+    case "text":
+    case "likert5":
+    case "likert6":
+    case "yesno":
+    case "oui_non":
+    case "choice":
+    case "select":
+    default: {
+      if (typeof value === "string") {
+        return value.trim().length > 0;
+      }
+      if (Array.isArray(value)) {
+        return value.length > 0;
+      }
+      return Boolean(value);
+    }
+  }
+}
     const amount = Number(input.value);
     if (!Number.isFinite(amount)) {
       return "";
@@ -11830,16 +11924,6 @@ function attachConsigneEditor(row, consigne, options = {}) {
       toggle.removeEventListener("click", handleToggle);
     },
   };
-}
-
-function createHiddenConsigneRow(consigne, { initialValue, editorOptions = null, historyChildren = [] } = {}) {
-  const row = renderItemCard(consigne, {
-    isChild: true,
-    deferEditor: false,
-    editorOptions,
-    historyChildren,
-  });
-  return row;
 }
 
 const CONSIGNE_PRIORITY_OPTIONS = [
@@ -16795,6 +16879,35 @@ async function renderDaily(ctx, root, opts = {}) {
         } catch (_) {}
       });
     } catch (_) {}
+
+    return row;
+  };
+
+  const createHiddenConsigneRow = (consigne, { initialValue, editorOptions = null, historyChildren = [] } = {}) => {
+    const row = renderItemCard(consigne, {
+      isChild: true,
+      deferEditor: false,
+      editorOptions,
+      historyChildren,
+    });
+
+    const holder = row.querySelector("[data-consigne-input-holder]");
+    if (holder) {
+      holder.hidden = false;
+    }
+    const toggle = row.querySelector("[data-consigne-open]");
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", "true");
+    }
+
+    if (typeof initialValue !== "undefined") {
+      try {
+        setConsigneSkipState(row, consigne, Boolean(initialValue?.skipped), {
+          emitInputEvents: false,
+          updateUI: true,
+        });
+      } catch (_) {}
+    }
 
     return row;
   };
