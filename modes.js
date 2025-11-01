@@ -10536,6 +10536,10 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     }
   }
   const parentInitialHasValue = hasValueForConsigne(consigne, displayValue);
+  const parentInitialValue = parentInitialHasValue
+    ? (entry?.value !== undefined ? entry.value : displayValue)
+    : "";
+  let parentValueTouched = false;
   const baseChildStates = await Promise.all(
     childCandidates.map(async (child) => {
       let childEntries = [];
@@ -10986,8 +10990,24 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     submitBtn.disabled = true;
     if (clearBtn) clearBtn.disabled = true;
     try {
-      const rawValue = readConsigneValueFromForm(consigne, form);
-      const parentHasValue = hasValueForConsigne(consigne, rawValue);
+      let rawValue = readConsigneValueFromForm(consigne, form);
+      let parentHasValue = hasValueForConsigne(consigne, rawValue);
+      let usedFallbackValue = false;
+      if (!parentHasValue && parentInitialHasValue && !parentValueTouched) {
+        rawValue = parentInitialValue;
+        parentHasValue = hasValueForConsigne(consigne, rawValue);
+        usedFallbackValue = parentHasValue;
+        if (usedFallbackValue) {
+          logHistoryDebug("editor.submit.valueFallback", {
+            consigneId: consigne?.id ?? null,
+            dayKey: resolvedDayKey,
+            reason: "retain-initial",
+            parentTouched: parentValueTouched,
+            parentInitialHasValue,
+            initialSummary: summarizeHistoryValue(parentInitialValue),
+          });
+        }
+      }
       const childResults = baseChildStates.map((childState) => {
         const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
         const childValue = childNode
@@ -11712,6 +11732,29 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   const cancelBtn = overlay.querySelector("[data-cancel]");
   const clearBtn = overlay.querySelector("[data-clear]");
   const submitBtn = form?.querySelector('button[type="submit"]');
+  const parentValueField = (() => {
+    if (!form) {
+      return null;
+    }
+    const candidates = Array.from(form.querySelectorAll('[name="value"]'));
+    for (const candidate of candidates) {
+      if (!(candidate instanceof HTMLElement)) {
+        continue;
+      }
+      if (candidate.closest('[data-history-child]')) {
+        continue;
+      }
+      return candidate;
+    }
+    return null;
+  })();
+  if (parentValueField) {
+    const markParentTouched = () => {
+      parentValueTouched = true;
+    };
+    parentValueField.addEventListener('input', markParentTouched);
+    parentValueField.addEventListener('change', markParentTouched);
+  }
   const restoreFocus = () => {
     if (trigger && typeof trigger.focus === "function") {
       try {
@@ -11969,8 +12012,24 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     submitBtn.disabled = true;
     if (clearBtn) clearBtn.disabled = true;
     try {
-      const rawValue = readConsigneValueFromForm(consigne, form);
-      const parentHasValue = hasValueForConsigne(consigne, rawValue);
+      let rawValue = readConsigneValueFromForm(consigne, form);
+      let parentHasValue = hasValueForConsigne(consigne, rawValue);
+      let usedFallbackValue = false;
+      if (!parentHasValue && parentInitialHasValue && !parentValueTouched) {
+        rawValue = parentInitialValue;
+        parentHasValue = hasValueForConsigne(consigne, rawValue);
+        usedFallbackValue = parentHasValue;
+        if (usedFallbackValue) {
+          logHistoryDebug("editor.submit.valueFallback", {
+            consigneId: consigne?.id ?? null,
+            dayKey: resolvedDayKey,
+            reason: "retain-initial",
+            parentTouched: parentValueTouched,
+            parentInitialHasValue,
+            initialSummary: summarizeHistoryValue(parentInitialValue),
+          });
+        }
+      }
       const childResults = baseChildStates.map((childState) => {
         const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
         const childValue = childNode
@@ -11988,6 +12047,9 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         dayKey: resolvedDayKey,
         parentHasValue,
         parentValueSummary: summarizeHistoryValue(rawValue),
+        parentInitialHasValue,
+        parentTouched: parentValueTouched,
+        usedFallback: usedFallbackValue,
         children: childResults.map(({ state, hasValue, value }) => ({
           consigneId: state?.consigne?.id ?? null,
           historyId: state?.historyDocumentId || null,
