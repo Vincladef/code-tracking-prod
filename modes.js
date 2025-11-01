@@ -12015,20 +12015,22 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       let rawValue = readConsigneValueFromForm(consigne, form);
       let parentHasValue = hasValueForConsigne(consigne, rawValue);
       let usedFallbackValue = false;
-      if (!parentHasValue && parentInitialHasValue && !parentValueTouched) {
+      const canUseInitialValue = parentInitialHasValue
+        && hasValueForConsigne(consigne, parentInitialValue);
+      const shouldFallbackToInitial =
+        !parentHasValue && canUseInitialValue && (!parentValueTouched || historyDocumentId);
+      if (shouldFallbackToInitial) {
         rawValue = parentInitialValue;
-        parentHasValue = hasValueForConsigne(consigne, rawValue);
-        usedFallbackValue = parentHasValue;
-        if (usedFallbackValue) {
-          logHistoryDebug("editor.submit.valueFallback", {
-            consigneId: consigne?.id ?? null,
-            dayKey: resolvedDayKey,
-            reason: "retain-initial",
-            parentTouched: parentValueTouched,
-            parentInitialHasValue,
-            initialSummary: summarizeHistoryValue(parentInitialValue),
-          });
-        }
+        parentHasValue = true;
+        usedFallbackValue = true;
+        logHistoryDebug("editor.submit.valueFallback", {
+          consigneId: consigne?.id ?? null,
+          dayKey: resolvedDayKey,
+          reason: parentValueTouched ? "retain-after-touch" : "retain-initial",
+          parentTouched: parentValueTouched,
+          parentInitialHasValue,
+          initialSummary: summarizeHistoryValue(parentInitialValue),
+        });
       }
       const childResults = baseChildStates.map((childState) => {
         const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
