@@ -12476,6 +12476,14 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
   const normalizedResponseId =
     typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
+  if (!normalizedHistoryId && !normalizedResponseId && options.remove !== true) {
+    logChecklistEvent("info", "[checklist-history] timeline.skip-empty", {
+      consigneId: options?.consigne?.id ?? null,
+      dayKey,
+      status,
+    });
+    return;
+  }
   let item = null;
   if (normalizedHistoryId) {
     item = state.track.querySelector(`[data-history-id="${escapeTimelineSelector(normalizedHistoryId)}"]`);
