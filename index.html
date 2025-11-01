@@ -1329,6 +1329,58 @@
     .history-dialog__value {
       width:100%;
     }
+    .history-dialog__body{
+      max-height:min(70vh,520px);
+      overflow-y:auto;
+      padding-right:.35rem;
+      margin-right:-.2rem;
+      scrollbar-gutter:stable both-edges;
+    }
+    .history-dialog__children{
+      list-style:none;
+      margin:0;
+      padding:0;
+      display:flex;
+      flex-direction:column;
+      gap:.75rem;
+    }
+    .history-dialog__child{
+      display:flex;
+      gap:.75rem;
+      padding:.75rem;
+      border-radius:1rem;
+      background:rgba(248,250,252,.9);
+      border:1px solid rgba(226,232,240,.75);
+    }
+    .history-dialog__child-dot{
+      flex-shrink:0;
+      margin-top:.35rem;
+    }
+    .history-dialog__child-content{
+      flex:1;
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:.25rem;
+    }
+    .history-dialog__child-label{
+      font-size:.85rem;
+      font-weight:600;
+      color:#0f172a;
+      margin:0;
+    }
+    .history-dialog__child-value{
+      font-size:.85rem;
+      color:#1e293b;
+      margin:0;
+      word-break:break-word;
+    }
+    .history-dialog__child-note{
+      font-size:.8rem;
+      color:#475569;
+      margin:0;
+      white-space:pre-line;
+    }
     .consigne-history__meta {
       display:flex;
       flex-direction:column;

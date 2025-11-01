@@ -8304,6 +8304,16 @@ function formatConsigneHistoryPoint(record, consigne) {
   };
 }
 
+const HISTORY_DIALOG_ALLOWED_CHILD_STATUSES = new Set([
+  "ok-strong",
+  "ok-soft",
+  "mid",
+  "ko-soft",
+  "ko-strong",
+  "note",
+  "na",
+]);
+
 function openConsigneHistoryPointDialog(consigne, details) {
   if (!details) {
     return;
@@ -8322,15 +8332,54 @@ function openConsigneHistoryPointDialog(consigne, details) {
   const note = typeof details.note === "string" ? details.note.trim() : "";
   const hasValue = Boolean(valueContent);
   const hasNote = Boolean(note);
+  const rawChildren = Array.isArray(details.children) ? details.children : [];
+  const childItems = rawChildren
+    .map((child, index) => {
+      if (!child || typeof child !== "object") {
+        return "";
+      }
+      const rawStatus = typeof child.status === "string" ? child.status.trim() : "";
+      const status = HISTORY_DIALOG_ALLOWED_CHILD_STATUSES.has(rawStatus) ? rawStatus : "na";
+      const fallbackLabel = `Sous-consigne ${index + 1}`;
+      const labelSource = typeof child.label === "string" ? child.label.trim() : "";
+      const label = labelSource || fallbackLabel;
+      const valueRaw = child.value;
+      let valueText = "";
+      if (typeof valueRaw === "string") {
+        valueText = valueRaw.trim();
+      } else if (typeof valueRaw === "number" || typeof valueRaw === "boolean") {
+        valueText = String(valueRaw);
+      }
+      const displayValue = valueText || "—";
+      const noteText = typeof child.note === "string" ? child.note.trim() : "";
+      const noteMarkup = noteText
+        ? `<p class="history-dialog__child-note">${escapeHtml(noteText)}</p>`
+        : "";
+      return `
+          <li class="history-dialog__child" role="listitem">
+            <span class="consigne-row__dot consigne-row__dot--${status} history-dialog__child-dot" aria-hidden="true"></span>
+            <div class="history-dialog__child-content">
+              <p class="history-dialog__child-label">${escapeHtml(label)}</p>
+              <p class="history-dialog__child-value">${escapeHtml(displayValue)}</p>
+              ${noteMarkup}
+            </div>
+          </li>`;
+    })
+    .filter(Boolean);
+  const hasChildren = childItems.length > 0;
   const valueSection = hasValue
     ? `<section class="space-y-2" data-history-dialog-section><div class="history-dialog__value history-panel__value" data-status="${status}"><span class="history-panel__value-text">${valueContent}</span></div></section>`
     : "";
   const noteSection = hasNote
     ? `<section class="space-y-2" data-history-dialog-note><h3 class="text-sm font-semibold text-slate-600">Note</h3><p class="whitespace-pre-line text-[15px] text-slate-700">${escapeHtml(note)}</p></section>`
     : "";
-  const emptySection = !hasValue && !hasNote
+  const childSection = hasChildren
+    ? `<section class="space-y-3" data-history-dialog-children><h3 class="text-sm font-semibold text-slate-600">Sous-consignes</h3><ul class="history-dialog__children" role="list">${childItems.join("")}</ul></section>`
+    : "";
+  const emptySection = !hasValue && !hasNote && !hasChildren
     ? '<p class="text-[15px] text-[var(--muted)]">Aucune réponse enregistrée pour ce jour.</p>'
     : "";
+  const bodyMarkup = [valueSection, childSection, noteSection, emptySection].filter(Boolean).join("");
   const statusMarkup = statusLabel
     ? `<p class="flex items-center gap-2 text-sm text-slate-600"><span class="consigne-row__dot consigne-row__dot--${status}" aria-hidden="true"></span>${escapeHtml(statusLabel)}</p>`
     : "";
@@ -8344,10 +8393,8 @@ function openConsigneHistoryPointDialog(consigne, details) {
         <h2 class="text-lg font-semibold">${escapeHtml(consigneName)}</h2>
         ${statusMarkup}
       </header>
-      <div class="space-y-4" data-history-dialog-content>
-        ${valueSection}
-        ${noteSection}
-        ${emptySection}
+      <div class="space-y-4 history-dialog__body" data-history-dialog-content>
+        ${bodyMarkup}
       </div>
       <div class="flex justify-end">
         <button type="button" class="btn" data-history-dialog-close>Fermer</button>
