@@ -12063,7 +12063,6 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       if (
         !parentHasValue &&
         parentInitialHasValue &&
-        !parentValueTouched &&
         historyDocumentId &&
         hasValueForConsigne(consigne, parentInitialValue)
       ) {
