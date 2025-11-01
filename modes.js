@@ -743,8 +743,77 @@ function buildMontantValue(consigne, amount) {
   return normalizeMontantValue({ amount, goal, operator, unit }, consigne);
 }
 
+function normalizeHistoryValueForEditor(type, value) {
+  if (!type) {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return value;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const normalized = trimmed.toLowerCase();
+  const canonicalized = normalized.replace(/\s+/g, "_").replace(/-+/g, "_");
+  if (type === "likert6") {
+    const canonical = {
+      yes: "yes",
+      rather_yes: "rather_yes",
+      medium: "medium",
+      rather_no: "rather_no",
+      no: "no",
+      no_answer: "no_answer",
+    };
+    if (Object.prototype.hasOwnProperty.call(canonical, canonicalized)) {
+      return canonical[canonicalized];
+    }
+    const legacy = {
+      ok_strong: "yes",
+      okstrong: "yes",
+      ok_soft: "rather_yes",
+      oksoft: "rather_yes",
+      mid: "medium",
+      ko_soft: "rather_no",
+      kosoft: "rather_no",
+      ko_strong: "no",
+      kostrong: "no",
+      note: "no_answer",
+      na: "",
+    };
+    if (Object.prototype.hasOwnProperty.call(legacy, canonicalized)) {
+      return legacy[canonicalized];
+    }
+    return trimmed;
+  }
+  if (type === "yesno") {
+    const canonical = {
+      yes: "yes",
+      no: "no",
+    };
+    if (Object.prototype.hasOwnProperty.call(canonical, canonicalized)) {
+      return canonical[canonicalized];
+    }
+    const legacy = {
+      ok_strong: "yes",
+      okstrong: "yes",
+      ok: "yes",
+      ko_strong: "no",
+      kostrong: "no",
+      ko: "no",
+      na: "",
+    };
+    if (Object.prototype.hasOwnProperty.call(legacy, canonicalized)) {
+      return legacy[canonicalized];
+    }
+    return trimmed;
+  }
+  return value;
+}
+
 function renderConsigneValueField(consigne, value, fieldId) {
   const type = consigne?.type || "short";
+  value = normalizeHistoryValueForEditor(type, value);
   if (type === "info") {
     return INFO_STATIC_BLOCK;
   }
@@ -8160,6 +8229,60 @@ function logChecklistEvent(level, label, payload) {
   }
 }
 
+function summarizeHistoryValue(value) {
+  if (value === null) {
+    return { type: "null" };
+  }
+  if (value === undefined) {
+    return { type: "undefined" };
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return {
+      type: "string",
+      length: value.length,
+      preview: trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed,
+    };
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return { type: typeof value, value };
+  }
+  if (Array.isArray(value)) {
+    return {
+      type: "array",
+      length: value.length,
+      preview: safeJsonSample(value),
+    };
+  }
+  if (typeof value === "object") {
+    return {
+      type: "object",
+      keys: Object.keys(value),
+      preview: safeJsonSample(value),
+    };
+  }
+  return { type: typeof value };
+}
+
+function summarizeHistoryEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  return {
+    hasValue: Object.prototype.hasOwnProperty.call(entry, "value"),
+    responseId: resolveHistoryResponseId(entry) || null,
+    historyId: resolveHistoryDocumentId(entry, entry?.dayKey || entry?.day_key || "") || null,
+    note: typeof entry?.note === "string" && entry.note ? entry.note.slice(0, 160) : null,
+    summaryScope: entry?.summaryScope || entry?.periodScope || null,
+    summaryPeriod: entry?.summaryPeriod || entry?.periodKey || null,
+  };
+}
+
+function logHistoryDebug(label, payload, level = "info") {
+  const prefix = "[history-debug]";
+  logChecklistEvent(level, `${prefix} ${label}`, payload);
+}
+
 function normalizeHistoryMode(row) {
   if (!row || typeof row !== "object") {
     return "";
@@ -10487,6 +10610,19 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   baseChildStates.forEach((childState) => {
     registerHistoryPanelRefresh(childState?.consigne);
   });
+  logHistoryDebug("editor.open.children", {
+    consigneId: consigne?.id ?? null,
+    dayKey: resolvedDayKey,
+    childCount: baseChildStates.length,
+    children: baseChildStates.slice(0, 5).map((childState) => ({
+      consigneId: childState?.consigne?.id ?? null,
+      type: childState?.consigne?.type || null,
+      initialHasValue: childState?.initialHasValue || false,
+      historyId: childState?.historyDocumentId || null,
+      responseId: childState?.responseSyncOptions?.responseId || null,
+      valueSummary: summarizeHistoryValue(childState?.value),
+    })),
+  });
   const childMarkup = baseChildStates.length
     ? `<section class="practice-editor__section space-y-3 border-t border-slate-200 pt-3 mt-3" data-history-children>
         <header class="space-y-1">
@@ -10841,6 +10977,12 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     if (!submitBtn || submitBtn.disabled) {
       return;
     }
+    logHistoryDebug("editor.submit.start", {
+      consigneId: consigne?.id ?? null,
+      dayKey: resolvedDayKey,
+      historyId: historyDocumentId,
+      responseId: responseSyncOptions?.responseId || null,
+    });
     submitBtn.disabled = true;
     if (clearBtn) clearBtn.disabled = true;
     try {
@@ -11012,6 +11154,15 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     showToast("Consigne introuvable.");
     return;
   }
+  logHistoryDebug("editor.open.request", {
+    consigneId: consigne?.id ?? null,
+    consigneType: consigne?.type || null,
+    dayKey,
+    source,
+    optionHistoryId: typeof options.historyId === "string" ? options.historyId : null,
+    optionResponseId: typeof options.responseId === "string" ? options.responseId : null,
+    hasDetails: Boolean(details),
+  });
   const historyPanelsToRefresh = new Set();
   const registerHistoryPanelRefresh = (candidate) => {
     if (!candidate) {
@@ -11039,6 +11190,14 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     showToast("Impossible de charger cette réponse.");
     return;
   }
+  logHistoryDebug("editor.open.loaded", {
+    consigneId: consigne?.id ?? null,
+    dayKey,
+    entriesCount: historyEntries.length,
+    firstEntrySample: summarizeHistoryEntry(historyEntries[0])
+      ? { ...summarizeHistoryEntry(historyEntries[0]), valueSummary: summarizeHistoryValue(historyEntries[0]?.value) }
+      : null,
+  });
   const explicitResponseId =
     typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
   const explicitHistoryId =
@@ -11157,6 +11316,35 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       }
     : null;
   const resolvedDayKey = keyInfo?.dayKey || dayKey;
+  logHistoryDebug("editor.open.match", {
+    consigneId: consigne?.id ?? null,
+    requestedDayKey: dayKey,
+    resolvedDayKey,
+    matchType: match?.matchType || null,
+    weight: match?.weight ?? null,
+    historyId: match?.historyId || null,
+    responseId: match?.responseId || null,
+    keyInfo: keyInfo
+      ? {
+          dayKey: keyInfo?.dayKey || null,
+          iterationNumber: keyInfo?.iterationNumber ?? null,
+          iterationLabel: keyInfo?.iterationLabel || null,
+        }
+      : null,
+    hasEntry: Boolean(entry),
+    entrySummary: entry
+      ? {
+          ...summarizeHistoryEntry(entry),
+          valueSummary: summarizeHistoryValue(entry?.value),
+        }
+      : null,
+    detailsSummary: details
+      ? {
+          valueSummary: summarizeHistoryValue(details?.rawValue ?? details?.value ?? null),
+          note: typeof details?.note === "string" ? details.note.slice(0, 160) : null,
+        }
+      : null,
+  });
   if (consigne.type === "checklist" && !entry) {
     logChecklistEvent("error", "[checklist-history] entry-editor:missing-entry", {
       consigneId: consigne.id ?? null,
@@ -11237,6 +11425,22 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     displayValue = { ...displayValue, __historyDateKey: resolvedDayKey };
   }
   const valueField = renderConsigneValueField(consigne, displayValue, fieldId);
+  logHistoryDebug("editor.open.render", {
+    consigneId: consigne?.id ?? null,
+    dayKey: resolvedDayKey,
+    fieldId,
+    displayValueSummary: summarizeHistoryValue(displayValue),
+    matchSummary: matchInfo
+      ? {
+          type: matchInfo.type || null,
+          historyId: matchInfo.historyId || null,
+          responseId: matchInfo.responseId || null,
+          candidateDayKey: matchInfo.candidateDayKey || null,
+          weight: matchInfo.weight ?? null,
+          summaryDiff: Array.isArray(matchInfo.summaryDiff) ? matchInfo.summaryDiff.slice(0, 5) : [],
+        }
+      : null,
+  });
   const autosaveKey = ["history-entry-edit", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
     .map((part) => String(part || ""))
     .join(":");
@@ -11555,23 +11759,53 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     if (!hasInitialData) {
       clearBtn.disabled = true;
     }
+    logHistoryDebug("editor.buttons.state", {
+      consigneId: consigne?.id ?? null,
+      dayKey: resolvedDayKey,
+      hasInitialData,
+      parentInitialHasValue,
+      hadStoredEntry,
+      hasInitialChildValue,
+    });
     clearBtn.addEventListener("click", async (event) => {
       event.preventDefault();
       if (!confirm("Effacer la réponse pour cette date ?")) {
         return;
       }
+      logHistoryDebug("editor.clear.confirmed", {
+        consigneId: consigne?.id ?? null,
+        dayKey: resolvedDayKey,
+        historyId: historyDocumentId,
+        responseId: responseSyncOptions?.responseId || null,
+      });
       clearBtn.disabled = true;
       if (submitBtn) submitBtn.disabled = true;
       try {
         const dayKeyToClear = resolvedDayKey || dayKey;
         await runWithAutoSaveSuppressed(consigne?.id, dayKeyToClear, async () => {
           if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
+            logHistoryDebug("editor.clear.deleteAllResponses", {
+              consigneId: consigne?.id ?? null,
+              dayKey: dayKeyToClear,
+            });
             try {
               await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
-            } catch (_) {}
+            } catch (error) {
+              logHistoryDebug("editor.clear.deleteAllResponses.error", {
+                consigneId: consigne?.id ?? null,
+                dayKey: dayKeyToClear,
+                error: String(error?.message || error),
+              }, "error");
+            }
           }
           try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) {}
           try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+          logHistoryDebug("editor.clear.deleteHistoryEntry", {
+            consigneId: consigne?.id ?? null,
+            dayKey: dayKeyToClear,
+            historyId: historyDocumentId,
+            responseId: responseSyncOptions?.responseId || null,
+          });
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
           // If this entry is a bilan-backed summary, delete the summary answer to avoid reappearance
           try {
@@ -11579,6 +11813,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
             const answerKey = entry?.summaryKey || "";
             if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+              logHistoryDebug("editor.clear.deleteSummary", {
+                consigneId: consigne?.id ?? null,
+                dayKey: dayKeyToClear,
+                scope,
+                periodKey,
+                answerKey,
+              });
               await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
             }
           } catch (err) {
@@ -11595,6 +11836,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             keepPlaceholder: true,
             remove: true,
           });
+          logHistoryDebug("editor.clear.timeline-parent", {
+            consigneId: consigne?.id ?? null,
+            dayKey: resolvedDayKey,
+            status,
+            historyId: historyDocumentId,
+            responseId: responseSyncOptions?.responseId || null,
+          });
           triggerConsigneRowUpdateHighlight(row);
           try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) {}
           for (const childState of baseChildStates) {
@@ -11604,12 +11852,31 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             }
             await runWithAutoSaveSuppressed(childConsigneId, dayKeyToClear, async () => {
               if (ctx?.db && ctx?.user?.uid && dayKeyToClear) {
+                logHistoryDebug("editor.clear.child.deleteAllResponses", {
+                  parentConsigneId: consigne?.id ?? null,
+                  childConsigneId,
+                  dayKey: dayKeyToClear,
+                });
                 try {
                   await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
-                } catch (_) {}
+                } catch (error) {
+                  logHistoryDebug("editor.clear.child.deleteAllResponses.error", {
+                    parentConsigneId: consigne?.id ?? null,
+                    childConsigneId,
+                    dayKey: dayKeyToClear,
+                    error: String(error?.message || error),
+                  }, "error");
+                }
               }
               try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
               try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
+              logHistoryDebug("editor.clear.child.deleteHistoryEntry", {
+                parentConsigneId: consigne?.id ?? null,
+                childConsigneId,
+                dayKey: dayKeyToClear,
+                historyId: childState.historyDocumentId,
+                responseId: childState.responseSyncOptions?.responseId || null,
+              });
               await Schema.deleteHistoryEntry(
                 ctx.db,
                 ctx.user.uid,
@@ -11624,6 +11891,14 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
                 const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
                 const cAnswerKey = cEntry?.summaryKey || "";
                 if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+                  logHistoryDebug("editor.clear.child.deleteSummary", {
+                    parentConsigneId: consigne?.id ?? null,
+                    childConsigneId,
+                    dayKey: dayKeyToClear,
+                    scope: cScope,
+                    periodKey: cPeriodKey,
+                    answerKey: cAnswerKey,
+                  });
                   await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
                 }
               } catch (err) {
@@ -11641,6 +11916,14 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
                     keepPlaceholder: true,
                     remove: true,
                   });
+                logHistoryDebug("editor.clear.timeline-child", {
+                  parentConsigneId: consigne?.id ?? null,
+                  childConsigneId,
+                  dayKey: resolvedDayKey,
+                  status: childStatus,
+                  historyId: childState.historyDocumentId,
+                  responseId: childState.responseSyncOptions?.responseId || null,
+                });
                 triggerConsigneRowUpdateHighlight(childState.row);
               }
             });
@@ -11700,15 +11983,44 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           hasValue,
         };
       });
+      logHistoryDebug("editor.submit.values", {
+        consigneId: consigne?.id ?? null,
+        dayKey: resolvedDayKey,
+        parentHasValue,
+        parentValueSummary: summarizeHistoryValue(rawValue),
+        children: childResults.map(({ state, hasValue, value }) => ({
+          consigneId: state?.consigne?.id ?? null,
+          historyId: state?.historyDocumentId || null,
+          responseId: state?.responseSyncOptions?.responseId || null,
+          hasValue,
+          valueSummary: summarizeHistoryValue(value),
+        })),
+      });
       if (!parentHasValue) {
         await runWithAutoSaveSuppressed(consigne.id, resolvedDayKey, async () => {
+          logHistoryDebug("editor.submit.deleteHistoryEntry", {
+            consigneId: consigne?.id ?? null,
+            dayKey: resolvedDayKey,
+            historyId: historyDocumentId,
+            responseId: responseSyncOptions?.responseId || null,
+          });
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
           try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
           try { clearRecentResponsesForConsigne(consigne.id); } catch (e) {}
           if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
+            logHistoryDebug("editor.submit.deleteAllResponses", {
+              consigneId: consigne?.id ?? null,
+              dayKey: resolvedDayKey,
+            });
             try {
               await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey);
-            } catch (e) {}
+            } catch (error) {
+              logHistoryDebug("editor.submit.deleteAllResponses.error", {
+                consigneId: consigne?.id ?? null,
+                dayKey: resolvedDayKey,
+                error: String(error?.message || error),
+              }, "error");
+            }
           }
           // Also delete summary answer if this entry originated from a bilan
           try {
@@ -11716,6 +12028,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
             const answerKey = entry?.summaryKey || "";
             if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+              logHistoryDebug("editor.submit.deleteSummary", {
+                consigneId: consigne?.id ?? null,
+                dayKey: resolvedDayKey,
+                scope,
+                periodKey,
+                answerKey,
+              });
               await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
             }
           } catch (err) {
@@ -11724,6 +12043,12 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         });
   try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) {}
       } else {
+        logHistoryDebug("editor.submit.saveHistoryEntry", {
+          consigneId: consigne?.id ?? null,
+          dayKey: resolvedDayKey,
+          historyId: historyDocumentId,
+          responseId: responseSyncOptions?.responseId || null,
+        });
         await Schema.saveHistoryEntry(
           ctx.db,
           ctx.user.uid,
@@ -11748,13 +12073,36 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         responseId: responseSyncOptions?.responseId || "",
         remove: parentHasValue ? false : true,
       });
+      logHistoryDebug("editor.submit.timeline-parent", {
+        consigneId: consigne?.id ?? null,
+        dayKey: resolvedDayKey,
+        status: parentStatus,
+        hasValue: parentHasValue,
+        historyId: historyDocumentId,
+        responseId: responseSyncOptions?.responseId || null,
+        valueSummary: summarizeHistoryValue(parentHasValue ? rawValue : ""),
+      });
       triggerConsigneRowUpdateHighlight(row);
       for (const { state, value, hasValue } of childResults) {
         if (!hasValue) {
           if (!state?.consigne?.id) {
             continue;
           }
+          logHistoryDebug("editor.submit.child.delete", {
+            parentConsigneId: consigne?.id ?? null,
+            childConsigneId: state.consigne.id,
+            dayKey: resolvedDayKey,
+            historyId: state.historyDocumentId,
+            responseId: state.responseSyncOptions?.responseId || null,
+          });
           await runWithAutoSaveSuppressed(state.consigne.id, resolvedDayKey, async () => {
+            logHistoryDebug("editor.submit.child.deleteHistoryEntry", {
+              parentConsigneId: consigne?.id ?? null,
+              childConsigneId: state.consigne.id,
+              dayKey: resolvedDayKey,
+              historyId: state.historyDocumentId,
+              responseId: state.responseSyncOptions?.responseId || null,
+            });
             await Schema.deleteHistoryEntry(
               ctx.db,
               ctx.user.uid,
@@ -11765,9 +12113,21 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
             try { clearRecentResponsesForConsigne(state.consigne.id); } catch (e) {}
             if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
+              logHistoryDebug("editor.submit.child.deleteAllResponses", {
+                parentConsigneId: consigne?.id ?? null,
+                childConsigneId: state.consigne.id,
+                dayKey: resolvedDayKey,
+              });
               try {
                 await deleteAllResponsesForDay(ctx.db, ctx.user.uid, state.consigne.id, resolvedDayKey);
-              } catch (e) {}
+              } catch (error) {
+                logHistoryDebug("editor.submit.child.deleteAllResponses.error", {
+                  parentConsigneId: consigne?.id ?? null,
+                  childConsigneId: state.consigne.id,
+                  dayKey: resolvedDayKey,
+                  error: String(error?.message || error),
+                }, "error");
+              }
             }
             // Delete child summary answer if present
             try {
@@ -11776,6 +12136,14 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
               const cAnswerKey = cEntry?.summaryKey || "";
               if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+                logHistoryDebug("editor.submit.child.deleteSummary", {
+                  parentConsigneId: consigne?.id ?? null,
+                  childConsigneId: state.consigne.id,
+                  dayKey: resolvedDayKey,
+                  scope: cScope,
+                  periodKey: cPeriodKey,
+                  answerKey: cAnswerKey,
+                });
                 await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
               }
             } catch (err) {
@@ -11783,6 +12151,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             }
           });
         } else {
+          logHistoryDebug("editor.submit.child.save", {
+            parentConsigneId: consigne?.id ?? null,
+            childConsigneId: state.consigne.id,
+            dayKey: resolvedDayKey,
+            historyId: state.historyDocumentId,
+            responseId: state.responseSyncOptions?.responseId || null,
+          });
           await Schema.saveHistoryEntry(
             ctx.db,
             ctx.user.uid,
@@ -11807,6 +12182,16 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             historyId: state.historyDocumentId,
             responseId: state.responseSyncOptions?.responseId || "",
             remove: hasValue ? false : true,
+          });
+          logHistoryDebug("editor.submit.timeline-child", {
+            parentConsigneId: consigne?.id ?? null,
+            childConsigneId: state.consigne.id,
+            dayKey: resolvedDayKey,
+            status: childStatus,
+            hasValue,
+            historyId: state.historyDocumentId,
+            responseId: state.responseSyncOptions?.responseId || null,
+            valueSummary: summarizeHistoryValue(hasValue ? value : ""),
           });
           triggerConsigneRowUpdateHighlight(state.row);
         }
@@ -12297,6 +12682,17 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
   while (state.track.children.length > state.limit) {
     state.track.removeChild(state.track.lastElementChild);
   }
+  logHistoryDebug("timeline.state", {
+    consigneId: options?.consigne?.id ?? null,
+    dayKey,
+    status,
+    historyId: resolvedHistoryId,
+    responseId: resolvedResponseId,
+    itemCount: state.track.children.length,
+    hasDayTimeline: state.hasDayTimeline,
+    firstItemHistoryId: state.track.firstElementChild?.dataset?.historyId || null,
+    lastItemHistoryId: state.track.lastElementChild?.dataset?.historyId || null,
+  });
   scheduleConsigneHistoryNavUpdate(state);
 }
 
@@ -12452,6 +12848,26 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
         : typeof target.dataset.historyId === "string" && target.dataset.historyId.trim()
         ? target.dataset.historyId.trim()
         : "";
+    logHistoryDebug("timeline.activation", {
+      consigneId: consigne?.id ?? null,
+      consigneType: consigne?.type || null,
+      dayKey: historyDayKey || target.dataset.historyDay || null,
+      status: target.dataset.status || rawDetails?.status || null,
+      historyId: historyIdCandidate,
+      responseId: responseIdCandidate,
+      isBilanPoint,
+      isSummaryPoint,
+      source: options.mode || null,
+      rawDetails: rawDetails
+        ? {
+            hasContent: rawDetails?.hasContent ?? null,
+            summaryScope: rawDetails?.summaryScope || null,
+            summaryPeriod: rawDetails?.summaryPeriod || null,
+            iterationLabel: rawDetails?.iterationLabel || null,
+            valueSummary: summarizeHistoryValue(rawDetails?.rawValue ?? rawDetails?.value ?? null),
+          }
+        : null,
+    });
     if (isBilanPoint && bilanDayKey) {
       if (isKeyboard) {
         event.preventDefault();
@@ -14630,6 +15046,7 @@ function hasChecklistResponse(consigne, row, value) {
 }
 
 function hasValueForConsigne(consigne, value) {
+  value = normalizeHistoryValueForEditor(consigne?.type, value);
   if (value && typeof value === "object" && value.skipped === true) {
     return false;
   }
@@ -17259,7 +17676,7 @@ async function openHistory(ctx, consigne, options = {}) {
     });
     cancelBtn?.addEventListener('click', closeEditor);
     if (clearBtn) {
-      const hasInitialData = (row.value !== '' && row.value != null) || (noteValue && noteValue.trim());
+      const hasInitialData = hasValueForConsigne(consigne, row.value) || (noteValue && noteValue.trim());
       if (!hasInitialData) {
         clearBtn.disabled = true;
       }
