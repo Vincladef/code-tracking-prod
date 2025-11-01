@@ -1258,21 +1258,38 @@
     .consigne-history__dot--bilan {
       width:auto;
       height:auto;
-      padding:0;
-      background:none;
+      padding:0 .3rem;
+      background:rgba(124,58,237,.12);
+      border-radius:999px;
       margin-right:.35rem;
       color:#7c3aed; /* weekly default */
-      font-size:.9rem;
+      font-size:.85rem;
       font-weight:700;
       line-height:1;
-      display:flex;
+      display:inline-flex;
       align-items:center;
       justify-content:center;
+      gap:.2rem;
       box-shadow:none;
     }
-    /* Scope-specific colors for bilan in timeline */
-    .consigne-history__item[data-summary-scope="monthly"] .consigne-history__dot--bilan{ color:#6d28d9; }
-    .consigne-history__item[data-summary-scope="yearly"] .consigne-history__dot--bilan{ color:#5b21b6; }
+    .consigne-history__dot--bilan::after {
+      content: attr(data-bilan-label);
+      font-size:.6rem;
+      font-weight:700;
+      color:inherit;
+    }
+    .consigne-history__dot--bilan-monthly {
+      color:#6d28d9;
+      background:rgba(109,40,217,.12);
+    }
+    .consigne-history__dot--bilan-yearly {
+      color:#5b21b6;
+      background:rgba(91,33,182,.12);
+    }
+    .consigne-history__dot--bilan-adhoc {
+      color:#7c3aed;
+      background:rgba(124,58,237,.08);
+    }
     .history-dialog__value {
       width:100%;
     }
@@ -2706,6 +2723,18 @@
       const isIpadOs = !isiOSMatch && /mac os x/.test(userAgent) && navigator.maxTouchPoints > 1;
       const isiOS = isiOSMatch || isIpadOs;
       const isMobileDevice = isiOS || isAndroid;
+
+      if (!isMobileDevice) {
+        if (installBanner?.parentNode) {
+          installBanner.remove();
+        }
+        installButtons.forEach((button) => {
+          if (button?.parentNode) {
+            button.parentNode.removeChild(button);
+          }
+        });
+        return;
+      }
 
       let deferredPrompt = null;
 

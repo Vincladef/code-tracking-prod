@@ -3417,8 +3417,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             ${valueField}
           </div>
           <div class="practice-editor__section">
-            <label class="practice-editor__label" for="${valueId}-note">Commentaire</label>
-            <textarea id="${valueId}-note" name="note" class="consigne-editor__textarea" placeholder="Ajouter un commentaire">${escapeHtml(noteValue)}</textarea>
+            <label class="practice-editor__label" for="${valueId}-note">Note</label>
+            <textarea id="${valueId}-note" name="note" class="consigne-editor__textarea" placeholder="Ajouter une note">${escapeHtml(noteValue)}</textarea>
           </div>
           <div class="practice-editor__actions">
             <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
@@ -9855,15 +9855,33 @@ function applyConsigneHistoryPoint(item, point) {
     }
   }
   if (point.isBilan) {
+    const rawScope = typeof point.summaryScope === "string" ? point.summaryScope : item.dataset.summaryScope || "";
+    const normalizedScope = (() => {
+      const value = String(rawScope || "").toLowerCase();
+      if (value.includes("month")) return "monthly";
+      if (value.includes("year")) return "yearly";
+      if (value.includes("adhoc") || value.includes("ponct")) return "adhoc";
+      return "weekly";
+    })();
+    const scopeLabelMap = {
+      weekly: "H",
+      monthly: "M",
+      yearly: "A",
+      adhoc: "P",
+    };
+    const scopeLabel = scopeLabelMap[normalizedScope] || scopeLabelMap.weekly;
     item.dataset.historySource = "bilan";
+    item.dataset.summaryScope = normalizedScope;
     if (dot) {
-      dot.className = "consigne-history__dot consigne-history__dot--bilan";
+      dot.className = `consigne-history__dot consigne-history__dot--bilan consigne-history__dot--bilan-${normalizedScope}`;
       dot.textContent = "★";
+      dot.setAttribute("data-bilan-label", scopeLabel);
     }
   } else if (point.isSummary) {
     item.dataset.historySource = "summary";
     if (dot) {
       dot.textContent = "";
+      dot.removeAttribute("data-bilan-label");
     }
   } else {
     if (item.dataset) {
@@ -9871,6 +9889,7 @@ function applyConsigneHistoryPoint(item, point) {
     }
     if (dot) {
       dot.textContent = "";
+      dot.removeAttribute("data-bilan-label");
     }
   }
   const details = point.details || null;
@@ -11164,7 +11183,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           <div data-history-editor-value>${valueFieldHtml}</div>
         </div>
         <div class="space-y-2">
-          <label class="practice-editor__label" for="${noteFieldId}">Commentaire</label>
+          <label class="practice-editor__label" for="${noteFieldId}">Note</label>
           <textarea id="${noteFieldId}" name="note" class="consigne-editor__textarea" placeholder="Ajouter une note">${escapeHtml(initialNote)}</textarea>
         </div>
         <footer class="flex flex-wrap justify-end gap-2">
@@ -16012,8 +16031,8 @@ async function openHistory(ctx, consigne, options = {}) {
           ${valueField}
         </div>
         <div class="practice-editor__section">
-          <label class="practice-editor__label" for="${fieldId}-note">Commentaire</label>
-          <textarea id="${fieldId}-note" name="note" class="consigne-editor__textarea" placeholder="Ajouter un commentaire">${escapeHtml(noteValue)}</textarea>
+          <label class="practice-editor__label" for="${fieldId}-note">Note</label>
+          <textarea id="${fieldId}-note" name="note" class="consigne-editor__textarea" placeholder="Ajouter une note">${escapeHtml(noteValue)}</textarea>
         </div>
         <div class="practice-editor__actions">
           <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
