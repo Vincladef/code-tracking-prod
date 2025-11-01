@@ -12,23 +12,6 @@ const prefillLog = (...args) => {
     try { console.info("[prefill-audit]", ...args); } catch (_) {}
   }
 };
-
-function cloneHistoryValue(value) {
-  if (value == null) {
-    return value;
-  }
-  if (typeof value !== "object") {
-    return value;
-  }
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch (_) {
-    if (Array.isArray(value)) {
-      return value.slice();
-    }
-    return { ...value };
-  }
-}
 // Emphasized alert for problematic prefill states (styled red in console)
 const prefillAlert = (label, payload = {}) => {
   try {
@@ -10625,8 +10608,6 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         responseSyncOptions: childResponseSyncOptions,
         historyDocumentId: childHistoryDocumentId,
         initialHasValue: childInitialHasValue,
-        initialValue: cloneHistoryValue(childValue),
-        touched: false,
       };
     }),
   );
@@ -11029,34 +11010,14 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       }
       const childResults = baseChildStates.map((childState) => {
         const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
-        let childValue = childNode
+        const childValue = childNode
           ? readConsigneValueFromForm(childState.consigne, childNode)
           : "";
-        let hasValue = hasValueForConsigne(childState.consigne, childValue);
-        const childTouched = Boolean(childState.touched);
-        let usedFallback = false;
-        if (!hasValue && childState.initialHasValue && !childTouched) {
-          childValue = cloneHistoryValue(childState.initialValue);
-          hasValue = hasValueForConsigne(childState.consigne, childValue);
-          if (hasValue) {
-            usedFallback = true;
-            logHistoryDebug("editor.submit.child.valueFallback", {
-              parentConsigneId: consigne?.id ?? null,
-              childConsigneId: childState?.consigne?.id ?? null,
-              dayKey: resolvedDayKey,
-              reason: "retain-initial",
-              childTouched,
-              childInitialHasValue: childState.initialHasValue,
-              initialSummary: summarizeHistoryValue(childState.initialValue),
-            });
-          }
-        }
+        const hasValue = hasValueForConsigne(childState.consigne, childValue);
         return {
           state: childState,
           value: childValue,
           hasValue,
-          touched: childTouched,
-          usedFallback,
         };
       });
       if (!parentHasValue) {
@@ -11095,74 +11056,41 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         remove: parentHasValue ? false : true,
       });
       triggerConsigneRowUpdateHighlight(row);
-      for (const { state, value, hasValue, touched } of childResults) {
+      for (const { state, value, hasValue } of childResults) {
         const childConsigneId = state?.consigne?.id;
-        if (!childConsigneId) {
+        if (!childConsigneId || !hasValue) {
           continue;
         }
-        if (!hasValue) {
-          if (!touched && state.initialHasValue) {
-            continue;
-          }
-          await runWithAutoSaveSuppressed(childConsigneId, resolvedDayKey, async () => {
-            await Schema.deleteHistoryEntry(
-              ctx.db,
-              ctx.user.uid,
-              childConsigneId,
-              state.historyDocumentId,
-              state.responseSyncOptions,
-            );
-            try { removeRecentResponsesForDay(childConsigneId, resolvedDayKey); } catch (e) {}
-            try { clearRecentResponsesForConsigne(childConsigneId); } catch (e) {}
-            if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
-              try {
-                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, resolvedDayKey);
-              } catch (e) {}
-            }
-            // Remove child summary answer if present
-            try {
-              const cEntry = state.entry || null;
-              const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
-              const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
-              const cAnswerKey = cEntry?.summaryKey || "";
-              if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
-                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
-              }
-            } catch (err) {
-              console.error("bilan.history.editor.child.save.summaryDelete", err);
-            }
-          });
-        } else {
-          await Schema.saveHistoryEntry(
-            ctx.db,
-            ctx.user.uid,
-            childConsigneId,
-            state.historyDocumentId,
-            { value },
-            state.responseSyncOptions,
-          );
-          try { removeRecentResponsesForDay(childConsigneId, resolvedDayKey); } catch (e) {}
-        }
+        await Schema.saveHistoryEntry(
+          ctx.db,
+          ctx.user.uid,
+          childConsigneId,
+          state.historyDocumentId,
+          { value },
+          state.responseSyncOptions,
+        );
+        try { removeRecentResponsesForDay(childConsigneId, resolvedDayKey); } catch (e) {}
         const childStatus = dotColor(
           state.consigne.type,
-          hasValue ? value : "",
+          value,
           state.consigne,
         ) || "na";
         if (state.row) {
           updateConsigneHistoryTimeline(state.row, childStatus, {
             consigne: state.consigne,
-            value: hasValue ? value : "",
+            value,
             dayKey: resolvedDayKey,
             iterationLabel,
             historyId: state.historyDocumentId,
             responseId: state.responseSyncOptions?.responseId || "",
-            remove: hasValue ? false : true,
+            remove: false,
           });
           triggerConsigneRowUpdateHighlight(state.row);
         }
-        // Ensure child daily row is purged when cleared (no value)
-        if (!hasValue) {
-          try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, ""); } catch (_) {}
+        if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
+          await runWithAutoSaveSuppressed(childConsigneId, resolvedDayKey, async () => {
+            try { applyDailyPrefillUpdate(childConsigneId, resolvedDayKey, value); } catch (_) {}
+          });
         }
       }
       const childCleared = childResults.some(
@@ -11644,8 +11572,6 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         responseSyncOptions: childResponseSyncOptions,
         historyDocumentId: childHistoryDocumentId,
         initialHasValue: childInitialHasValue,
-        initialValue: cloneHistoryValue(childValue),
-        touched: false,
       };
     }),
   );
@@ -11803,28 +11729,6 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     parentValueField.addEventListener('input', markParentTouched);
     parentValueField.addEventListener('change', markParentTouched);
   }
-  baseChildStates.forEach((childState) => {
-    const childContainer = form?.querySelector(`[data-history-child="${childState.domId}"]`);
-    if (!childContainer) {
-      return;
-    }
-    const markChildTouched = () => {
-      childState.touched = true;
-    };
-    childContainer.addEventListener('input', markChildTouched, true);
-    childContainer.addEventListener('change', markChildTouched, true);
-  });
-  baseChildStates.forEach((childState) => {
-    const childContainer = form?.querySelector(`[data-history-child="${childState.domId}"]`);
-    if (!childContainer) {
-      return;
-    }
-    const markChildTouched = () => {
-      childState.touched = true;
-    };
-    childContainer.addEventListener('input', markChildTouched, true);
-    childContainer.addEventListener('change', markChildTouched, true);
-  });
   const restoreFocus = () => {
     if (trigger && typeof trigger.focus === "function") {
       try {
@@ -12102,34 +12006,14 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       }
       const childResults = baseChildStates.map((childState) => {
         const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
-        let childValue = childNode
+        const childValue = childNode
           ? readConsigneValueFromForm(childState.consigne, childNode)
           : "";
-        let hasValue = hasValueForConsigne(childState.consigne, childValue);
-        const childTouched = Boolean(childState.touched);
-        let usedFallback = false;
-        if (!hasValue && childState.initialHasValue && !childTouched) {
-          childValue = cloneHistoryValue(childState.initialValue);
-          hasValue = hasValueForConsigne(childState.consigne, childValue);
-          if (hasValue) {
-            usedFallback = true;
-            logHistoryDebug("editor.submit.child.valueFallback", {
-              parentConsigneId: consigne?.id ?? null,
-              childConsigneId: childState?.consigne?.id ?? null,
-              dayKey: resolvedDayKey,
-              reason: "retain-initial",
-              childTouched,
-              childInitialHasValue: childState.initialHasValue,
-              initialSummary: summarizeHistoryValue(childState.initialValue),
-            });
-          }
-        }
+        const hasValue = hasValueForConsigne(childState.consigne, childValue);
         return {
           state: childState,
           value: childValue,
           hasValue,
-          touched: childTouched,
-          usedFallback,
         };
       });
       logHistoryDebug("editor.submit.values", {
@@ -12140,14 +12024,12 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         parentInitialHasValue,
         parentTouched: parentValueTouched,
         usedFallback: usedFallbackValue,
-        children: childResults.map(({ state, hasValue, value, touched, usedFallback }) => ({
+        children: childResults.map(({ state, hasValue, value }) => ({
           consigneId: state?.consigne?.id ?? null,
           historyId: state?.historyDocumentId || null,
           responseId: state?.responseSyncOptions?.responseId || null,
           hasValue,
           valueSummary: summarizeHistoryValue(value),
-          touched,
-          usedFallback,
         })),
       });
       if (!parentHasValue) {
@@ -12237,120 +12119,58 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         valueSummary: summarizeHistoryValue(parentHasValue ? rawValue : ""),
       });
       triggerConsigneRowUpdateHighlight(row);
-      for (const { state, value, hasValue, touched } of childResults) {
-        if (!hasValue) {
-          if (!touched && state.initialHasValue) {
-            continue;
-          }
-          if (!state?.consigne?.id) {
-            continue;
-          }
-          logHistoryDebug("editor.submit.child.delete", {
-            parentConsigneId: consigne?.id ?? null,
-            childConsigneId: state.consigne.id,
-            dayKey: resolvedDayKey,
-            historyId: state.historyDocumentId,
-            responseId: state.responseSyncOptions?.responseId || null,
-          });
-          await runWithAutoSaveSuppressed(state.consigne.id, resolvedDayKey, async () => {
-            logHistoryDebug("editor.submit.child.deleteHistoryEntry", {
-              parentConsigneId: consigne?.id ?? null,
-              childConsigneId: state.consigne.id,
-              dayKey: resolvedDayKey,
-              historyId: state.historyDocumentId,
-              responseId: state.responseSyncOptions?.responseId || null,
-            });
-            await Schema.deleteHistoryEntry(
-              ctx.db,
-              ctx.user.uid,
-              state.consigne.id,
-              state.historyDocumentId,
-              state.responseSyncOptions,
-            );
-            try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
-            try { clearRecentResponsesForConsigne(state.consigne.id); } catch (e) {}
-            if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
-              logHistoryDebug("editor.submit.child.deleteAllResponses", {
-                parentConsigneId: consigne?.id ?? null,
-                childConsigneId: state.consigne.id,
-                dayKey: resolvedDayKey,
-              });
-              try {
-                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, state.consigne.id, resolvedDayKey);
-              } catch (error) {
-                logHistoryDebug("editor.submit.child.deleteAllResponses.error", {
-                  parentConsigneId: consigne?.id ?? null,
-                  childConsigneId: state.consigne.id,
-                  dayKey: resolvedDayKey,
-                  error: String(error?.message || error),
-                }, "error");
-              }
-            }
-            // Delete child summary answer if present
-            try {
-              const cEntry = state.entry || null;
-              const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
-              const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
-              const cAnswerKey = cEntry?.summaryKey || "";
-              if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
-                logHistoryDebug("editor.submit.child.deleteSummary", {
-                  parentConsigneId: consigne?.id ?? null,
-                  childConsigneId: state.consigne.id,
-                  dayKey: resolvedDayKey,
-                  scope: cScope,
-                  periodKey: cPeriodKey,
-                  answerKey: cAnswerKey,
-                });
-                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
-              }
-            } catch (err) {
-              console.error("consigne.history.child.save.summaryDelete", err);
-            }
-          });
-        } else {
-          logHistoryDebug("editor.submit.child.save", {
-            parentConsigneId: consigne?.id ?? null,
-            childConsigneId: state.consigne.id,
-            dayKey: resolvedDayKey,
-            historyId: state.historyDocumentId,
-            responseId: state.responseSyncOptions?.responseId || null,
-          });
-          await Schema.saveHistoryEntry(
-            ctx.db,
-            ctx.user.uid,
-            state.consigne.id,
-            state.historyDocumentId,
-            { value },
-            state.responseSyncOptions,
-          );
-          try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
+      for (const { state, value, hasValue } of childResults) {
+        const childConsigneId = state?.consigne?.id;
+        if (!childConsigneId || !hasValue) {
+          continue;
         }
+        logHistoryDebug("editor.submit.child.save", {
+          parentConsigneId: consigne?.id ?? null,
+          childConsigneId,
+          dayKey: resolvedDayKey,
+          historyId: state.historyDocumentId,
+          responseId: state.responseSyncOptions?.responseId || null,
+        });
+        await Schema.saveHistoryEntry(
+          ctx.db,
+          ctx.user.uid,
+          childConsigneId,
+          state.historyDocumentId,
+          { value },
+          state.responseSyncOptions,
+        );
+        try { removeRecentResponsesForDay(childConsigneId, resolvedDayKey); } catch (e) {}
         const childStatus = dotColor(
           state.consigne.type,
-          hasValue ? value : "",
+          value,
           state.consigne,
         ) || "na";
         if (state.row) {
           updateConsigneHistoryTimeline(state.row, childStatus, {
             consigne: state.consigne,
-            value: hasValue ? value : "",
+            value,
             dayKey: resolvedDayKey,
             iterationLabel,
             historyId: state.historyDocumentId,
             responseId: state.responseSyncOptions?.responseId || "",
-            remove: hasValue ? false : true,
+            remove: false,
           });
           logHistoryDebug("editor.submit.timeline-child", {
             parentConsigneId: consigne?.id ?? null,
-            childConsigneId: state.consigne.id,
+            childConsigneId,
             dayKey: resolvedDayKey,
             status: childStatus,
-            hasValue,
+            hasValue: true,
             historyId: state.historyDocumentId,
             responseId: state.responseSyncOptions?.responseId || null,
-            valueSummary: summarizeHistoryValue(hasValue ? value : ""),
+            valueSummary: summarizeHistoryValue(value),
           });
           triggerConsigneRowUpdateHighlight(state.row);
+        }
+        if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
+          await runWithAutoSaveSuppressed(childConsigneId, resolvedDayKey, async () => {
+            try { applyDailyPrefillUpdate(childConsigneId, resolvedDayKey, value); } catch (_) {}
+          });
         }
       }
       const childCleared = childResults.some(
