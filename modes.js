@@ -743,8 +743,77 @@ function buildMontantValue(consigne, amount) {
   return normalizeMontantValue({ amount, goal, operator, unit }, consigne);
 }
 
+function normalizeHistoryValueForEditor(type, value) {
+  if (!type) {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return value;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const normalized = trimmed.toLowerCase();
+  const canonicalized = normalized.replace(/\s+/g, "_").replace(/-+/g, "_");
+  if (type === "likert6") {
+    const canonical = {
+      yes: "yes",
+      rather_yes: "rather_yes",
+      medium: "medium",
+      rather_no: "rather_no",
+      no: "no",
+      no_answer: "no_answer",
+    };
+    if (Object.prototype.hasOwnProperty.call(canonical, canonicalized)) {
+      return canonical[canonicalized];
+    }
+    const legacy = {
+      ok_strong: "yes",
+      okstrong: "yes",
+      ok_soft: "rather_yes",
+      oksoft: "rather_yes",
+      mid: "medium",
+      ko_soft: "rather_no",
+      kosoft: "rather_no",
+      ko_strong: "no",
+      kostrong: "no",
+      note: "no_answer",
+      na: "",
+    };
+    if (Object.prototype.hasOwnProperty.call(legacy, canonicalized)) {
+      return legacy[canonicalized];
+    }
+    return trimmed;
+  }
+  if (type === "yesno") {
+    const canonical = {
+      yes: "yes",
+      no: "no",
+    };
+    if (Object.prototype.hasOwnProperty.call(canonical, canonicalized)) {
+      return canonical[canonicalized];
+    }
+    const legacy = {
+      ok_strong: "yes",
+      okstrong: "yes",
+      ok: "yes",
+      ko_strong: "no",
+      kostrong: "no",
+      ko: "no",
+      na: "",
+    };
+    if (Object.prototype.hasOwnProperty.call(legacy, canonicalized)) {
+      return legacy[canonicalized];
+    }
+    return trimmed;
+  }
+  return value;
+}
+
 function renderConsigneValueField(consigne, value, fieldId) {
   const type = consigne?.type || "short";
+  value = normalizeHistoryValueForEditor(type, value);
   if (type === "info") {
     return INFO_STATIC_BLOCK;
   }
@@ -14630,6 +14699,7 @@ function hasChecklistResponse(consigne, row, value) {
 }
 
 function hasValueForConsigne(consigne, value) {
+  value = normalizeHistoryValueForEditor(consigne?.type, value);
   if (value && typeof value === "object" && value.skipped === true) {
     return false;
   }
@@ -17259,7 +17329,7 @@ async function openHistory(ctx, consigne, options = {}) {
     });
     cancelBtn?.addEventListener('click', closeEditor);
     if (clearBtn) {
-      const hasInitialData = (row.value !== '' && row.value != null) || (noteValue && noteValue.trim());
+      const hasInitialData = hasValueForConsigne(consigne, row.value) || (noteValue && noteValue.trim());
       if (!hasInitialData) {
         clearBtn.disabled = true;
       }
