@@ -11222,7 +11222,7 @@ function reportUnexpectedPrefillOnEditorOpen(consigne, row, currentValue) {
       : currentValue;
     const status = dotColor(consigne.type, valueForStatus, consigne);
     const hasOwnAnswer = consigne.type === "checklist"
-      ? hasChecklistResponse(consigne, row, valueForStatus)
+      ? evaluateChecklistResponse(consigne, row, valueForStatus)
       : hasValueForConsigne(consigne, valueForStatus);
     if (!hasOwnAnswer && status === "na") {
       return;
@@ -11295,7 +11295,7 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
   let hasOwnAnswer = false;
   try {
     hasOwnAnswer = consigne.type === "checklist"
-      ? hasChecklistResponse(consigne, row, valueForStatus)
+      ? evaluateChecklistResponse(consigne, row, valueForStatus)
       : hasValueForConsigne(consigne, valueForStatus);
   } catch (_) {
     hasOwnAnswer = false;
@@ -11379,7 +11379,9 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
         if (valueForStatus && typeof valueForStatus === "object" && valueForStatus.__hasAnswer) {
           return true;
         }
-        return hasChecklistResponse(consigne, row, valueForStatus);
+      return evaluateChecklistResponse(consigne, row, valueForStatus);
+      return evaluateChecklistResponse(consigne, row, valueForStatus);
+        return evaluateChecklistResponse(consigne, row, valueForStatus);
       }
       return !(valueForStatus === null || valueForStatus === undefined || valueForStatus === "");
     })();
@@ -11490,7 +11492,13 @@ function hasChecklistResponse(consigne, scopeOrValue, rawValue) {
     if (!trimmed) return false;
     try {
       const parsed = JSON.parse(trimmed);
-      return hasChecklistResponse(consigne, null, parsed);
+      if (typeof hasChecklistResponse === "function") {
+        return hasChecklistResponse(consigne, null, parsed);
+      }
+      if (typeof window !== "undefined" && typeof window.hasChecklistResponse === "function") {
+        return window.hasChecklistResponse(consigne, null, parsed);
+      }
+      return false;
     } catch (_) {
       return false;
     }
@@ -11514,6 +11522,16 @@ function hasChecklistResponse(consigne, scopeOrValue, rawValue) {
 
 if (typeof window !== "undefined") {
   window.hasChecklistResponse = hasChecklistResponse;
+}
+
+function evaluateChecklistResponse(consigne, scope, value) {
+  if (typeof hasChecklistResponse === "function") {
+    return hasChecklistResponse(consigne, scope, value);
+  }
+  if (typeof window !== "undefined" && typeof window.hasChecklistResponse === "function") {
+    return window.hasChecklistResponse(consigne, scope, value);
+  }
+  return false;
 }
 
 function hasValueForConsigne(consigne, scopeOrValue) {
@@ -11545,7 +11563,7 @@ function hasValueForConsigne(consigne, scopeOrValue) {
       }
     }
     case "checklist": {
-      return hasChecklistResponse(consigne, null, value);
+      return evaluateChecklistResponse(consigne, null, value);
     }
     case "long":
     case "long_text":
@@ -16620,7 +16638,7 @@ async function renderDaily(ctx, root, opts = {}) {
     const hasContent = skipActive
       ? true
       : consigne.type === "checklist"
-        ? hasChecklistResponse(consigne, row, normalizedValue)
+        ? evaluateChecklistResponse(consigne, row, normalizedValue)
         : hasValueForConsigne(consigne, normalizedValue);
     try {
       modesLogger?.debug?.("consigne.value.change", {
@@ -16681,7 +16699,7 @@ async function renderDaily(ctx, root, opts = {}) {
         const sameDay = normalizedCurrentDayKey
           ? previousDayKey === normalizedCurrentDayKey
           : Boolean(previousDayKey);
-        if (sameDay && hasChecklistResponse(item, null, previous.value)) {
+        if (sameDay && evaluateChecklistResponse(item, null, previous.value)) {
           hasPrevValue = true;
         }
       } else {
@@ -16972,7 +16990,7 @@ async function renderDaily(ctx, root, opts = {}) {
     wrapper.className = "consigne-group";
     const parentCard = renderItemCard(group.consigne, { isChild: false, deferEditor: true, historyChildren: group.children });
     wrapper.appendChild(parentCard);
-    const childConfigs = group.children.map((child) => {
+      const childConfigs = group.children.map((child) => {
       const previous = previousAnswers.get(child.id);
       const previousHasValue = Boolean(
         previous && Object.prototype.hasOwnProperty.call(previous, "value"),
@@ -16984,7 +17002,8 @@ async function renderDaily(ctx, root, opts = {}) {
           const sameDay = normalizedCurrentDayKey
             ? previousDayKey === normalizedCurrentDayKey
             : Boolean(previousDayKey);
-          if (sameDay && hasChecklistResponse(child, null, previous.value)) {
+          const hasResponse = evaluateChecklistResponse(child, null, previous.value);
+          if (sameDay && hasResponse) {
             hasPrevValue = true;
           }
         } else {
