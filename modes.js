@@ -8,6 +8,10 @@ const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () 
 const prefillLog = () => {};
 const prefillAlert = () => {};
 
+const PREFILL_DEBUG_CONTEXT_STACK = [];
+const PREFILL_DEBUG_STATE = new WeakMap();
+const PREFILL_UNEXPECTED_LOGGED = new Set();
+
 if (typeof window !== "undefined") {
   // history mutation debug disabled
 }

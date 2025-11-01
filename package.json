@@ -1,0 +1,11 @@
+{
+  "name": "code-tracking-prod",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i styles/tailwind.css -o assets/tailwind.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.10"
+  }
+}
+
