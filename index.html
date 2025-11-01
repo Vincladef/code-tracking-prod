@@ -1249,7 +1249,7 @@
       --consigne-history-text:#0f172a;
       --consigne-history-shadow:rgba(148,163,184,.16);
     }
-    .consigne-history__dot.consigne-row__dot {
+    .consigne-history__dot.consigne-row__dot:not(.consigne-history__dot--bilan) {
       width:.6rem;
       height:.6rem;
       box-shadow:none;
@@ -1289,6 +1289,42 @@
     .consigne-history__dot--bilan-adhoc {
       color:#7c3aed;
       background:rgba(124,58,237,.08);
+    }
+    .consigne-history__children{
+      margin-top:.4rem;
+      display:flex;
+      flex-wrap:wrap;
+      gap:.35rem;
+    }
+    .consigne-history__child{
+      display:inline-flex;
+      align-items:center;
+      gap:.35rem;
+      padding:.25rem .55rem;
+      border-radius:.75rem;
+      font-size:.7rem;
+      font-weight:500;
+      background:rgba(148,163,184,.18);
+      color:#1e293b;
+    }
+    .consigne-history__child-name{ font-weight:600; }
+    .consigne-history__child-value{ opacity:.85; }
+    .consigne-history__child-note{ font-style:italic; opacity:.7; }
+    .consigne-history__child--ok-strong{ background:rgba(34,197,94,.18); color:#166534; }
+    .consigne-history__child--ok-soft{ background:rgba(74,222,128,.18); color:#15803d; }
+    .consigne-history__child--mid{ background:rgba(234,179,8,.18); color:#92400e; }
+    .consigne-history__child--ko-soft{ background:rgba(248,113,113,.2); color:#b91c1c; }
+    .consigne-history__child--ko-strong{ background:rgba(220,38,38,.18); color:#991b1b; }
+    .consigne-history__child--note{ background:rgba(191,219,254,.25); color:#1d4ed8; }
+    .consigne-history__child--na{ background:rgba(148,163,184,.18); color:#1f2937; }
+    .modal {
+      overflow-y:auto;
+    }
+    .modal__dialog {
+      overflow:auto;
+    }
+    @media (min-width:640px){
+      .user-actions__trigger{ transform:translateY(-0.125rem); }
     }
     .history-dialog__value {
       width:100%;

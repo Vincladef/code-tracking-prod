@@ -3220,8 +3220,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           const metaMarkup = metaParts.length
             ? metaParts.join('<span class="practice-dashboard__history-meta-sep" aria-hidden="true">•</span>')
             : '<span>Aucune donnée récente</span>';
-          const commentMarkup = stat.lastCommentRaw && stat.lastCommentRaw.trim()
-            ? `<p class="practice-dashboard__history-last-note"><span class="practice-dashboard__history-last-note-label">Dernier commentaire :</span> ${escapeHtml(stat.commentDisplay)}</p>`
+        const commentMarkup = stat.lastCommentRaw && stat.lastCommentRaw.trim()
+          ? `<p class="practice-dashboard__history-last-note"><span class="practice-dashboard__history-last-note-label">Dernière note :</span> ${escapeHtml(stat.commentDisplay)}</p>`
             : "";
           const totalEntries = stat.totalEntries || 0;
           const entriesLabel = totalEntries > 1 ? `${totalEntries} entrées` : `${totalEntries} entrée`;
@@ -9873,9 +9873,10 @@ function applyConsigneHistoryPoint(item, point) {
     item.dataset.historySource = "bilan";
     item.dataset.summaryScope = normalizedScope;
     if (dot) {
-      dot.className = `consigne-history__dot consigne-history__dot--bilan consigne-history__dot--bilan-${normalizedScope}`;
+      dot.className = `consigne-history__dot consigne-row__dot consigne-history__dot--bilan consigne-history__dot--bilan-${normalizedScope}`;
       dot.textContent = "★";
       dot.setAttribute("data-bilan-label", scopeLabel);
+      dot.setAttribute("aria-hidden", "true");
     }
   } else if (point.isSummary) {
     item.dataset.historySource = "summary";
@@ -9893,6 +9894,33 @@ function applyConsigneHistoryPoint(item, point) {
     }
   }
   const details = point.details || null;
+  const childDetails = Array.isArray(details?.children) ? details.children : [];
+  let childrenRoot = item.querySelector(".consigne-history__children");
+  if (childDetails.length) {
+    if (!childrenRoot) {
+      childrenRoot = document.createElement("ul");
+      childrenRoot.className = "consigne-history__children";
+      item.appendChild(childrenRoot);
+    }
+    childrenRoot.innerHTML = "";
+    childDetails.forEach((child) => {
+      const status = child?.status || "na";
+      const labelText = child?.label || "Sous-consigne";
+      const valueText = child?.value || "—";
+      const noteText = child?.note || "";
+      const chip = document.createElement("li");
+      chip.className = `consigne-history__child consigne-history__child--${status}`;
+      chip.setAttribute("role", "listitem");
+      chip.innerHTML = `
+        <span class="consigne-history__child-name">${escapeHtml(labelText)}</span>
+        <span class="consigne-history__child-value">${escapeHtml(valueText)}</span>
+        ${noteText ? `<span class="consigne-history__child-note">${escapeHtml(noteText)}</span>` : ""}
+      `;
+      childrenRoot.appendChild(chip);
+    });
+  } else if (childrenRoot) {
+    childrenRoot.remove();
+  }
   if (details) {
     const detailCopy = { ...details };
     if (!detailCopy.historyId && point.historyId) {
@@ -11408,6 +11436,23 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       previousState.cleanup();
     } catch (_) {}
   }
+  const normalizeChildConsignes = (list) => {
+    if (!Array.isArray(list)) return [];
+    const map = new Map();
+    list.forEach((child) => {
+      if (!child || child.id == null) return;
+      const stringId = String(child.id);
+      if (map.has(stringId)) return;
+      map.set(stringId, {
+        id: stringId,
+        consigne: child,
+        type: child.type || "short",
+        label: child.text || child.titre || child.name || `Sous-consigne ${map.size + 1}`,
+      });
+    });
+    return Array.from(map.values());
+  };
+
   const state = {
     row,
     consigne,
@@ -11419,6 +11464,8 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     entries: [],
     cleanup: null,
     refresh: null,
+    childConsignes: normalizeChildConsignes(options.childConsignes),
+    childHistoryCache: new Map(),
   };
 
   const refreshTimeline = async () => {
@@ -11428,7 +11475,54 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     try {
       const entries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
       state.entries = entries;
+      const childHistoryById = new Map();
+      if (state.childConsignes.length) {
+        await Promise.all(state.childConsignes.map(async (childInfo) => {
+          if (!childInfo?.id) return;
+          if (!state.childHistoryCache.has(childInfo.id)) {
+            try {
+              const childEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, childInfo.consigne.id);
+              state.childHistoryCache.set(childInfo.id, Array.isArray(childEntries) ? childEntries : []);
+            } catch (error) {
+              state.childHistoryCache.set(childInfo.id, []);
+              console.warn("timeline.child.load", { consigneId: childInfo.consigne.id, error });
+            }
+          }
+          childHistoryById.set(childInfo.id, state.childHistoryCache.get(childInfo.id) || []);
+        }));
+      }
       const points = buildConsigneHistoryTimeline(entries, consigne);
+      if (childHistoryById.size && points.length) {
+        points.forEach((point) => {
+          const normalizedDayKey = normalizeHistoryDayKey(point?.dayKey || "");
+          if (!normalizedDayKey) {
+            if (point?.details?.children) {
+              delete point.details.children;
+            }
+            return;
+          }
+          const childSummaries = state.childConsignes.map((childInfo) => {
+            const childEntries = childHistoryById.get(childInfo.id) || [];
+            const match = findHistoryEntryForDayKey(childEntries, childInfo.consigne, normalizedDayKey, { allowSummaries: true });
+            const childEntry = match?.entry || null;
+            const childValue = childEntry && Object.prototype.hasOwnProperty.call(childEntry, "value") ? childEntry.value : null;
+            const status = dotColor(childInfo.type, childValue, childInfo.consigne) || "na";
+            const valueDisplay = formatConsigneValue(childInfo.type, childValue, { consigne: childInfo.consigne }) || "—";
+            const noteText = typeof childEntry?.note === "string" ? childEntry.note.trim() : "";
+            return {
+              id: childInfo.id,
+              label: childInfo.label,
+              status,
+              value: valueDisplay || "—",
+              note: noteText,
+            };
+          });
+          if (!point.details) {
+            point.details = {};
+          }
+          point.details.children = childSummaries;
+        });
+      }
       renderConsigneHistoryTimeline(row, points);
       try {
         CONSIGNE_HISTORY_LAST_POINTS.set(String(consigne.id), Array.isArray(points) ? points.slice() : []);
@@ -16837,7 +16931,7 @@ async function renderPractice(ctx, root, _opts = {}) {
   } else {
     form.innerHTML = "";
 
-  const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
+  const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null, historyChildren = [] } = {}) => {
     const tone = priorityTone(c.priority);
     const row = document.createElement("div");
     row.className = `consigne-row priority-surface priority-surface-${tone}`;
@@ -16914,7 +17008,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         initializeChecklistScope(holder, { consigneId: c?.id ?? null });
         ensureConsigneSkipField(row, c);
       }
-      setupConsigneHistoryTimeline(row, c, ctx, { mode: "practice" });
+      setupConsigneHistoryTimeline(row, c, ctx, { mode: "practice", childConsignes: Array.isArray(historyChildren) ? historyChildren : [] });
       const bH = row.querySelector(".js-histo");
       const bE = row.querySelector(".js-edit");
       const bD = row.querySelector(".js-del");
@@ -17131,7 +17225,7 @@ async function renderPractice(ctx, root, _opts = {}) {
     const renderGroup = (group, target) => {
       const wrapper = document.createElement("div");
       wrapper.className = "consigne-group";
-      const parentCard = makeItem(group.consigne, { isChild: false, deferEditor: true });
+      const parentCard = makeItem(group.consigne, { isChild: false, deferEditor: true, historyChildren: group.children });
       wrapper.appendChild(parentCard);
       const childConfigs = group.children.map((child) => {
         const childRow = createHiddenConsigneRow(child);
@@ -18807,7 +18901,7 @@ async function renderDaily(ctx, root, opts = {}) {
     });
   };
 
-  const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
+  const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null, historyChildren = [] } = {}) => {
     const previous = previousAnswers.get(item.id);
     const previousHasValue = Boolean(
       previous && Object.prototype.hasOwnProperty.call(previous, "value"),
@@ -18916,7 +19010,7 @@ async function renderDaily(ctx, root, opts = {}) {
         }
       } catch (_) {}
     }
-    setupConsigneHistoryTimeline(row, item, ctx, { mode: "daily", dayKey });
+    setupConsigneHistoryTimeline(row, item, ctx, { mode: "daily", dayKey, childConsignes: Array.isArray(historyChildren) ? historyChildren : [] });
     const previousSummary = normalizeSummaryMetadataInput(previous);
     if (previousSummary) {
       setConsigneSummaryMetadata(row, previousSummary);
@@ -19078,7 +19172,7 @@ async function renderDaily(ctx, root, opts = {}) {
   const renderGroup = (group, target) => {
     const wrapper = document.createElement("div");
     wrapper.className = "consigne-group";
-    const parentCard = renderItemCard(group.consigne, { isChild: false, deferEditor: true });
+    const parentCard = renderItemCard(group.consigne, { isChild: false, deferEditor: true, historyChildren: group.children });
     wrapper.appendChild(parentCard);
     const childConfigs = group.children.map((child) => {
       const previous = previousAnswers.get(child.id);
