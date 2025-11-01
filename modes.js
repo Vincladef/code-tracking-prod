@@ -8737,7 +8737,93 @@ function resolveHistoryTimelineNote(entry) {
   return "";
 }
 
-function formatConsigneHistoryPoint() { return null; }
+function formatConsigneHistoryPoint(record, consigne) {
+  if (!record) {
+    return null;
+  }
+  const rawDayKey = record.dayKey || record.day_key || "";
+  const dayKey = normalizeHistoryDayKey(rawDayKey);
+  if (!dayKey) {
+    return null;
+  }
+  let date = record.date instanceof Date && !Number.isNaN(record.date.getTime()) ? record.date : null;
+  if (!date) {
+    const parsed = modesParseDayKeyToDate(dayKey);
+    if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+      date = parsed;
+    }
+  }
+  const rawNote = typeof record.note === "string" ? record.note : extractTextualNote(record);
+  const note = typeof rawNote === "string" ? rawNote.trim() : "";
+  const value = record.value ?? null;
+  let valueText = "";
+  try {
+    const formatted = formatConsigneValue(consigne?.type, value, { consigne });
+    if (typeof formatted === "string" && formatted.trim() && formatted !== "—") {
+      valueText = formatted.trim();
+    }
+  } catch (_) {}
+  let status = record.status || "";
+  if (!status || status === "na") {
+    if (note) {
+      status = "note";
+    } else {
+      try {
+        status = dotColor(consigne?.type, value, consigne) || "na";
+      } catch (_) {
+        status = "na";
+      }
+    }
+  }
+  const weekdayLabel = date ? formatHistoryWeekdayLabel(date) : "";
+  const primaryLabel = date ? formatHistoryDayLabel(date) : dayKey;
+  const relativeLabel = date ? computeRelativeHistoryLabel(date) : "";
+  const titleParts = [];
+  if (primaryLabel) titleParts.push(primaryLabel);
+  if (relativeLabel) titleParts.push(relativeLabel);
+  const title = titleParts.join(" · ") || primaryLabel || dayKey;
+  const historyId = typeof record.historyId === "string" && record.historyId.trim() ? record.historyId.trim() : "";
+  const responseId =
+    typeof record.responseId === "string" && record.responseId.trim() ? record.responseId.trim() : "";
+  const summaryScope = typeof record.summaryScope === "string" ? record.summaryScope : "";
+  const timestamp =
+    typeof record.timestamp === "number"
+      ? record.timestamp
+      : date instanceof Date && !Number.isNaN(date.getTime())
+      ? date.getTime()
+      : Date.now();
+
+  const details = {
+    dayKey,
+    date,
+    label: primaryLabel,
+    weekdayLabel,
+    fullDateLabel: primaryLabel,
+    status,
+    statusLabel: STATUS_LABELS[status] || STATUS_LABELS.na,
+    valueText,
+    valueHtml: valueText,
+    note,
+    hasContent: Boolean(valueText || note),
+    historyId,
+    responseId,
+  };
+
+  return {
+    dayKey,
+    date,
+    status,
+    label: primaryLabel,
+    weekdayLabel,
+    title,
+    srLabel: title || STATUS_LABELS[status] || status,
+    historyId,
+    responseId,
+    timestamp,
+    summaryScope,
+    details,
+  };
+}
 
 function openConsigneHistoryPointDialog(consigne, details) {
   if (!details) {
@@ -10992,27 +11078,380 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
 }
 
 async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) {
-  console.warn("[history-editor] openConsigneHistoryEntryEditor désactivée (refonte en cours).");
-  if (typeof showToast === "function") {
-    try { showToast("L’édition de l’historique sera reconstruite prochainement."); } catch (_) {}
+  const resolveDayKey = () => {
+    const explicit = typeof options.dayKey === "string" ? options.dayKey.trim() : "";
+    if (explicit) return explicit;
+    const rowDay = typeof row?.dataset?.historyDay === "string" ? row.dataset.historyDay.trim() : "";
+    if (rowDay) return rowDay;
+    const rowDatasetDay = typeof row?.dataset?.dayKey === "string" ? row.dataset.dayKey.trim() : "";
+    if (rowDatasetDay) return rowDatasetDay;
+    return "";
+  };
+
+  const dayKey = resolveDayKey();
+  if (!dayKey) {
+    showToast("Date introuvable pour cette réponse.");
+    return;
   }
-  if (options?.onChange && typeof options.onChange === "function") {
-    try { options.onChange(); } catch (_) {}
+  if (!ctx?.db || !ctx?.user?.uid) {
+    showToast("Connexion requise pour modifier cette réponse.");
+    return;
   }
+  if (!consigne?.id) {
+    showToast("Consigne introuvable.");
+    return;
+  }
+
+  let historyEntries = [];
+  try {
+    historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+  } catch (error) {
+    console.error("history.editor.load", error);
+    showToast("Impossible de charger cette réponse.");
+    return;
+  }
+
+  const match =
+    findHistoryEntryForDayKey(historyEntries, consigne, dayKey, {
+      historyId: options.historyId,
+      responseId: options.responseId,
+    }) || null;
+  const entry = match?.entry || null;
+  const keyInfo = match?.keyInfo || null;
+  const resolvedDayKey = keyInfo?.dayKey || dayKey;
+  const historyDocumentId = resolveHistoryDocumentId(entry, resolvedDayKey) || resolvedDayKey;
+  const responseId = match?.responseId || options.responseId || "";
+  const consigneName =
+    consigne?.text || consigne?.titre || consigne?.name || consigne?.label || consigne?.id || "Consigne";
+  const initialValue =
+    entry?.value ?? options.details?.rawValue ?? options.details?.value ?? (match?.candidate?.value || null);
+  const initialNote =
+    typeof entry?.note === "string"
+      ? entry.note
+      : typeof options.details?.note === "string"
+      ? options.details.note
+      : "";
+
+  const fieldIdBase = `history-editor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const valueFieldId = `${fieldIdBase}-value`;
+  const noteFieldId = `${fieldIdBase}-note`;
+  const valueFieldHtml = renderConsigneValueField(consigne, initialValue, valueFieldId);
+
+  const entryDate = keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime())
+    ? keyInfo.date
+    : modesParseDayKeyToDate(resolvedDayKey);
+  const dayLabel = entryDate ? formatHistoryDayLabel(entryDate) : resolvedDayKey;
+  const relativeLabel = entryDate ? computeRelativeHistoryLabel(entryDate) : "";
+  const headerSubtitle = [dayLabel, relativeLabel].filter(Boolean).join(" · ");
+  const canClear = Boolean(entry);
+
+  const dialogHtml = `
+    <div class="space-y-6" data-history-editor-root>
+      <header class="space-y-1">
+        ${headerSubtitle ? `<p class="text-sm text-slate-500">${escapeHtml(headerSubtitle)}</p>` : ""}
+        <h2 class="text-lg font-semibold">${escapeHtml(consigneName)}</h2>
+      </header>
+      <form class="space-y-6" data-history-editor-form>
+        <div class="space-y-2">
+          <label class="practice-editor__label" for="${valueFieldId}">Réponse</label>
+          <div data-history-editor-value>${valueFieldHtml}</div>
+        </div>
+        <div class="space-y-2">
+          <label class="practice-editor__label" for="${noteFieldId}">Commentaire</label>
+          <textarea id="${noteFieldId}" name="note" class="consigne-editor__textarea" placeholder="Ajouter une note">${escapeHtml(initialNote)}</textarea>
+        </div>
+        <footer class="flex flex-wrap justify-end gap-2">
+          <button type="button" class="btn btn-ghost" data-history-editor-cancel>Annuler</button>
+          ${canClear ? '<button type="button" class="btn btn-danger" data-history-editor-clear>Effacer</button>' : ''}
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </footer>
+      </form>
+    </div>
+  `;
+
+  const overlay = modal(dialogHtml);
+  if (!overlay) {
+    return;
+  }
+
+  const cleanupTasks = [];
+  const closeEditor = () => {
+    while (cleanupTasks.length) {
+      const task = cleanupTasks.pop();
+      try {
+        task();
+      } catch (_) {}
+    }
+    if (overlay && overlay.parentNode) {
+      overlay.remove();
+    }
+  };
+
+  const form = overlay.querySelector("[data-history-editor-form]");
+  const cancelBtn = overlay.querySelector("[data-history-editor-cancel]");
+  const clearBtn = overlay.querySelector("[data-history-editor-clear]");
+  const submitBtn = form?.querySelector('button[type="submit"]');
+
+  const focusFirstField = () => {
+    const focusTarget =
+      overlay.querySelector("[data-history-editor-value] input, [data-history-editor-value] select, [data-history-editor-value] textarea") ||
+      overlay.querySelector(`#${noteFieldId}`);
+    if (focusTarget && typeof focusTarget.focus === "function") {
+      requestAnimationFrame(() => {
+        try {
+          focusTarget.focus({ preventScroll: true });
+        } catch (_) {}
+      });
+    }
+  };
+
+  const handleKeydown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeEditor();
+    }
+  };
+  document.addEventListener("keydown", handleKeydown, true);
+  cleanupTasks.push(() => document.removeEventListener("keydown", handleKeydown, true));
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      closeEditor();
+    }
+  });
+
+  cancelBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeEditor();
+  });
+
+  const refreshTimeline = async () => {
+    const rowState = row ? CONSIGNE_HISTORY_ROW_STATE.get(row) : null;
+    if (rowState?.refresh) {
+      await rowState.refresh();
+      return;
+    }
+    if (!ctx?.db || !ctx?.user?.uid) {
+      return;
+    }
+    try {
+      const fresh = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+      refreshConsigneTimelineWithRows(consigne, fresh);
+    } catch (error) {
+      console.error("history.timeline.refresh", error);
+    }
+  };
+
+  const notifyChange = async () => {
+    await refreshTimeline();
+    if (typeof options.onChange === "function") {
+      try {
+        options.onChange();
+      } catch (_) {}
+    }
+    try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (_) {}
+    try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+    try {
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+        window.dispatchEvent(new CustomEvent("consigne:history:refresh", { detail: { consigneId: consigne.id } }));
+      }
+    } catch (_) {}
+  };
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", async (event) => {
+      event.preventDefault();
+      if (!confirm("Effacer la réponse pour ce jour ?")) {
+        return;
+      }
+      clearBtn.disabled = true;
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId);
+        showToast("Réponse effacée.");
+        await notifyChange();
+        closeEditor();
+      } catch (error) {
+        console.error("history.editor.delete", error);
+        showToast("Impossible de supprimer cette réponse.");
+        clearBtn.disabled = false;
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form || (submitBtn && submitBtn.disabled)) {
+      return;
+    }
+    const note = (form.elements.note?.value || "").trim();
+    const value = readConsigneValueFromForm(consigne, form);
+    const hasValue = hasValueForConsigne(consigne, value);
+    if (!hasValue && !note) {
+      showToast("Réponse vide non enregistrée. Utilise le bouton Effacer pour supprimer.");
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = true;
+    if (clearBtn) clearBtn.disabled = true;
+    try {
+      await Schema.saveHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, {
+        value,
+        note,
+      });
+      showToast("Réponse enregistrée.");
+      await notifyChange();
+      closeEditor();
+    } catch (error) {
+      console.error("history.editor.save", error);
+      showToast("Impossible d’enregistrer cette réponse.");
+      if (submitBtn) submitBtn.disabled = false;
+      if (clearBtn) clearBtn.disabled = !canClear;
+    }
+  });
+
+  if (consigne.type === "checklist") {
+    try {
+      initializeChecklistScope(overlay, { consigneId: consigne.id, dateKey: resolvedDayKey });
+    } catch (_) {}
+  }
+  try {
+    initializeRichTextEditors(overlay);
+  } catch (_) {}
+
+  focusFirstField();
+
 }
 
 async function openConsigneHistoryEntryEditorLegacy() {}
 
 
-function renderConsigneHistoryTimeline() {
-  return false;
+function renderConsigneHistoryTimeline(row, points) {
+  const container = row?.querySelector?.("[data-consigne-history]");
+  const track = row?.querySelector?.("[data-consigne-history-track]");
+  if (!container || !track) {
+    return false;
+  }
+  const timelinePoints = Array.isArray(points) ? points.filter(Boolean) : [];
+  while (track.firstChild) {
+    track.removeChild(track.firstChild);
+  }
+  track.setAttribute("role", "list");
+  track.dataset.historyMode = timelinePoints.length ? "day" : "empty";
+  if (!timelinePoints.length) {
+    container.hidden = true;
+    return false;
+  }
+  const fragment = document.createDocumentFragment();
+  timelinePoints.forEach((point) => {
+    const item = document.createElement("div");
+    item.className = "consigne-history__item";
+    item.setAttribute("role", "listitem");
+    applyConsigneHistoryPoint(item, point);
+    fragment.appendChild(item);
+  });
+  track.appendChild(fragment);
+  container.hidden = false;
+  return true;
 }
 
 
-function updateConsigneHistoryTimeline() {}
+function updateConsigneHistoryTimeline(row) {
+  if (!row) {
+    return;
+  }
+  const state = CONSIGNE_HISTORY_ROW_STATE.get(row);
+  if (state && typeof state.refresh === "function") {
+    state.refresh();
+  }
+}
 
 
-function setupConsigneHistoryTimeline() {}
+function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
+  if (!row || !consigne) {
+    return;
+  }
+  const container = row.querySelector("[data-consigne-history]");
+  const track = row.querySelector("[data-consigne-history-track]");
+  if (!container || !track) {
+    return;
+  }
+  const previousState = CONSIGNE_HISTORY_ROW_STATE.get(row);
+  if (previousState?.cleanup) {
+    try {
+      previousState.cleanup();
+    } catch (_) {}
+  }
+  const state = {
+    row,
+    consigne,
+    ctx,
+    container,
+    track,
+    mode: typeof options.mode === "string" ? options.mode : "timeline",
+    dayKey: typeof options.dayKey === "string" ? options.dayKey : "",
+    entries: [],
+    cleanup: null,
+    refresh: null,
+  };
+
+  const refreshTimeline = async () => {
+    if (!ctx?.db || !ctx?.user?.uid) {
+      return;
+    }
+    try {
+      const entries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+      state.entries = entries;
+      const points = buildConsigneHistoryTimeline(entries, consigne);
+      renderConsigneHistoryTimeline(row, points);
+      try {
+        CONSIGNE_HISTORY_LAST_POINTS.set(String(consigne.id), Array.isArray(points) ? points.slice() : []);
+      } catch (_) {}
+    } catch (error) {
+      console.error("timeline.refresh", error);
+    }
+  };
+
+  const handleClick = (event) => {
+    const target = event.target instanceof HTMLElement ? event.target.closest(".consigne-history__item") : null;
+    if (!target) {
+      return;
+    }
+    event.preventDefault();
+    const historyDay = typeof target.dataset?.historyDay === "string" ? target.dataset.historyDay : "";
+    const historyId = typeof target.dataset?.historyId === "string" ? target.dataset.historyId : "";
+    const responseId =
+      typeof target.dataset?.historyResponseId === "string" ? target.dataset.historyResponseId : "";
+    const details = target._historyDetails && typeof target._historyDetails === "object" ? target._historyDetails : {};
+    openConsigneHistoryEntryEditor(row, consigne, ctx, {
+      dayKey: historyDay || state.dayKey,
+      trigger: target,
+      source: state.mode,
+      historyId: historyId || details.historyId || "",
+      responseId: responseId || details.responseId || "",
+      details,
+      onChange: () => {
+        refreshTimeline();
+        if (typeof options.onChange === "function") {
+          try {
+            options.onChange();
+          } catch (_) {}
+        }
+      },
+    });
+  };
+
+  track.addEventListener("click", handleClick);
+
+  state.refresh = refreshTimeline;
+  state.cleanup = () => {
+    track.removeEventListener("click", handleClick);
+  };
+
+  CONSIGNE_HISTORY_ROW_STATE.set(row, state);
+
+  refreshTimeline();
+}
 
 
 function pushPrefillDebugContext(context) {
@@ -14182,7 +14621,36 @@ async function fetchConsigneHistoryRows(ctx, consigneId, options = {}) {
   return result;
 }
 
-function collectConsigneTimelineSnapshot() { return { row: null, items: [] }; }
+function collectConsigneTimelineSnapshot(consigne) {
+  if (!consigne || consigne.id == null || typeof document === "undefined") {
+    return null;
+  }
+  const consigneId = String(consigne.id);
+  const selector = `[data-consigne-id="${escapeTimelineSelector(consigneId)}"]`;
+  let row = document.querySelector(selector);
+  if (!(row instanceof HTMLElement)) {
+    const altSelector = `[data-id="${escapeTimelineSelector(consigneId)}"]`;
+    const alt = document.querySelector(altSelector);
+    if (alt instanceof HTMLElement) {
+      row = alt;
+    }
+  }
+  if (!(row instanceof HTMLElement)) {
+    return null;
+  }
+  const track = row.querySelector?.("[data-consigne-history-track]") || null;
+  const items = Array.from(track?.querySelectorAll?.(".consigne-history__item") || []).map((node, index) => {
+    return {
+      index,
+      node,
+      dayKey: typeof node.dataset?.historyDay === "string" ? node.dataset.historyDay : "",
+      historyId: typeof node.dataset?.historyId === "string" ? node.dataset.historyId : "",
+      responseId: typeof node.dataset?.historyResponseId === "string" ? node.dataset.historyResponseId : "",
+      details: node._historyDetails && typeof node._historyDetails === "object" ? { ...node._historyDetails } : {},
+    };
+  });
+  return { row, items };
+}
 
 function findOpenHistoryPanelRoot(consigneId) {
   if (consigneId == null || typeof document === "undefined") {
