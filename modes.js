@@ -13935,7 +13935,7 @@ function readConsigneCurrentValue(consigne, scope) {
         const skipped = Array.isArray(value?.skipped) ? value.skipped : [];
         const hasMeaningfulState =
           items.some(Boolean) || skipped.some(Boolean) || (value && value.__hasAnswer === true);
-        if (!isDirty && !hasMeaningfulState) {
+        if (!isDirty && !hasMeaningfulState && items.length === 0) {
           return null;
         }
         return value;
@@ -13948,16 +13948,17 @@ function readConsigneCurrentValue(consigne, scope) {
     );
     if (container) {
       const domState = readChecklistDomState(container);
-      if (domState.items.length) {
-        const isDirty = container.dataset && container.dataset.checklistDirty === "1";
-        const hasMeaningfulState =
-          domState.items.some((checked, index) => checked && !domState.skipped[index]) ||
-          domState.skipped.some(Boolean);
-        if (!isDirty && !hasMeaningfulState) {
-          return null;
-        }
-        return buildChecklistValue(consigne, domState);
+      const totalItems = Array.isArray(domState.items) ? domState.items.length : 0;
+      const isDirtyContainer = container.dataset && container.dataset.checklistDirty === "1";
+      const hasMeaningfulState =
+        (Array.isArray(domState.items)
+          ? domState.items.some((checked, index) => checked && !domState.skipped[index])
+          : false) ||
+        (Array.isArray(domState.skipped) ? domState.skipped.some(Boolean) : false);
+      if (!isDirtyContainer && !hasMeaningfulState && totalItems === 0) {
+        return null;
       }
+      return buildChecklistValue(consigne, domState);
     }
     return buildChecklistValue(consigne, []);
   }
