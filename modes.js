@@ -11306,7 +11306,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             remove: true,
           });
           triggerConsigneRowUpdateHighlight(row);
-          try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, ""); } catch (_) {}
+          try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, "", { remove: true }); } catch (_) {}
           for (const childState of baseChildStates) {
             const childConsigneId = childState?.consigne?.id;
             if (!childConsigneId) {
@@ -11353,8 +11353,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
                 });
                 triggerConsigneRowUpdateHighlight(childState.row);
               }
-              // Fully clear the daily UI and autosave footprint for the child as well
-              try { applyDailyPrefillUpdate(childState.consigne.id, resolvedDayKey, ""); } catch (_) {}
+              // Fully clear la UI quotidienne pour l'enfant également
+              try { applyDailyPrefillUpdate(childState.consigne.id, resolvedDayKey, "", { remove: true }); } catch (_) {}
             });
           }
           try {
@@ -11499,7 +11499,17 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           });
           triggerConsigneRowUpdateHighlight(state.row);
         }
-        try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, hasValue ? value : ""); } catch (_) {}
+        try {
+          const childEntryPayload = hasValue
+            ? { historyId: state.historyDocumentId, dayKey: resolvedDayKey, value }
+            : null;
+          applyDailyPrefillUpdate(
+            state.consigne.id,
+            resolvedDayKey,
+            hasValue ? value : "",
+            childEntryPayload ? { entry: childEntryPayload } : { remove: true },
+          );
+        } catch (_) {}
       }
       showToast("Réponses enregistrées.");
       if (typeof options.onChange === 'function') {
@@ -12275,7 +12285,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             responseId: responseSyncOptions?.responseId || null,
           });
           triggerConsigneRowUpdateHighlight(row);
-          try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) {}
+          try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, "", { remove: true }); } catch (_) {}
           for (const childState of baseChildStates) {
             const childConsigneId = childState?.consigne?.id;
             if (!childConsigneId) {
@@ -12441,7 +12451,17 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         { value: parentHasValue ? rawValue : "" },
           responseSyncOptions,
         );
-      try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, parentHasValue ? rawValue : ""); } catch (_) {}
+      try {
+        const entryPayload = parentHasValue
+          ? { historyId: historyDocumentId, dayKey: resolvedDayKey, value: rawValue }
+          : null;
+        applyDailyPrefillUpdate(
+          consigne.id,
+          resolvedDayKey,
+          parentHasValue ? rawValue : "",
+          entryPayload ? { entry: entryPayload } : { remove: true },
+        );
+      } catch (_) {}
       const parentStatus = dotColor(
         consigne.type,
         parentHasValue ? rawValue : "",
@@ -12485,7 +12505,17 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           { value: hasValue ? value : "" },
             state.responseSyncOptions,
           );
-        try { applyDailyPrefillUpdate(childConsigneId, resolvedDayKey, hasValue ? value : ""); } catch (_) {}
+        try {
+          const childEntryPayload = hasValue
+            ? { historyId: state.historyDocumentId, dayKey: resolvedDayKey, value }
+            : null;
+          applyDailyPrefillUpdate(
+            childConsigneId,
+            resolvedDayKey,
+            hasValue ? value : "",
+            childEntryPayload ? { entry: childEntryPayload } : { remove: true },
+          );
+        } catch (_) {}
         const childStatus = dotColor(
           state.consigne.type,
           hasValue ? value : "",
@@ -18454,6 +18484,7 @@ async function openHistory(ctx, consigne, options = {}) {
           }
           try { propagateDailyPrefillUpdate(null, { remove: true }); } catch (_) {}
           });
+          try { await flushAutoSaveForConsigne(consigne.id, dayKey); } catch (_) {}
           // Remove the item immediately in the UI for instant feedback
           try {
             const li = itemNode && itemNode.closest('[data-history-entry]');
@@ -18576,6 +18607,7 @@ async function openHistory(ctx, consigne, options = {}) {
             }
             try { propagateDailyPrefillUpdate(rawValue, { entry: storeRecord }); } catch (_) {}
           });
+          try { await flushAutoSaveForConsigne(consigne.id, scopeDayKey); } catch (_) {}
         }
         closeEditor();
         reopenHistory();
@@ -20682,7 +20714,7 @@ async function renderDaily(ctx, root, opts = {}) {
     try {
       ensureHistoryStoreContext(ctx);
       const historyConsigneIds = visibleConsignes.map((consigne) => consigne?.id).filter(Boolean);
-      await Promise.all(historyConsigneIds.map((id) => historyStoreEnsureEntries(id)));
+      await Promise.all(historyConsigneIds.map((id) => historyStoreEnsureEntries(id, { force: true })));
       historyConsigneIds.forEach((id) => {
         const entry = historyStoreGetEntry(id, normalizedCurrentDayKey);
         if (entry && Object.prototype.hasOwnProperty.call(entry, "value")) {
@@ -21137,6 +21169,16 @@ async function renderDaily(ctx, root, opts = {}) {
       const opts = extra && typeof extra === "object" && !Array.isArray(extra) ? extra : {};
       const removeEntry = opts.remove === true;
       const entryOverride = opts.entry && typeof opts.entry === "object" ? opts.entry : null;
+      if (!removeEntry && !entryOverride) {
+        try {
+          logChecklistEvent("debug", `${CONSIGNE_LOG_PREFIX} daily.prefill.skip`, {
+            consigneId,
+            targetDayKey,
+            reason: "no-entry",
+          });
+        } catch (_) {}
+        return;
+      }
       const entryHistoryIdCandidate =
         entryOverride?.historyId ||
         entryOverride?.history_id ||
