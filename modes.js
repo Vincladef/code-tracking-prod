@@ -20681,10 +20681,10 @@ async function renderDaily(ctx, root, opts = {}) {
   const lockedAutoSaveScopes = new Set();
   let isDailyHydrationLocked = false;
 
-  const previousAnswersRaw = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
-  let previousAnswers = previousAnswersRaw instanceof Map
-    ? previousAnswersRaw
-    : new Map(previousAnswersRaw || []);
+  const dailyResponsesRaw = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
+  const rawDailyResponses = dailyResponsesRaw instanceof Map
+    ? dailyResponsesRaw
+    : new Map(dailyResponsesRaw || []);
   const normalizedCurrentDayKey =
     typeof dayKey === "string" && dayKey.trim() ? normalizeHistoryDayKey(dayKey) : "";
   const resolvePreviousEntryDayKey = (entry) => {
@@ -20728,9 +20728,12 @@ async function renderDaily(ctx, root, opts = {}) {
     return false;
   };
 
-  if (previousAnswers && previousAnswers.size && normalizedCurrentDayKey) {
+  const dailyResponses = (() => {
+    if (!rawDailyResponses.size || !normalizedCurrentDayKey) {
+      return new Map();
+    }
     const filtered = new Map();
-    previousAnswers.forEach((entry, consigneId) => {
+    rawDailyResponses.forEach((entry, consigneId) => {
       const entryKey = resolvePreviousEntryDayKey(entry);
       if (
         entryKey &&
@@ -20740,8 +20743,10 @@ async function renderDaily(ctx, root, opts = {}) {
         filtered.set(consigneId, entry);
       }
     });
-    previousAnswers = filtered;
-  }
+    return filtered;
+  })();
+
+  const previousAnswers = new Map();
 
   isDailyHydrationLocked = true;
   if (HistoryStore) {
@@ -20866,6 +20871,35 @@ async function renderDaily(ctx, root, opts = {}) {
     }
     return String(value);
   };
+
+  if (dailyResponses.size) {
+    dailyResponses.forEach((entry, consigneId) => {
+      if (previousAnswers.has(consigneId)) {
+        return;
+      }
+      const targetConsigne = consigneById.get(consigneId) || null;
+      if (!targetConsigne) {
+        return;
+      }
+      const resolvedDayKey = resolvePreviousEntryDayKey(entry) || normalizedCurrentDayKey;
+      const fallbackRecord = {
+        ...(entry && typeof entry === "object" ? entry : {}),
+        consigneId,
+        dayKey: resolvedDayKey,
+      };
+      previousAnswers.set(consigneId, fallbackRecord);
+      try {
+        const serialized = serializeValueForComparison(targetConsigne, fallbackRecord.value);
+        if (serialized !== undefined) {
+          observedValues.set(consigneId, serialized);
+        }
+      } catch (_) {
+        try {
+          observedValues.delete(consigneId);
+        } catch (_) {}
+      }
+    });
+  }
 
   const resolveAutoSaveDelay = (consigne) => {
     const type = consigne?.type;
