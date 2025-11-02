@@ -55,6 +55,85 @@ const extractNodeText = (node) => {
   return "";
 };
 
+// Lit les textes visibles dans un popup d'édition (éditeur quotidien ou éditeur d'historique)
+function collectEditorVisibleSnapshot(root) {
+  try {
+    if (!(root instanceof HTMLElement)) return null;
+    const scope = root.querySelector?.('.practice-editor') || root;
+    const getText = (el) => (el ? extractNodeText(el) : "");
+    const findSectionByLabel = (label) => {
+      try {
+        const sections = scope.querySelectorAll?.('.practice-editor__section') || [];
+        const arr = Array.from(sections);
+        for (const sec of arr) {
+          const lab = sec.querySelector?.('.practice-editor__label');
+          const txt = (lab && extractNodeText(lab)) || "";
+          if (txt.toLowerCase() === String(label || "").toLowerCase()) return sec;
+        }
+      } catch (_) {}
+      return null;
+    };
+    const readControlText = (container) => {
+      if (!(container instanceof HTMLElement)) return "";
+      try {
+        const select = container.querySelector?.('select');
+        if (select && typeof select.selectedIndex === 'number') {
+          const opt = select.options?.[select.selectedIndex];
+          return (opt && (opt.textContent || opt.innerText) || "").trim();
+        }
+      } catch (_) {}
+      try {
+        const radios = container.querySelectorAll?.('input[type="radio"]');
+        if (radios && radios.length) {
+          const arr = Array.from(radios);
+          const checked = arr.find((r) => r && r.checked);
+          if (checked) {
+            const label = container.querySelector?.(`label[for="${checked.id}"]`) || checked.closest?.('label');
+            return getText(label) || String(checked.value || "");
+          }
+        }
+      } catch (_) {}
+      try {
+        const input = container.querySelector?.('input[type="text"], input[type="number"], textarea');
+        if (input) return String(input.value || "");
+      } catch (_) {}
+      return getText(container);
+    };
+    const title = getText(scope.querySelector('.practice-editor__title')) || getText(scope.querySelector('h2, h3'));
+    const subtitle = getText(scope.querySelector('.practice-editor__subtitle'));
+    const dateSection = findSectionByLabel('Date');
+    const dayLabel = getText(dateSection ? dateSection.querySelector('.practice-editor__value') : null);
+    const valueSection = findSectionByLabel('Valeur');
+    const mainValueText = readControlText(valueSection || scope.querySelector('[data-consigne-editor-body]') || scope);
+    const childrenRoot = scope.querySelector?.('[data-consigne-editor-children], [data-history-children]') || null;
+    const children = [];
+    if (childrenRoot) {
+      const articles = childrenRoot.querySelectorAll?.('article') || [];
+      Array.from(articles).forEach((art) => {
+        const childTitle = getText(art.querySelector('.font-medium, h3, h4, [data-child-title]'));
+        const childBody = art.querySelector?.('[data-consigne-editor-child-body]') || art;
+        const childValue = readControlText(childBody);
+        const hasSkipIcon = /\u23ED|⏭/.test(art.innerText || art.textContent || "");
+        children.push({ title: childTitle, valueText: childValue, skipped: !!hasSkipIcon });
+      });
+    }
+    const buttons = Array.from(scope.querySelectorAll?.('.practice-editor__actions button') || []).map((b) => getText(b)).filter(Boolean);
+    let rawText = getText(scope);
+    if (rawText.length > 4000) rawText = rawText.slice(0, 4000) + '…';
+    return {
+      title,
+      subtitle,
+      dayLabel,
+      valueText: mainValueText,
+      children,
+      buttons,
+      rawText,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
 const readConsigneRowSnapshot = (consigne, row) => {
   if (!(row instanceof HTMLElement)) {
     return { hasRow: false };
@@ -14600,6 +14679,14 @@ function attachConsigneEditor(row, consigne, options = {}) {
     overlay.querySelectorAll("textarea").forEach((textarea) => {
       autoGrowTextarea(textarea);
     });
+    try {
+      const ui = collectEditorVisibleSnapshot(overlay);
+      logChecklistEvent("info", `${CONSIGNE_LOG_PREFIX} daily.editor.ui`, {
+        consigneId: consigne?.id || null,
+        dayKey: row?.dataset?.dayKey || "",
+        ui,
+      });
+    } catch (_) {}
     let delayRoot = null;
     let delaySelect = null;
     let delayHelper = null;
@@ -18095,6 +18182,14 @@ async function openHistory(ctx, consigne, options = {}) {
     // Initialize checklist behaviors and scoping for history inline editor
     try {
       initializeChecklistScope(overlay, { dateKey: dayKey });
+    } catch (_) {}
+    try {
+      const ui = collectEditorVisibleSnapshot(overlay);
+      logChecklistEvent('info', `${CONSIGNE_LOG_PREFIX} history.editor.ui`, {
+        consigneId: consigne?.id || null,
+        dayKey: resolvedDayKey,
+        ui,
+      });
     } catch (_) {}
     const form = overlay.querySelector('form');
     const cancelBtn = form?.querySelector('[data-cancel]');
@@ -21790,6 +21885,7 @@ if (typeof module !== "undefined" && module.exports) {
       readConsigneValueFromForm,
       reloadConsigneHistory,
       logConsigneSnapshot,
+      collectEditorVisibleSnapshot,
     },
   };
 }
