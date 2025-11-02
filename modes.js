@@ -20195,10 +20195,12 @@ async function renderDaily(ctx, root, opts = {}) {
   const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
     let initialValue = null;
     let hasPrevValue = false;
+    let previousEntry = null;
     if (item?.id != null) {
       try {
         const historyEntry = historyStoreGetEntry(item.id, normalizedCurrentDayKey);
         if (historyEntry && Object.prototype.hasOwnProperty.call(historyEntry, "value")) {
+          previousEntry = historyEntry;
           initialValue = historyEntry.value;
           if (item.type === "checklist") {
             hasPrevValue = hasChecklistResponse(item, null, initialValue);
@@ -20301,13 +20303,13 @@ async function renderDaily(ctx, root, opts = {}) {
     setupConsignePriorityMenu(row, item, ctx);
     const holder = row.querySelector("[data-consigne-input-holder]");
     if (holder) {
-      holder.innerHTML = inputForType(item, previous?.value ?? null, { pageContext });
+      holder.innerHTML = inputForType(item, previousEntry?.value ?? null, { pageContext });
       enhanceRangeMeters(holder);
       initializeChecklistScope(holder, { consigneId: item?.id ?? null });
       ensureConsigneSkipField(row, item);
       // Si la valeur précédente indiquait un « Passer », applique l’état dès le rendu initial
       try {
-        const prevVal = previous?.value;
+        const prevVal = previousEntry?.value;
         const wasSkipped = !!(prevVal && typeof prevVal === "object" && prevVal.skipped === true);
         if (wasSkipped) {
           setConsigneSkipState(row, item, true, { emitInputEvents: false, updateUI: true });
@@ -20315,7 +20317,7 @@ async function renderDaily(ctx, root, opts = {}) {
       } catch (_) {}
     }
     setupConsigneHistoryTimeline(row, item, ctx, { mode: "daily", dayKey });
-    const previousSummary = normalizeSummaryMetadataInput(previous);
+    const previousSummary = normalizeSummaryMetadataInput(previousEntry);
     if (previousSummary) {
       setConsigneSummaryMetadata(row, previousSummary);
     } else {
