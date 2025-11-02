@@ -18119,6 +18119,18 @@ async function openHistory(ctx, consigne, options = {}) {
       const opts = options && typeof options === "object" && !Array.isArray(options) ? options : {};
       const entryOverride = opts.entry && typeof opts.entry === "object" ? opts.entry : null;
       const removeEntry = opts.remove === true;
+      const targetDayKeyForCache =
+        (entryOverride && (entryOverride.dayKey || entryOverride.normalizedDayKey)) || dayKey;
+      if (entryOverride || removeEntry) {
+        try {
+          if (typeof flushAutoSaveForConsigne === "function") {
+            void flushAutoSaveForConsigne(consigne.id, targetDayKeyForCache || dayKey);
+          }
+        } catch (_) {}
+        try {
+          observedValues.delete(consigne.id);
+        } catch (_) {}
+      }
       const hasContent = (() => {
         if (nextValue === null || nextValue === undefined) {
           return false;
@@ -18183,6 +18195,35 @@ async function openHistory(ctx, consigne, options = {}) {
 
       if (shouldSkipPrefill) {
         return;
+      }
+
+      if (entryOverride && Object.prototype.hasOwnProperty.call(entryOverride, "value")) {
+        const overrideValue = entryOverride.value;
+        try {
+          const serializedOverride = serializeValueForComparison(consigne, overrideValue);
+          markAnswerAsSaved(consigne, overrideValue, serializedOverride, entryOverride.summary || entryOverride.summaryScope || null);
+        } catch (_) {
+          const baseOverride = previousAnswers.get(consigne.id) || { consigneId: consigne.id };
+          const mergedOverride = {
+            ...baseOverride,
+            ...entryOverride,
+            consigneId: consigne.id,
+            value: overrideValue,
+            dayKey: entryOverride.dayKey || entryOverride.normalizedDayKey || dayKey,
+            historyId:
+              entryOverride.historyId ||
+              entryOverride.history_id ||
+              baseOverride.historyId ||
+              entryOverride.id ||
+              null,
+          };
+          delete mergedOverride.__serialized;
+          previousAnswers.set(consigne.id, mergedOverride);
+        }
+      }
+
+      if (removeEntry) {
+        previousAnswers.delete(consigne.id);
       }
 
       if (!hasContent) {
@@ -18479,39 +18520,62 @@ async function openHistory(ctx, consigne, options = {}) {
           if (clearBtn) clearBtn.disabled = false;
           return;
         } else {
-          await Schema.saveHistoryEntry(
-            ctx.db,
-            ctx.user.uid,
-            consigne.id,
-            targetDocId,
-            {
+          const scopeDayKey = resolvedDayKey || dayKey;
+          await runWithAutoSaveSuppressed(consigne.id, scopeDayKey, async () => {
+            await Schema.saveHistoryEntry(
+              ctx.db,
+              ctx.user.uid,
+              consigne.id,
+              targetDocId,
+              {
+                value: rawValue,
+                note,
+              },
+              responseSyncOptions
+            );
+            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, scopeDayKey); } catch (_) {}
+            const shouldPersistResponse = rawValue !== null && rawValue !== undefined && rawValue !== "";
+            if (shouldPersistResponse && Schema?.saveResponses) {
+              try {
+                await Schema.saveResponses(ctx.db, ctx.user.uid, "daily", [
+                  {
+                    consigne,
+                    value: rawValue,
+                    dayKey: scopeDayKey,
+                    note,
+                  },
+                ]);
+              } catch (error) {
+                modesLogger?.warn?.("history-editor.saveResponses.error", {
+                  consigneId: consigne?.id ?? null,
+                  dayKey: scopeDayKey,
+                  message: String(error?.message || error),
+                });
+              }
+            }
+            try { removeRecentResponsesForDay(consigne.id, scopeDayKey); } catch (e) {}
+            syncTimelineAfterPanelChange({
+              remove: false,
               value: rawValue,
               note,
-            },
-            responseSyncOptions
-          );
-          try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
-          syncTimelineAfterPanelChange({
-            remove: false,
-            value: rawValue,
-            note,
-            historyId: targetDocId,
-            responseId: responseSyncOptions?.responseId || "",
+              historyId: targetDocId,
+              responseId: responseSyncOptions?.responseId || "",
+            });
+            const storeRecord = {
+              dayKey: resolvedDayKey,
+              value: rawValue,
+              note,
+              historyId: targetDocId,
+              responseId: responseSyncOptions?.responseId || "",
+              updatedAt: new Date().toISOString(),
+            };
+            try {
+              historyStoreUpsert(consigne.id, storeRecord);
+            } catch (_) {
+              try { historyStoreInvalidate(consigne.id); } catch (_) {}
+            }
+            try { propagateDailyPrefillUpdate(rawValue, { entry: storeRecord }); } catch (_) {}
           });
-          const storeRecord = {
-            dayKey: resolvedDayKey,
-            value: rawValue,
-            note,
-            historyId: targetDocId,
-            responseId: responseSyncOptions?.responseId || "",
-            updatedAt: new Date().toISOString(),
-          };
-          try {
-            historyStoreUpsert(consigne.id, storeRecord);
-          } catch (_) {
-            try { historyStoreInvalidate(consigne.id); } catch (_) {}
-          }
-          try { propagateDailyPrefillUpdate(rawValue, { entry: storeRecord }); } catch (_) {}
         }
         closeEditor();
         reopenHistory();
