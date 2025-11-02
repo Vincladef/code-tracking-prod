@@ -10076,6 +10076,9 @@ function buildConsigneHistoryTimeline(entries, consigne) {
           ? iterationIndex
           : today.getTime();
       const historyId = resolveHistoryDocumentId(entry, dayKey);
+      if (!historyId) {
+        return;
+      }
       const responseId = resolveHistoryResponseId(entry);
       records.push({
         dayKey,
@@ -12610,6 +12613,10 @@ function renderConsigneHistoryTimeline(row, points) {
 function updateConsigneHistoryTimeline(row, status, options = {}) {
   const state = CONSIGNE_HISTORY_ROW_STATE.get(row);
   if (!state || !state.track) {
+    return;
+  }
+  const requestedHistoryId = typeof options.historyId === "string" ? options.historyId.trim() : "";
+  if (options && options.remove !== true && !requestedHistoryId) {
     return;
   }
   // If explicitly asked to remove the encard for this day, do so and update container state
@@ -20870,35 +20877,6 @@ async function renderDaily(ctx, root, opts = {}) {
     return String(value);
   };
 
-  if (dailyResponses.size) {
-    dailyResponses.forEach((entry, consigneId) => {
-      if (previousAnswers.has(consigneId)) {
-        return;
-      }
-      const targetConsigne = consigneById.get(consigneId) || null;
-      if (!targetConsigne) {
-        return;
-      }
-      const resolvedDayKey = resolvePreviousEntryDayKey(entry) || normalizedCurrentDayKey;
-      const fallbackRecord = {
-        ...(entry && typeof entry === "object" ? entry : {}),
-        consigneId,
-        dayKey: resolvedDayKey,
-      };
-      previousAnswers.set(consigneId, fallbackRecord);
-      try {
-        const serialized = serializeValueForComparison(targetConsigne, fallbackRecord.value);
-        if (serialized !== undefined) {
-          observedValues.set(consigneId, serialized);
-        }
-      } catch (_) {
-        try {
-          observedValues.delete(consigneId);
-        } catch (_) {}
-      }
-    });
-  }
-
   const resolveAutoSaveDelay = (consigne) => {
     const type = consigne?.type;
     if (type === "long") return AUTO_SAVE_LONG_DELAY;
@@ -21187,188 +21165,100 @@ async function renderDaily(ctx, root, opts = {}) {
   };
   runWithAutoSaveSuppressed = runWithAutoSaveSuppressedImpl;
 
-  const scheduleAutoSave = (consigne, value, { serialized, hasContent, summary } = {}) => {
-    if (!consigne || !consigne.id) return;
-    const consigneId = consigne.id;
-    const scopeKey = resolveAutoSaveScopeKey(consigneId, dayKey);
-    if (isDailyHydrationLocked || lockedAutoSaveScopes.has(scopeKey)) {
-      return;
-    }
-    const computedSerialized = serialized !== undefined ? serialized : serializeValueForComparison(consigne, value);
-    const effectiveHasContent = hasContent !== undefined ? hasContent : hasValueForConsigne(consigne, value);
-    const state = autoSaveStates.get(consigneId) || {
-      consigne,
-      pendingValue: null,
-      pendingSerialized: null,
-      pendingHasContent: false,
-      pendingSummary: null,
-      timeout: null,
-      inFlight: false,
-      inFlightPromise: null,
-    };
-    if (state.inFlightPromise === undefined) {
-      state.inFlightPromise = null;
-    }
-    state.consigne = consigne;
-    state.pendingValue = value;
-    state.pendingSerialized = computedSerialized;
-    state.pendingHasContent = effectiveHasContent;
-    state.pendingSummary = effectiveHasContent
-      ? normalizeSummaryMetadataInput(summary)
-      : null;
-
-    if (suppressedAutoSaveScopes.has(scopeKey)) {
-      if (state.timeout) {
-        clearTimeout(state.timeout);
-        state.timeout = null;
-      }
-      if (!state.inFlight) {
-        autoSaveStates.delete(consigneId);
-      } else {
-        state.pendingHasContent = false;
-        state.pendingValue = null;
-        state.pendingSerialized = null;
-        state.pendingSummary = null;
-        autoSaveStates.set(consigneId, state);
-      }
-      return;
-    }
-
-    const savedEntry = previousAnswers.get(consigneId);
-    if (savedEntry && savedEntry.__serialized === undefined && Object.prototype.hasOwnProperty.call(savedEntry, "value")) {
-      try {
-        const baseSerialized = serializeValueForComparison(consigne, savedEntry.value);
-        const savedSummary = normalizeSummaryMetadataInput(savedEntry);
-        const savedSummarySerialized = serializeSummaryMetadataForComparison(savedSummary);
-        savedEntry.__serialized = savedSummarySerialized
-          ? `${baseSerialized}__summary__${savedSummarySerialized}`
-          : baseSerialized;
-        previousAnswers.set(consigneId, savedEntry);
-      } catch (error) {
-        console.warn("daily.autosave.serialize.previous", error);
-      }
-    }
-    if (savedEntry && savedEntry.__serialized === computedSerialized && !state.inFlight) {
-      if (state.timeout) {
-        clearTimeout(state.timeout);
-      }
-      autoSaveStates.delete(consigneId);
-      return;
-    }
-
-    if (!effectiveHasContent) {
-      if (state.timeout) {
-        clearTimeout(state.timeout);
-      }
-      if (!state.inFlight) {
-        autoSaveStates.delete(consigneId);
-      } else {
-        autoSaveStates.set(consigneId, state);
-      }
-      return;
-    }
-
-    if (state.inFlight) {
-      autoSaveStates.set(consigneId, state);
-      return;
-    }
-
-    if (state.timeout) {
-      clearTimeout(state.timeout);
-    }
-    const delay = resolveAutoSaveDelay(consigne);
-    state.timeout = setTimeout(() => runAutoSave(consigneId), delay);
-    autoSaveStates.set(consigneId, state);
-  };
+  const scheduleAutoSave = () => {};
 
   // Expose a robust global updater for daily UI/caches after external edits
   // Signature: applyDailyPrefillUpdate(consigneId, targetDayKey = dayKey, nextValue = "", options = {})
   // Backward-compat: if called with a single argument (nextValue), it's ignored here; callers should pass ids.
   try {
     applyDailyPrefillUpdate = (consigneId, targetDayKey = dayKey, nextValue = "", extra = {}) => {
-      if (!consigneId) return;
-      ensureHistoryStoreContext(ctx);
       const opts = extra && typeof extra === "object" && !Array.isArray(extra) ? extra : {};
-      const removeEntry = opts.remove === true;
       const entryOverride = opts.entry && typeof opts.entry === "object" ? opts.entry : null;
-      if (!removeEntry && !entryOverride) {
-        try {
-          logChecklistEvent("debug", `${CONSIGNE_LOG_PREFIX} daily.prefill.skip`, {
-            consigneId,
-            targetDayKey,
-            reason: "no-entry",
-          });
-        } catch (_) {}
+      const removeEntry = opts.remove === true;
+      if (!consigneId) {
         return;
       }
-      const entryHistoryIdCandidate =
-        entryOverride?.historyId ||
-        entryOverride?.history_id ||
-        entryOverride?.id ||
-        entryOverride?.documentId ||
-        entryOverride?.document_id ||
-        "";
-      const hasEntryPayload = Boolean(entryHistoryIdCandidate);
-      const canonicalInfo =
-        canonicalDayKeyFromValue(targetDayKey) ||
-        canonicalDayKeyFromValue(dayKey) ||
-        null;
-      const canonicalTargetKey = canonicalInfo?.dayKey
-        ? canonicalInfo.dayKey
-        : typeof targetDayKey === "string" && targetDayKey.trim()
-        ? targetDayKey.trim()
-        : typeof dayKey === "string" && dayKey.trim()
-        ? dayKey.trim()
-        : "";
-      const normalizedTarget = canonicalTargetKey
-        ? normalizeHistoryDayKey(canonicalTargetKey)
-        : normalizeHistoryDayKey(targetDayKey || dayKey || "");
 
-      let record = null;
+      const canonicalTargetKey = (() => {
+        if (typeof opts.canonicalDayKey === "string" && opts.canonicalDayKey.trim()) {
+          return opts.canonicalDayKey.trim();
+        }
+        if (typeof targetDayKey === "string" && targetDayKey.trim()) {
+          return normalizeHistoryDayKey(targetDayKey.trim());
+        }
+        if (typeof dayKey === "string" && dayKey.trim()) {
+          return normalizeHistoryDayKey(dayKey.trim());
+        }
+        return "";
+      })();
+
+      const ensureStoreContext = () => {
+        const activeCtx = typeof window !== "undefined" ? window.AppCtx || null : null;
+        if (HistoryStore && typeof HistoryStore.configure === "function") {
+          HistoryStore.configure({
+            db: activeCtx?.db || null,
+            uid: activeCtx?.user?.uid || null,
+            dayKeyFromDate: activeCtx?.Schema?.dayKeyFromDate || Schema?.dayKeyFromDate || null,
+          });
+        }
+      };
+
       if (removeEntry) {
         try {
-          historyStoreRemove(consigneId, canonicalTargetKey || normalizedTarget || targetDayKey);
+          ensureStoreContext();
+          historyStoreRemove(consigneId, canonicalTargetKey || targetDayKey || "");
         } catch (_) {
           try { historyStoreInvalidate(consigneId); } catch (_) {}
         }
-      } else if (hasEntryPayload) {
+        dispatchHistoryUpdateEvent({
+          consigneId,
+          dayKey: canonicalTargetKey || targetDayKey || "",
+          entry: null,
+          silent: true,
+        });
+        return;
+      }
+
+      if (!entryOverride) {
+        return;
+      }
+
+      const historyId = (entryOverride.historyId || entryOverride.history_id || entryOverride.id || "").trim();
+      if (!historyId) {
+        return;
+      }
+
+      let record = null;
+      try {
+        ensureStoreContext();
         const upsertPayload = {
           ...entryOverride,
+          historyId,
           dayKey:
             entryOverride.dayKey ||
             entryOverride.normalizedDayKey ||
             canonicalTargetKey ||
-            normalizedTarget,
+            targetDayKey || "",
           value: Object.prototype.hasOwnProperty.call(entryOverride, "value")
             ? entryOverride.value
             : nextValue,
         };
-        try {
-          record = historyStoreUpsert(consigneId, upsertPayload);
-        } catch (_) {
-          try {
-            historyStoreInvalidate(consigneId);
-          } catch (_) {}
-        }
+        record = historyStoreUpsert(consigneId, upsertPayload);
+      } catch (_) {
+        try { historyStoreInvalidate(consigneId); } catch (_) {}
+        return;
       }
 
-      try {
-        logChecklistEvent("info", `${CONSIGNE_LOG_PREFIX} daily.prefill.apply`, {
-          consigneId,
-          targetDayKey: canonicalTargetKey || normalizedTarget || null,
-          requestedDayKey: targetDayKey,
-          nextValue: summarizeHistoryValue(nextValue),
-          context: ctx?.mode || "daily",
-        });
-          } catch (_) {}
-
-      if (removeEntry || hasEntryPayload) {
-        dispatchHistoryUpdateEvent({
-          consigneId,
-          dayKey: canonicalTargetKey || normalizedTarget,
-          entry: removeEntry ? null : record,
-        });
+      if (!record) {
+        return;
       }
+
+      dispatchHistoryUpdateEvent({
+        consigneId,
+        dayKey: record.dayKey || canonicalTargetKey || targetDayKey || "",
+        entry: record,
+        silent: true,
+      });
     };
     // Also expose on window for safety
     try {
