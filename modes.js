@@ -14697,6 +14697,10 @@ function hasChecklistResponse(consigne, row, value) {
   if (checklistHasSelection(value)) {
     return true;
   }
+  const statsFromValue = deriveChecklistStats(value);
+  if (statsFromValue.total > 0) {
+    return true;
+  }
   const skippedStates = readChecklistSkipped(value);
   if (skippedStates.some(Boolean)) {
     return true;
