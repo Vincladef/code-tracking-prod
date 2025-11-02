@@ -92,8 +92,10 @@
     const resolvedKey = (existingKey && String(existingKey).trim()) || (consigneId ? `${consigneId}:${fallbackIndex}` : String(fallbackIndex));
     input.setAttribute('data-key', resolvedKey);
     input.setAttribute('data-item-id', resolvedKey);
+    input.setAttribute('data-stable-key', resolvedKey);
     if (input.dataset) {
       input.dataset.key = resolvedKey;
+      input.dataset.stableKey = resolvedKey;
     }
     if (!input.hasAttribute('data-checklist-input')) {
       input.setAttribute('data-checklist-input', '');
@@ -109,6 +111,7 @@
       host.setAttribute('data-item-id', resolvedKey);
       host.setAttribute('data-checklist-key', resolvedKey);
       host.setAttribute('data-checklist-legacy-key', legacyKey);
+      host.setAttribute('data-checklist-stable-key', resolvedKey);
     }
   }
 

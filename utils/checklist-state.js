@@ -927,20 +927,41 @@
         input.dataset?.id ||
         host?.getAttribute?.("data-checklist-key") ||
         null;
-      const hostId = host?.getAttribute?.("data-item-id") || null;
+      const hostId = host?.getAttribute?.("data-item-id") || host?.dataset?.itemId || null;
+      const stableSource =
+        input.getAttribute("data-stable-key") ||
+        input.dataset?.stableKey ||
+        host?.getAttribute?.("data-checklist-stable-key") ||
+        null;
       const legacySource =
         input.getAttribute("data-legacy-key") ||
         input.dataset?.legacyKey ||
         host?.getAttribute?.("data-checklist-legacy-key") ||
         null;
       const fallbackId = consigneId ? `${consigneId}:${index}` : String(index);
-      const legacyId = legacySource || fallbackId;
-      const itemId = explicitId || hostId || fallbackId;
+      const itemId = explicitId || hostId || stableSource || legacySource || fallbackId;
+      const legacyCandidates = new Set();
+      if (typeof legacySource === "string" && legacySource.trim()) {
+        legacyCandidates.add(legacySource.trim());
+      }
+      if (typeof stableSource === "string" && stableSource.trim()) {
+        legacyCandidates.add(stableSource.trim());
+      }
+      if (fallbackId) {
+        legacyCandidates.add(fallbackId);
+      }
+      const legacyId = legacyCandidates.size ? Array.from(legacyCandidates)[0] : null;
+      const legacyIds = Array.from(legacyCandidates);
       if (host && (!hostId || hostId !== itemId)) {
         host.setAttribute("data-item-id", itemId);
         host.setAttribute("data-checklist-key", itemId);
+      }
+      if (host && typeof host.setAttribute === "function") {
         if (legacyId) {
           host.setAttribute("data-checklist-legacy-key", legacyId);
+        }
+        if (stableSource || itemId) {
+          host.setAttribute("data-checklist-stable-key", stableSource || itemId);
         }
       }
       if (!explicitId && typeof input.setAttribute === "function") {
@@ -951,12 +972,18 @@
         }
       }
       if (typeof input.setAttribute === "function") {
-        input.setAttribute("data-legacy-key", legacyId);
+        if (legacyId) {
+          input.setAttribute("data-legacy-key", legacyId);
+        }
+        input.setAttribute("data-stable-key", stableSource || itemId);
         if (input.dataset) {
-          input.dataset.legacyKey = legacyId;
+          if (legacyId) {
+            input.dataset.legacyKey = legacyId;
+          }
+          input.dataset.stableKey = stableSource || itemId;
         }
       }
-      return { input, host, itemId, legacyId };
+      return { input, host, itemId, legacyId, legacyIds };
     });
   }
 
@@ -1159,18 +1186,34 @@
       return false;
     }
     let anyChange = false;
-    entries.forEach(({ input, host, itemId, legacyId }) => {
+    entries.forEach(({ input, host, itemId, legacyId, legacyIds }) => {
       if (!input) return;
       const primaryId = String(itemId ?? "");
       const legacyKey = legacyId ? String(legacyId) : "";
-      const answer =
-        (primaryId && answersMap.get(primaryId)) || (legacyKey && answersMap.get(legacyKey)) || null;
+      const aliasIds = Array.isArray(legacyIds) && legacyIds.length
+        ? legacyIds.map((value) => String(value ?? "")).filter(Boolean)
+        : legacyKey
+        ? [legacyKey]
+        : [];
+      let answer = null;
+      if (primaryId) {
+        answer = answersMap.get(primaryId) || null;
+      }
+      if (!answer && aliasIds.length) {
+        for (const alias of aliasIds) {
+          const candidate = answersMap.get(alias);
+          if (candidate) {
+            answer = candidate;
+            break;
+          }
+        }
+      }
       // On restaure l'état skipped même si la case n'est pas cochée
       let shouldSkip = false;
       if (answer) {
         shouldSkip = Boolean(answer.skipped);
       }
-      if (!shouldSkip && (skippedSet.has(primaryId) || (legacyKey && skippedSet.has(legacyKey)))) {
+      if (!shouldSkip && (skippedSet.has(primaryId) || aliasIds.some((alias) => skippedSet.has(alias)))) {
         shouldSkip = true;
       }
       // Si skipped, la case doit TOUJOURS être décochée
@@ -1183,7 +1226,8 @@
             shouldCheck = false;
           }
         } else {
-          shouldCheck = selectedSet.has(primaryId) || (legacyKey ? selectedSet.has(legacyKey) : false);
+          const matchesLegacy = aliasIds.some((alias) => selectedSet.has(alias));
+          shouldCheck = selectedSet.has(primaryId) || matchesLegacy;
         }
       }
       const { checkedChanged, skipChanged } = applySkipState(input, host, shouldSkip, {
@@ -1311,7 +1355,7 @@
       answers: buildAnswersFromEntries(entries),
     };
     const skippedIds = entries
-      .map(({ input, host, itemId, legacyId }) => {
+      .map(({ input, host, itemId, legacyId, legacyIds }) => {
         const skipActive =
           (input?.dataset?.checklistSkip === "1") || (host?.dataset?.checklistSkipped === "1");
         if (!skipActive) {
@@ -1320,6 +1364,14 @@
         const id = String(itemId ?? "").trim();
         if (id) {
           return id;
+        }
+        if (Array.isArray(legacyIds)) {
+          for (const alias of legacyIds) {
+            const trimmed = String(alias ?? "").trim();
+            if (trimmed) {
+              return trimmed;
+            }
+          }
         }
         const legacy = String(legacyId ?? "").trim();
         return legacy || null;
@@ -1522,6 +1574,7 @@
             host: { dataset: skipActive ? { checklistSkipped: "1" } : {} },
             itemId: id,
             legacyId: id,
+            legacyIds: [id],
           };
         });
       } else if (Array.isArray(entry.selectedIds)) {
@@ -1534,6 +1587,7 @@
             host: { dataset: skipActive ? { checklistSkipped: "1" } : {} },
             itemId: id,
             legacyId: id,
+            legacyIds: [id],
           };
         });
       }
@@ -1548,7 +1602,7 @@
       const optionsHash = entry.optionsHash || entry.options_hash || null;
       const answers = buildAnswersFromEntries(entriesArr);
       const skippedIds = entriesArr
-        .map(({ input, host, itemId, legacyId }) => {
+        .map(({ input, host, itemId, legacyId, legacyIds }) => {
           const skipActive =
             (input?.dataset?.checklistSkip === "1") || (host?.dataset?.checklistSkipped === "1");
           if (!skipActive) {
@@ -1557,6 +1611,14 @@
           const id = String(itemId ?? "").trim();
           if (id) {
             return id;
+          }
+          if (Array.isArray(legacyIds)) {
+            for (const alias of legacyIds) {
+              const trimmed = String(alias ?? "").trim();
+              if (trimmed) {
+                return trimmed;
+              }
+            }
           }
           const legacy = String(legacyId ?? "").trim();
           return legacy || null;

@@ -375,9 +375,12 @@
         const key = String(explicitKey);
         input.setAttribute("data-item-id", key);
         input.setAttribute("data-key", key);
+        input.setAttribute("data-stable-key", key);
         input.dataset.key = key;
+        input.dataset.stableKey = key;
         host.setAttribute("data-item-id", key);
         host.setAttribute("data-checklist-key", key);
+        host.setAttribute("data-checklist-stable-key", key);
         if (explicitLegacy) {
           const legacy = String(explicitLegacy);
           input.setAttribute("data-legacy-key", legacy);
@@ -407,12 +410,15 @@
         (consigneId ? `${String(consigneId)}:${indexValue}` : String(indexValue));
       input.setAttribute("data-item-id", itemId);
       input.setAttribute("data-key", itemId);
+      input.setAttribute("data-stable-key", itemId);
       input.dataset.key = itemId;
+      input.dataset.stableKey = itemId;
       input.setAttribute("data-legacy-key", legacyKey);
       input.dataset.legacyKey = legacyKey;
       host.setAttribute("data-item-id", itemId);
       host.setAttribute("data-checklist-key", itemId);
       host.setAttribute("data-checklist-legacy-key", legacyKey);
+      host.setAttribute("data-checklist-stable-key", itemId);
       return itemId;
     };
 
