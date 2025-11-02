@@ -5,6 +5,15 @@ global.window.Modes = global.window.Modes || {};
 global.Modes = global.window.Modes;
 global.Schema = global.Schema || {};
 global.Schema.firestore = global.Schema.firestore || {};
+global.window.HistoryStore = global.window.HistoryStore || {
+  configure: () => {},
+  ensure: async () => [],
+  upsert: () => {},
+  remove: () => {},
+  invalidate: () => {},
+  getEntry: () => null,
+};
+global.HistoryStore = global.window.HistoryStore;
 global.document = global.document || {
   readyState: "complete",
   addEventListener: () => {},
@@ -17,7 +26,7 @@ global.HTMLElement = global.HTMLElement || FakeElement;
 
 const Modes = require("../modes.js");
 
-const { renderConsigneValueField, readConsigneValueFromForm } = Modes.__test__;
+const { renderConsigneValueField, readConsigneValueFromForm, reloadConsigneHistory } = Modes.__test__;
 
 function createElement(tag, attributes = {}) {
   const element = Object.create(FakeElement.prototype);
@@ -156,5 +165,19 @@ function findAll(root, selector, acc = []) {
   assert.strictEqual(childValue, "Nouvelle note", "La valeur texte du champ enfant doit être récupérée");
 
   console.log("History editor form tests passed.");
+})();
+
+(async function runHistoryReloadTests() {
+  const ensureCalls = [];
+  global.window.HistoryStore.ensure = async (consigneId, options = {}) => {
+    ensureCalls.push({ consigneId, options });
+    return [{ historyId: "entry-1", value: "ok" }];
+  };
+  const ctx = { db: {}, user: { uid: "user-1" } };
+  const results = await reloadConsigneHistory(ctx, "consigne-1");
+  assert.strictEqual(ensureCalls.length, 1, "reloadConsigneHistory doit appeler HistoryStore.ensure une fois");
+  assert.strictEqual(ensureCalls[0].options.force, true, "reloadConsigneHistory doit forcer le rafraîchissement");
+  assert.ok(Array.isArray(results), "reloadConsigneHistory doit renvoyer un tableau");
+  console.log("History reload tests passed.");
 })();
 

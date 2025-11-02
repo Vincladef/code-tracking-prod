@@ -76,6 +76,15 @@ const historyStoreRemove = (consigneId, dayKey) => {
   return HistoryStore.remove(consigneId, dayKey);
 };
 
+const historyStoreInvalidate = (consigneId) => {
+  if (!consigneId || !HistoryStore || typeof HistoryStore.invalidate !== "function") {
+    return false;
+  }
+  ensureHistoryStoreContext();
+  HistoryStore.invalidate(consigneId);
+  return true;
+};
+
 const historyStoreGetEntry = (consigneId, dayKey) => {
   if (!HistoryStore || typeof HistoryStore.getEntry !== "function") {
     return null;
@@ -90,6 +99,48 @@ const historyStoreEnsureEntries = async (consigneId, options = {}) => {
   }
   ensureHistoryStoreContext();
   return HistoryStore.ensure(consigneId, options);
+};
+
+const reloadConsigneHistory = async (ctx, consigneId, options = {}) => {
+  if (!consigneId) {
+    return [];
+  }
+  const ensureOptions = { ...options };
+  if (ensureOptions.force !== false) {
+    ensureOptions.force = true;
+  }
+  if (HistoryStore && typeof HistoryStore.ensure === "function") {
+    try {
+      ensureHistoryStoreContext(ctx);
+      const entries = await HistoryStore.ensure(consigneId, ensureOptions);
+      return Array.isArray(entries) ? entries : [];
+    } catch (error) {
+      try {
+        modesLogger?.warn?.("history.store.reload.error", { consigneId, error });
+      } catch (_) {}
+    }
+  }
+  if (ctx?.db && ctx?.user?.uid && typeof Schema?.loadConsigneHistory === "function") {
+    try {
+      const entries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigneId);
+      if (HistoryStore && typeof HistoryStore.invalidate === "function") {
+        try {
+          historyStoreInvalidate(consigneId);
+          entries.forEach((entry) => {
+            try {
+              historyStoreUpsert(consigneId, entry);
+            } catch (_) {}
+          });
+        } catch (_) {}
+      }
+      return Array.isArray(entries) ? entries : [];
+    } catch (error) {
+      try {
+        modesLogger?.warn?.("history.schema.reload.error", { consigneId, error });
+      } catch (_) {}
+    }
+  }
+  return [];
 };
 
 const escapeSelectorToken = (value) => {
@@ -11283,11 +11334,16 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   registerHistoryPanelRefresh(consigne);
   let historyEntries = [];
   try {
-    historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+    historyEntries = await reloadConsigneHistory(ctx, consigne.id, { force: true });
   } catch (error) {
     try {
-      modesLogger?.warn?.("consigne.history.entry.load", error);
+      modesLogger?.warn?.("consigne.history.entry.reload", error);
     } catch (_) {}
+  }
+  if (!Array.isArray(historyEntries)) {
+    historyEntries = [];
+  }
+  if (!historyEntries.length && (!ctx?.db || !ctx?.user?.uid)) {
     showToast("Impossible de charger cette réponse.");
     return;
   }
@@ -11404,7 +11460,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     debug: consigne.type === "checklist" ? "entry-editor" : "",
     expectedSummary,
   });
-  const entry = match?.entry || null;
+  const matchedEntry = match?.entry || null;
   const keyInfo = match?.keyInfo || null;
   const matchInfo = match
     ? {
@@ -11417,6 +11473,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       }
     : null;
   const resolvedDayKey = keyInfo?.dayKey || dayKey;
+  const storeEntry = historyStoreGetEntry(consigne.id, resolvedDayKey);
+  const entry = storeEntry || matchedEntry;
   logHistoryDebug("editor.open.match", {
     consigneId: consigne?.id ?? null,
     requestedDayKey: dayKey,
@@ -12906,16 +12964,22 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       }
       if (EDITABLE_HISTORY_TYPES.has(consigne.type)) {
         console.log("[DEBUG] Opening history editor for day:", historyDayKey, "consigne:", consigne.id, "type:", consigne.type);
-        void openConsigneHistoryEntryEditor(row, consigne, ctx, {
-          dayKey: historyDayKey,
-          details: rawDetails,
-          trigger: target,
-          source: historySource,
-          responseId: responseIdCandidate,
-          historyId: historyIdCandidate,
-          panelEntry: row,
-          expectedSummary: timelineSummary,
-        });
+        const openTimelineEditor = async () => {
+          try {
+            await reloadConsigneHistory(ctx, consigne.id, { force: true });
+          } catch (_) {}
+          await openConsigneHistoryEntryEditor(row, consigne, ctx, {
+            dayKey: historyDayKey,
+            details: rawDetails,
+            trigger: target,
+            source: historySource,
+            responseId: responseIdCandidate,
+            historyId: historyIdCandidate,
+            panelEntry: row,
+            expectedSummary: timelineSummary,
+          });
+        };
+        void openTimelineEditor();
       } else {
         void openHistory(ctx, consigne, {
           source: historySource,
@@ -16781,6 +16845,10 @@ async function openHistory(ctx, consigne, options = {}) {
   const dropdownConsigneMap = new Map(dropdownConsignes.map((item) => [String(item?.id ?? ""), item]));
   const hasDropdownSelection = dropdownConsignes.length > 1;
 
+  try {
+    await reloadConsigneHistory(ctx, consigneId, { force: true });
+  } catch (_) {}
+
   const historyFetch = await fetchConsigneHistoryRows(ctx, consigneId, { limit: HISTORY_PANEL_FETCH_LIMIT });
   if (!ctx?.db || (Array.isArray(historyFetch.missing) && historyFetch.missing.length)) {
     modesLogger.warn("ui.history.firestore.missing", {
@@ -17402,6 +17470,9 @@ async function openHistory(ctx, consigne, options = {}) {
       showToast("Modification non disponible pour ce type de consigne.");
       return;
     }
+    try {
+      await reloadConsigneHistory(ctx, consigne.id, { force: true });
+    } catch (_) {}
     const row = rows[entryIndex];
     if (!row) return;
     const dayKeyAttr = itemNode?.getAttribute('data-day-key');
@@ -21308,6 +21379,7 @@ if (typeof module !== "undefined" && module.exports) {
       resolveHistoryTimelineKeyBase,
       renderConsigneValueField,
       readConsigneValueFromForm,
+      reloadConsigneHistory,
     },
   };
 }
