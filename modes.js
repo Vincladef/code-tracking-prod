@@ -14353,6 +14353,33 @@ function attachConsigneEditor(row, consigne, options = {}) {
     }
     const currentValue = readConsigneCurrentValue(consigne, row);
     try { reportUnexpectedPrefillOnEditorOpen(consigne, row, currentValue); } catch (_) {}
+    try {
+      const childValueSnapshots = childConsignes.map((childState) => {
+        const childConsigne = childState?.consigne || {};
+        const childRow = childState?.row || null;
+        let childValue = null;
+        try {
+          childValue = readConsigneCurrentValue(childConsigne, childRow || row);
+        } catch (_) {
+          childValue = null;
+        }
+        return {
+          consigneId: childConsigne?.id ?? null,
+          type: childConsigne?.type || null,
+          hasRow: childRow instanceof HTMLElement,
+          value: summarizeHistoryValue(childValue),
+        };
+      });
+      logConsigneSnapshot("daily.editor.open", consigne, {
+        row,
+        extra: {
+          variant,
+          skipState: row?.dataset?.skipAnswered === "1",
+          value: summarizeHistoryValue(currentValue),
+          childConsignes: childValueSnapshots,
+        },
+      });
+    } catch (_) {}
     const title = consigne.text || consigne.titre || consigne.name || consigne.id;
     const description = consigne.description || consigne.details || consigne.helper || "";
     const requiresValidation = consigne.type !== "info" || childConsignes.length > 0;
