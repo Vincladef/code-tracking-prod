@@ -13436,6 +13436,26 @@ function maybeReportUnexpectedPrefill(consigne, row, { status, value, note, hasO
   }
   const snapshot = collectConsigneTimelineSnapshot(consigne);
   const timelineItems = Array.isArray(snapshot?.items) ? snapshot.items : [];
+  const targetComparableKey = normalizedDayKey || rawDayKey || "";
+  const timelineHasTransientMatch = timelineItems.some((item) => {
+    const itemNormalized = item?.normalizedDayKey || normalizeHistoryDayKey(item?.dayKey || "");
+    const comparable = itemNormalized || item?.dayKey || "";
+    if (!targetComparableKey || !comparable) {
+      return false;
+    }
+    if (comparable !== targetComparableKey) {
+      return false;
+    }
+    return !item?.historyId || !item?.responseId;
+  });
+  if (timelineHasTransientMatch) {
+    prefillLog("audit.skip.transient", {
+      consigneId: consigne?.id ?? null,
+      dayKey: targetComparableKey,
+      status,
+    });
+    return;
+  }
   const timelineHasMatchingDay = timelineItems.some((item) => {
     const itemKey = item?.normalizedDayKey || normalizeHistoryDayKey(item?.dayKey || "");
     if (!itemKey && !normalizedDayKey) {
@@ -13510,6 +13530,26 @@ function reportUnexpectedPrefillOnEditorOpen(consigne, row, currentValue) {
     }
     const snapshot = collectConsigneTimelineSnapshot(consigne);
     const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+    const timelineHasTransientMatch = normalizedDayKey
+      ? items.some((it) => {
+          const itemKey = it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "");
+          if (!itemKey) {
+            return false;
+          }
+          if (itemKey !== normalizedDayKey) {
+            return false;
+          }
+          return !it?.historyId || !it?.responseId;
+        })
+      : false;
+    if (timelineHasTransientMatch) {
+      prefillLog("audit.skip.transient", {
+        consigneId: consigne?.id ?? null,
+        dayKey: normalizedDayKey || rawDayKey || null,
+        status,
+      });
+      return;
+    }
     const hasMatching = normalizedDayKey
       ? items.some((it) => (it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "")) === normalizedDayKey)
       : items.length > 0 ? false : false;
@@ -14485,12 +14525,27 @@ function attachConsigneEditor(row, consigne, options = {}) {
     delete row.dataset.childAnswered;
   }
   enhanceRangeMeters(row.querySelector("[data-consigne-input-holder]"));
-  const openEditor = () => {
+  const openEditor = async () => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (trigger && typeof trigger.setAttribute === "function") {
       trigger.setAttribute("aria-expanded", "true");
     }
-    const currentValue = readConsigneCurrentValue(consigne, row);
+    const dayKeyForEditor =
+      (row?.dataset?.dayKey && row.dataset.dayKey.trim()) ||
+      (typeof window !== "undefined" && window.AppCtx && typeof window.AppCtx.dateIso === "string"
+        ? window.AppCtx.dateIso
+        : "");
+    let currentValue;
+    try {
+      ensureHistoryStoreContext();
+      await historyStoreEnsureEntries(consigne.id, { force: true });
+      const storeEntry = historyStoreGetEntry(consigne.id, dayKeyForEditor);
+      currentValue = storeEntry && Object.prototype.hasOwnProperty.call(storeEntry, "value")
+        ? storeEntry.value
+        : readConsigneCurrentValue(consigne, row);
+    } catch (_) {
+      currentValue = readConsigneCurrentValue(consigne, row);
+    }
     try { reportUnexpectedPrefillOnEditorOpen(consigne, row, currentValue); } catch (_) {}
     try {
       const childValueSnapshots = childConsignes.map((childState) => {
@@ -15405,7 +15460,14 @@ function attachConsigneEditor(row, consigne, options = {}) {
   trigger.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    openEditor();
+    Promise.resolve(openEditor()).catch((error) => {
+      try {
+        modesLogger?.warn?.("consigne.editor.open.error", {
+          consigneId: consigne?.id ?? null,
+          message: String(error?.message || error),
+        });
+      } catch (_) {}
+    });
   });
   if (trigger && typeof trigger.setAttribute === "function") {
     trigger.setAttribute("aria-expanded", "false");
@@ -16670,13 +16732,11 @@ function syncDailyRowFromHistory(consigneId, dayKey, { entry, fallbackDayKey } =
     return;
   }
   const selector = `[data-consigne-id="${escapeSelectorToken(consigneId)}"][data-day-key="${escapeSelectorToken(effectiveKey)}"]`;
-  let dailyRow = document.querySelector(selector);
-  if (!(dailyRow instanceof HTMLElement)) {
-    try {
-      dailyRow = document.querySelector(`[data-consigne-id="${escapeSelectorToken(consigneId)}"]`);
-    } catch (_) {
-      dailyRow = null;
-    }
+  let dailyRow = null;
+  try {
+    dailyRow = document.querySelector(selector);
+  } catch (_) {
+    dailyRow = null;
   }
   if (!(dailyRow instanceof HTMLElement)) {
     return;
