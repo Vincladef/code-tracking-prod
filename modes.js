@@ -21072,6 +21072,15 @@ async function renderDaily(ctx, root, opts = {}) {
       ensureHistoryStoreContext(ctx);
       const opts = extra && typeof extra === "object" && !Array.isArray(extra) ? extra : {};
       const removeEntry = opts.remove === true;
+      const entryOverride = opts.entry && typeof opts.entry === "object" ? opts.entry : null;
+      const entryHistoryIdCandidate =
+        entryOverride?.historyId ||
+        entryOverride?.history_id ||
+        entryOverride?.id ||
+        entryOverride?.documentId ||
+        entryOverride?.document_id ||
+        "";
+      const hasEntryPayload = Boolean(entryHistoryIdCandidate);
       const canonicalInfo =
         canonicalDayKeyFromValue(targetDayKey) ||
         canonicalDayKeyFromValue(dayKey) ||
@@ -21094,24 +21103,18 @@ async function renderDaily(ctx, root, opts = {}) {
         } catch (_) {
           try { historyStoreInvalidate(consigneId); } catch (_) {}
         }
-      } else {
-        const entryOverride = opts.entry && typeof opts.entry === "object" ? opts.entry : null;
-        const upsertPayload = entryOverride
-          ? {
-              ...entryOverride,
-              dayKey:
-                entryOverride.dayKey ||
-                entryOverride.normalizedDayKey ||
-                canonicalTargetKey ||
-                normalizedTarget,
-              value: Object.prototype.hasOwnProperty.call(entryOverride, "value")
-                ? entryOverride.value
-                : nextValue,
-            }
-          : {
-              dayKey: canonicalTargetKey || normalizedTarget,
-              value: nextValue,
-            };
+      } else if (hasEntryPayload) {
+        const upsertPayload = {
+          ...entryOverride,
+          dayKey:
+            entryOverride.dayKey ||
+            entryOverride.normalizedDayKey ||
+            canonicalTargetKey ||
+            normalizedTarget,
+          value: Object.prototype.hasOwnProperty.call(entryOverride, "value")
+            ? entryOverride.value
+            : nextValue,
+        };
         try {
           record = historyStoreUpsert(consigneId, upsertPayload);
         } catch (_) {
@@ -21131,18 +21134,13 @@ async function renderDaily(ctx, root, opts = {}) {
         });
           } catch (_) {}
 
-      if (previousAnswers) {
-        const base = previousAnswers.get(consigneId) || { consigneId };
-        base.value = nextValue;
-        base.dayKey = canonicalTargetKey || normalizedTarget || base.dayKey || dayKey;
-        previousAnswers.set(consigneId, base);
+      if (removeEntry || hasEntryPayload) {
+        dispatchHistoryUpdateEvent({
+          consigneId,
+          dayKey: canonicalTargetKey || normalizedTarget,
+          entry: removeEntry ? null : record,
+        });
       }
-
-      dispatchHistoryUpdateEvent({
-        consigneId,
-        dayKey: canonicalTargetKey || normalizedTarget,
-        entry: removeEntry ? null : record,
-      });
     };
     // Also expose on window for safety
     try {
