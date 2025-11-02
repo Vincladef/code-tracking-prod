@@ -20659,6 +20659,13 @@ async function renderDaily(ctx, root, opts = {}) {
     return [cat, { groups, total }];
   });
 
+  const consigneById = new Map();
+  visibleConsignes.forEach((consigne) => {
+    if (consigne?.id != null) {
+      consigneById.set(consigne.id, consigne);
+    }
+  });
+
   const previousAnswersRaw = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
   let previousAnswers = previousAnswersRaw instanceof Map
     ? previousAnswersRaw
@@ -20739,8 +20746,32 @@ async function renderDaily(ctx, root, opts = {}) {
             historyId: entry.historyId || base.historyId || entry.id || null,
           };
           previousAnswers.set(id, merged);
+          const targetConsigne = consigneById.get(id) || null;
+          syncDailyRowFromHistory(id, normalizedCurrentDayKey, {
+            entry: merged,
+            fallbackDayKey: dayKey,
+          });
+          if (targetConsigne) {
+            try {
+              const serialized = serializeValueForComparison(targetConsigne, merged.value);
+              if (serialized !== undefined) {
+                observedValues.set(id, serialized);
+              }
+            } catch (_) {
+              try {
+                observedValues.delete(id);
+              } catch (_) {}
+            }
+          }
         } else {
           previousAnswers.delete(id);
+          syncDailyRowFromHistory(id, normalizedCurrentDayKey, {
+            entry: null,
+            fallbackDayKey: dayKey,
+          });
+          try {
+            observedValues.delete(id);
+          } catch (_) {}
         }
       });
     } catch (error) {
