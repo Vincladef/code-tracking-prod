@@ -1356,7 +1356,7 @@ function readConsigneValueFromForm(consigne, form) {
       const hasSelection = domState.items.some((checked, index) => checked && !domState.skipped[index]);
       const hasSkip = domState.skipped.some(Boolean);
       if (!hasSelection && !hasSkip) {
-        return null;
+        return buildChecklistValue(consigne, domState);
       }
       return buildChecklistValue(consigne, domState);
     }
