@@ -720,6 +720,26 @@
       }
     } catch (_) {}
 
+    const ownerRow = (() => {
+      try {
+        return root.closest && root.closest("[data-consigne-id]");
+      } catch (_) {
+        return null;
+      }
+    })();
+    try {
+      const effectiveDayKey = dateKey || null;
+      if (ownerRow && effectiveDayKey) {
+        ownerRow.dataset.dayKey = effectiveDayKey;
+      }
+      if (root && effectiveDayKey) {
+        root.setAttribute("data-day-key", effectiveDayKey);
+        if (root.dataset) {
+          root.dataset.dayKey = effectiveDayKey;
+        }
+      }
+    } catch (_) {}
+
     if (hiddenInput && !hiddenInput.__checklistHiddenListener) {
       const applyHiddenState = () => {
         let parsed = null;

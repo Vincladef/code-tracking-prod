@@ -10921,11 +10921,28 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             : "",
       };
       const selectorValue = String(child.id ?? "").replace(/"/g, '\\"');
-      const inRow =
-        row && row.matches?.(`[data-consigne-id="${selectorValue}"]`)
-          ? row
-          : row?.querySelector?.(`[data-consigne-id="${selectorValue}"]`) ||
-            document.querySelector(`[data-consigne-id="${selectorValue}"]`);
+      const rowDayKey = resolvedDayKey || (row?.dataset?.dayKey || (typeof window !== "undefined" ? window.AppCtx?.dateIso : null)) || "";
+      const buildSelector = (dayKey) =>
+        dayKey
+          ? `[data-consigne-id="${selectorValue}"][data-day-key="${dayKey.replace(/"/g, '\\"')}"]`
+          : `[data-consigne-id="${selectorValue}"]`;
+      let inRow = null;
+      try {
+        if (rowDayKey) {
+          inRow = row?.querySelector?.(buildSelector(rowDayKey)) || document.querySelector(buildSelector(rowDayKey));
+        }
+        if (!(inRow instanceof HTMLElement)) {
+          inRow = row && row.matches?.(buildSelector(rowDayKey)) ? row : null;
+        }
+        if (!(inRow instanceof HTMLElement)) {
+          inRow = row?.querySelector?.(buildSelector("")) || document.querySelector(buildSelector(""));
+        }
+        if (!(inRow instanceof HTMLElement) && !rowDayKey) {
+          inRow = row && row.matches?.(buildSelector("")) ? row : inRow;
+        }
+      } catch (_) {
+        inRow = null;
+      }
       const domId = `bilan-history-child-${String(child.id ?? "child")}-${Math.random()
         .toString(36)
         .slice(2, 8)}`;
@@ -14026,6 +14043,15 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
     delete row.dataset.consigneId;
     row.removeAttribute("data-consigne-id");
   }
+  try {
+    const fallbackDayKey =
+      (typeof window !== "undefined" && window.AppCtx && typeof window.AppCtx.dateIso === "string"
+        ? window.AppCtx.dateIso
+        : null) || null;
+    if (fallbackDayKey) {
+      row.dataset.dayKey = fallbackDayKey;
+    }
+  } catch (_) {}
   const tone = priorityTone(consigne?.priority);
   if (tone) {
     row.dataset.priorityTone = tone;
@@ -16434,8 +16460,24 @@ function collectConsigneTimelineSnapshot(consigne) {
   }
   const consigneId = String(consigne.id);
   // Prefer the standard selector first, but also support bilan rows which carry data-id
-  const selector = `[data-consigne-id="${escapeTimelineSelector(consigneId)}"]`;
-  let row = document.querySelector(selector);
+  const currentDayKey = (() => {
+    try {
+      return typeof window !== "undefined" && window.AppCtx && typeof window.AppCtx.dateIso === "string"
+        ? window.AppCtx.dateIso
+        : null;
+    } catch (_) {
+      return null;
+    }
+  })();
+  const selectorBase = `[data-consigne-id="${escapeTimelineSelector(consigneId)}"]`;
+  let row = null;
+  if (currentDayKey) {
+    const withDay = `${selectorBase}[data-day-key="${escapeTimelineSelector(currentDayKey)}"]`;
+    row = document.querySelector(withDay);
+  }
+  if (!(row instanceof HTMLElement)) {
+    row = document.querySelector(selectorBase);
+  }
   if (!(row instanceof HTMLElement)) {
     // Bilan page rows use data-id instead of data-consigne-id
     const altSelector = `[data-id="${escapeTimelineSelector(consigneId)}"]`;
