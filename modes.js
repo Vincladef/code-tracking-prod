@@ -18307,34 +18307,42 @@ async function openHistory(ctx, consigne, options = {}) {
       const opts = options && typeof options === "object" && !Array.isArray(options) ? options : {};
       const entryOverride = opts.entry || null;
       const removeEntry = opts.remove === true;
+      const scopeKey = resolveAutoSaveScopeKey(consigne.id, dayKey);
+      lockedAutoSaveScopes.add(scopeKey);
       try {
-        updateDailyPrefillCacheForHistoryEdit(nextValue, {
-          entry: entryOverride,
-          remove: removeEntry,
-        });
-      } catch (_) {}
-      const normalizedValue = nextValue === undefined ? null : nextValue;
-      const context = {
-        source: "history:propagateDailyPrefillUpdate",
-        consigneId: consigne?.id ?? null,
-        dayKey,
-        action: removeEntry || normalizedValue === null ? "clear" : "apply",
-      };
-      pushPrefillDebugContext(context);
-      try {
-        if (typeof window !== "undefined" && window?.Modes?.applyDailyPrefillUpdate) {
-          window.Modes.applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue, {
+        try {
+          updateDailyPrefillCacheForHistoryEdit(nextValue, {
             entry: entryOverride,
             remove: removeEntry,
           });
-        } else if (typeof applyDailyPrefillUpdate === "function") {
-          applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue, {
-            entry: entryOverride,
-            remove: removeEntry,
-          });
+        } catch (_) {}
+        const normalizedValue = nextValue === undefined ? null : nextValue;
+        const context = {
+          source: "history:propagateDailyPrefillUpdate",
+          consigneId: consigne?.id ?? null,
+          dayKey,
+          action: removeEntry || normalizedValue === null ? "clear" : "apply",
+        };
+        pushPrefillDebugContext(context);
+        try {
+          if (typeof window !== "undefined" && window?.Modes?.applyDailyPrefillUpdate) {
+            window.Modes.applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue, {
+              entry: entryOverride,
+              remove: removeEntry,
+            });
+          } else if (typeof applyDailyPrefillUpdate === "function") {
+            applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue, {
+              entry: entryOverride,
+              remove: removeEntry,
+            });
+          }
+        } catch (_) {}
+        finally {
+          popPrefillDebugContext();
         }
-      } catch (_) {}
-      popPrefillDebugContext();
+      } finally {
+        lockedAutoSaveScopes.delete(scopeKey);
+      }
     };
     const labelForAttr3 = consigne.type === "checklist" ? "" : ` for="${fieldId}"`;
     const editorHtml = `
@@ -20666,6 +20674,13 @@ async function renderDaily(ctx, root, opts = {}) {
     }
   });
 
+  const observedValues = new Map();
+  const autoSaveStates = new Map();
+  const autoSaveErrorState = { lastShownAt: 0 };
+  const suppressedAutoSaveScopes = new Set();
+  const lockedAutoSaveScopes = new Set();
+  let isDailyHydrationLocked = false;
+
   const previousAnswersRaw = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
   let previousAnswers = previousAnswersRaw instanceof Map
     ? previousAnswersRaw
@@ -20728,50 +20743,57 @@ async function renderDaily(ctx, root, opts = {}) {
     previousAnswers = filtered;
   }
 
+  isDailyHydrationLocked = true;
   if (HistoryStore) {
     try {
       ensureHistoryStoreContext(ctx);
       const historyConsigneIds = visibleConsignes.map((consigne) => consigne?.id).filter(Boolean);
       await Promise.all(historyConsigneIds.map((id) => historyStoreEnsureEntries(id, { force: true })));
       historyConsigneIds.forEach((id) => {
-        const entry = historyStoreGetEntry(id, normalizedCurrentDayKey);
-        if (entry && Object.prototype.hasOwnProperty.call(entry, "value")) {
-          const base = previousAnswers.get(id) || { consigneId: id };
-          const merged = {
-            ...base,
-            ...entry,
-            consigneId: id,
-            value: entry.value,
-            dayKey: entry.dayKey || normalizedCurrentDayKey,
-            historyId: entry.historyId || base.historyId || entry.id || null,
-          };
-          previousAnswers.set(id, merged);
-          const targetConsigne = consigneById.get(id) || null;
-          syncDailyRowFromHistory(id, normalizedCurrentDayKey, {
-            entry: merged,
-            fallbackDayKey: dayKey,
-          });
-          if (targetConsigne) {
-            try {
-              const serialized = serializeValueForComparison(targetConsigne, merged.value);
-              if (serialized !== undefined) {
-                observedValues.set(id, serialized);
-              }
-            } catch (_) {
+        const scopeKey = resolveAutoSaveScopeKey(id, normalizedCurrentDayKey);
+        lockedAutoSaveScopes.add(scopeKey);
+        try {
+          const entry = historyStoreGetEntry(id, normalizedCurrentDayKey);
+          if (entry && Object.prototype.hasOwnProperty.call(entry, "value")) {
+            const base = previousAnswers.get(id) || { consigneId: id };
+            const merged = {
+              ...base,
+              ...entry,
+              consigneId: id,
+              value: entry.value,
+              dayKey: entry.dayKey || normalizedCurrentDayKey,
+              historyId: entry.historyId || base.historyId || entry.id || null,
+            };
+            previousAnswers.set(id, merged);
+            const targetConsigne = consigneById.get(id) || null;
+            syncDailyRowFromHistory(id, normalizedCurrentDayKey, {
+              entry: merged,
+              fallbackDayKey: dayKey,
+            });
+            if (targetConsigne) {
               try {
-                observedValues.delete(id);
-              } catch (_) {}
+                const serialized = serializeValueForComparison(targetConsigne, merged.value);
+                if (serialized !== undefined) {
+                  observedValues.set(id, serialized);
+                }
+              } catch (_) {
+                try {
+                  observedValues.delete(id);
+                } catch (_) {}
+              }
             }
+          } else {
+            previousAnswers.delete(id);
+            syncDailyRowFromHistory(id, normalizedCurrentDayKey, {
+              entry: null,
+              fallbackDayKey: dayKey,
+            });
+            try {
+              observedValues.delete(id);
+            } catch (_) {}
           }
-        } else {
-          previousAnswers.delete(id);
-          syncDailyRowFromHistory(id, normalizedCurrentDayKey, {
-            entry: null,
-            fallbackDayKey: dayKey,
-          });
-          try {
-            observedValues.delete(id);
-          } catch (_) {}
+        } finally {
+          lockedAutoSaveScopes.delete(scopeKey);
         }
       });
     } catch (error) {
@@ -20779,10 +20801,10 @@ async function renderDaily(ctx, root, opts = {}) {
     }
   }
 
-  const observedValues = new Map();
-  const autoSaveStates = new Map();
-  const autoSaveErrorState = { lastShownAt: 0 };
-  const suppressedAutoSaveScopes = new Set();
+  queueMicrotask(() => {
+    lockedAutoSaveScopes.clear();
+    isDailyHydrationLocked = false;
+  });
 
   const cancelScheduledAutoSave = (consigneId) => {
     if (!consigneId) {
@@ -21137,6 +21159,9 @@ async function renderDaily(ctx, root, opts = {}) {
     if (!consigne || !consigne.id) return;
     const consigneId = consigne.id;
     const scopeKey = resolveAutoSaveScopeKey(consigneId, dayKey);
+    if (isDailyHydrationLocked || lockedAutoSaveScopes.has(scopeKey)) {
+      return;
+    }
     const computedSerialized = serialized !== undefined ? serialized : serializeValueForComparison(consigne, value);
     const effectiveHasContent = hasContent !== undefined ? hasContent : hasValueForConsigne(consigne, value);
     const state = autoSaveStates.get(consigneId) || {
