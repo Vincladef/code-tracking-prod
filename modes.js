@@ -18489,6 +18489,8 @@ async function openHistory(ctx, consigne, options = {}) {
           try { await flushAutoSaveForConsigne(consigne.id, dayKey); } catch (_) {}
           cancelScheduledAutoSave(consigne.id);
           purgeObservedValue(consigne.id);
+      try { syncDailyRowFromHistory(consigne.id, resolvedDayKey || dayKey, { entry: null, fallbackDayKey: dayKey }); } catch (_) {}
+      try { await historyStoreEnsureEntries(consigne.id, { force: true }); } catch (_) {}
           try { await historyStoreEnsureEntries(consigne.id, { force: true }); } catch (_) {}
           // Remove the item immediately in the UI for instant feedback
           try {
@@ -18616,6 +18618,7 @@ async function openHistory(ctx, consigne, options = {}) {
           cancelScheduledAutoSave(consigne.id);
           purgeObservedValue(consigne.id);
           try { await historyStoreEnsureEntries(consigne.id, { force: true }); } catch (_) {}
+          try { syncDailyRowFromHistory(consigne.id, resolvedDayKey || scopeDayKey, { entry: storeRecord, fallbackDayKey: scopeDayKey }); } catch (_) {}
         }
         closeEditor();
         reopenHistory();
