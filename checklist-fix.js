@@ -425,9 +425,11 @@
     if (safeKey) {
       input.setAttribute("data-key", safeKey);
       input.setAttribute("data-item-id", safeKey);
+      input.setAttribute("data-stable-key", safeKey);
       if (input.dataset) {
         input.dataset.key = safeKey;
         input.dataset.itemId = safeKey;
+        input.dataset.stableKey = safeKey;
       }
     }
     if (safeLegacy) {
@@ -440,9 +442,11 @@
       if (safeKey) {
         host.setAttribute("data-item-id", safeKey);
         host.setAttribute("data-checklist-key", safeKey);
+        host.setAttribute("data-checklist-stable-key", safeKey);
         if (host.dataset) {
           host.dataset.itemId = safeKey;
           host.dataset.checklistKey = safeKey;
+          host.dataset.checklistStableKey = safeKey;
         }
       }
       if (safeLegacy) {
@@ -462,6 +466,8 @@
     const attrKey = itemKeyAttr ? input.getAttribute(itemKeyAttr) : null;
     if (attrKey) keyCandidates.push(String(attrKey));
     if (input.dataset?.key) keyCandidates.push(String(input.dataset.key));
+    const stableAttr = input.getAttribute("data-stable-key") || input.dataset?.stableKey;
+    if (stableAttr) keyCandidates.push(String(stableAttr));
     const explicitChecklistKey = input.getAttribute("data-checklist-key") || input.dataset?.checklistKey;
     if (explicitChecklistKey) keyCandidates.push(String(explicitChecklistKey));
     const explicitItemId = input.getAttribute("data-item-id") || input.dataset?.itemId;
@@ -469,6 +475,8 @@
     if (host instanceof Element) {
       const hostKey = host.getAttribute("data-checklist-key") || host.dataset?.checklistKey;
       if (hostKey) keyCandidates.push(String(hostKey));
+      const hostStable = host.getAttribute("data-checklist-stable-key") || host.dataset?.checklistStableKey;
+      if (hostStable) keyCandidates.push(String(hostStable));
       const hostItem = host.getAttribute("data-item-id") || host.dataset?.itemId;
       if (hostItem) keyCandidates.push(String(hostItem));
     }

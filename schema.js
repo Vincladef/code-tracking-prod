@@ -415,7 +415,6 @@ function generateChecklistItemId() {
 function normalizeChecklistItemPayload(items, ids) {
   const normalizedItems = [];
   const normalizedIds = [];
-  const seenLabels = new Set();
   const seenIds = new Set();
   const sourceItems = Array.isArray(items) ? items : [];
   const sourceIds = Array.isArray(ids) ? ids : [];
@@ -427,12 +426,6 @@ function normalizeChecklistItemPayload(items, ids) {
     if (!trimmed) {
       return;
     }
-    const labelKey = trimmed.toLowerCase();
-    if (seenLabels.has(labelKey)) {
-      return;
-    }
-    seenLabels.add(labelKey);
-    normalizedItems.push(trimmed);
     const explicitId = typeof sourceIds[index] === "string" ? sourceIds[index].trim() : "";
     let resolvedId = explicitId && !seenIds.has(explicitId) ? explicitId : "";
     if (!resolvedId) {
@@ -441,6 +434,7 @@ function normalizeChecklistItemPayload(items, ids) {
       } while (seenIds.has(resolvedId));
     }
     seenIds.add(resolvedId);
+    normalizedItems.push(trimmed);
     normalizedIds.push(resolvedId);
   });
   return { items: normalizedItems, ids: normalizedIds };
@@ -3294,5 +3288,8 @@ if (typeof module !== "undefined" && module.exports) {
     shiftMonthKey,
     loadModuleSettings,
     saveModuleSettings,
+    __test__: {
+      normalizeChecklistItemPayload,
+    },
   };
 }
