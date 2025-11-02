@@ -26,7 +26,7 @@ global.HTMLElement = global.HTMLElement || FakeElement;
 
 const Modes = require("../modes.js");
 
-const { renderConsigneValueField, readConsigneValueFromForm, reloadConsigneHistory } = Modes.__test__;
+const { renderConsigneValueField, readConsigneValueFromForm, reloadConsigneHistory, logConsigneSnapshot } = Modes.__test__;
 
 function createElement(tag, attributes = {}) {
   const element = Object.create(FakeElement.prototype);
@@ -179,5 +179,58 @@ function findAll(root, selector, acc = []) {
   assert.strictEqual(ensureCalls[0].options.force, true, "reloadConsigneHistory doit forcer le rafraîchissement");
   assert.ok(Array.isArray(results), "reloadConsigneHistory doit renvoyer un tableau");
   console.log("History reload tests passed.");
+})();
+
+(function runConsigneSnapshotLogTests() {
+  const captured = [];
+  const originalInfo = console.info;
+  const originalWarn = console.warn;
+  console.info = (...args) => {
+    captured.push(args);
+  };
+  console.warn = (...args) => {
+    captured.push(args);
+  };
+
+  const consigne = { id: "consigne-visual", type: "short", text: "Consigne visu" };
+  const row = createElement("div", {
+    "data-consigne-id": consigne.id,
+    "data-day-key": "2024-01-01",
+  });
+  const title = createElement("span", { "data-consigne-title": "" });
+  title.textContent = consigne.text;
+  row.appendChild(title);
+  const statusHolder = createElement("span", {
+    "data-status": "na",
+    "data-priority-tone": "neutral",
+  });
+  const statusDot = createElement("span", {
+    "data-status-dot": "",
+    "data-status": "na",
+    "data-priority-tone": "neutral",
+  });
+  statusHolder.appendChild(statusDot);
+  row.appendChild(statusHolder);
+  const historyContainer = createElement("div", { "data-consigne-history": "" });
+  const track = createElement("div", { "data-consigne-history-track": "" });
+  const item = createElement("div", {
+    "data-history-day": "2024-01-01",
+    "data-status": "na",
+    "data-history-id": "h-1",
+    "data-history-response-id": "r-1",
+  });
+  track.appendChild(item);
+  historyContainer.appendChild(track);
+  row.appendChild(historyContainer);
+
+  logConsigneSnapshot("unit.test", consigne, { row, extra: { scope: "test" } });
+
+  console.info = originalInfo;
+  console.warn = originalWarn;
+  assert.ok(
+    captured.some((entry) => entry && entry[0] && String(entry[0]).includes("[consigne-visual] unit.test")),
+    "logConsigneSnapshot doit produire un log visuel",
+  );
+  console.log("Consigne snapshot log tests passed.");
 })();
 

@@ -40,6 +40,124 @@ const prefillAlert = (label, payload = {}) => {
 
 const HISTORY_EVENT_NAME = "history:entry-updated";
 
+const CONSIGNE_LOG_PREFIX = "[consigne-visual]";
+
+const extractNodeText = (node) => {
+  try {
+    if (!node) return "";
+    if (typeof node.textContent === "string") {
+      return node.textContent.trim();
+    }
+    if (typeof node.innerText === "string") {
+      return node.innerText.trim();
+    }
+  } catch (_) {}
+  return "";
+};
+
+const readConsigneRowSnapshot = (consigne, row) => {
+  if (!(row instanceof HTMLElement)) {
+    return { hasRow: false };
+  }
+  const timelineTrack = row.querySelector?.("[data-consigne-history-track]") || null;
+  let timelineItems = [];
+  if (timelineTrack) {
+    let nodes = [];
+    try {
+      const raw = timelineTrack.querySelectorAll?.("[data-history-day]");
+      if (Array.isArray(raw)) {
+        nodes = raw;
+      } else if (raw && typeof raw.length === "number") {
+        nodes = Array.from(raw);
+      }
+    } catch (_) {}
+    timelineItems = nodes.map((item, index) => ({
+      index,
+      dayKey: item?.dataset?.historyDay || item?.getAttribute?.("data-history-day") || "",
+      normalizedDayKey: normalizeHistoryDayKey(item?.dataset?.historyDay || item?.getAttribute?.("data-history-day")),
+      status: item?.dataset?.status || item?.getAttribute?.("data-status") || "",
+      priorityTone: item?.dataset?.priorityTone || item?.getAttribute?.("data-priority-tone") || "",
+      historyId: item?.dataset?.historyId || item?.getAttribute?.("data-history-id") || "",
+      responseId: item?.dataset?.historyResponseId || item?.getAttribute?.("data-history-response-id") || "",
+      source: item?.dataset?.historySource || item?.getAttribute?.("data-history-source") || "",
+      summaryScope: item?.dataset?.summaryScope || item?.getAttribute?.("data-summary-scope") || "",
+    }));
+  }
+  const statusHolder = row.querySelector?.("[data-status]") || null;
+  const statusDot = row.querySelector?.("[data-status-dot]") || null;
+  let valueSummary = null;
+  if (consigne && typeof readConsigneCurrentValue === "function") {
+    try {
+      const currentValue = readConsigneCurrentValue(consigne, row);
+      valueSummary = summarizeHistoryValue(currentValue);
+    } catch (_) {
+      valueSummary = null;
+    }
+  }
+  const titleNode = row.querySelector?.("[data-consigne-title]") || null;
+  const title = extractNodeText(titleNode) || row.dataset?.consigneTitle || consigne?.text || consigne?.titre || "";
+  return {
+    hasRow: true,
+    rowId: row.dataset?.consigneId || consigne?.id || null,
+    dayKey: row.dataset?.dayKey || "",
+    title,
+    status: statusHolder?.dataset?.status || statusHolder?.getAttribute?.("data-status") || statusDot?.dataset?.status || statusDot?.getAttribute?.("data-status") || row.dataset?.status || "",
+    priorityTone:
+      statusHolder?.dataset?.priorityTone ||
+      statusHolder?.getAttribute?.("data-priority-tone") ||
+      statusDot?.dataset?.priorityTone ||
+      statusDot?.getAttribute?.("data-priority-tone") ||
+      row.dataset?.priorityTone ||
+      "",
+    dotClass: statusDot?.className || "",
+    hasAnswer: row.dataset?.hasAnswer === "1",
+    valueSummary,
+    timeline: timelineItems,
+  };
+};
+
+const logConsigneSnapshot = (label, consigne, { row = null, extra = null } = {}) => {
+  if (typeof console === "undefined") {
+    return;
+  }
+  try {
+    let targetRow = row;
+    if (!(targetRow instanceof HTMLElement) && consigne?.id != null && typeof document !== "undefined") {
+      try {
+        const escapedId = (() => {
+          const raw = String(consigne.id ?? "");
+          if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+            try {
+              return CSS.escape(raw);
+            } catch (_) {}
+          }
+          return raw.replace(/"/g, '\\"').replace(/\\/g, "\\\\");
+        })();
+        targetRow = document.querySelector?.(`[data-consigne-id="${escapedId}"]`) || targetRow;
+      } catch (_) {}
+    }
+    const snapshot = readConsigneRowSnapshot(consigne, targetRow || null);
+    const payload = {
+      consigne: {
+        id: consigne?.id ?? null,
+        type: consigne?.type || null,
+        text: consigne?.text || consigne?.titre || null,
+        parentId: consigne?.parentId || null,
+      },
+      snapshot,
+    };
+    if (extra !== null && extra !== undefined) {
+      payload.extra = extra;
+    }
+    logChecklistEvent("info", `${CONSIGNE_LOG_PREFIX} ${label}`, payload);
+  } catch (error) {
+    logChecklistEvent("warn", `${CONSIGNE_LOG_PREFIX} ${label}:error`, {
+      consigneId: consigne?.id ?? null,
+      message: String(error?.message || error),
+    });
+  }
+};
+
 const ensureHistoryStoreContext = (ctx = null) => {
   if (!HistoryStore || typeof HistoryStore.configure !== "function") {
     return;
@@ -11404,6 +11522,19 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     }
     return "";
   })();
+  try {
+    logConsigneSnapshot("history.editor.request", consigne, {
+      row,
+      extra: {
+        source,
+        requestedDayKey: dayKey,
+        triggerResponseId,
+        triggerHistoryId,
+        detailsValue: details ? summarizeHistoryValue(details?.rawValue ?? details?.value ?? null) : null,
+        detailsNote: typeof details?.note === "string" ? details.note : null,
+      },
+    });
+  } catch (_) {}
   const detailResponseId = resolveHistoryResponseId(details);
   const detailHistoryId = (() => {
     if (!details || typeof details !== "object") {
@@ -11603,6 +11734,23 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         }
       : null,
   });
+  try {
+    logConsigneSnapshot("history.editor.open", consigne, {
+      row,
+      extra: {
+        source,
+        requestedDayKey: dayKey,
+        resolvedDayKey,
+        entrySummary: summarizeHistoryEntry(entry),
+        entryValue: summarizeHistoryValue(entry?.value ?? null),
+        displayValue: summarizeHistoryValue(displayValue),
+        timelineSummary,
+        timelineNormalized: summarizeHistoryValue(timelineNormalized),
+        note: typeof entry?.note === "string" ? entry.note : details?.note || null,
+        matchInfo,
+      },
+    });
+  } catch (_) {}
   const autosaveKey = ["history-entry-edit", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
     .map((part) => String(part || ""))
     .join(":");
@@ -12919,6 +13067,20 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
           }
         : null,
     });
+    try {
+      logConsigneSnapshot("timeline.point.activate", consigne, {
+        row,
+        extra: {
+          mode: options.mode || null,
+          dayKey: historyDayKey || target.dataset.historyDay || null,
+          status: target.dataset.status || rawDetails?.status || null,
+          historyId: historyIdCandidate,
+          responseId: responseIdCandidate,
+          isBilanPoint,
+          isSummaryPoint,
+        },
+      });
+    } catch (_) {}
     if (isBilanPoint && bilanDayKey) {
       if (isKeyboard) {
         event.preventDefault();
@@ -16338,6 +16500,16 @@ function syncDailyRowFromHistory(consigneId, dayKey, { entry, fallbackDayKey } =
     updateConsigneStatusUI(dailyRow, consigne, record || value);
   } catch (_) {}
   triggerConsigneRowUpdateHighlight(dailyRow);
+  try {
+    logConsigneSnapshot("daily.row.sync", consigne, {
+      row: dailyRow,
+      extra: {
+        effectiveDayKey: effectiveKey,
+        incomingDayKey: dayKey,
+        entrySummary: summarizeHistoryEntry(record || null),
+      },
+    });
+  } catch (_) {}
 }
 
 if (typeof window !== "undefined" && !window.__historyEntryUpdatedBound) {
@@ -16390,6 +16562,40 @@ function refreshConsigneTimelineWithRows(consigne, rows) {
   if (!rendered && state) {
     state.track.dataset.historyMode = "empty";
   }
+  try {
+    const rowsSummary = Array.isArray(rows)
+      ? rows.slice(0, 20).map((row) => {
+          const statusValue = (() => {
+            try {
+              const normalized = resolveHistoryTimelineValue(row, consigne);
+              return dotColor(consigne.type, normalized ?? row?.value, consigne) || "na";
+            } catch (_) {
+              return "na";
+            }
+          })();
+          return {
+            dayKey:
+              row?.dayKey ||
+              row?.day_key ||
+              row?.dateKey ||
+              row?.date_key ||
+              row?.date ||
+              "",
+            historyId: row?.historyId || row?.history_id || row?.id || "",
+            responseId: row?.responseId || row?.response_id || "",
+            status: statusValue,
+            value: summarizeHistoryValue(row?.value ?? null),
+          };
+        })
+      : [];
+    logConsigneSnapshot("timeline.render", consigne, {
+      row: snapshot.row,
+      extra: {
+        pointCount: points.length,
+        rowsSummary,
+      },
+    });
+  } catch (_) {}
 }
 
 function summarizeChecklistValue(value) {
@@ -17353,6 +17559,16 @@ async function openHistory(ctx, consigne, options = {}) {
     label: "panel:rows",
     entries: rows,
   });
+  try {
+    logConsigneSnapshot("history.panel.open", consigne, {
+      extra: {
+        source: historySource || options.source || "",
+        focusDayKey: focusDayKeyOption || "",
+        entryCount: rows.length,
+        panelMeta: rowMetas,
+      },
+    });
+  } catch (_) {}
 
   const totalLabel = rows.length === 0 ? "Aucune entrée" : rows.length === 1 ? "1 entrée" : `${rows.length} entrées`;
   const navigationBounds = computeHistoryNavigationBounds(chartPoints);
@@ -17617,6 +17833,20 @@ async function openHistory(ctx, consigne, options = {}) {
         remove,
       });
       triggerConsigneRowUpdateHighlight(timelineRow);
+      try {
+        logConsigneSnapshot(remove ? "history.timeline.remove" : "history.timeline.apply", consigne, {
+          row: timelineRow,
+          extra: {
+            dayKey,
+            historyId,
+            responseId,
+            status,
+            remove,
+            value: summarizeHistoryValue(normalizedValue),
+            noteLength: typeof normalizedNote === "string" ? normalizedNote.length : 0,
+          },
+        });
+      } catch (_) {}
     };
     const updateDailyPrefillCacheForHistoryEdit = (nextValue) => {
       const hasContent = (() => {
@@ -17807,6 +18037,19 @@ async function openHistory(ctx, consigne, options = {}) {
       }
       clearBtn.addEventListener('click', async (event) => {
         event.preventDefault();
+        try {
+          logChecklistEvent('info', `${CONSIGNE_LOG_PREFIX} history.editor.clear`, {
+            consigneId: consigne.id,
+            requestedDayKey: dayKey,
+            resolvedDayKey,
+            source,
+            responseSync: {
+              responseId: responseSyncOptions?.responseId || '',
+              responseMode: responseSyncOptions?.responseMode || '',
+              responseType: responseSyncOptions?.responseType || '',
+            },
+          });
+        } catch (_) {}
         if (!confirm('Effacer la note pour cette date ?')) {
           return;
         }
@@ -17869,6 +18112,22 @@ async function openHistory(ctx, consigne, options = {}) {
         const rawValue = readConsigneValueFromForm(consigne, form);
         const note = (form.elements.note?.value || '').trim();
         const isRawEmpty = rawValue === '' || rawValue == null;
+        try {
+          logChecklistEvent('info', `${CONSIGNE_LOG_PREFIX} history.editor.submit`, {
+            consigneId: consigne.id,
+            requestedDayKey: dayKey,
+            resolvedDayKey,
+            source,
+            isRawEmpty,
+            noteLength: note.length,
+            value: summarizeHistoryValue(rawValue),
+            responseSync: {
+              responseId: responseSyncOptions?.responseId || '',
+              responseMode: responseSyncOptions?.responseMode || '',
+              responseType: responseSyncOptions?.responseType || '',
+            },
+          });
+        } catch (_) {}
         const targetDocId = await ensureHistoryDocumentId();
         if (isRawEmpty && !note) {
           // Do not delete implicitly on empty submit. Ask user to use "Effacer" instead.
@@ -18555,8 +18814,8 @@ async function renderPractice(ctx, root, _opts = {}) {
     row.innerHTML = `
         <div class="consigne-row__header">
           <div class="consigne-row__main">
-            <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
-              <span class="consigne-row__title">${escapeHtml(c.text)}</span>
+          <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
+            <span class="consigne-row__title" data-consigne-title>${escapeHtml(c.text)}</span>
               ${prioChip(Number(c.priority) || 2)}
             </button>
           </div>
@@ -20478,6 +20737,16 @@ async function renderDaily(ctx, root, opts = {}) {
         });
       } catch (_) {}
 
+      try {
+        logChecklistEvent("info", `${CONSIGNE_LOG_PREFIX} daily.prefill.apply`, {
+          consigneId,
+          targetDayKey: canonicalTargetKey || normalizedTarget || null,
+          requestedDayKey: targetDayKey,
+          nextValue: summarizeHistoryValue(nextValue),
+          context: ctx?.mode || "daily",
+        });
+      } catch (_) {}
+
       if (previousAnswers) {
         const base = previousAnswers.get(consigneId) || { consigneId };
         base.value = nextValue;
@@ -20609,7 +20878,7 @@ async function renderDaily(ctx, root, opts = {}) {
       <div class="consigne-row__header">
         <div class="consigne-row__main">
           <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
-            <span class="consigne-row__title">${escapeHtml(item.text)}</span>
+            <span class="consigne-row__title" data-consigne-title>${escapeHtml(item.text)}</span>
             ${prioChip(Number(item.priority) || 2)}
           </button>
         </div>
@@ -20818,6 +21087,16 @@ async function renderDaily(ctx, root, opts = {}) {
         } catch (_) {}
       });
     } catch (_) {}
+    try {
+      logConsigneSnapshot("daily.row.render", item, {
+        row,
+        extra: {
+          isChild,
+          deferEditor,
+          mode: options.mode || pageContext?.mode || ctx?.mode || "daily",
+        },
+      });
+    } catch (_) {}
 
     return row;
   };
@@ -20967,7 +21246,7 @@ async function renderDaily(ctx, root, opts = {}) {
         <div class="consigne-row__header">
           <div class="consigne-row__main">
             <button type="button" class="consigne-row__toggle" data-objective-open aria-haspopup="dialog">
-              <span class="consigne-row__title">${escapeHtml(title)}</span>
+              <span class="consigne-row__title" data-consigne-title>${escapeHtml(title)}</span>
             </button>
           </div>
           <div class="consigne-row__meta">
@@ -21380,6 +21659,7 @@ if (typeof module !== "undefined" && module.exports) {
       renderConsigneValueField,
       readConsigneValueFromForm,
       reloadConsigneHistory,
+      logConsigneSnapshot,
     },
   };
 }
