@@ -18179,7 +18179,10 @@ async function openHistory(ctx, consigne, options = {}) {
         triggerConsigneRowUpdateHighlight(dailyRow);
       } catch (_) {}
     };
-    const propagateDailyPrefillUpdate = (nextValue) => {
+    const propagateDailyPrefillUpdate = (nextValue, options = {}) => {
+      const opts = options && typeof options === "object" && !Array.isArray(options) ? options : {};
+      const entryOverride = opts.entry || null;
+      const removeEntry = opts.remove === true;
       try {
         updateDailyPrefillCacheForHistoryEdit(nextValue);
       } catch (_) {}
@@ -18188,14 +18191,20 @@ async function openHistory(ctx, consigne, options = {}) {
         source: "history:propagateDailyPrefillUpdate",
         consigneId: consigne?.id ?? null,
         dayKey,
-        action: normalizedValue === null ? "clear" : "apply",
+        action: removeEntry || normalizedValue === null ? "clear" : "apply",
       };
       pushPrefillDebugContext(context);
       try {
         if (typeof window !== "undefined" && window?.Modes?.applyDailyPrefillUpdate) {
-          window.Modes.applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue);
+          window.Modes.applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue, {
+            entry: entryOverride,
+            remove: removeEntry,
+          });
         } else if (typeof applyDailyPrefillUpdate === "function") {
-          applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue);
+          applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue, {
+            entry: entryOverride,
+            remove: removeEntry,
+          });
         }
       } catch (_) {}
       popPrefillDebugContext();
@@ -18343,7 +18352,12 @@ async function openHistory(ctx, consigne, options = {}) {
               responseId: responseSyncOptions?.responseId || "",
               keepPlaceholder: true,
             });
-            try { propagateDailyPrefillUpdate(null); } catch (_) {}
+          try {
+            historyStoreRemove(consigne.id, resolvedDayKey);
+          } catch (_) {
+            try { historyStoreInvalidate(consigne.id); } catch (_) {}
+          }
+          try { propagateDailyPrefillUpdate(null, { remove: true }); } catch (_) {}
           });
           // Remove the item immediately in the UI for instant feedback
           try {
@@ -18430,7 +18444,20 @@ async function openHistory(ctx, consigne, options = {}) {
             historyId: targetDocId,
             responseId: responseSyncOptions?.responseId || "",
           });
-          try { propagateDailyPrefillUpdate(rawValue); } catch (_) {}
+          const storeRecord = {
+            dayKey: resolvedDayKey,
+            value: rawValue,
+            note,
+            historyId: targetDocId,
+            responseId: responseSyncOptions?.responseId || "",
+            updatedAt: new Date().toISOString(),
+          };
+          try {
+            historyStoreUpsert(consigne.id, storeRecord);
+          } catch (_) {
+            try { historyStoreInvalidate(consigne.id); } catch (_) {}
+          }
+          try { propagateDailyPrefillUpdate(rawValue, { entry: storeRecord }); } catch (_) {}
         }
         closeEditor();
         reopenHistory();
@@ -20983,12 +21010,14 @@ async function renderDaily(ctx, root, opts = {}) {
   };
 
   // Expose a robust global updater for daily UI/caches after external edits
-  // Signature: applyDailyPrefillUpdate(consigneId, targetDayKey = dayKey, nextValue = "")
+  // Signature: applyDailyPrefillUpdate(consigneId, targetDayKey = dayKey, nextValue = "", options = {})
   // Backward-compat: if called with a single argument (nextValue), it's ignored here; callers should pass ids.
   try {
-    applyDailyPrefillUpdate = (consigneId, targetDayKey = dayKey, nextValue = "") => {
+    applyDailyPrefillUpdate = (consigneId, targetDayKey = dayKey, nextValue = "", extra = {}) => {
       if (!consigneId) return;
       ensureHistoryStoreContext(ctx);
+      const opts = extra && typeof extra === "object" && !Array.isArray(extra) ? extra : {};
+      const removeEntry = opts.remove === true;
       const canonicalInfo =
         canonicalDayKeyFromValue(targetDayKey) ||
         canonicalDayKeyFromValue(dayKey) ||
@@ -21005,12 +21034,38 @@ async function renderDaily(ctx, root, opts = {}) {
         : normalizeHistoryDayKey(targetDayKey || dayKey || "");
 
       let record = null;
-      try {
-        record = historyStoreUpsert(consigneId, {
-          dayKey: canonicalTargetKey || normalizedTarget,
-          value: nextValue,
-        });
-      } catch (_) {}
+      if (removeEntry) {
+        try {
+          historyStoreRemove(consigneId, canonicalTargetKey || normalizedTarget || targetDayKey);
+        } catch (_) {
+          try { historyStoreInvalidate(consigneId); } catch (_) {}
+        }
+      } else {
+        const entryOverride = opts.entry && typeof opts.entry === "object" ? opts.entry : null;
+        const upsertPayload = entryOverride
+          ? {
+              ...entryOverride,
+              dayKey:
+                entryOverride.dayKey ||
+                entryOverride.normalizedDayKey ||
+                canonicalTargetKey ||
+                normalizedTarget,
+              value: Object.prototype.hasOwnProperty.call(entryOverride, "value")
+                ? entryOverride.value
+                : nextValue,
+            }
+          : {
+              dayKey: canonicalTargetKey || normalizedTarget,
+              value: nextValue,
+            };
+        try {
+          record = historyStoreUpsert(consigneId, upsertPayload);
+        } catch (_) {
+          try {
+            historyStoreInvalidate(consigneId);
+          } catch (_) {}
+        }
+      }
 
       try {
         logChecklistEvent("info", `${CONSIGNE_LOG_PREFIX} daily.prefill.apply`, {
@@ -21032,7 +21087,7 @@ async function renderDaily(ctx, root, opts = {}) {
       dispatchHistoryUpdateEvent({
         consigneId,
         dayKey: canonicalTargetKey || normalizedTarget,
-        entry: record,
+        entry: removeEntry ? null : record,
       });
     };
     // Also expose on window for safety
