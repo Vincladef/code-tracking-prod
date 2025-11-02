@@ -20197,8 +20197,11 @@ async function renderDaily(ctx, root, opts = {}) {
     let hasPrevValue = false;
     let previousEntry = null;
     if (item?.id != null) {
+      const bufferedEntry = consumeBufferedHistoryEntry(item.id, normalizedCurrentDayKey);
       try {
-        const historyEntry = historyStoreGetEntry(item.id, normalizedCurrentDayKey);
+        const historyEntry = bufferedEntry !== undefined
+          ? bufferedEntry
+          : historyStoreGetEntry(item.id, normalizedCurrentDayKey);
         if (historyEntry && Object.prototype.hasOwnProperty.call(historyEntry, "value")) {
           previousEntry = historyEntry;
           initialValue = historyEntry.value;
@@ -20501,8 +20504,11 @@ async function renderDaily(ctx, root, opts = {}) {
     wrapper.appendChild(parentCard);
     const childConfigs = group.children.map((child) => {
       let historyEntry = null;
+      const bufferedEntry = consumeBufferedHistoryEntry(child.id, normalizedCurrentDayKey);
       try {
-        historyEntry = historyStoreGetEntry(child.id, normalizedCurrentDayKey);
+        historyEntry = bufferedEntry !== undefined
+          ? bufferedEntry
+          : historyStoreGetEntry(child.id, normalizedCurrentDayKey);
       } catch (_) {
         historyEntry = null;
       }
