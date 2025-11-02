@@ -14697,10 +14697,12 @@ function hasChecklistResponse(consigne, row, value) {
   if (checklistHasSelection(value)) {
     return true;
   }
-  const statsFromValue = deriveChecklistStats(value);
-  if (statsFromValue.total > 0) {
-    return true;
-  }
+  try {
+    const statsFromValue = deriveChecklistStats(value);
+    if (statsFromValue.total > 0) {
+      return true;
+    }
+  } catch (_) {}
   const skippedStates = readChecklistSkipped(value);
   if (skippedStates.some(Boolean)) {
     return true;
