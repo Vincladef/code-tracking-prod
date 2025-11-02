@@ -11307,6 +11307,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           });
           triggerConsigneRowUpdateHighlight(row);
           try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, "", { remove: true }); } catch (_) {}
+          cancelScheduledAutoSave(consigne.id);
+          purgeObservedValue(consigne.id);
           for (const childState of baseChildStates) {
             const childConsigneId = childState?.consigne?.id;
             if (!childConsigneId) {
@@ -18485,6 +18487,9 @@ async function openHistory(ctx, consigne, options = {}) {
           try { propagateDailyPrefillUpdate(null, { remove: true }); } catch (_) {}
           });
           try { await flushAutoSaveForConsigne(consigne.id, dayKey); } catch (_) {}
+          cancelScheduledAutoSave(consigne.id);
+          purgeObservedValue(consigne.id);
+          try { await historyStoreEnsureEntries(consigne.id, { force: true }); } catch (_) {}
           // Remove the item immediately in the UI for instant feedback
           try {
             const li = itemNode && itemNode.closest('[data-history-entry]');
@@ -18608,6 +18613,9 @@ async function openHistory(ctx, consigne, options = {}) {
             try { propagateDailyPrefillUpdate(rawValue, { entry: storeRecord }); } catch (_) {}
           });
           try { await flushAutoSaveForConsigne(consigne.id, scopeDayKey); } catch (_) {}
+          cancelScheduledAutoSave(consigne.id);
+          purgeObservedValue(consigne.id);
+          try { await historyStoreEnsureEntries(consigne.id, { force: true }); } catch (_) {}
         }
         closeEditor();
         reopenHistory();
@@ -20741,6 +20749,29 @@ async function renderDaily(ctx, root, opts = {}) {
   const autoSaveStates = new Map();
   const autoSaveErrorState = { lastShownAt: 0 };
   const suppressedAutoSaveScopes = new Set();
+
+  const cancelScheduledAutoSave = (consigneId) => {
+    if (!consigneId) {
+      return;
+    }
+    try {
+      const state = autoSaveStates.get(consigneId);
+      if (state && state.timeout) {
+        clearTimeout(state.timeout);
+        state.timeout = null;
+      }
+    } catch (_) {}
+    autoSaveStates.delete(consigneId);
+  };
+
+  const purgeObservedValue = (consigneId) => {
+    if (!consigneId) {
+      return;
+    }
+    try {
+      observedValues.delete(consigneId);
+    } catch (_) {}
+  };
 
   const resolveAutoSaveScopeKey = (consigneId, scopeDayKey = dayKey) => {
     const safeConsigneId = typeof consigneId === "string" || typeof consigneId === "number"
