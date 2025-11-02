@@ -18115,7 +18115,10 @@ async function openHistory(ctx, consigne, options = {}) {
         });
       } catch (_) {}
     };
-    const updateDailyPrefillCacheForHistoryEdit = (nextValue) => {
+    const updateDailyPrefillCacheForHistoryEdit = (nextValue, options = {}) => {
+      const opts = options && typeof options === "object" && !Array.isArray(options) ? options : {};
+      const entryOverride = opts.entry && typeof opts.entry === "object" ? opts.entry : null;
+      const removeEntry = opts.remove === true;
       const hasContent = (() => {
         if (nextValue === null || nextValue === undefined) {
           return false;
@@ -18132,6 +18135,56 @@ async function openHistory(ctx, consigne, options = {}) {
           );
         }
       })();
+      if (!dayKey) {
+        if (!hasContent) {
+          previousAnswers.delete(consigne.id);
+        } else if (nextValue !== undefined) {
+          const base = previousAnswers.get(consigne.id) || { consigneId: consigne.id };
+          const entry = {
+            ...base,
+            consigneId: consigne.id,
+            value: nextValue,
+            dayKey,
+            updatedAt: new Date().toISOString(),
+          };
+          delete entry.__serialized;
+          previousAnswers.set(consigne.id, entry);
+        }
+        return;
+      }
+
+      let storeEntry = null;
+      try {
+        storeEntry = historyStoreGetEntry(consigne.id, dayKey);
+      } catch (_) {
+        storeEntry = null;
+      }
+
+      const shouldSkipPrefill = (() => {
+        if (removeEntry || entryOverride) {
+          return false;
+        }
+        if (!storeEntry) {
+          return false;
+        }
+        if (Object.prototype.hasOwnProperty.call(storeEntry, "value") && nextValue !== null && nextValue !== undefined) {
+          try {
+            const existingSerialized = serializeValueForComparison(consigne, storeEntry.value);
+            const nextSerialized = serializeValueForComparison(consigne, nextValue);
+            if (existingSerialized && nextSerialized && existingSerialized !== nextSerialized) {
+              return true;
+            }
+          } catch (_) {}
+        } else if (!Object.prototype.hasOwnProperty.call(storeEntry, "value")) {
+          return true;
+        }
+        return false;
+      })();
+
+      if (shouldSkipPrefill) {
+        return;
+      }
+
       if (!hasContent) {
         previousAnswers.delete(consigne.id);
       } else if (nextValue !== undefined) {
@@ -18146,9 +18199,7 @@ async function openHistory(ctx, consigne, options = {}) {
         delete entry.__serialized;
         previousAnswers.set(consigne.id, entry);
       }
-      if (!dayKey) {
-        return;
-      }
+
       try {
         const escapeConsigneId =
           typeof CSS !== "undefined" && typeof CSS.escape === "function"
@@ -18184,7 +18235,10 @@ async function openHistory(ctx, consigne, options = {}) {
       const entryOverride = opts.entry || null;
       const removeEntry = opts.remove === true;
       try {
-        updateDailyPrefillCacheForHistoryEdit(nextValue);
+        updateDailyPrefillCacheForHistoryEdit(nextValue, {
+          entry: entryOverride,
+          remove: removeEntry,
+        });
       } catch (_) {}
       const normalizedValue = nextValue === undefined ? null : nextValue;
       const context = {
