@@ -11592,6 +11592,15 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         responseId: responseSyncOptions?.responseId || null,
       });
 
+      let timelinePreviewEntries = [];
+      try {
+        timelinePreviewEntries = HistoryStore && typeof HistoryStore.getEntries === "function"
+          ? HistoryStore.getEntries(consigne.id) || []
+          : [];
+      } catch (_) {
+        timelinePreviewEntries = [];
+      }
+
       await runWithAutoSaveSuppressed(consigne.id, runDayKey, async () => {
         await Schema.saveHistoryEntry(
           ctx.db,
@@ -11629,20 +11638,39 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           bufferHistoryEntry(consigne.id, storeRecord, scopeDayKey || runDayKey);
         } catch (_) {}
 
-        if (typeof syncDailyRowFromHistory === "function") {
+        const effectiveEntryForRow = storeRecord || (parentHasValue ? {
+          dayKey: scopeDayKey || runDayKey,
+          normalizedDayKey: scopeDayKey || runDayKey,
+          value: rawValue,
+          historyId: effectiveHistoryId,
+          responseId: resolvedResponseId,
+        } : null);
+
+        applyTransientRowUpdate(consigne, scopeDayKey || runDayKey, effectiveEntryForRow, row);
+        if (typeof refreshConsigneTimelineWithRows === "function") {
           try {
-            syncDailyRowFromHistory(consigne.id, scopeDayKey || runDayKey, {
-              entry: storeRecord,
-              fallbackDayKey: resolvedDayKey,
-              silent: true,
-              transient: true,
-            });
+            let previewEntries = Array.isArray(timelinePreviewEntries)
+              ? timelinePreviewEntries.slice()
+              : [];
+            const normalizedTargetKey = normalizeHistoryDayKey(scopeDayKey || runDayKey);
+            previewEntries = previewEntries.filter((entry) => normalizeHistoryDayKey(entry?.dayKey) !== normalizedTargetKey);
+            if (effectiveEntryForRow) {
+              previewEntries.unshift(effectiveEntryForRow);
+            }
+              refreshConsigneTimelineWithRows(consigne, previewEntries);
           } catch (_) {}
         }
 
-        applyTransientRowUpdate(consigne, scopeDayKey || runDayKey, storeRecord, row);
-
         for (const { state, value, hasValue } of childResults) {
+          let childTimelinePreview = [];
+          try {
+            childTimelinePreview = HistoryStore && typeof HistoryStore.getEntries === "function"
+              ? HistoryStore.getEntries(state?.consigne?.id) || []
+              : [];
+          } catch (_) {
+            childTimelinePreview = [];
+          }
+          const normalizedChildTimelineKey = normalizeHistoryDayKey(scopeDayKey || runDayKey);
           const childConsigneId = state?.consigne?.id;
           if (!childConsigneId) {
             continue;
@@ -11765,9 +11793,11 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             applyTransientRowUpdate({ id: childId }, scopeDayKey || runDayKey, record);
             if (typeof refreshConsigneTimelineWithRows === "function") {
               try {
-                const childEntries = HistoryStore && typeof HistoryStore.getEntries === "function"
-                  ? HistoryStore.getEntries(childId)
+                let childEntries = Array.isArray(childTimelinePreview)
+                  ? childTimelinePreview.slice()
                   : [];
+                childEntries = childEntries.filter((entry) => normalizeHistoryDayKey(entry?.dayKey) !== normalizedChildTimelineKey);
+                childEntries.unshift(childRecord);
                 refreshConsigneTimelineWithRows(consigneInfo, childEntries);
               } catch (_) {}
             }
@@ -11777,9 +11807,10 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             applyTransientRowUpdate({ id: childId }, scopeDayKey || runDayKey, null);
             if (typeof refreshConsigneTimelineWithRows === "function") {
               try {
-                const childEntries = HistoryStore && typeof HistoryStore.getEntries === "function"
-                  ? HistoryStore.getEntries(childId)
+                let childEntries = Array.isArray(childTimelinePreview)
+                  ? childTimelinePreview.slice()
                   : [];
+                childEntries = childEntries.filter((entry) => normalizeHistoryDayKey(entry?.dayKey) !== normalizedChildTimelineKey);
                 refreshConsigneTimelineWithRows(consigneInfo, childEntries);
               } catch (_) {}
             }
