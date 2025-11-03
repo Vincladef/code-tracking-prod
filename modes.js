@@ -14581,6 +14581,7 @@ function applyHistoryEntryToRow(consigne, dayKey, entry, options = {}) {
   const fallbackDayKey = typeof opts.fallbackDayKey === "string" ? opts.fallbackDayKey : null;
   const providedRow = opts.row instanceof HTMLElement ? opts.row : null;
   const hasEntryPayload = Boolean(entry && typeof entry === "object" && Object.prototype.hasOwnProperty.call(entry, "value"));
+  const transientUpdate = opts.transient === true;
 
   const rawConsigneId = consigne?.id ?? providedRow?.dataset?.consigneId ?? null;
   if (rawConsigneId == null) {
@@ -14654,7 +14655,10 @@ function applyHistoryEntryToRow(consigne, dayKey, entry, options = {}) {
   const value = hasEntryPayload ? entry.value : null;
 
   try {
-    setConsigneRowValue(row, consigne, value, { silent, hasHistoryEntry: hasEntryPayload });
+    setConsigneRowValue(row, consigne, value, {
+      silent,
+      hasHistoryEntry: hasEntryPayload || transientUpdate,
+    });
   } catch (error) {
     modesLogger?.warn?.("history.apply.set", {
       consigneId: rawConsigneId,
@@ -14673,7 +14677,7 @@ function applyHistoryEntryToRow(consigne, dayKey, entry, options = {}) {
   }
 
   try {
-    updateConsigneStatusUI(row, consigne, hasEntryPayload ? appliedValue : null);
+    updateConsigneStatusUI(row, consigne, hasEntryPayload || transientUpdate ? appliedValue : null);
   } catch (error) {
     modesLogger?.warn?.("history.apply.status", {
       consigneId: rawConsigneId,
@@ -14689,7 +14693,7 @@ function applyHistoryEntryToRow(consigne, dayKey, entry, options = {}) {
         dayKey: row.dataset?.dayKey || normalizedDayKey || null,
         historyId: historyId || null,
         responseId: responseId || null,
-        value: summarizeHistoryValue(hasEntryPayload ? appliedValue : null),
+        value: summarizeHistoryValue(hasEntryPayload || transientUpdate ? appliedValue : null),
       },
     });
   } catch (_) {}
@@ -17677,6 +17681,7 @@ async function openHistory(ctx, consigne, options = {}) {
             row: dailyRow,
             silent: true,
             fallbackDayKey: dayKey || null,
+            transient: true,
           });
         } finally {
           popPrefillDebugContext();
