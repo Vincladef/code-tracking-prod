@@ -11451,7 +11451,15 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
             );
             if (dailyRow) {
-              setConsigneRowValue(dailyRow, consigne, "");
+              const consigneShape = {
+                id: consigne?.id ?? null,
+                type: inferConsigneTypeFromRow(dailyRow, consigne?.id ?? null),
+              };
+              applyHistoryEntryToRow(consigneShape, dayKeyToClear || dailyRow.dataset?.dayKey || "", null, {
+                row: dailyRow,
+                silent: true,
+                fallbackDayKey: dayKeyToClear || null,
+              });
               clearConsigneSummaryMetadata(dailyRow);
             }
           } catch (_) {}
@@ -12463,7 +12471,15 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
             );
             if (dailyRow) {
-              setConsigneRowValue(dailyRow, consigne, "");
+              const consigneShape = {
+                id: consigne?.id ?? null,
+                type: inferConsigneTypeFromRow(dailyRow, consigne?.id ?? null),
+              };
+              applyHistoryEntryToRow(consigneShape, dayKeyToClear || dailyRow.dataset?.dayKey || "", null, {
+                row: dailyRow,
+                silent: true,
+                fallbackDayKey: dayKeyToClear || null,
+              });
               clearConsigneSummaryMetadata(dailyRow);
             }
           } catch (_) {}
@@ -14512,6 +14528,124 @@ function setConsigneRowValue(row, consigne, value, options = {}) {
   maintainOrClearSkip(hasAnswer);
 }
 
+function applyHistoryEntryToRow(consigne, dayKey, entry, options = {}) {
+  if (!consigne) {
+    return;
+  }
+  const opts = options && typeof options === "object" ? options : {};
+  const silent = opts.silent === true;
+  const fallbackDayKey = typeof opts.fallbackDayKey === "string" ? opts.fallbackDayKey : null;
+  const providedRow = opts.row instanceof HTMLElement ? opts.row : null;
+
+  const rawConsigneId = consigne?.id ?? providedRow?.dataset?.consigneId ?? null;
+  if (rawConsigneId == null) {
+    return;
+  }
+
+  const resolveKey = (source) => {
+    if (!source) return "";
+    const normalized = normalizeHistoryDayKey(source);
+    if (normalized) return normalized;
+    if (typeof source === "string" && source.trim()) {
+      return source.trim();
+    }
+    return "";
+  };
+
+  const entryDayKey = entry && typeof entry === "object"
+    ? resolveKey(
+        entry.normalizedDayKey ||
+          entry.dayKey ||
+          entry.dateKey ||
+          entry.date ||
+          (entry.metadata && (entry.metadata.dayKey || entry.metadata.dateKey)) ||
+          null,
+      )
+    : "";
+  const normalizedDayKey = resolveKey(dayKey) || entryDayKey || resolveKey(fallbackDayKey);
+
+  let row = providedRow;
+  if (!(row instanceof HTMLElement)) {
+    const selector = normalizedDayKey
+      ? `[data-consigne-id="${escapeSelectorToken(rawConsigneId)}"][data-day-key="${escapeSelectorToken(normalizedDayKey)}"]`
+      : `[data-consigne-id="${escapeSelectorToken(rawConsigneId)}"]`;
+    try {
+      row = document.querySelector(selector);
+    } catch (error) {
+      row = null;
+    }
+    if (!(row instanceof HTMLElement)) {
+      return;
+    }
+  }
+
+  if (normalizedDayKey) {
+    try {
+      row.dataset.dayKey = normalizedDayKey;
+    } catch (_) {}
+  }
+
+  const historyId = entry ? resolveHistoryDocumentId(entry, normalizedDayKey || "") : "";
+  const responseId = entry ? resolveHistoryResponseId(entry, "") : "";
+  try {
+    if (historyId) {
+      row.dataset.historyId = String(historyId);
+    } else {
+      delete row.dataset.historyId;
+    }
+  } catch (_) {}
+  try {
+    if (responseId) {
+      row.dataset.responseId = String(responseId);
+    } else {
+      delete row.dataset.responseId;
+    }
+  } catch (_) {}
+
+  if (row.dataset?.historyPending === "1") {
+    delete row.dataset.historyPending;
+  }
+
+  const value = entry && Object.prototype.hasOwnProperty.call(entry, "value") ? entry.value : null;
+
+  try {
+    setConsigneRowValue(row, consigne, value, { silent });
+  } catch (error) {
+    modesLogger?.warn?.("history.apply.set", {
+      consigneId: rawConsigneId,
+      dayKey: normalizedDayKey || null,
+      message: String(error?.message || error),
+    });
+  }
+
+  let appliedValue = value;
+  try {
+    appliedValue = readConsigneCurrentValue(consigne, row);
+  } catch (_) {}
+
+  try {
+    updateConsigneStatusUI(row, consigne, appliedValue);
+  } catch (error) {
+    modesLogger?.warn?.("history.apply.status", {
+      consigneId: rawConsigneId,
+      dayKey: normalizedDayKey || null,
+      message: String(error?.message || error),
+    });
+  }
+
+  try {
+    logConsigneSnapshot("daily.row.apply", consigne, {
+      row,
+      extra: {
+        dayKey: row.dataset?.dayKey || normalizedDayKey || null,
+        historyId: historyId || null,
+        responseId: responseId || null,
+        value: summarizeHistoryValue(appliedValue),
+      },
+    });
+  } catch (_) {}
+}
+
 function attachConsigneEditor(row, consigne, options = {}) {
   if (!row || !consigne) return;
   const trigger = options.trigger || row.querySelector("[data-consigne-open]");
@@ -14798,7 +14932,27 @@ function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
   const emit = (value) => {
     const statusValue = mapValueForStatus(value);
     if (onChange) onChange(value);
-    updateConsigneStatusUI(row, consigne, statusValue);
+    let valueForStatus = statusValue;
+    try {
+      const resolvedDayKey = normalizeHistoryDayKey(
+        row?.dataset?.dayKey ||
+          (typeof window !== "undefined" && window.AppCtx && typeof window.AppCtx.dateIso === "string"
+            ? window.AppCtx.dateIso
+            : ""),
+      );
+      if (consigne?.id != null && resolvedDayKey) {
+        try {
+          ensureHistoryStoreContext();
+          const storeEntry = historyStoreGetEntry(consigne.id, resolvedDayKey);
+          if (storeEntry && Object.prototype.hasOwnProperty.call(storeEntry, "value")) {
+            valueForStatus = storeEntry.value;
+          }
+        } catch (_) {
+          valueForStatus = statusValue;
+        }
+      }
+    } catch (_) {}
+    updateConsigneStatusUI(row, consigne, valueForStatus);
   };
   const read = () => readConsigneCurrentValue(consigne, row);
   if (initialValue !== undefined) {
@@ -15951,10 +16105,9 @@ function syncDailyRowFromHistory(consigneId, dayKey, { entry, fallbackDayKey, si
   const normalized = normalizeHistoryDayKey(dayKey);
   const fallback = fallbackDayKey ? normalizeHistoryDayKey(fallbackDayKey) : "";
   const effectiveKey = normalized || fallback;
-  if (!effectiveKey) {
-    return;
-  }
-  const selector = `[data-consigne-id="${escapeSelectorToken(consigneId)}"][data-day-key="${escapeSelectorToken(effectiveKey)}"]`;
+  const selector = effectiveKey
+    ? `[data-consigne-id="${escapeSelectorToken(consigneId)}"][data-day-key="${escapeSelectorToken(effectiveKey)}"]`
+    : `[data-consigne-id="${escapeSelectorToken(consigneId)}"]`;
   let dailyRow = null;
   try {
     dailyRow = document.querySelector(selector);
@@ -15964,37 +16117,39 @@ function syncDailyRowFromHistory(consigneId, dayKey, { entry, fallbackDayKey, si
   if (!(dailyRow instanceof HTMLElement)) {
     return;
   }
-  try {
-    if (dailyRow.dataset?.historyPending) {
-      delete dailyRow.dataset.historyPending;
-    }
-  } catch (_) {}
+
   let record = entry || null;
   if (!record) {
     try {
-      record = historyStoreGetEntry(consigneId, normalized || effectiveKey);
+      record = historyStoreGetEntry(consigneId, normalized || effectiveKey || dayKey || "");
     } catch (_) {
       record = null;
     }
   }
-  const consigne = { id: consigneId, type: inferConsigneTypeFromRow(dailyRow, consigneId) };
-  const value = record && Object.prototype.hasOwnProperty.call(record, "value") ? record.value : "";
-  setConsigneRowValue(dailyRow, consigne, value, { silent });
-  clearConsigneSummaryMetadata(dailyRow);
+
+  const consigneShape = {
+    id: consigneId,
+    type: inferConsigneTypeFromRow(dailyRow, consigneId),
+  };
+
+  applyHistoryEntryToRow(consigneShape, effectiveKey || normalized || dayKey || dailyRow.dataset?.dayKey || "", record, {
+    row: dailyRow,
+    silent,
+    fallbackDayKey: fallbackDayKey || normalized || dayKey || null,
+  });
+
+  const summaryData = normalizeSummaryMetadataInput(record);
+  if (summaryData) {
+    setConsigneSummaryMetadata(dailyRow, summaryData);
+  } else {
+    clearConsigneSummaryMetadata(dailyRow);
+  }
+
   try {
-    updateConsigneStatusUI(dailyRow, consigne, record || value);
-  } catch (_) {}
-  triggerConsigneRowUpdateHighlight(dailyRow);
-  try {
-    if (!dailyRow.dataset?.dayKey && (normalized || effectiveKey)) {
-      dailyRow.dataset.dayKey = normalized || effectiveKey;
-    }
-  } catch (_) {}
-  try {
-    logConsigneSnapshot("daily.row.sync", consigne, {
+    logConsigneSnapshot("daily.row.sync", consigneShape, {
       row: dailyRow,
       extra: {
-        effectiveDayKey: effectiveKey,
+        effectiveDayKey: effectiveKey || normalized || dayKey || dailyRow.dataset?.dayKey || null,
         incomingDayKey: dayKey,
         entrySummary: summarizeHistoryEntry(record || null),
       },
@@ -17457,11 +17612,26 @@ async function openHistory(ctx, consigne, options = {}) {
         };
         pushPrefillDebugContext(context);
         try {
-          setConsigneRowValue(dailyRow, consigne, valueToApply);
+          const consigneShape = {
+            id: consigne?.id ?? null,
+            type: inferConsigneTypeFromRow(dailyRow, consigne?.id ?? null),
+          };
+          const tempEntry = valueToApply === null
+            ? null
+            : {
+                value: valueToApply,
+                dayKey,
+                normalizedDayKey: normalizeHistoryDayKey(dayKey),
+                consigneId: consigneShape.id,
+              };
+          applyHistoryEntryToRow(consigneShape, dayKey || dailyRow.dataset?.dayKey || "", tempEntry, {
+            row: dailyRow,
+            silent: true,
+            fallbackDayKey: dayKey || null,
+          });
         } finally {
           popPrefillDebugContext();
         }
-        triggerConsigneRowUpdateHighlight(dailyRow);
       } catch (_) {}
     };
     const labelForAttr3 = consigne.type === "checklist" ? "" : ` for="${fieldId}"`;
@@ -20200,9 +20370,8 @@ async function renderDaily(ctx, root, opts = {}) {
   };
 
   const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
-    let initialValue = null;
-    let hasPrevValue = false;
     let previousEntry = null;
+    let initialFormValue = null;
     if (item?.id != null) {
       const bufferedEntry = consumeBufferedHistoryEntry(item.id, normalizedCurrentDayKey);
       try {
@@ -20211,24 +20380,11 @@ async function renderDaily(ctx, root, opts = {}) {
           : historyStoreGetEntry(item.id, normalizedCurrentDayKey);
         if (historyEntry && Object.prototype.hasOwnProperty.call(historyEntry, "value")) {
           previousEntry = historyEntry;
-          initialValue = historyEntry.value;
-          if (item.type === "checklist") {
-            hasPrevValue = hasChecklistResponse(item, null, initialValue);
-          } else {
-            try {
-              hasPrevValue = hasValueForConsigne(item, initialValue);
-            } catch (_) {
-              hasPrevValue = !(
-                initialValue === null ||
-                initialValue === undefined ||
-                (typeof initialValue === "string" && initialValue === "")
-              );
-            }
-          }
+          initialFormValue = historyEntry.value;
         }
       } catch (_) {
-        hasPrevValue = false;
-        initialValue = null;
+        previousEntry = null;
+        initialFormValue = null;
       }
     }
     const row = document.createElement("div");
@@ -20313,7 +20469,7 @@ async function renderDaily(ctx, root, opts = {}) {
     setupConsignePriorityMenu(row, item, ctx);
     const holder = row.querySelector("[data-consigne-input-holder]");
     if (holder) {
-      holder.innerHTML = inputForType(item, previousEntry?.value ?? null, { pageContext });
+      holder.innerHTML = inputForType(item, initialFormValue, { pageContext });
       enhanceRangeMeters(holder);
       initializeChecklistScope(holder, { consigneId: item?.id ?? null });
       ensureConsigneSkipField(row, item);
@@ -20413,6 +20569,27 @@ async function renderDaily(ctx, root, opts = {}) {
         },
       },
     }));
+
+    let initialValue = initialFormValue;
+    try {
+      const targetDayKey = normalizedCurrentDayKey || dayKey || row.dataset?.dayKey || fallbackDayKey || "";
+      applyHistoryEntryToRow(item, targetDayKey, previousEntry, {
+        row,
+        silent: true,
+        fallbackDayKey: fallbackDayKey || dayKey || normalizedCurrentDayKey || null,
+      });
+      try {
+        initialValue = readConsigneCurrentValue(item, row);
+      } catch (_) {
+        initialValue = previousEntry?.value ?? null;
+      }
+    } catch (error) {
+      modesLogger?.warn?.("daily.render.apply", {
+        consigneId: item?.id ?? null,
+        message: String(error?.message || error),
+      });
+      initialValue = previousEntry?.value ?? null;
+    }
 
     const editorConfig = { variant: "modal", ...(editorOptions || {}) };
     if (!deferEditor) {
@@ -20519,26 +20696,7 @@ async function renderDaily(ctx, root, opts = {}) {
       } catch (_) {
         historyEntry = null;
       }
-      let hasPrevValue = false;
-      let initialValue = null;
-      if (historyEntry && Object.prototype.hasOwnProperty.call(historyEntry, "value")) {
-        initialValue = historyEntry.value;
-        if (child.type === "checklist") {
-          hasPrevValue = hasChecklistResponse(child, null, initialValue);
-        } else {
-          try {
-            hasPrevValue = hasValueForConsigne(child, initialValue);
-          } catch (_) {
-            hasPrevValue = !(
-              initialValue === null ||
-              initialValue === undefined ||
-              (typeof initialValue === "string" && initialValue === "")
-            );
-          }
-        }
-      }
-      const effectiveInitialValue = hasPrevValue ? initialValue : null;
-      const childRow = createHiddenConsigneRow(child, { initialValue: effectiveInitialValue });
+      const childRow = createHiddenConsigneRow(child, { initialValue: historyEntry?.value ?? null });
       childRow.dataset.parentId = child.parentId || group.consigne.id || "";
       childRow.draggable = false;
       parentCard.appendChild(childRow);
@@ -20548,8 +20706,29 @@ async function renderDaily(ctx, root, opts = {}) {
       } else {
         clearConsigneSummaryMetadata(childRow);
       }
+      let childInitialValue = historyEntry?.value ?? null;
+      try {
+        const targetDayKey = normalizedCurrentDayKey || dayKey || childRow.dataset?.dayKey || null;
+        applyHistoryEntryToRow(child, targetDayKey, historyEntry, {
+          row: childRow,
+          silent: true,
+          fallbackDayKey: dayKey || normalizedCurrentDayKey || null,
+        });
+        try {
+          childInitialValue = readConsigneCurrentValue(child, childRow);
+        } catch (_) {
+          childInitialValue = historyEntry?.value ?? null;
+        }
+      } catch (error) {
+        modesLogger?.warn?.("daily.render.child.apply", {
+          consigneId: child?.id ?? null,
+          parentId: group?.consigne?.id ?? null,
+          message: String(error?.message || error),
+        });
+        childInitialValue = historyEntry?.value ?? null;
+      }
       bindConsigneRowValue(childRow, child, {
-        initialValue: effectiveInitialValue,
+        initialValue: childInitialValue,
         onChange: (value) => {
           const normalizedValue = normalizeConsigneValueForPersistence(child, childRow, value);
           const baseSerialized = serializeValueForComparison(child, normalizedValue);
