@@ -11557,6 +11557,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         const iso = now instanceof Date && !Number.isNaN(now.getTime()) ? now.toISOString().slice(0, 10) : "";
         return iso || "";
       })();
+      const dispatchDayKey = scopeDayKey || runDayKey || resolvedDayKey || writeHistoryId || dayKey || "";
       let storeRecord = null;
       const childStoreRecords = [];
 
@@ -11623,7 +11624,6 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         );
 
         const effectiveHistoryId = writeHistoryId || scopeDayKey || runDayKey;
-        const dispatchDayKey = scopeDayKey || runDayKey || resolvedDayKey || writeHistoryId || dayKey || "";
         if (parentHasValue) {
           storeRecord = {
             dayKey: scopeDayKey || runDayKey,
@@ -11830,20 +11830,21 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         }
         childStoreRecords.forEach(({ id: childId, record, consigne: childConsigne }) => {
           const consigneInfo = childConsigne || { id: childId };
+          const latestChildEntries = (() => {
+            if (HistoryStore && typeof HistoryStore.getEntries === "function") {
+              try {
+                return HistoryStore.getEntries(childId) || [];
+              } catch (_) {
+                return [];
+              }
+            }
+            return [];
+          })();
+
           if (record) {
             applyDailyPrefillUpdate(childId, dispatchDayKey, record.value, { entry: record, silent: false });
             dispatchHistoryUpdateEvent({ consigneId: childId, dayKey: dispatchDayKey, entry: record, silent: false });
-            applyTransientRowUpdate({ id: childId }, dispatchDayKey, record);
-            if (typeof refreshConsigneTimelineWithRows === "function") {
-              try {
-                let childEntries = Array.isArray(childTimelinePreview)
-                  ? childTimelinePreview.slice()
-                  : [];
-                childEntries = childEntries.filter((entry) => normalizeHistoryDayKey(entry?.dayKey) !== normalizedChildTimelineKey);
-                childEntries.unshift(record);
-                refreshConsigneTimelineWithRows(consigneInfo, childEntries);
-              } catch (_) {}
-            }
+            applyTransientRowUpdate(consigneInfo, dispatchDayKey, record);
             if (typeof syncDailyRowFromHistory === "function") {
               try {
                 syncDailyRowFromHistory(childId, dispatchDayKey, {
@@ -11857,16 +11858,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           } else {
             applyDailyPrefillUpdate(childId, dispatchDayKey, "", { remove: true, silent: false });
             dispatchHistoryUpdateEvent({ consigneId: childId, dayKey: dispatchDayKey, entry: null, silent: false });
-            applyTransientRowUpdate({ id: childId }, dispatchDayKey, null);
-            if (typeof refreshConsigneTimelineWithRows === "function") {
-              try {
-                let childEntries = Array.isArray(childTimelinePreview)
-                  ? childTimelinePreview.slice()
-                  : [];
-                childEntries = childEntries.filter((entry) => normalizeHistoryDayKey(entry?.dayKey) !== normalizedChildTimelineKey);
-                refreshConsigneTimelineWithRows(consigneInfo, childEntries);
-              } catch (_) {}
-            }
+            applyTransientRowUpdate(consigneInfo, dispatchDayKey, null);
             if (typeof syncDailyRowFromHistory === "function") {
               try {
                 syncDailyRowFromHistory(childId, dispatchDayKey, {
@@ -11877,6 +11869,12 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
                 });
               } catch (_) {}
             }
+          }
+
+          if (typeof refreshConsigneTimelineWithRows === "function") {
+            try {
+              refreshConsigneTimelineWithRows(consigneInfo, latestChildEntries);
+            } catch (_) {}
           }
         });
 
