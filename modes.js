@@ -42,6 +42,29 @@ const HISTORY_EVENT_NAME = "history:entry-updated";
 
 const CONSIGNE_LOG_PREFIX = "[consigne-visual]";
 
+const STATUS_COLOR_NAMES = {
+  "ok-strong": "vert foncé",
+  "ok-soft": "vert",
+  mid: "jaune",
+  "ko-soft": "orange",
+  "ko-strong": "rouge",
+  note: "bleu",
+  na: "gris",
+};
+
+const describeStatusColor = (status) => {
+  if (!status) return "(aucune couleur)";
+  return STATUS_COLOR_NAMES[status] || status;
+};
+
+const extractStatusFromDotClass = (className) => {
+  if (typeof className !== "string" || !className.length) {
+    return "";
+  }
+  const match = className.match(/consigne-row__dot--([a-z-]+)/);
+  return match ? match[1] : "";
+};
+
 const extractNodeText = (node) => {
   try {
     if (!node) return "";
@@ -16205,6 +16228,8 @@ function syncDailyRowFromHistory(consigneId, dayKey, { entry, fallbackDayKey, si
         effectiveDayKey: effectiveKey || normalized || dayKey || dailyRow.dataset?.dayKey || null,
         incomingDayKey: dayKey,
         entrySummary: summarizeHistoryEntry(record || null),
+      titleColor: describeStatusColor(dailyRow?.dataset?.status || null),
+      dotColor: describeStatusColor(extractStatusFromDotClass(dailyRow.querySelector?.('[data-status-dot]')?.className || null)),
       },
     });
   } catch (_) {}
@@ -16248,6 +16273,22 @@ if (typeof window !== "undefined" && !window.__historyEntryUpdatedBound) {
               type: inferConsigneTypeFromRow(targetRow, consigneId),
               text: targetRow.querySelector?.("[data-consigne-title]")?.textContent || "",
             };
+            try {
+              const titleStatus = targetRow?.dataset?.status || null;
+              const dotClass = targetRow.querySelector?.('[data-status-dot]')?.className || null;
+              const dotStatus = extractStatusFromDotClass(dotClass);
+              logConsigneSnapshot("daily.row.post-event", consigneShape, {
+                row: targetRow,
+                extra: {
+                  dayKey: targetDayKey,
+                  status: titleStatus,
+                  dotClass,
+                  titleColor: describeStatusColor(titleStatus),
+                  dotColor: describeStatusColor(dotStatus),
+                  transient: detail.transient === true,
+                },
+              });
+            } catch (_) {}
             refreshConsigneTimelineWithRows(consigneShape, entries);
           }
         } catch (_) {}
@@ -17685,13 +17726,18 @@ async function openHistory(ctx, consigne, options = {}) {
             transient: true,
           });
           try {
+            const titleStatus = dailyRow?.dataset?.status || null;
+            const dotClass = dailyRow.querySelector?.('[data-status-dot]')?.className || null;
+            const dotStatus = extractStatusFromDotClass(dotClass);
             logConsigneSnapshot("daily.row.apply.transient", consigneShape, {
               row: dailyRow,
               extra: {
                 dayKey,
                 transient: true,
-                status: dailyRow?.dataset?.status || null,
-                dotClass: dailyRow.querySelector?.('[data-status-dot]')?.className || null,
+                status: titleStatus,
+                dotClass,
+                titleColor: describeStatusColor(titleStatus),
+                dotColor: describeStatusColor(dotStatus),
                 action: valueToApply === null ? "clear" : "apply",
               },
             });
@@ -18014,12 +18060,17 @@ async function openHistory(ctx, consigne, options = {}) {
                 `[data-consigne-id="${CSS.escape(String(consigne.id ?? ""))}"][data-day-key="${CSS.escape(String(resolvedDayKey || scopeDayKey || ""))}"]`
               );
               if (dailyRow) {
+              const titleStatus = dailyRow?.dataset?.status || null;
+              const dotClass = dailyRow.querySelector?.('[data-status-dot]')?.className || null;
+              const dotStatus = extractStatusFromDotClass(dotClass);
                 logConsigneSnapshot("daily.row.apply.save", consigne, {
                   row: dailyRow,
                   extra: {
                     dayKey: resolvedDayKey || scopeDayKey,
-                    status: dailyRow?.dataset?.status || null,
-                    dotClass: dailyRow.querySelector?.('[data-status-dot]')?.className || null,
+                  status: titleStatus,
+                  dotClass,
+                  titleColor: describeStatusColor(titleStatus),
+                  dotColor: describeStatusColor(dotStatus),
                   },
                 });
               }
