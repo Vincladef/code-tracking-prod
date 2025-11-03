@@ -20011,6 +20011,8 @@ async function renderDaily(ctx, root, opts = {}) {
   };
 
   const runAutoSave = (consigneId) => {
+    // Autosave désactivé: on court-circuite pour s'appuyer uniquement sur l'historique
+    return;
     const state = autoSaveStates.get(consigneId);
     if (!state) return;
     state.timeout = null;
@@ -20222,6 +20224,8 @@ async function renderDaily(ctx, root, opts = {}) {
   runWithAutoSaveSuppressed = runWithAutoSaveSuppressedImpl;
 
   const scheduleAutoSave = (consigne, value, { serialized, hasContent, summary } = {}) => {
+    // Autosave désactivé: on ne planifie plus d'enregistrement automatique
+    return;
     if (!consigne || !consigne.id) return;
     const consigneId = consigne.id;
     const scopeKey = resolveAutoSaveScopeKey(consigneId, dayKey);
