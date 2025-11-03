@@ -13321,6 +13321,12 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
   }
   if (dot) {
     dot.className = `consigne-row__dot consigne-row__dot--${status}`;
+    // Masquer la pastille par défaut si aucune réponse ni historique pour le jour
+    try {
+      const hasHistoryForDay = typeof row?.dataset?.historyId === "string" && row.dataset.historyId.trim().length > 0;
+      const shouldHideDot = status === "na" && !hasOwnAnswer && !hasHistoryForDay;
+      dot.hidden = shouldHideDot ? true : false;
+    } catch (_) {}
   }
   if (mark) {
     const isAnswered = status !== "na";
@@ -15029,6 +15035,13 @@ function hasChecklistResponse(consigne, row, value) {
   if (value && typeof value === "object" && value.__hasAnswer === true) {
     return true;
   }
+  // Si la checklist a des items considérés (même 0% cochés), considérer qu'il y a une réponse
+  try {
+    const stats = deriveChecklistStats(value);
+    if (stats && Number.isFinite(stats.total) && stats.total > 0) {
+      return true;
+    }
+  } catch (_) {}
   if (checklistHasSelection(value)) {
     return true;
   }
@@ -15074,6 +15087,14 @@ function hasValueForConsigne(consigne, value) {
     return typeof value === "string" && value.trim().length > 0;
   }
   if (type === "checklist") {
+    // Réponse présente si au moins un item est considéré (même 0% cochés),
+    // ou si sélection/skip comme auparavant
+    try {
+      const stats = deriveChecklistStats(value);
+      if (stats && Number.isFinite(stats.total) && stats.total > 0) {
+        return true;
+      }
+    } catch (_) {}
     if (checklistHasSelection(value)) {
       return true;
     }
