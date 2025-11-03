@@ -12183,6 +12183,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             { value },
             state.responseSyncOptions,
           );
+          try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, value); } catch (_) {}
           try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
         }
         const childStatus = dotColor(
