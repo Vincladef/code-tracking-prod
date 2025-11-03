@@ -1,39 +1,32 @@
 <!-- c2fb82d2-2ce6-4652-b025-55b42b56c095 6d7d6cab-bc47-42f5-80fd-4ab7d87e5d81 -->
-# Plan Unifier Hydratation Historique
+# Plan Stabiliser affichage historique
 
-1. **Introduire utilitaire central**  
+1. **Tracer le flux complet**  
 
-- Ajouter `applyHistoryEntryToRow(consigne, dayKey, entry, { silent })` dans `modes.js`.  
-- Gérer: normalisation valeur (`entry?.value ?? null`), appel `setConsigneRowValue`, `updateConsigneStatusUI`, mise à jour attributs (`data-status`, `data-history-id`, etc.), logs éventuels.
+- Ajouter/valider des logs ciblant `dispatchHistoryUpdateEvent`, `daily.row.apply`, `HistoryStore.getEntry`.  
+- Vérifier que chaque journal transporte `historyId` et `value` non vides.
 
-2. **Brancher le quotidien sur l’utilitaire**  
+2. **Sécuriser les écritures HistoryStore**  
 
-- Dans `renderItemCard` et `renderGroup`, remplacer l’appel direct à `setConsigneRowValue`/`updateConsigneStatusUI` par `applyHistoryEntryToRow` avec l’entrée récupérée depuis `HistoryStore` ou `latestHistoryBuffer`.
+- Auditer `historyStoreUpsert` et les appels correspondants pour garantir `value` structurée (checklists incluses).  
+- Uniformiser les `dayKey/historyId` avant upsert.
 
-3. **Refondre la synchronisation historique**  
+3. **Forcer la lecture post-save**  
 
-- Dans `syncDailyRowFromHistory`, remplacer la logique actuelle (double appel) par `applyHistoryEntryToRow`.  
-- Dans l’écouteur `HISTORY_EVENT_NAME`, utiliser uniquement `applyHistoryEntryToRow` pour rafraîchir la ligne et supprimer l’appel redondant à `updateConsigneStatusUI`.
+- S’assurer que `historyStoreEnsureEntries(...,{force:true})` est appelé juste après chaque sauvegarde/clear et avant `renderDaily`.  
+- Ajouter un fallback `reloadConsigneHistory` lors de la navigation si l’entrée est manquante.
 
-4. **Assainir les flux parallèles**  
+4. **Nettoyer les chemins résiduels**  
 
-- Adapter ou court-circuiter `bindConsigneRowValue` pour les consignes historisées : soit ne plus relier les handlers, soit faire relire `HistoryStore` avant `updateConsigneStatusUI`.  
-- Vérifier que `refreshConsigneTimelineWithRows` et la timeline utilisent exclusivement les entrées `HistoryStore.getEntries`.
+- Remplacer les derniers `setConsigneRowValue`/`updateConsigneStatusUI` directs par `applyHistoryEntryToRow`.  
+- Supprimer tout fallback `dailyResponses` ou lecture DOM qui écraserait l’état.
 
-5. **Nettoyer les appels superflus**  
+5. **Valider end-to-end**  
 
-- Supprimer l’appel final `updateConsigneStatusUI(dailyRow, consigne, record || value)` et tout code devenu inutile après centralisation.  
-- Confirmer que les checklists vides (structure complète sans cases cochées) conservent `ko-strong` via `applyHistoryEntryToRow`.
+- Tester : edit via pastille, via texte, navigation vers un autre jour → retour sur le jour initial.  
+- Vérifier pastille, titre, timeline, logs pour chaque étape.  
+- Documenter la séquence attendue et les checks automatisables.
 
 ### To-dos
 
-- [ ] Cartographier la génération et la conservation des IDs checklist/sous-consigne dans modes.js, schema.js, utils/checklist-state.js
-- [ ] Implémenter la conservation des IDs checklist & sous-consigne et limiter la régénération
-- [ ] Adapter les fonctions d’hydratation checklist pour s’appuyer sur les IDs stabilisés
-- [ ] Sécuriser les soft deletes et l’accès aux réponses historiques
-- [ ] Mettre à jour/ajouter des tests checklist et valider manuellement
-- [ ] Créer applyHistoryEntryToRow dans modes.js et couvrir normalisation + status
-- [ ] Brancher renderItemCard/renderGroup sur l’utilitaire central
-- [ ] Refactoriser syncDailyRowFromHistory et HISTORY_EVENT listener pour utiliser l’utilitaire
-- [ ] Neutraliser bindConsigneRowValue et garantir timeline via HistoryStore uniquement
-- [ ] Retirer appels redondants et valider comportement checklist 0 case
+- [x] 

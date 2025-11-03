@@ -287,6 +287,23 @@ const dispatchHistoryUpdateEvent = (detail = {}) => {
     return;
   }
   try {
+    try {
+      const payload = {
+        consigneId: detail?.consigneId || detail?.id || null,
+        dayKey: detail?.dayKey || null,
+        hasEntry: Boolean(detail?.entry && typeof detail.entry === "object"),
+        historyId:
+          (detail?.entry &&
+            (detail.entry.historyId || detail.entry.history_id || detail.entry.id || detail.entry.documentId)) ||
+          null,
+        responseId:
+          (detail?.entry &&
+            (detail.entry.responseId || detail.entry.response_id || detail.entry.responseDocId)) ||
+          null,
+        valueSummary: detail?.entry ? summarizeHistoryValue(detail.entry.value) : null,
+      };
+      logChecklistEvent("info", `${CONSIGNE_LOG_PREFIX} dispatch.history`, payload);
+    } catch (_) {}
     window.dispatchEvent(new CustomEvent(HISTORY_EVENT_NAME, { detail }));
   } catch (_) {}
 };
@@ -296,6 +313,20 @@ const historyStoreUpsert = (consigneId, entry) => {
     return null;
   }
   ensureHistoryStoreContext();
+  try {
+    const payload = entry || {};
+    const normalizedKey = normalizeHistoryDayKey(
+      payload.normalizedDayKey || payload.dayKey || payload.dateKey || payload.date || null,
+    );
+    const summary = summarizeHistoryValue(payload?.value);
+    logChecklistEvent("info", `${CONSIGNE_LOG_PREFIX} history.store.upsert`, {
+      consigneId,
+      dayKey: normalizedKey || payload?.dayKey || null,
+      historyId: payload?.historyId || payload?.id || null,
+      responseId: payload?.responseId || null,
+      valueSummary: summary,
+    });
+  } catch (_) {}
   return HistoryStore.upsert(consigneId, entry || {});
 };
 
@@ -321,7 +352,17 @@ const historyStoreGetEntry = (consigneId, dayKey) => {
     return null;
   }
   ensureHistoryStoreContext();
-  return HistoryStore.getEntry(consigneId, dayKey);
+  const entry = HistoryStore.getEntry(consigneId, dayKey);
+  try {
+    logChecklistEvent("info", `${CONSIGNE_LOG_PREFIX} history.store.get`, {
+      consigneId,
+      dayKey,
+      found: Boolean(entry),
+      historyId: entry ? entry.historyId || entry.id || null : null,
+      valueSummary: entry ? summarizeHistoryValue(entry.value) : null,
+    });
+  } catch (_) {}
+  return entry;
 };
 
 const historyStoreEnsureEntries = async (consigneId, options = {}) => {
@@ -17848,6 +17889,19 @@ async function openHistory(ctx, consigne, options = {}) {
       if (clearBtn) clearBtn.disabled = true;
       try {
         const rawValue = readConsigneValueFromForm(consigne, form);
+        let canonicalValue = rawValue;
+        if (consigne?.type === "checklist") {
+          try {
+            canonicalValue = buildChecklistValue(consigne, rawValue, rawValue);
+          } catch (_) {
+            canonicalValue = rawValue;
+          }
+        }
+        if (consigne?.type === "long") {
+          try {
+            canonicalValue = normalizeRichTextValue(rawValue);
+          } catch (_) {}
+        }
         const note = (form.elements.note?.value || '').trim();
         const isRawEmpty = rawValue === '' || rawValue == null;
         try {
@@ -17858,7 +17912,7 @@ async function openHistory(ctx, consigne, options = {}) {
             source,
             isRawEmpty,
             noteLength: note.length,
-            value: summarizeHistoryValue(rawValue),
+            value: summarizeHistoryValue(canonicalValue),
             responseSync: {
               responseId: responseSyncOptions?.responseId || '',
               responseMode: responseSyncOptions?.responseMode || '',
@@ -17883,7 +17937,7 @@ async function openHistory(ctx, consigne, options = {}) {
               consigne.id,
               targetDocId,
               {
-                value: rawValue,
+                value: canonicalValue,
                 note,
               },
               responseSyncOptions
@@ -17893,21 +17947,21 @@ async function openHistory(ctx, consigne, options = {}) {
             const effectiveHistoryId = targetDocId || scopeDayKey;
             syncTimelineAfterPanelChange({
               remove: false,
-              value: rawValue,
+              value: canonicalValue,
               note,
               historyId: effectiveHistoryId,
               responseId: responseSyncOptions?.responseId || "",
             });
             storeRecord = {
               dayKey: resolvedDayKey || scopeDayKey,
-              value: rawValue,
+              value: canonicalValue,
               note,
               historyId: effectiveHistoryId,
               responseId: responseSyncOptions?.responseId || "",
               updatedAt: new Date().toISOString(),
             };
             try {
-              updateDailyPrefillCacheForHistoryEdit(rawValue, { entry: storeRecord });
+              updateDailyPrefillCacheForHistoryEdit(canonicalValue, { entry: storeRecord });
             } catch (_) {}
             try {
               historyStoreUpsert(consigne.id, storeRecord);
@@ -19998,6 +20052,7 @@ async function renderDaily(ctx, root, opts = {}) {
 
   isDailyHydrationLocked = true;
   if (HistoryStore) {
+    const missingEntries = [];
     try {
       ensureHistoryStoreContext(ctx);
       const historyConsigneIds = visibleConsignes.map((consigne) => consigne?.id).filter(Boolean);
@@ -20044,11 +20099,33 @@ async function renderDaily(ctx, root, opts = {}) {
             try {
               observedValues.delete(id);
             } catch (_) {}
+            missingEntries.push(id);
           }
         } finally {
           lockedAutoSaveScopes.delete(scopeKey);
         }
       });
+      if (missingEntries.length) {
+        try {
+          await Promise.all(
+            missingEntries.map((id) =>
+              reloadConsigneHistory(ctx, id, { force: true }).catch(() => []),
+            ),
+          );
+          missingEntries.forEach((id) => {
+            const refreshed = historyStoreGetEntry(id, normalizedCurrentDayKey);
+            if (refreshed && Object.prototype.hasOwnProperty.call(refreshed, "value")) {
+              syncDailyRowFromHistory(id, normalizedCurrentDayKey, {
+                entry: refreshed,
+                fallbackDayKey: dayKey,
+                silent: true,
+              });
+            }
+          });
+        } catch (error) {
+          modesLogger?.warn?.("historyStore:daily:refetch", error);
+        }
+      }
     } catch (error) {
       modesLogger?.warn?.("historyStore:daily:prefill", error);
     }
