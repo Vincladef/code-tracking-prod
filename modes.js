@@ -14371,6 +14371,7 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
 
 function setConsigneRowValue(row, consigne, value, options = {}) {
   const silent = options && options.silent === true;
+  const hasHistoryEntry = options && options.hasHistoryEntry === true;
   const skipWasActive = row?.dataset?.skipAnswered === "1";
   const currentDebugContext = peekPrefillDebugContext();
   try {
@@ -14432,7 +14433,7 @@ function setConsigneRowValue(row, consigne, value, options = {}) {
       `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
     );
     if (!container) {
-      updateConsigneStatusUI(row, consigne, value);
+      updateConsigneStatusUI(row, consigne, hasHistoryEntry ? value : null);
       return;
     }
     const normalizedValue =
@@ -14459,8 +14460,10 @@ function setConsigneRowValue(row, consigne, value, options = {}) {
     }
     const hidden = container.querySelector(`[name="checklist:${String(consigne.id ?? "")}"]`);
     const domState = readChecklistDomState(container);
-    const valueForStatus = normalizedValue || { items: domState.items, skipped: domState.skipped };
-    const hasChecklistAnswer = hasChecklistResponse(consigne, row, valueForStatus);
+    const valueForStatus = hasHistoryEntry
+      ? normalizedValue || { items: domState.items, skipped: domState.skipped }
+      : null;
+    const hasChecklistAnswer = hasHistoryEntry && hasChecklistResponse(consigne, row, valueForStatus);
     if (hidden) {
       if (hasChecklistAnswer) {
         const payload = {
@@ -14509,7 +14512,7 @@ function setConsigneRowValue(row, consigne, value, options = {}) {
       delete row.dataset.checklistHydrationLocalDirty;
       delete row.dataset.checklistDirty;
     }
-    updateConsigneStatusUI(row, consigne, hasChecklistAnswer ? valueForStatus : "");
+    updateConsigneStatusUI(row, consigne, hasChecklistAnswer ? valueForStatus : null);
     maintainOrClearSkip(hasChecklistAnswer);
     return;
   }
@@ -14577,6 +14580,7 @@ function applyHistoryEntryToRow(consigne, dayKey, entry, options = {}) {
   const silent = opts.silent === true;
   const fallbackDayKey = typeof opts.fallbackDayKey === "string" ? opts.fallbackDayKey : null;
   const providedRow = opts.row instanceof HTMLElement ? opts.row : null;
+  const hasEntryPayload = Boolean(entry && typeof entry === "object" && Object.prototype.hasOwnProperty.call(entry, "value"));
 
   const rawConsigneId = consigne?.id ?? providedRow?.dataset?.consigneId ?? null;
   if (rawConsigneId == null) {
@@ -14647,10 +14651,10 @@ function applyHistoryEntryToRow(consigne, dayKey, entry, options = {}) {
     delete row.dataset.historyPending;
   }
 
-  const value = entry && Object.prototype.hasOwnProperty.call(entry, "value") ? entry.value : null;
+  const value = hasEntryPayload ? entry.value : null;
 
   try {
-    setConsigneRowValue(row, consigne, value, { silent });
+    setConsigneRowValue(row, consigne, value, { silent, hasHistoryEntry: hasEntryPayload });
   } catch (error) {
     modesLogger?.warn?.("history.apply.set", {
       consigneId: rawConsigneId,
@@ -14659,13 +14663,17 @@ function applyHistoryEntryToRow(consigne, dayKey, entry, options = {}) {
     });
   }
 
-  let appliedValue = value;
-  try {
-    appliedValue = readConsigneCurrentValue(consigne, row);
-  } catch (_) {}
+  let appliedValue = hasEntryPayload ? value : null;
+  if (!hasEntryPayload) {
+    try {
+      appliedValue = readConsigneCurrentValue(consigne, row);
+    } catch (_) {
+      appliedValue = null;
+    }
+  }
 
   try {
-    updateConsigneStatusUI(row, consigne, appliedValue);
+    updateConsigneStatusUI(row, consigne, hasEntryPayload ? appliedValue : null);
   } catch (error) {
     modesLogger?.warn?.("history.apply.status", {
       consigneId: rawConsigneId,
@@ -14681,7 +14689,7 @@ function applyHistoryEntryToRow(consigne, dayKey, entry, options = {}) {
         dayKey: row.dataset?.dayKey || normalizedDayKey || null,
         historyId: historyId || null,
         responseId: responseId || null,
-        value: summarizeHistoryValue(appliedValue),
+        value: summarizeHistoryValue(hasEntryPayload ? appliedValue : null),
       },
     });
   } catch (_) {}
