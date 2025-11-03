@@ -20065,44 +20065,54 @@ async function renderDaily(ctx, root, opts = {}) {
       return;
     }
 
-      const historyId = (entryOverride.historyId || entryOverride.history_id || entryOverride.id || "").trim();
-      if (!historyId) {
-        return;
-      }
+      const resolvedHistoryId = (() => {
+        const candidates = [
+          entryOverride.historyId,
+          entryOverride.history_id,
+          entryOverride.documentId,
+          entryOverride.document_id,
+          entryOverride.id,
+          canonicalTargetKey,
+          targetDayKey,
+        ];
+        for (const candidate of candidates) {
+          if (typeof candidate === "string" && candidate.trim()) {
+            return candidate.trim();
+          }
+        }
+        return canonicalTargetKey || targetDayKey || "";
+      })();
 
-      let record = null;
+      const upsertPayload = {
+        ...entryOverride,
+        historyId: resolvedHistoryId,
+        dayKey:
+          entryOverride.dayKey ||
+          entryOverride.normalizedDayKey ||
+          canonicalTargetKey ||
+          targetDayKey ||
+          resolvedHistoryId ||
+          "",
+        value: Object.prototype.hasOwnProperty.call(entryOverride, "value")
+          ? entryOverride.value
+          : nextValue,
+      };
+
       try {
         ensureStoreContext();
-        const upsertPayload = {
-          ...entryOverride,
-          historyId,
-          dayKey:
-            entryOverride.dayKey ||
-            entryOverride.normalizedDayKey ||
-            canonicalTargetKey ||
-            targetDayKey || "",
-          value: Object.prototype.hasOwnProperty.call(entryOverride, "value")
-            ? entryOverride.value
-            : nextValue,
-        };
-        record = historyStoreUpsert(consigneId, upsertPayload);
-        bufferHistoryEntry(consigneId, record || upsertPayload, upsertPayload.dayKey || canonicalTargetKey || targetDayKey || "");
+        const record = historyStoreUpsert(consigneId, upsertPayload);
+        bufferHistoryEntry(consigneId, record || upsertPayload, upsertPayload.dayKey || canonicalTargetKey || targetDayKey || resolvedHistoryId || "");
+        dispatchHistoryUpdateEvent({
+          consigneId,
+          dayKey: record?.dayKey || canonicalTargetKey || targetDayKey || resolvedHistoryId || "",
+          entry: record || upsertPayload,
+          silent: explicitSilent,
+        });
+        return record;
       } catch (_) {
         try { historyStoreInvalidate(consigneId); } catch (_) {}
         return;
       }
-
-      if (!record) {
-        return;
-      }
-
-      dispatchHistoryUpdateEvent({
-        consigneId,
-        dayKey: record.dayKey || canonicalTargetKey || targetDayKey || "",
-        entry: record,
-        silent: explicitSilent,
-      });
-      return record;
     };
     // Also expose on window for safety
     try {
