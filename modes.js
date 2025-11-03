@@ -12348,179 +12348,74 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       try {
         const dayKeyToClear = resolvedDayKey || dayKey;
         await runWithAutoSaveSuppressed(consigne?.id, dayKeyToClear, async () => {
-          if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
-            logHistoryDebug("editor.clear.deleteAllResponses", {
-              consigneId: consigne?.id ?? null,
-              dayKey: dayKeyToClear,
-            });
-            try {
-              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
-            } catch (error) {
-              logHistoryDebug("editor.clear.deleteAllResponses.error", {
-                consigneId: consigne?.id ?? null,
-                dayKey: dayKeyToClear,
-                error: String(error?.message || error),
-              }, "error");
-            }
-          }
-          try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) {}
-          try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
-          logHistoryDebug("editor.clear.deleteHistoryEntry", {
-            consigneId: consigne?.id ?? null,
-            dayKey: dayKeyToClear,
-            historyId: historyDocumentId,
-            responseId: responseSyncOptions?.responseId || null,
-          });
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-          // If this entry is a bilan-backed summary, delete the summary answer to avoid reappearance
           try {
             const scope = entry?.summaryScope || entry?.periodScope || "";
             const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
             const answerKey = entry?.summaryKey || "";
             if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
-              logHistoryDebug("editor.clear.deleteSummary", {
-                consigneId: consigne?.id ?? null,
-                dayKey: dayKeyToClear,
-                scope,
-                periodKey,
-                answerKey,
-              });
               await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
             }
           } catch (err) {
             console.error("consigne.history.editor.clear.summaryDelete", err);
           }
-          const status = dotColor(consigne.type, "", consigne) || "na";
-          updateConsigneHistoryTimeline(row, status, {
-            consigne,
-            value: "",
-            dayKey: resolvedDayKey,
-            historyId: historyDocumentId,
-            responseId: responseSyncOptions?.responseId || "",
-            iterationLabel,
-            keepPlaceholder: true,
-            remove: true,
-          });
-          logHistoryDebug("editor.clear.timeline-parent", {
-            consigneId: consigne?.id ?? null,
-            dayKey: resolvedDayKey,
-            status,
-            historyId: historyDocumentId,
-            responseId: responseSyncOptions?.responseId || null,
-          });
-          triggerConsigneRowUpdateHighlight(row);
-          try {
-            applyDailyPrefillUpdate(consigne.id, resolvedDayKey, "", { remove: true, silent: false });
-          } catch (_) {}
-          for (const childState of baseChildStates) {
-            const childConsigneId = childState?.consigne?.id;
-            if (!childConsigneId) {
-              continue;
+        });
+        try {
+          historyStoreRemove(consigne.id, dayKeyToClear);
+        } catch (_) {
+          try { historyStoreInvalidate(consigne.id); } catch (_) {}
+        }
+        try {
+          bufferHistoryEntry(consigne.id, null, dayKeyToClear);
+        } catch (_) {}
+        applyDailyPrefillUpdate(consigne.id, dayKeyToClear, "", { remove: true, silent: false });
+        dispatchHistoryUpdateEvent({
+          consigneId: consigne.id,
+          dayKey: dayKeyToClear,
+          entry: null,
+          silent: false,
+        });
+        for (const childState of baseChildStates) {
+          const childConsigneId = childState?.consigne?.id;
+          if (!childConsigneId) {
+            continue;
+          }
+          await runWithAutoSaveSuppressed(childConsigneId, dayKeyToClear, async () => {
+            await Schema.deleteHistoryEntry(
+              ctx.db,
+              ctx.user.uid,
+              childState.consigne.id,
+              childState.historyDocumentId,
+              childState.responseSyncOptions,
+            );
+            try {
+              const cEntry = childState.entry || null;
+              const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
+              const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
+              const cAnswerKey = cEntry?.summaryKey || "";
+              if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
+              }
+            } catch (err) {
+              console.error("consigne.history.child.clear.summaryDelete", err);
             }
-            await runWithAutoSaveSuppressed(childConsigneId, dayKeyToClear, async () => {
-              if (ctx?.db && ctx?.user?.uid && dayKeyToClear) {
-                logHistoryDebug("editor.clear.child.deleteAllResponses", {
-                  parentConsigneId: consigne?.id ?? null,
-                  childConsigneId,
-                  dayKey: dayKeyToClear,
-                });
-                try {
-                  await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
-                } catch (error) {
-                  logHistoryDebug("editor.clear.child.deleteAllResponses.error", {
-                    parentConsigneId: consigne?.id ?? null,
-                    childConsigneId,
-                    dayKey: dayKeyToClear,
-                    error: String(error?.message || error),
-                  }, "error");
-                }
-              }
-              try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
-              try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
-              logHistoryDebug("editor.clear.child.deleteHistoryEntry", {
-                parentConsigneId: consigne?.id ?? null,
-                childConsigneId,
-                dayKey: dayKeyToClear,
-                historyId: childState.historyDocumentId,
-                responseId: childState.responseSyncOptions?.responseId || null,
-              });
-              await Schema.deleteHistoryEntry(
-                ctx.db,
-                ctx.user.uid,
-                childState.consigne.id,
-                childState.historyDocumentId,
-                childState.responseSyncOptions,
-              );
-              // Also handle child summary deletion
-              try {
-                const cEntry = childState.entry || null;
-                const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
-                const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
-                const cAnswerKey = cEntry?.summaryKey || "";
-                if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
-                  logHistoryDebug("editor.clear.child.deleteSummary", {
-                    parentConsigneId: consigne?.id ?? null,
-                    childConsigneId,
-                    dayKey: dayKeyToClear,
-                    scope: cScope,
-                    periodKey: cPeriodKey,
-                    answerKey: cAnswerKey,
-                  });
-                  await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
-                }
-              } catch (err) {
-                console.error("consigne.history.child.clear.summaryDelete", err);
-              }
-              const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
-              if (childState.row) {
-                  updateConsigneHistoryTimeline(childState.row, childStatus, {
-                    consigne: childState.consigne,
-                    value: "",
-                    dayKey: resolvedDayKey,
-                    historyId: childState.historyDocumentId,
-                    responseId: childState.responseSyncOptions?.responseId || "",
-                    iterationLabel,
-                    keepPlaceholder: true,
-                    remove: true,
-                  });
-                logHistoryDebug("editor.clear.timeline-child", {
-                  parentConsigneId: consigne?.id ?? null,
-                  childConsigneId,
-                  dayKey: resolvedDayKey,
-                  status: childStatus,
-                  historyId: childState.historyDocumentId,
-                  responseId: childState.responseSyncOptions?.responseId || null,
-                });
-                triggerConsigneRowUpdateHighlight(childState.row);
-              }
-            });
+          });
+          try {
+            historyStoreRemove(childConsigneId, dayKeyToClear);
+          } catch (_) {
+            try { historyStoreInvalidate(childConsigneId); } catch (_) {}
           }
           try {
-            const escapeConsigneId =
-              typeof CSS !== "undefined" && typeof CSS.escape === "function"
-                ? CSS.escape(String(consigne.id ?? ""))
-                : String(consigne.id ?? "").replace(/"/g, '\\"');
-            const escapeDayKey =
-              typeof CSS !== "undefined" && typeof CSS.escape === "function"
-                ? CSS.escape(String(dayKeyToClear ?? ""))
-                : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
-            const dailyRow = document.querySelector(
-              `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
-            );
-            if (dailyRow) {
-              const consigneShape = {
-                id: consigne?.id ?? null,
-                type: inferConsigneTypeFromRow(dailyRow, consigne?.id ?? null),
-              };
-              applyHistoryEntryToRow(consigneShape, dayKeyToClear || dailyRow.dataset?.dayKey || "", null, {
-                row: dailyRow,
-                silent: true,
-                fallbackDayKey: dayKeyToClear || null,
-              });
-              clearConsigneSummaryMetadata(dailyRow);
-            }
+            bufferHistoryEntry(childConsigneId, null, dayKeyToClear);
           } catch (_) {}
-        });
+          applyDailyPrefillUpdate(childState.consigne.id, dayKeyToClear, "", { remove: true, silent: false });
+          dispatchHistoryUpdateEvent({
+            consigneId: childState.consigne.id,
+            dayKey: dayKeyToClear,
+            entry: null,
+            silent: false,
+          });
+        }
         showToast("Réponses effacées.");
         closeOverlay();
         flushHistoryPanelRefresh();
@@ -12596,29 +12491,6 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           entryPayload ? { entry: entryPayload, silent: false } : { remove: true, silent: false },
         );
       } catch (_) {}
-      const parentStatus = dotColor(
-        consigne.type,
-        parentHasValue ? rawValue : "",
-        consigne,
-      ) || "na";
-      updateConsigneHistoryTimeline(row, parentStatus, {
-        consigne,
-        value: parentHasValue ? rawValue : "",
-        dayKey: resolvedDayKey,
-        iterationLabel,
-        historyId: historyDocumentId,
-        responseId: responseSyncOptions?.responseId || "",
-      });
-      logHistoryDebug("editor.submit.timeline-parent", {
-        consigneId: consigne?.id ?? null,
-        dayKey: resolvedDayKey,
-        status: parentStatus,
-        hasValue: parentHasValue,
-        historyId: historyDocumentId,
-        responseId: responseSyncOptions?.responseId || null,
-        valueSummary: summarizeHistoryValue(parentHasValue ? rawValue : ""),
-      });
-      triggerConsigneRowUpdateHighlight(row);
       for (const { state, value, hasValue } of childResults) {
         const childConsigneId = state?.consigne?.id;
         if (!childConsigneId) {
@@ -12652,32 +12524,6 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               : { remove: true, silent: false },
           );
         } catch (_) {}
-        const childStatus = dotColor(
-          state.consigne.type,
-          hasValue ? value : "",
-          state.consigne,
-        ) || "na";
-        if (state.row) {
-          updateConsigneHistoryTimeline(state.row, childStatus, {
-            consigne: state.consigne,
-            value: hasValue ? value : "",
-            dayKey: resolvedDayKey,
-            iterationLabel,
-            historyId: state.historyDocumentId,
-            responseId: state.responseSyncOptions?.responseId || "",
-          });
-          logHistoryDebug("editor.submit.timeline-child", {
-            parentConsigneId: consigne?.id ?? null,
-            childConsigneId,
-            dayKey: resolvedDayKey,
-            status: childStatus,
-            hasValue,
-            historyId: state.historyDocumentId,
-            responseId: state.responseSyncOptions?.responseId || null,
-            valueSummary: summarizeHistoryValue(hasValue ? value : ""),
-          });
-          triggerConsigneRowUpdateHighlight(state.row);
-        }
       }
       const childCleared = childResults.some(
         ({ state, hasValue }) => !hasValue && state.initialHasValue,
@@ -15567,108 +15413,14 @@ function enhanceHistoryChart(container) {
 }
 
 
-function getRecentResponsesStore() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  const existing = window.__hpRecentResponses;
-  if (existing instanceof Map) {
-    return existing;
-  }
-  if (existing && typeof existing === "object") {
-    const map = new Map();
-    try {
-      Object.entries(existing).forEach(([key, value]) => {
-        if (!key) return;
-        if (Array.isArray(value)) {
-          map.set(key, value.slice());
-        }
-      });
-    } catch (error) {
-      console.warn("recentResponsesStore:normalize", error);
-    }
-    window.__hpRecentResponses = map;
-    return map;
-  }
-  return null;
-}
+const getRecentResponsesStore = () => null;
 
-function clearRecentResponsesForConsigne(consigneId) {
-  if (!consigneId) return;
-  const store = getRecentResponsesStore();
-  if (!store) return;
-  try {
-    store.delete(consigneId);
-  } catch (error) {
-    console.warn("recentResponsesStore:clear", error);
-  }
-}
+const clearRecentResponsesForConsigne = () => {};
 
-function removeRecentResponsesForDay(consigneId, dayKey) {
-  if (!consigneId || !dayKey) return;
-  const store = getRecentResponsesStore();
-  if (!store) return;
-  try {
-    const list = store.get(consigneId) || [];
-    if (!Array.isArray(list) || !list.length) return;
-    const normalizedTarget = normalizeHistoryDayKey(dayKey);
-    const filtered = list.filter((entry) => {
-      const entryKey = normalizeHistoryDayKey(entry?.dayKey);
-      if (!normalizedTarget) {
-        return Boolean(entryKey);
-      }
-      return entryKey !== normalizedTarget;
-    });
-    if (filtered.length) {
-      store.set(consigneId, filtered);
-    } else {
-      store.delete(consigneId);
-    }
-  } catch (error) {
-    console.warn("recentResponsesStore:removeDay", error);
-  }
-}
+const removeRecentResponsesForDay = () => {};
 
-async function deleteAllResponsesForDay(db, uid, consigneId, dayKey) {
-  if (!db || !uid || !consigneId || !dayKey) return;
-  const { collection, where, query, getDocs, deleteDoc } = modesFirestore || {};
-  if (typeof collection !== 'function' || typeof query !== 'function' || typeof where !== 'function' || typeof getDocs !== 'function') {
-    return;
-  }
-  try {
-    const keysToDelete = new Set();
-    if (typeof dayKey === 'string' && dayKey.trim()) {
-      keysToDelete.add(dayKey.trim());
-    }
-    const canonical = canonicalDayKeyFromValue(dayKey);
-    if (canonical?.dayKey) {
-      keysToDelete.add(canonical.dayKey.trim());
-    }
-    for (const key of keysToDelete) {
-      if (!key) {
-        continue;
-      }
-      const qy = query(
-        collection(db, 'u', uid, 'responses'),
-        where('consigneId', '==', consigneId),
-        where('dayKey', '==', key)
-      );
-      const snap = await getDocs(qy);
-      const tasks = (snap?.docs || []).map((docSnap) => {
-        try {
-          return deleteDoc(docSnap.ref);
-        } catch (error) {
-          console.warn('history.deleteAllResponsesForDay:delete', error);
-          return null;
-        }
-      });
-      if (tasks.length) {
-        await Promise.all(tasks);
-      }
-    }
-  } catch (error) {
-    console.warn('history.deleteAllResponsesForDay', error);
-  }
+async function deleteAllResponsesForDay() {
+  return;
 }
 
 const MILLIS_EPOCH_THRESHOLD = Date.UTC(2000, 0, 1);
