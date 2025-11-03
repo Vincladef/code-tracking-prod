@@ -12628,6 +12628,22 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     responseId: resolvedResponseId,
   };
   if (!item) {
+    // Guard: éviter de créer un point 'na' sans IDs pour les checklists (pas d'historique réel)
+    try {
+      const isChecklist = (options?.consigne?.type || consigne?.type) === "checklist";
+      const noIds = !normalizedHistoryId && !normalizedResponseId;
+      const keepPlaceholder = options && options.keepPlaceholder === true;
+      if (isChecklist && status === "na" && noIds && !keepPlaceholder) {
+        try {
+          logChecklistEvent("info", "[checklist-history] timeline.create.skipped", {
+            consigneId: consigne?.id ?? null,
+            dayKey,
+            status,
+          });
+        } catch (_) {}
+        return;
+      }
+    } catch (_) {}
     item = document.createElement("div");
     item.className = "consigne-history__item";
     item.setAttribute("role", "listitem");
