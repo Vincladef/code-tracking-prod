@@ -11767,6 +11767,16 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               refreshConsigneTimelineWithRows(consigne, latestEntries);
             } catch (_) {}
           }
+        if (typeof syncDailyRowFromHistory === "function") {
+          try {
+            syncDailyRowFromHistory(consigne.id, scopeDayKey || runDayKey, {
+              entry: storeRecord,
+              fallbackDayKey: resolvedDayKey,
+              silent: false,
+              transient: false,
+            });
+          } catch (_) {}
+        }
         } else {
           applyDailyPrefillUpdate(consigne.id, resolvedDayKey, "", { remove: true, silent: false });
           dispatchHistoryUpdateEvent({
@@ -11784,6 +11794,16 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               refreshConsigneTimelineWithRows(consigne, latestEntries);
             } catch (_) {}
           }
+        if (typeof syncDailyRowFromHistory === "function") {
+          try {
+            syncDailyRowFromHistory(consigne.id, scopeDayKey || runDayKey, {
+              entry: null,
+              fallbackDayKey: resolvedDayKey,
+              silent: false,
+              transient: false,
+            });
+          } catch (_) {}
+        }
         }
         childStoreRecords.forEach(({ id: childId, record, consigne: childConsigne }) => {
           const consigneInfo = childConsigne || { id: childId };
@@ -11801,6 +11821,16 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
                 refreshConsigneTimelineWithRows(consigneInfo, childEntries);
               } catch (_) {}
             }
+            if (typeof syncDailyRowFromHistory === "function") {
+              try {
+                syncDailyRowFromHistory(childId, scopeDayKey || runDayKey, {
+                  entry: record,
+                  fallbackDayKey: resolvedDayKey,
+                  silent: false,
+                  transient: false,
+                });
+              } catch (_) {}
+            }
           } else {
             applyDailyPrefillUpdate(childId, resolvedDayKey, "", { remove: true, silent: false });
             dispatchHistoryUpdateEvent({ consigneId: childId, dayKey: resolvedDayKey, entry: null, silent: false });
@@ -11812,6 +11842,16 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
                   : [];
                 childEntries = childEntries.filter((entry) => normalizeHistoryDayKey(entry?.dayKey) !== normalizedChildTimelineKey);
                 refreshConsigneTimelineWithRows(consigneInfo, childEntries);
+              } catch (_) {}
+            }
+            if (typeof syncDailyRowFromHistory === "function") {
+              try {
+                syncDailyRowFromHistory(childId, scopeDayKey || runDayKey, {
+                  entry: null,
+                  fallbackDayKey: resolvedDayKey,
+                  silent: false,
+                  transient: false,
+                });
               } catch (_) {}
             }
           }
