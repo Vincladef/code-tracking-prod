@@ -20485,7 +20485,7 @@ async function renderDaily(ctx, root, opts = {}) {
   };
 
   const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
-    const previous = previousAnswers.get(item.id);
+  const previous = previousAnswers.get(item.id);
     const previousHasValue = Boolean(
       previous && Object.prototype.hasOwnProperty.call(previous, "value"),
     );
@@ -20503,6 +20503,22 @@ async function renderDaily(ctx, root, opts = {}) {
         hasPrevValue = true;
       }
     }
+  // Neutraliser le prefill daily si aucun point d'historique ne correspond au jour courant
+  try {
+    const snapshot = collectConsigneTimelineSnapshot(item);
+    const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+    const targetKey = normalizedCurrentDayKey || (typeof dayKey === "string" ? normalizeHistoryDayKey(dayKey) : "");
+    const hasTimelineMatch = targetKey
+      ? items.some((it) => {
+          const k = it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "");
+          const hasId = Boolean((it && it.historyId) || (it && it.responseId));
+          return k === targetKey && hasId;
+        })
+      : false;
+    if (!hasTimelineMatch) {
+      hasPrevValue = false;
+    }
+  } catch (_) {}
     const initialValue = hasPrevValue ? previous.value : null;
     const row = document.createElement("div");
     const tone = priorityTone(item.priority);
@@ -20776,6 +20792,22 @@ async function renderDaily(ctx, root, opts = {}) {
           hasPrevValue = true;
         }
       }
+      // Neutraliser le prefill daily pour l'enfant si aucun point d'historique ne correspond au jour
+      try {
+        const snapshot = collectConsigneTimelineSnapshot(child);
+        const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+        const targetKey = normalizedCurrentDayKey || (typeof dayKey === "string" ? normalizeHistoryDayKey(dayKey) : "");
+        const hasTimelineMatch = targetKey
+          ? items.some((it) => {
+              const k = it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "");
+              const hasId = Boolean((it && it.historyId) || (it && it.responseId));
+              return k === targetKey && hasId;
+            })
+          : false;
+        if (!hasTimelineMatch) {
+          hasPrevValue = false;
+        }
+      } catch (_) {}
       const initialValue = hasPrevValue ? previous.value : null;
       const childRow = createHiddenConsigneRow(child, { initialValue });
       childRow.dataset.parentId = child.parentId || group.consigne.id || "";
