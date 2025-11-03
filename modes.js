@@ -12353,7 +12353,15 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       historyId: normalizedHistoryId,
       responseId: normalizedResponseId,
     };
-    const keepPlaceholder = options.keepPlaceholder === true;
+    let keepPlaceholder = options.keepPlaceholder === true;
+    // Pour les checklists sans historique réel, n'affiche jamais de placeholder NA
+    try {
+      const isChecklist = (options?.consigne?.type || "").toLowerCase() === "checklist";
+      const noIds = !normalizedHistoryId && !normalizedResponseId;
+      if (isChecklist && noIds) {
+        keepPlaceholder = false;
+      }
+    } catch (_) {}
     if (item) {
       if (keepPlaceholder && dayKey) {
         const consigne = options?.consigne || null;
