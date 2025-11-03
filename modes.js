@@ -14010,6 +14010,9 @@ function parseConsigneSkipValue(input) {
 }
 
 function isHistoryStoreActive() {
+  if (HistoryStore) {
+    return true;
+  }
   try {
     return typeof window !== "undefined" && Boolean(window.HistoryStore);
   } catch (_) {
@@ -14199,7 +14202,10 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
   holder.innerHTML = inputForType(consigne, initialValue);
   row.appendChild(holder);
   enhanceRangeMeters(row);
-  initializeChecklistScope(row, { consigneId: consigne?.id ?? null });
+  initializeChecklistScope(row, {
+    consigneId: consigne?.id ?? null,
+    hydrate: !isHistoryStoreActive(),
+  });
   ensureConsigneSkipField(row, consigne);
   // Applique l’état Passer dès le rendu si la valeur précédente l’indique
   try {
@@ -14278,6 +14284,10 @@ function setConsigneRowValue(row, consigne, value, options = {}) {
       updateConsigneStatusUI(row, consigne, hasHistoryEntry ? value : null);
       return;
     }
+    initializeChecklistScope(container, {
+      consigneId: consigne?.id ?? null,
+      hydrate: !isHistoryStoreActive(),
+    });
     const normalizedValue =
       value === null || value === undefined
         ? null
@@ -17313,7 +17323,10 @@ async function openHistory(ctx, consigne, options = {}) {
     const dialog = overlay.querySelector('.history-panel__edit-dialog');
     // Initialize checklist behaviors and scoping for history inline editor
     try {
-      initializeChecklistScope(overlay, { dateKey: dayKey });
+      initializeChecklistScope(overlay, {
+        dateKey: dayKey,
+        hydrate: !isHistoryStoreActive(),
+      });
     } catch (_) {}
     try {
       const ui = collectEditorVisibleSnapshot(overlay);
@@ -18242,7 +18255,10 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (holder) {
         holder.innerHTML = inputForType(c);
         enhanceRangeMeters(holder);
-        initializeChecklistScope(holder, { consigneId: c?.id ?? null });
+        initializeChecklistScope(holder, {
+          consigneId: c?.id ?? null,
+          hydrate: !(ctx?.mode === "daily" && isHistoryStoreActive()),
+        });
         ensureConsigneSkipField(row, c);
       }
       setupConsigneHistoryTimeline(row, c, ctx, { mode: "practice" });
@@ -20041,7 +20057,11 @@ async function renderDaily(ctx, root, opts = {}) {
     if (holder) {
       holder.innerHTML = inputForType(item, initialFormValue, { pageContext });
       enhanceRangeMeters(holder);
-      initializeChecklistScope(holder, { consigneId: item?.id ?? null });
+      const shouldHydrateChecklist = !(ctx?.mode === "daily" && isHistoryStoreActive());
+      initializeChecklistScope(holder, {
+        consigneId: item?.id ?? null,
+        hydrate: shouldHydrateChecklist,
+      });
       ensureConsigneSkipField(row, item);
       // Si la valeur précédente indiquait un « Passer », applique l’état dès le rendu initial
       try {
