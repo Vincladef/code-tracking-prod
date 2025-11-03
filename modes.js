@@ -12353,7 +12353,15 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       historyId: normalizedHistoryId,
       responseId: normalizedResponseId,
     };
-    const keepPlaceholder = options.keepPlaceholder === true;
+    let keepPlaceholder = options.keepPlaceholder === true;
+    // Pour les checklists sans historique réel, n'affiche jamais de placeholder NA
+    try {
+      const isChecklist = (options?.consigne?.type || "").toLowerCase() === "checklist";
+      const noIds = !normalizedHistoryId && !normalizedResponseId;
+      if (isChecklist && noIds) {
+        keepPlaceholder = false;
+      }
+    } catch (_) {}
     if (item) {
       if (keepPlaceholder && dayKey) {
         const consigne = options?.consigne || null;
@@ -12628,6 +12636,22 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     responseId: resolvedResponseId,
   };
   if (!item) {
+    // Guard: éviter de créer un point 'na' sans IDs pour les checklists (pas d'historique réel)
+    try {
+      const isChecklist = (options?.consigne?.type || consigne?.type) === "checklist";
+      const noIds = !normalizedHistoryId && !normalizedResponseId;
+      const keepPlaceholder = options && options.keepPlaceholder === true;
+      if (isChecklist && status === "na" && noIds && !keepPlaceholder) {
+        try {
+          logChecklistEvent("info", "[checklist-history] timeline.create.skipped", {
+            consigneId: consigne?.id ?? null,
+            dayKey,
+            status,
+          });
+        } catch (_) {}
+        return;
+      }
+    } catch (_) {}
     item = document.createElement("div");
     item.className = "consigne-history__item";
     item.setAttribute("role", "listitem");
@@ -12993,6 +13017,14 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     if (typeof status !== "string" || !status) {
       return;
     }
+    // Guard: pour les checklists, n'alimente pas la timeline si statut 'na' et aucun historique pour le jour
+    try {
+      const type = consigne?.type || null;
+      const hasHistoryId = typeof row?.dataset?.historyId === "string" && row.dataset.historyId.trim().length > 0;
+      if (type === "checklist" && status === "na" && !hasHistoryId) {
+        return;
+      }
+    } catch (_) {}
     updateConsigneHistoryTimeline(row, status, {
       consigne,
       value: event?.detail?.value,
