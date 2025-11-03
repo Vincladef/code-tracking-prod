@@ -16234,6 +16234,7 @@ if (typeof window !== "undefined" && !window.__historyEntryUpdatedBound) {
           entry,
           fallbackDayKey: typeof window !== "undefined" ? window.AppCtx?.dateIso : null,
           silent,
+          transient: detail.transient === true,
         });
         try {
           const entries = HistoryStore && typeof HistoryStore.getEntries === "function"
@@ -17683,6 +17684,18 @@ async function openHistory(ctx, consigne, options = {}) {
             fallbackDayKey: dayKey || null,
             transient: true,
           });
+          try {
+            logConsigneSnapshot("daily.row.apply.transient", consigneShape, {
+              row: dailyRow,
+              extra: {
+                dayKey,
+                transient: true,
+                status: dailyRow?.dataset?.status || null,
+                dotClass: dailyRow.querySelector?.('[data-status-dot]')?.className || null,
+                action: valueToApply === null ? "clear" : "apply",
+              },
+            });
+          } catch (_) {}
         } finally {
           popPrefillDebugContext();
         }
@@ -17996,6 +18009,21 @@ async function openHistory(ctx, consigne, options = {}) {
                 fallbackDayKey: scopeDayKey,
                 silent: true,
               });
+            try {
+              const dailyRow = document.querySelector(
+                `[data-consigne-id="${CSS.escape(String(consigne.id ?? ""))}"][data-day-key="${CSS.escape(String(resolvedDayKey || scopeDayKey || ""))}"]`
+              );
+              if (dailyRow) {
+                logConsigneSnapshot("daily.row.apply.save", consigne, {
+                  row: dailyRow,
+                  extra: {
+                    dayKey: resolvedDayKey || scopeDayKey,
+                    status: dailyRow?.dataset?.status || null,
+                    dotClass: dailyRow.querySelector?.('[data-status-dot]')?.className || null,
+                  },
+                });
+              }
+            } catch (_) {}
             } catch (_) {}
             try {
               dispatchHistoryUpdateEvent({
