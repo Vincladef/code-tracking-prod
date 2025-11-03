@@ -13,6 +13,13 @@ try {
   HistoryStore = null;
 }
 
+try {
+  if (typeof window !== "undefined" && HistoryStore) {
+    window.HistoryStore = HistoryStore;
+    window.__historyStoreActive = true;
+  }
+} catch (_) {}
+
 const modesFirestore = Schema.firestore || window.firestoreAPI || {};
 
 const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
@@ -14010,14 +14017,20 @@ function parseConsigneSkipValue(input) {
 }
 
 function isHistoryStoreActive() {
-  if (HistoryStore) {
-    return true;
-  }
   try {
-    return typeof window !== "undefined" && Boolean(window.HistoryStore);
+    if (HistoryStore) {
+      return true;
+    }
+    if (typeof window !== "undefined" && window.HistoryStore) {
+      return true;
+    }
+    if (typeof window !== "undefined" && window.__historyStoreActive === true) {
+      return true;
+    }
   } catch (_) {
     return false;
   }
+  return false;
 }
 
 function applyConsigneSkipState(row, consigne, shouldSkip, { updateUI = true } = {}) {

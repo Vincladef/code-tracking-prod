@@ -702,8 +702,9 @@
       logChecklistEvent(event, baseDetails, level);
     };
 
-    const historyStore = GLOBAL.HistoryStore;
-    if (historyStore && typeof historyStore.getEntry === "function") {
+    const historyStore = GLOBAL.HistoryStore || null;
+    const historyStoreFlag = GLOBAL.__historyStoreActive === true;
+    if ((historyStore && typeof historyStore.getEntry === "function") || historyStoreFlag) {
       log("hydrate.skip.history-store", {
         consigneId: consigneId || null,
         dateKey: dateKey || null,
@@ -749,7 +750,9 @@
       }
     } catch (_) {}
 
-    const hasHistoryStore = Boolean(GLOBAL.HistoryStore && typeof GLOBAL.HistoryStore.getEntry === "function");
+    const hasHistoryStore = Boolean(
+      (GLOBAL.HistoryStore && typeof GLOBAL.HistoryStore.getEntry === "function") || historyStoreFlag,
+    );
     const historyTimelineHost = ownerRow?.querySelector?.("[data-consigne-history],[data-consigne-history-track]") || null;
     if (hasHistoryStore && historyTimelineHost) {
       log("hydrate.skip.history-store", {
