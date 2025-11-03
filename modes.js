@@ -11546,6 +11546,13 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       const scopeDayKeyNormalized = normalizeHistoryDayKey(scopeDayKeySource);
       const scopeDayKey = scopeDayKeyNormalized || scopeDayKeySource || "";
       const runDayKey = scopeDayKey || resolvedDayKey || dayKey || "";
+      const writeHistoryId = (() => {
+        if (historyDocumentId && historyDocumentId.trim()) return historyDocumentId.trim();
+        if (runDayKey) return runDayKey;
+        if (resolvedDayKey) return resolvedDayKey;
+        if (dayKey) return dayKey;
+        return scopeDayKey || Schema?.todayKey?.() || "";
+      })();
       let storeRecord = null;
       const childStoreRecords = [];
 
@@ -11606,12 +11613,12 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           ctx.db,
           ctx.user.uid,
           consigne.id,
-          historyDocumentId,
+          writeHistoryId,
           { value: parentHasValue ? rawValue : "" },
           responseSyncOptions,
         );
 
-        const effectiveHistoryId = historyDocumentId || scopeDayKey || runDayKey;
+        const effectiveHistoryId = writeHistoryId || scopeDayKey || runDayKey;
         if (parentHasValue) {
           storeRecord = {
             dayKey: scopeDayKey || runDayKey,
@@ -11684,16 +11691,26 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             responseId: state.responseSyncOptions?.responseId || null,
           });
 
+          const childWriteHistoryId = (() => {
+            if (state.historyDocumentId && String(state.historyDocumentId).trim()) {
+              return String(state.historyDocumentId).trim();
+            }
+            if (scopeDayKey) return scopeDayKey;
+            if (runDayKey) return runDayKey;
+            if (resolvedDayKey) return resolvedDayKey;
+            return dayKey || "";
+          })();
+
           await Schema.saveHistoryEntry(
             ctx.db,
             ctx.user.uid,
             childConsigneId,
-            state.historyDocumentId,
+            childWriteHistoryId,
             { value: hasValue ? value : "" },
             state.responseSyncOptions,
           );
 
-          const childEffectiveId = state.historyDocumentId || scopeDayKey || runDayKey;
+          const childEffectiveId = childWriteHistoryId || scopeDayKey || runDayKey;
           if (hasValue) {
             const childRecord = {
               dayKey: scopeDayKey || runDayKey,
