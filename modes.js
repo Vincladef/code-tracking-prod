@@ -12609,6 +12609,16 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
         : "");
     return fromExisting || "";
   })();
+  // If this update targets the current row dayKey, propagate identifiers on the row
+  try {
+    if (row && row.dataset && row.dataset.dayKey === dayKey) {
+      row.dataset.historyId = resolvedHistoryId || "";
+      row.dataset.historyResponseId = resolvedResponseId || "";
+      if (!row.dataset.status && status) {
+        row.dataset.status = status;
+      }
+    }
+  } catch (_) {}
   const record = {
     dayKey,
     date: normalizedRecordDate,
