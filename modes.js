@@ -14990,32 +14990,10 @@ function attachConsigneEditor(row, consigne, options = {}) {
                 console.warn('[consigne] persist:skip', e);
               });
             }
-            // Persistance directe de la réponse skip pour la consigne
+            // Persistance daily "responses" désactivée: ne pas appeler Schema.saveResponses('daily')
             try {
-              const db = window.AppCtx?.db || null;
-              const uid = window.AppCtx?.user?.uid || null;
-              const dayKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso)
-                ? String(window.AppCtx.dateIso)
-                : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
-              if (db && uid) {
-                const answers = [{ consigne, value: { skipped: true }, dayKey }];
-                if (Schema?.saveResponses) {
-                  Schema.saveResponses(db, uid, 'daily', answers)
-                    .then(() => {
-                      modesLogger?.info?.('consigne.skip.persist.saved', { consigneId: consigne?.id ?? null, dayKey });
-                      try { showToast && showToast('Passée enregistrée.'); } catch (_) {}
-                    })
-                    .catch((error) => {
-                      modesLogger?.warn?.('consigne.skip.persist.fail', { consigneId: consigne?.id ?? null, error: String(error && error.message || error) });
-                      try { showToast && showToast("Échec de l'enregistrement. Réessaye."); } catch (_) {}
-                    });
-                }
-              } else {
-                modesLogger?.warn?.('consigne.skip.persist.skipped', { reason: 'no-db-or-uid' });
-              }
-            } catch (e) {
-              modesLogger?.warn?.('consigne.skip.persist.error', e);
-            }
+              modesLogger?.info?.('consigne.skip.persist.disabled', { consigneId: consigne?.id ?? null });
+            } catch (_) {}
             try {
               modesLogger?.info?.('consigne.skip.ui', {
                 consigneId: consigne?.id ?? null,
@@ -15783,6 +15761,8 @@ function removeRecentResponsesForDay(consigneId, dayKey) {
 }
 
 async function deleteAllResponsesForDay(db, uid, consigneId, dayKey) {
+  // Écritures daily "responses" désactivées: ne rien faire
+  return;
   if (!db || !uid || !consigneId || !dayKey) return;
   const { collection, where, query, getDocs, deleteDoc } = modesFirestore || {};
   if (typeof collection !== 'function' || typeof query !== 'function' || typeof where !== 'function' || typeof getDocs !== 'function') {
