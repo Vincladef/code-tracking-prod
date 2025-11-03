@@ -14009,8 +14009,30 @@ function parseConsigneSkipValue(input) {
   return false;
 }
 
+function isHistoryStoreActive() {
+  try {
+    return typeof window !== "undefined" && Boolean(window.HistoryStore);
+  } catch (_) {
+    return false;
+  }
+}
+
 function applyConsigneSkipState(row, consigne, shouldSkip, { updateUI = true } = {}) {
   if (!row || !consigne) return;
+  const historyManaged = isHistoryStoreActive();
+  if (historyManaged) {
+    if (shouldSkip) {
+      row.dataset.skipAnswered = "1";
+      if (updateUI) {
+        try {
+          updateConsigneStatusUI(row, consigne, { skipped: true });
+        } catch (_) {}
+      }
+    } else {
+      delete row.dataset.skipAnswered;
+    }
+    return;
+  }
   try {
     modesLogger?.info?.("consigne.skip.apply", {
       consigneId: consigne?.id ?? null,
@@ -14032,6 +14054,9 @@ function applyConsigneSkipState(row, consigne, shouldSkip, { updateUI = true } =
 
 function ensureConsigneSkipField(row, consigne) {
   if (!row || !consigne) return null;
+  if (isHistoryStoreActive()) {
+    return null;
+  }
   const holder = row.querySelector("[data-consigne-input-holder]");
   if (!holder) return null;
   let input = holder.querySelector("[data-consigne-skip-input]");
@@ -14086,8 +14111,11 @@ function ensureConsigneSkipField(row, consigne) {
 
 function setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents = true, updateUI = true } = {}) {
   if (!row || !consigne) return;
-  const input = ensureConsigneSkipField(row, consigne);
   applyConsigneSkipState(row, consigne, shouldSkip, { updateUI });
+  if (isHistoryStoreActive()) {
+    return;
+  }
+  const input = ensureConsigneSkipField(row, consigne);
   if (!input) return;
   const nextValue = shouldSkip ? "1" : "";
   try {

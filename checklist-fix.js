@@ -702,6 +702,15 @@
       logChecklistEvent(event, baseDetails, level);
     };
 
+    const historyStore = GLOBAL.HistoryStore;
+    if (historyStore && typeof historyStore.getEntry === "function") {
+      log("hydrate.skip.history-store", {
+        consigneId: consigneId || null,
+        dateKey: dateKey || null,
+      });
+      return null;
+    }
+
     log("hydrate.start", {
       hasRoot: Boolean(root),
       hasUid: Boolean(uid),
