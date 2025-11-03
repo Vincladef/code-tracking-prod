@@ -916,11 +916,7 @@ function readConsigneValueFromForm(consigne, form) {
     if (dailyRoot) {
       // Read from the DOM state like in daily mode to preserve arrow/skip semantics
       const domState = readChecklistDomState(dailyRoot);
-      const hasSelection = domState.items.some((checked, index) => checked && !domState.skipped[index]);
-      const hasSkip = domState.skipped.some(Boolean);
-      if (!hasSelection && !hasSkip) {
-        return null;
-      }
+      // Toujours renvoyer un objet checklist (0% inclus) pour permettre la coloration rouge
       return buildChecklistValue(consigne, domState);
     }
     // Fallback: legacy history checklist markup
@@ -976,11 +972,7 @@ function readConsigneValueFromForm(consigne, form) {
       }
       return `Élément ${index + 1}`;
     });
-    const hasSelection = normalizedItems.some((checked, index) => checked && !normalizedSkipped[index]);
-    const hasSkip = normalizedSkipped.some(Boolean);
-    if (!hasSelection && !hasSkip) {
-      return null;
-    }
+    // Ne pas retourner null: construire un résultat même si 0% et aucun skip
     const stableIds = Array.isArray(consigne?.checklistItemIds) ? consigne.checklistItemIds : [];
     const selectedIds = [];
     labels.forEach((label, index) => {
