@@ -12993,6 +12993,14 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     if (typeof status !== "string" || !status) {
       return;
     }
+    // Guard: pour les checklists, n'alimente pas la timeline si statut 'na' et aucun historique pour le jour
+    try {
+      const type = consigne?.type || null;
+      const hasHistoryId = typeof row?.dataset?.historyId === "string" && row.dataset.historyId.trim().length > 0;
+      if (type === "checklist" && status === "na" && !hasHistoryId) {
+        return;
+      }
+    } catch (_) {}
     updateConsigneHistoryTimeline(row, status, {
       consigne,
       value: event?.detail?.value,
