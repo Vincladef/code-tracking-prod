@@ -916,11 +916,7 @@ function readConsigneValueFromForm(consigne, form) {
     if (dailyRoot) {
       // Read from the DOM state like in daily mode to preserve arrow/skip semantics
       const domState = readChecklistDomState(dailyRoot);
-      const hasSelection = domState.items.some((checked, index) => checked && !domState.skipped[index]);
-      const hasSkip = domState.skipped.some(Boolean);
-      if (!hasSelection && !hasSkip) {
-        return null;
-      }
+      // Toujours renvoyer un objet checklist (0% inclus) pour permettre la coloration rouge
       return buildChecklistValue(consigne, domState);
     }
     // Fallback: legacy history checklist markup
@@ -976,11 +972,7 @@ function readConsigneValueFromForm(consigne, form) {
       }
       return `Élément ${index + 1}`;
     });
-    const hasSelection = normalizedItems.some((checked, index) => checked && !normalizedSkipped[index]);
-    const hasSkip = normalizedSkipped.some(Boolean);
-    if (!hasSelection && !hasSkip) {
-      return null;
-    }
+    // Ne pas retourner null: construire un résultat même si 0% et aucun skip
     const stableIds = Array.isArray(consigne?.checklistItemIds) ? consigne.checklistItemIds : [];
     const selectedIds = [];
     labels.forEach((label, index) => {
@@ -12073,6 +12065,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           { value: rawValue },
           responseSyncOptions,
         );
+        try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, rawValue); } catch (_) {}
         try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
       }
       const parentStatus = dotColor(
@@ -12182,6 +12175,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             { value },
             state.responseSyncOptions,
           );
+          try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, value); } catch (_) {}
           try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
         }
         const childStatus = dotColor(
@@ -12607,6 +12601,16 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
         : "");
     return fromExisting || "";
   })();
+  // If this update targets the current row dayKey, propagate identifiers on the row
+  try {
+    if (row && row.dataset && row.dataset.dayKey === dayKey) {
+      row.dataset.historyId = resolvedHistoryId || "";
+      row.dataset.historyResponseId = resolvedResponseId || "";
+      if (!row.dataset.status && status) {
+        row.dataset.status = status;
+      }
+    }
+  } catch (_) {}
   const record = {
     dayKey,
     date: normalizedRecordDate,
@@ -12803,6 +12807,14 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
           status,
           rendered: state.hasDayTimeline,
         });
+        // Hydrate visible row value from the history point for the current day
+        try {
+          if (hasPoint && dayKeyForAudit && item && item._historyDetails) {
+            const details = item._historyDetails;
+            const nextValue = (details && (details.rawValue !== undefined ? details.rawValue : details.value)) ?? "";
+            applyDailyPrefillUpdate(consigne.id, dayKeyForAudit, nextValue);
+          }
+        } catch (_) {}
         // Highlight if row shows an answer but no timeline point exists for the day
         try {
           const rowStatus = row?.dataset?.status || null;
@@ -13309,6 +13321,12 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
   }
   if (dot) {
     dot.className = `consigne-row__dot consigne-row__dot--${status}`;
+    // Masquer la pastille par défaut si aucune réponse ni historique pour le jour
+    try {
+      const hasHistoryForDay = typeof row?.dataset?.historyId === "string" && row.dataset.historyId.trim().length > 0;
+      const shouldHideDot = status === "na" && !hasOwnAnswer && !hasHistoryForDay;
+      dot.hidden = shouldHideDot ? true : false;
+    } catch (_) {}
   }
   if (mark) {
     const isAnswered = status !== "na";
@@ -14970,32 +14988,10 @@ function attachConsigneEditor(row, consigne, options = {}) {
                 console.warn('[consigne] persist:skip', e);
               });
             }
-            // Persistance directe de la réponse skip pour la consigne
+            // Persistance daily "responses" désactivée: ne pas appeler Schema.saveResponses('daily')
             try {
-              const db = window.AppCtx?.db || null;
-              const uid = window.AppCtx?.user?.uid || null;
-              const dayKey = (typeof window !== 'undefined' && window.AppCtx?.dateIso)
-                ? String(window.AppCtx.dateIso)
-                : (typeof Schema?.todayKey === 'function' ? Schema.todayKey() : null);
-              if (db && uid) {
-                const answers = [{ consigne, value: { skipped: true }, dayKey }];
-                if (Schema?.saveResponses) {
-                  Schema.saveResponses(db, uid, 'daily', answers)
-                    .then(() => {
-                      modesLogger?.info?.('consigne.skip.persist.saved', { consigneId: consigne?.id ?? null, dayKey });
-                      try { showToast && showToast('Passée enregistrée.'); } catch (_) {}
-                    })
-                    .catch((error) => {
-                      modesLogger?.warn?.('consigne.skip.persist.fail', { consigneId: consigne?.id ?? null, error: String(error && error.message || error) });
-                      try { showToast && showToast("Échec de l'enregistrement. Réessaye."); } catch (_) {}
-                    });
-                }
-              } else {
-                modesLogger?.warn?.('consigne.skip.persist.skipped', { reason: 'no-db-or-uid' });
-              }
-            } catch (e) {
-              modesLogger?.warn?.('consigne.skip.persist.error', e);
-            }
+              modesLogger?.info?.('consigne.skip.persist.disabled', { consigneId: consigne?.id ?? null });
+            } catch (_) {}
             try {
               modesLogger?.info?.('consigne.skip.ui', {
                 consigneId: consigne?.id ?? null,
@@ -15039,6 +15035,13 @@ function hasChecklistResponse(consigne, row, value) {
   if (value && typeof value === "object" && value.__hasAnswer === true) {
     return true;
   }
+  // Si la checklist a des items considérés (même 0% cochés), considérer qu'il y a une réponse
+  try {
+    const stats = deriveChecklistStats(value);
+    if (stats && Number.isFinite(stats.total) && stats.total > 0) {
+      return true;
+    }
+  } catch (_) {}
   if (checklistHasSelection(value)) {
     return true;
   }
@@ -15084,6 +15087,14 @@ function hasValueForConsigne(consigne, value) {
     return typeof value === "string" && value.trim().length > 0;
   }
   if (type === "checklist") {
+    // Réponse présente si au moins un item est considéré (même 0% cochés),
+    // ou si sélection/skip comme auparavant
+    try {
+      const stats = deriveChecklistStats(value);
+      if (stats && Number.isFinite(stats.total) && stats.total > 0) {
+        return true;
+      }
+    } catch (_) {}
     if (checklistHasSelection(value)) {
       return true;
     }
@@ -15763,6 +15774,8 @@ function removeRecentResponsesForDay(consigneId, dayKey) {
 }
 
 async function deleteAllResponsesForDay(db, uid, consigneId, dayKey) {
+  // Écritures daily "responses" désactivées: ne rien faire
+  return;
   if (!db || !uid || !consigneId || !dayKey) return;
   const { collection, where, query, getDocs, deleteDoc } = modesFirestore || {};
   if (typeof collection !== 'function' || typeof query !== 'function' || typeof where !== 'function' || typeof getDocs !== 'function') {
@@ -20011,6 +20024,8 @@ async function renderDaily(ctx, root, opts = {}) {
   };
 
   const runAutoSave = (consigneId) => {
+    // Autosave désactivé: on court-circuite pour s'appuyer uniquement sur l'historique
+    return;
     const state = autoSaveStates.get(consigneId);
     if (!state) return;
     state.timeout = null;
@@ -20222,6 +20237,8 @@ async function renderDaily(ctx, root, opts = {}) {
   runWithAutoSaveSuppressed = runWithAutoSaveSuppressedImpl;
 
   const scheduleAutoSave = (consigne, value, { serialized, hasContent, summary } = {}) => {
+    // Autosave désactivé: on ne planifie plus d'enregistrement automatique
+    return;
     if (!consigne || !consigne.id) return;
     const consigneId = consigne.id;
     const scopeKey = resolveAutoSaveScopeKey(consigneId, dayKey);
@@ -20461,7 +20478,7 @@ async function renderDaily(ctx, root, opts = {}) {
   };
 
   const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
-    const previous = previousAnswers.get(item.id);
+  const previous = previousAnswers.get(item.id);
     const previousHasValue = Boolean(
       previous && Object.prototype.hasOwnProperty.call(previous, "value"),
     );
@@ -20479,6 +20496,22 @@ async function renderDaily(ctx, root, opts = {}) {
         hasPrevValue = true;
       }
     }
+  // Neutraliser le prefill daily si aucun point d'historique ne correspond au jour courant
+  try {
+    const snapshot = collectConsigneTimelineSnapshot(item);
+    const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+    const targetKey = normalizedCurrentDayKey || (typeof dayKey === "string" ? normalizeHistoryDayKey(dayKey) : "");
+    const hasTimelineMatch = targetKey
+      ? items.some((it) => {
+          const k = it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "");
+          const hasId = Boolean((it && it.historyId) || (it && it.responseId));
+          return k === targetKey && hasId;
+        })
+      : false;
+    if (!hasTimelineMatch) {
+      hasPrevValue = false;
+    }
+  } catch (_) {}
     const initialValue = hasPrevValue ? previous.value : null;
     const row = document.createElement("div");
     const tone = priorityTone(item.priority);
@@ -20752,6 +20785,22 @@ async function renderDaily(ctx, root, opts = {}) {
           hasPrevValue = true;
         }
       }
+      // Neutraliser le prefill daily pour l'enfant si aucun point d'historique ne correspond au jour
+      try {
+        const snapshot = collectConsigneTimelineSnapshot(child);
+        const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+        const targetKey = normalizedCurrentDayKey || (typeof dayKey === "string" ? normalizeHistoryDayKey(dayKey) : "");
+        const hasTimelineMatch = targetKey
+          ? items.some((it) => {
+              const k = it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "");
+              const hasId = Boolean((it && it.historyId) || (it && it.responseId));
+              return k === targetKey && hasId;
+            })
+          : false;
+        if (!hasTimelineMatch) {
+          hasPrevValue = false;
+        }
+      } catch (_) {}
       const initialValue = hasPrevValue ? previous.value : null;
       const childRow = createHiddenConsigneRow(child, { initialValue });
       childRow.dataset.parentId = child.parentId || group.consigne.id || "";
