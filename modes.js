@@ -21137,6 +21137,26 @@ async function renderDaily(ctx, root, opts = {}) {
     </div>`;
   form.appendChild(actions);
 
+  try {
+    const rows = container.querySelectorAll?.('.consigne-row[data-consigne-id]') || [];
+    rows.forEach((row) => {
+      const consigneId = row?.dataset?.consigneId;
+      if (!consigneId) {
+        return;
+      }
+      const consigne = consigneById.get(consigneId) || { id: consigneId };
+      const dot = row.querySelector?.('[data-status-dot]');
+      logConsigneSnapshot('daily.page.status', consigne, {
+        row,
+        extra: {
+          dayKey: row?.dataset?.dayKey || null,
+          status: row?.dataset?.status || null,
+          dotClass: dot ? dot.className : null,
+        },
+      });
+    });
+  } catch (_) {}
+
   modesLogger.groupEnd();
   if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
     window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
