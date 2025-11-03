@@ -11634,18 +11634,18 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             dispatchHistoryUpdateEvent({ consigneId: childId, dayKey: resolvedDayKey, entry: null, silent: false });
           }
         });
-      }
-      showToast("Réponses enregistrées.");
-      if (typeof options.onChange === 'function') {
-        try { options.onChange(); } catch (e) {}
-      }
-      if (typeof requestClose === 'function') requestClose();
-      flushHistoryPanelRefresh();
-      try {
-        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-          window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+
+        showToast("Réponses enregistrées.");
+        if (typeof options.onChange === 'function') {
+          try { options.onChange(); } catch (e) {}
         }
-      } catch (_) {}
+        if (typeof requestClose === 'function') requestClose();
+        flushHistoryPanelRefresh();
+        try {
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+          }
+        } catch (_) {}
     } catch (error) {
       console.error("bilan.history.editor.save", error);
       submitBtn.disabled = false;
@@ -12494,36 +12494,55 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       for (const { state, value, hasValue } of childResults) {
         const childConsigneId = state?.consigne?.id;
         if (!childConsigneId) {
-            continue;
-          }
-          logHistoryDebug("editor.submit.child.save", {
-            parentConsigneId: consigne?.id ?? null,
+          continue;
+        }
+
+        logHistoryDebug("editor.submit.child.save", {
+          parentConsigneId: consigne?.id ?? null,
           childConsigneId,
-            dayKey: resolvedDayKey,
-            historyId: state.historyDocumentId,
-            responseId: state.responseSyncOptions?.responseId || null,
-          });
-          await Schema.saveHistoryEntry(
-            ctx.db,
-            ctx.user.uid,
+          dayKey: resolvedDayKey,
+          historyId: state.historyDocumentId,
+          responseId: state.responseSyncOptions?.responseId || null,
+        });
+
+        await Schema.saveHistoryEntry(
+          ctx.db,
+          ctx.user.uid,
           childConsigneId,
-            state.historyDocumentId,
+          state.historyDocumentId,
           { value: hasValue ? value : "" },
-            state.responseSyncOptions,
-          );
+          state.responseSyncOptions,
+        );
+
+        const childEffectiveId = state.historyDocumentId || scopeDayKey;
+        let record = null;
+
+        if (hasValue) {
+          record = {
+            dayKey: scopeDayKey,
+            value,
+            historyId: childEffectiveId,
+            responseId: state.responseSyncOptions?.responseId || "",
+            updatedAt: new Date().toISOString(),
+          };
+          try {
+            historyStoreUpsert(childConsigneId, record);
+          } catch (_) {
+            try { historyStoreInvalidate(childConsigneId); } catch (_) {}
+          }
+        } else {
+          try {
+            historyStoreRemove(childConsigneId, scopeDayKey);
+          } catch (_) {
+            try { historyStoreInvalidate(childConsigneId); } catch (_) {}
+          }
+        }
+
         try {
-          const childEntryPayload = hasValue
-            ? { historyId: state.historyDocumentId, dayKey: resolvedDayKey, value }
-            : null;
-          applyDailyPrefillUpdate(
-            childConsigneId,
-            resolvedDayKey,
-            hasValue ? value : "",
-            childEntryPayload
-              ? { entry: childEntryPayload, silent: false }
-              : { remove: true, silent: false },
-          );
+          bufferHistoryEntry(childConsigneId, record, scopeDayKey);
         } catch (_) {}
+
+        childStoreRecords.push({ id: childConsigneId, record });
       }
       const childCleared = childResults.some(
         ({ state, hasValue }) => !hasValue && state.initialHasValue,
@@ -15679,40 +15698,8 @@ function historyRowIdentity(row) {
   return `created:${iso}::value:${valueKey}`;
 }
 
-function mergeRowsWithRecent(rows, consigneId) {
-  const remoteRows = Array.isArray(rows) ? rows.slice() : [];
-  const store = getRecentResponsesStore();
-  if (!store || !consigneId) {
-    return remoteRows;
-  }
-  const local = store.get(consigneId) || [];
-  if (!Array.isArray(local) || !local.length) {
-    return remoteRows;
-  }
-  const remoteIds = new Set(remoteRows.map((row) => historyRowIdentity(row)).filter(Boolean));
-  const existingIds = new Set(remoteIds);
-  const merged = remoteRows.slice();
-  const pending = [];
-  local.forEach((entry) => {
-    const identity = historyRowIdentity(entry);
-    if (!identity) {
-      return;
-    }
-    if (existingIds.has(identity)) {
-      return;
-    }
-    merged.push(entry);
-    existingIds.add(identity);
-    pending.push(entry);
-  });
-  if (pending.length) {
-    pending.sort(compareHistoryRowsDesc);
-    store.set(consigneId, pending.slice(0, 10));
-  } else {
-    store.delete(consigneId);
-  }
-  merged.sort(compareHistoryRowsDesc);
-  return merged;
+function mergeRowsWithRecent(rows) {
+  return Array.isArray(rows) ? rows.slice() : [];
 }
 
 async function fetchConsigneHistoryRows(ctx, consigneId, options = {}) {
@@ -20190,78 +20177,7 @@ async function renderDaily(ctx, root, opts = {}) {
     if (!deferEditor) {
       attachConsigneEditor(row, item, editorConfig);
     }
-    bindConsigneRowValue(row, item, {
-      initialValue,
-      onChange: (value) => {
-        const normalizedValue = normalizeConsigneValueForPersistence(item, row, value);
-        const baseSerialized = serializeValueForComparison(item, normalizedValue);
-        const summaryMetadata = readConsigneSummaryMetadata(row);
-        const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
-        const combinedSerialized = summarySerialized
-          ? `${baseSerialized}__summary__${summarySerialized}`
-          : baseSerialized;
-        const previousSerialized = observedValues.get(item.id);
-        if (previousSerialized === undefined) {
-          observedValues.set(item.id, combinedSerialized);
-          return;
-        }
-        if (previousSerialized === combinedSerialized) {
-          return;
-        }
-        observedValues.set(item.id, combinedSerialized);
-        handleValueChange(item, row, normalizedValue, {
-          serialized: combinedSerialized,
-          summary: summaryMetadata,
-          baseSerialized,
-        });
-      },
-    });
-
-    // Post-render audit: detect pre-marked rows without matching history/pre-fills for the current day
-    try {
-      const auditDay = normalizedCurrentDayKey || dayKey || null;
-      window.requestAnimationFrame(() => {
-        try {
-          const datasetStatus = row?.dataset?.status || null;
-          const currentVal = readConsigneCurrentValue(item, row);
-          const computedStatus = dotColor(item.type, currentVal, item);
-          let prevEntry = null;
-          try {
-            prevEntry = historyStoreGetEntry(item.id, auditDay);
-          } catch (_) {
-            prevEntry = null;
-          }
-          const prevKey = prevEntry
-            ? normalizeHistoryDayKey(prevEntry.normalizedDayKey || prevEntry.dayKey || "")
-            : null;
-          const hasPrevForToday = Boolean(prevEntry && auditDay && prevKey === normalizeHistoryDayKey(auditDay));
-          const isSummaryLike = prevEntry
-            ? Boolean((prevEntry.summaryScope || prevEntry.summary_scope || "").trim()) ||
-            (typeof prevEntry.source === "string" && prevEntry.source.toLowerCase().includes("summary")) ||
-              (typeof prevEntry.origin === "string" && prevEntry.origin.toLowerCase().includes("summary"))
-            : false;
-          const mismatch = (datasetStatus && datasetStatus !== "na") && !hasPrevForToday;
-          prefillLog("row-init", {
-            at: "renderItemCard",
-            consigneId: item.id,
-            type: item.type,
-            dayKey: auditDay,
-            datasetStatus,
-            computedStatus,
-            hasPrevForToday,
-            prevEntryDayKey: prevKey || null,
-            isSummaryLikePrev: isSummaryLike,
-          });
-          if (mismatch) {
-            prefillAlert("row-mismatch", {
-              consigneId: item.id,
-              reason: "status-not-na-without-day-prev",
-              at: "renderItemCard:post",
-            });
-          }
-        } catch (_) {}
-      });
-    } catch (_) {}
+    bindConsigneRowValue(row, item, { initialValue });
     try {
       logConsigneSnapshot("daily.row.render", item, {
         row,
@@ -20322,32 +20238,7 @@ async function renderDaily(ctx, root, opts = {}) {
         });
         childInitialValue = historyEntry?.value ?? null;
       }
-      bindConsigneRowValue(childRow, child, {
-        initialValue: childInitialValue,
-        onChange: (value) => {
-          const normalizedValue = normalizeConsigneValueForPersistence(child, childRow, value);
-          const baseSerialized = serializeValueForComparison(child, normalizedValue);
-          const summaryMetadata = readConsigneSummaryMetadata(childRow);
-          const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
-          const combinedSerialized = summarySerialized
-            ? `${baseSerialized}__summary__${summarySerialized}`
-            : baseSerialized;
-          const prevSerialized = observedValues.get(child.id);
-          if (prevSerialized === undefined) {
-            observedValues.set(child.id, combinedSerialized);
-            return;
-          }
-          if (prevSerialized === combinedSerialized) {
-            return;
-          }
-          observedValues.set(child.id, combinedSerialized);
-          handleValueChange(child, childRow, normalizedValue, {
-            serialized: combinedSerialized,
-            summary: summaryMetadata,
-            baseSerialized,
-          });
-        },
-      });
+      bindConsigneRowValue(childRow, child, { initialValue: childInitialValue });
       let srEnabled = child?.srEnabled !== false;
       const config = {
         consigne: child,
