@@ -740,6 +740,17 @@
       }
     } catch (_) {}
 
+    const hasHistoryStore = Boolean(GLOBAL.HistoryStore && typeof GLOBAL.HistoryStore.getEntry === "function");
+    const historyTimelineHost = ownerRow?.querySelector?.("[data-consigne-history],[data-consigne-history-track]") || null;
+    if (hasHistoryStore && historyTimelineHost) {
+      log("hydrate.skip.history-store", {
+        reason: "history-managed",
+        consigneId,
+        dateKey,
+      });
+      return null;
+    }
+
     if (hiddenInput && !hiddenInput.__checklistHiddenListener) {
       const applyHiddenState = () => {
         let parsed = null;

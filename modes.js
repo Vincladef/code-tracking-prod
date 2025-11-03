@@ -11531,83 +11531,112 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           hasValue,
         };
       });
-        const scopeDayKey = resolvedDayKey;
-        let storeRecord = null;
-        const childStoreRecords = [];
-        await runWithAutoSaveSuppressed(consigne.id, scopeDayKey, async () => {
+      const scopeDayKeySource =
+        resolvedDayKey ||
+        dayKey ||
+        (typeof window !== "undefined" && window.AppCtx?.dateIso ? window.AppCtx.dateIso : null) ||
+        (typeof Schema?.todayKey === "function" ? Schema.todayKey() : null);
+      const scopeDayKeyNormalized = normalizeHistoryDayKey(scopeDayKeySource);
+      const scopeDayKey = scopeDayKeyNormalized || scopeDayKeySource || "";
+      const runDayKey = scopeDayKey || resolvedDayKey || dayKey || "";
+      let storeRecord = null;
+      const childStoreRecords = [];
+
+      logHistoryDebug("editor.submit.saveHistoryEntry", {
+        consigneId: consigne?.id ?? null,
+        dayKey: scopeDayKey || null,
+        historyId: historyDocumentId,
+        responseId: responseSyncOptions?.responseId || null,
+      });
+
+      await runWithAutoSaveSuppressed(consigne.id, runDayKey, async () => {
+        await Schema.saveHistoryEntry(
+          ctx.db,
+          ctx.user.uid,
+          consigne.id,
+          historyDocumentId,
+          { value: parentHasValue ? rawValue : "" },
+          responseSyncOptions,
+        );
+
+        const effectiveHistoryId = historyDocumentId || scopeDayKey || runDayKey;
+        if (parentHasValue) {
+          storeRecord = {
+            dayKey: scopeDayKey || runDayKey,
+            normalizedDayKey: scopeDayKey || runDayKey,
+            value: rawValue,
+            historyId: effectiveHistoryId,
+            responseId: resolvedResponseId,
+            updatedAt: new Date().toISOString(),
+          };
+          try {
+            historyStoreUpsert(consigne.id, storeRecord);
+          } catch (_) {
+            try { historyStoreInvalidate(consigne.id); } catch (_) {}
+          }
+        } else {
+          storeRecord = null;
+          try {
+            historyStoreRemove(consigne.id, scopeDayKey || runDayKey);
+          } catch (_) {
+            try { historyStoreInvalidate(consigne.id); } catch (_) {}
+          }
+        }
+        try {
+          bufferHistoryEntry(consigne.id, storeRecord, scopeDayKey || runDayKey);
+        } catch (_) {}
+
+        for (const { state, value, hasValue } of childResults) {
+          const childConsigneId = state?.consigne?.id;
+          if (!childConsigneId) {
+            continue;
+          }
+
+          logHistoryDebug("editor.submit.child.save", {
+            parentConsigneId: consigne?.id ?? null,
+            childConsigneId,
+            dayKey: scopeDayKey || runDayKey || resolvedDayKey,
+            historyId: state.historyDocumentId,
+            responseId: state.responseSyncOptions?.responseId || null,
+          });
+
           await Schema.saveHistoryEntry(
             ctx.db,
             ctx.user.uid,
-            consigne.id,
-            historyDocumentId,
-            { value: parentHasValue ? rawValue : "" },
-            responseSyncOptions,
+            childConsigneId,
+            state.historyDocumentId,
+            { value: hasValue ? value : "" },
+            state.responseSyncOptions,
           );
-          const effectiveHistoryId = historyDocumentId || scopeDayKey;
-          if (parentHasValue) {
-            storeRecord = {
-              dayKey: scopeDayKey,
-              value: rawValue,
-              historyId: effectiveHistoryId,
-              responseId: resolvedResponseId,
+
+          const childEffectiveId = state.historyDocumentId || scopeDayKey || runDayKey;
+          if (hasValue) {
+            const childRecord = {
+              dayKey: scopeDayKey || runDayKey,
+              normalizedDayKey: scopeDayKey || runDayKey,
+              value,
+              historyId: childEffectiveId,
+              responseId: state.responseSyncOptions?.responseId || "",
               updatedAt: new Date().toISOString(),
             };
             try {
-              historyStoreUpsert(consigne.id, storeRecord);
+              historyStoreUpsert(childConsigneId, childRecord);
             } catch (_) {
-              try { historyStoreInvalidate(consigne.id); } catch (_) {}
+              try { historyStoreInvalidate(childConsigneId); } catch (_) {}
             }
+            childStoreRecords.push({ id: childConsigneId, record: childRecord });
+            try { bufferHistoryEntry(childConsigneId, childRecord, scopeDayKey || runDayKey); } catch (_) {}
           } else {
-            storeRecord = null;
             try {
-              historyStoreRemove(consigne.id, scopeDayKey);
+              historyStoreRemove(childConsigneId, scopeDayKey || runDayKey);
             } catch (_) {
-              try { historyStoreInvalidate(consigne.id); } catch (_) {}
+              try { historyStoreInvalidate(childConsigneId); } catch (_) {}
             }
+            childStoreRecords.push({ id: childConsigneId, record: null });
+            try { bufferHistoryEntry(childConsigneId, null, scopeDayKey || runDayKey); } catch (_) {}
           }
-          try {
-            bufferHistoryEntry(consigne.id, storeRecord, scopeDayKey);
-          } catch (_) {}
-          for (const { state, value, hasValue } of childResults) {
-            const childConsigneId = state?.consigne?.id;
-            if (!childConsigneId) {
-              continue;
-            }
-            await Schema.saveHistoryEntry(
-              ctx.db,
-              ctx.user.uid,
-              childConsigneId,
-              state.historyDocumentId,
-              { value: hasValue ? value : "" },
-              state.responseSyncOptions,
-            );
-            const childEffectiveId = state.historyDocumentId || scopeDayKey;
-            if (hasValue) {
-              const childRecord = {
-                dayKey: scopeDayKey,
-                value,
-                historyId: childEffectiveId,
-                responseId: state.responseSyncOptions?.responseId || "",
-                updatedAt: new Date().toISOString(),
-              };
-              try {
-                historyStoreUpsert(childConsigneId, childRecord);
-              } catch (_) {
-                try { historyStoreInvalidate(childConsigneId); } catch (_) {}
-              }
-              childStoreRecords.push({ id: childConsigneId, record: childRecord });
-              try { bufferHistoryEntry(childConsigneId, childRecord, scopeDayKey); } catch (_) {}
-            } else {
-              try {
-                historyStoreRemove(childConsigneId, scopeDayKey);
-              } catch (_) {
-                try { historyStoreInvalidate(childConsigneId); } catch (_) {}
-              }
-              childStoreRecords.push({ id: childConsigneId, record: null });
-              try { bufferHistoryEntry(childConsigneId, null, scopeDayKey); } catch (_) {}
-            }
-          }
-        });
+        }
+      });
         if (storeRecord) {
           applyDailyPrefillUpdate(consigne.id, resolvedDayKey, rawValue, { entry: storeRecord, silent: false });
           dispatchHistoryUpdateEvent({
@@ -12466,84 +12495,6 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           valueSummary: summarizeHistoryValue(value),
         })),
       });
-        logHistoryDebug("editor.submit.saveHistoryEntry", {
-          consigneId: consigne?.id ?? null,
-          dayKey: resolvedDayKey,
-          historyId: historyDocumentId,
-          responseId: responseSyncOptions?.responseId || null,
-        });
-        await Schema.saveHistoryEntry(
-          ctx.db,
-          ctx.user.uid,
-          consigne.id,
-          historyDocumentId,
-        { value: parentHasValue ? rawValue : "" },
-          responseSyncOptions,
-        );
-      try {
-        const entryPayload = parentHasValue
-          ? { historyId: historyDocumentId, dayKey: resolvedDayKey, value: rawValue }
-          : null;
-        applyDailyPrefillUpdate(
-          consigne.id,
-          resolvedDayKey,
-          parentHasValue ? rawValue : "",
-          entryPayload ? { entry: entryPayload, silent: false } : { remove: true, silent: false },
-        );
-      } catch (_) {}
-      for (const { state, value, hasValue } of childResults) {
-        const childConsigneId = state?.consigne?.id;
-        if (!childConsigneId) {
-          continue;
-        }
-
-        logHistoryDebug("editor.submit.child.save", {
-          parentConsigneId: consigne?.id ?? null,
-          childConsigneId,
-          dayKey: resolvedDayKey,
-          historyId: state.historyDocumentId,
-          responseId: state.responseSyncOptions?.responseId || null,
-        });
-
-        await Schema.saveHistoryEntry(
-          ctx.db,
-          ctx.user.uid,
-          childConsigneId,
-          state.historyDocumentId,
-          { value: hasValue ? value : "" },
-          state.responseSyncOptions,
-        );
-
-        const childEffectiveId = state.historyDocumentId || scopeDayKey;
-        let record = null;
-
-        if (hasValue) {
-          record = {
-            dayKey: scopeDayKey,
-            value,
-            historyId: childEffectiveId,
-            responseId: state.responseSyncOptions?.responseId || "",
-            updatedAt: new Date().toISOString(),
-          };
-          try {
-            historyStoreUpsert(childConsigneId, record);
-          } catch (_) {
-            try { historyStoreInvalidate(childConsigneId); } catch (_) {}
-          }
-        } else {
-          try {
-            historyStoreRemove(childConsigneId, scopeDayKey);
-          } catch (_) {
-            try { historyStoreInvalidate(childConsigneId); } catch (_) {}
-          }
-        }
-
-        try {
-          bufferHistoryEntry(childConsigneId, record, scopeDayKey);
-        } catch (_) {}
-
-        childStoreRecords.push({ id: childConsigneId, record });
-      }
       const childCleared = childResults.some(
         ({ state, hasValue }) => !hasValue && state.initialHasValue,
       );
@@ -16027,7 +15978,16 @@ function refreshConsigneTimelineWithRows(consigne, rows) {
   if (!snapshot || !(snapshot.row instanceof HTMLElement)) {
     return;
   }
-  const points = buildConsigneHistoryTimeline(rows, consigne);
+  let timelineRows = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  if ((!timelineRows || timelineRows.length === 0) && HistoryStore && typeof HistoryStore.getEntries === "function") {
+    try {
+      ensureHistoryStoreContext();
+      timelineRows = HistoryStore.getEntries(consigne.id) || [];
+    } catch (_) {
+      timelineRows = [];
+    }
+  }
+  const points = buildConsigneHistoryTimeline(timelineRows, consigne);
   try {
     // Cache for later comparison/logging when DOM snapshot isn't available yet
     CONSIGNE_HISTORY_LAST_POINTS.set(String(consigne.id), Array.isArray(points) ? points.slice() : []);
@@ -16043,8 +16003,8 @@ function refreshConsigneTimelineWithRows(consigne, rows) {
     state.track.dataset.historyMode = "empty";
   }
   try {
-    const rowsSummary = Array.isArray(rows)
-      ? rows.slice(0, 20).map((row) => {
+    const rowsSummary = Array.isArray(timelineRows)
+      ? timelineRows.slice(0, 20).map((row) => {
           const statusValue = (() => {
             try {
               const normalized = resolveHistoryTimelineValue(row, consigne);
