@@ -11629,6 +11629,17 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           bufferHistoryEntry(consigne.id, storeRecord, scopeDayKey || runDayKey);
         } catch (_) {}
 
+        if (typeof syncDailyRowFromHistory === "function") {
+          try {
+            syncDailyRowFromHistory(consigne.id, scopeDayKey || runDayKey, {
+              entry: storeRecord,
+              fallbackDayKey: resolvedDayKey,
+              silent: true,
+              transient: true,
+            });
+          } catch (_) {}
+        }
+
         applyTransientRowUpdate(consigne, scopeDayKey || runDayKey, storeRecord, row);
 
         for (const { state, value, hasValue } of childResults) {
@@ -11669,8 +11680,22 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             } catch (_) {
               try { historyStoreInvalidate(childConsigneId); } catch (_) {}
             }
-            childStoreRecords.push({ id: childConsigneId, record: childRecord });
+            childStoreRecords.push({
+              id: childConsigneId,
+              record: childRecord,
+              consigne: state?.consigne || { id: childConsigneId },
+            });
             try { bufferHistoryEntry(childConsigneId, childRecord, scopeDayKey || runDayKey); } catch (_) {}
+            if (typeof syncDailyRowFromHistory === "function") {
+              try {
+                syncDailyRowFromHistory(childConsigneId, scopeDayKey || runDayKey, {
+                  entry: childRecord,
+                  fallbackDayKey: resolvedDayKey,
+                  silent: true,
+                  transient: true,
+                });
+              } catch (_) {}
+            }
             applyTransientRowUpdate(state?.consigne || { id: childConsigneId }, scopeDayKey || runDayKey, childRecord, state?.row || null);
           } else {
             try {
@@ -11678,8 +11703,22 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             } catch (_) {
               try { historyStoreInvalidate(childConsigneId); } catch (_) {}
             }
-            childStoreRecords.push({ id: childConsigneId, record: null });
+            childStoreRecords.push({
+              id: childConsigneId,
+              record: null,
+              consigne: state?.consigne || { id: childConsigneId },
+            });
             try { bufferHistoryEntry(childConsigneId, null, scopeDayKey || runDayKey); } catch (_) {}
+            if (typeof syncDailyRowFromHistory === "function") {
+              try {
+                syncDailyRowFromHistory(childConsigneId, scopeDayKey || runDayKey, {
+                  entry: null,
+                  fallbackDayKey: resolvedDayKey,
+                  silent: true,
+                  transient: true,
+                });
+              } catch (_) {}
+            }
             applyTransientRowUpdate(state?.consigne || { id: childConsigneId }, scopeDayKey || runDayKey, null, state?.row || null);
           }
         }
@@ -11692,6 +11731,14 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             entry: storeRecord,
             silent: false,
           });
+          if (typeof refreshConsigneTimelineWithRows === "function") {
+            try {
+              const latestEntries = HistoryStore && typeof HistoryStore.getEntries === "function"
+                ? HistoryStore.getEntries(consigne.id)
+                : [];
+              refreshConsigneTimelineWithRows(consigne, latestEntries);
+            } catch (_) {}
+          }
         } else {
           applyDailyPrefillUpdate(consigne.id, resolvedDayKey, "", { remove: true, silent: false });
           dispatchHistoryUpdateEvent({
@@ -11701,16 +11748,41 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             silent: false,
           });
           applyTransientRowUpdate(consigne, scopeDayKey || runDayKey, null, row);
+          if (typeof refreshConsigneTimelineWithRows === "function") {
+            try {
+              const latestEntries = HistoryStore && typeof HistoryStore.getEntries === "function"
+                ? HistoryStore.getEntries(consigne.id)
+                : [];
+              refreshConsigneTimelineWithRows(consigne, latestEntries);
+            } catch (_) {}
+          }
         }
-        childStoreRecords.forEach(({ id: childId, record }) => {
+        childStoreRecords.forEach(({ id: childId, record, consigne: childConsigne }) => {
+          const consigneInfo = childConsigne || { id: childId };
           if (record) {
             applyDailyPrefillUpdate(childId, resolvedDayKey, record.value, { entry: record, silent: false });
             dispatchHistoryUpdateEvent({ consigneId: childId, dayKey: resolvedDayKey, entry: record, silent: false });
             applyTransientRowUpdate({ id: childId }, scopeDayKey || runDayKey, record);
+            if (typeof refreshConsigneTimelineWithRows === "function") {
+              try {
+                const childEntries = HistoryStore && typeof HistoryStore.getEntries === "function"
+                  ? HistoryStore.getEntries(childId)
+                  : [];
+                refreshConsigneTimelineWithRows(consigneInfo, childEntries);
+              } catch (_) {}
+            }
           } else {
             applyDailyPrefillUpdate(childId, resolvedDayKey, "", { remove: true, silent: false });
             dispatchHistoryUpdateEvent({ consigneId: childId, dayKey: resolvedDayKey, entry: null, silent: false });
             applyTransientRowUpdate({ id: childId }, scopeDayKey || runDayKey, null);
+            if (typeof refreshConsigneTimelineWithRows === "function") {
+              try {
+                const childEntries = HistoryStore && typeof HistoryStore.getEntries === "function"
+                  ? HistoryStore.getEntries(childId)
+                  : [];
+                refreshConsigneTimelineWithRows(consigneInfo, childEntries);
+              } catch (_) {}
+            }
           }
         });
 
