@@ -11549,6 +11549,42 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       let storeRecord = null;
       const childStoreRecords = [];
 
+      const applyTransientRowUpdate = (targetConsigne, targetDayKey, record, scopeRow = null) => {
+        if (!targetConsigne || !targetConsigne.id) {
+          return;
+        }
+        const resolvedRow = scopeRow instanceof HTMLElement
+          ? scopeRow
+          : (() => {
+              if (typeof document === "undefined") return null;
+              const selector = targetDayKey
+                ? `[data-consigne-id="${escapeSelectorToken(targetConsigne.id)}"][data-day-key="${escapeSelectorToken(targetDayKey)}"]`
+                : `[data-consigne-id="${escapeSelectorToken(targetConsigne.id)}"]`;
+              try {
+                const candidate = document.querySelector(selector);
+                return candidate instanceof HTMLElement ? candidate : null;
+              } catch (_) {
+                return null;
+              }
+            })();
+        if (!(resolvedRow instanceof HTMLElement)) {
+          return;
+        }
+        const consigneShape = targetConsigne.type
+          ? targetConsigne
+          : {
+              id: targetConsigne.id,
+              type: inferConsigneTypeFromRow(resolvedRow, targetConsigne.id),
+            };
+        try {
+          applyHistoryEntryToRow(consigneShape, targetDayKey, record, {
+            row: resolvedRow,
+            silent: true,
+            transient: true,
+          });
+        } catch (_) {}
+      };
+
       logHistoryDebug("editor.submit.saveHistoryEntry", {
         consigneId: consigne?.id ?? null,
         dayKey: scopeDayKey || null,
@@ -11593,6 +11629,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           bufferHistoryEntry(consigne.id, storeRecord, scopeDayKey || runDayKey);
         } catch (_) {}
 
+        applyTransientRowUpdate(consigne, scopeDayKey || runDayKey, storeRecord, row);
+
         for (const { state, value, hasValue } of childResults) {
           const childConsigneId = state?.consigne?.id;
           if (!childConsigneId) {
@@ -11633,6 +11671,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             }
             childStoreRecords.push({ id: childConsigneId, record: childRecord });
             try { bufferHistoryEntry(childConsigneId, childRecord, scopeDayKey || runDayKey); } catch (_) {}
+            applyTransientRowUpdate(state?.consigne || { id: childConsigneId }, scopeDayKey || runDayKey, childRecord, state?.row || null);
           } else {
             try {
               historyStoreRemove(childConsigneId, scopeDayKey || runDayKey);
@@ -11641,6 +11680,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             }
             childStoreRecords.push({ id: childConsigneId, record: null });
             try { bufferHistoryEntry(childConsigneId, null, scopeDayKey || runDayKey); } catch (_) {}
+            applyTransientRowUpdate(state?.consigne || { id: childConsigneId }, scopeDayKey || runDayKey, null, state?.row || null);
           }
         }
       });
@@ -11660,14 +11700,17 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             entry: null,
             silent: false,
           });
+          applyTransientRowUpdate(consigne, scopeDayKey || runDayKey, null, row);
         }
         childStoreRecords.forEach(({ id: childId, record }) => {
           if (record) {
             applyDailyPrefillUpdate(childId, resolvedDayKey, record.value, { entry: record, silent: false });
             dispatchHistoryUpdateEvent({ consigneId: childId, dayKey: resolvedDayKey, entry: record, silent: false });
+            applyTransientRowUpdate({ id: childId }, scopeDayKey || runDayKey, record);
           } else {
             applyDailyPrefillUpdate(childId, resolvedDayKey, "", { remove: true, silent: false });
             dispatchHistoryUpdateEvent({ consigneId: childId, dayKey: resolvedDayKey, entry: null, silent: false });
+            applyTransientRowUpdate({ id: childId }, scopeDayKey || runDayKey, null);
           }
         });
 
