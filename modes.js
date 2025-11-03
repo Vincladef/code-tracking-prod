@@ -12805,6 +12805,14 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
           status,
           rendered: state.hasDayTimeline,
         });
+        // Hydrate visible row value from the history point for the current day
+        try {
+          if (hasPoint && dayKeyForAudit && item && item._historyDetails) {
+            const details = item._historyDetails;
+            const nextValue = (details && (details.rawValue !== undefined ? details.rawValue : details.value)) ?? "";
+            applyDailyPrefillUpdate(consigne.id, dayKeyForAudit, nextValue);
+          }
+        } catch (_) {}
         // Highlight if row shows an answer but no timeline point exists for the day
         try {
           const rowStatus = row?.dataset?.status || null;
