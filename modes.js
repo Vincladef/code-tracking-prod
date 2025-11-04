@@ -20534,6 +20534,12 @@ async function renderDaily(ctx, root, opts = {}) {
           return normalizedValue;
         })();
         const statusForTimeline = dotColor(consigne.type, statusValueForTimeline, consigne) || "na";
+            // IDs posés: notifier immédiatement les listeners pour une synchro instantanée
+            try {
+              row.dispatchEvent(new CustomEvent("consigne-status-changed", {
+                detail: { status: statusForTimeline, value: normalizedValue, dayKey: targetDocId },
+              }));
+            } catch (_) {}
             updateConsigneHistoryTimeline(row, statusForTimeline, {
               consigne,
               value: normalizedValue,
