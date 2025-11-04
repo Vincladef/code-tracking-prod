@@ -13018,14 +13018,14 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     if (typeof status !== "string" || !status) {
       return;
     }
-    // Garde général: ne pas alimenter la timeline si statut 'na' et aucun identifiant d'historique
+    // Garde général: ne pas alimenter la timeline si aucun identifiant d'historique (quel que soit le statut)
     try {
       const hasHistoryId = typeof row?.dataset?.historyId === "string" && row.dataset.historyId.trim().length > 0;
       const hasResponseId = typeof row?.dataset?.historyResponseId === "string" && row.dataset.historyResponseId.trim().length > 0;
       const hasIds = hasHistoryId || hasResponseId;
-      if (CONSIGNE_HISTORY_GUARDS_ENABLED && status === "na" && !hasIds) {
+      if (CONSIGNE_HISTORY_GUARDS_ENABLED && !hasIds) {
         try {
-          logChecklistEvent("info", "[checklist-history] event.na.blocked", {
+          logChecklistEvent("info", "[checklist-history] event.blocked.noIds", {
             consigneId: consigne?.id ?? null,
             dayKey: event?.detail?.dayKey || row?.dataset?.dayKey || null,
             status,
