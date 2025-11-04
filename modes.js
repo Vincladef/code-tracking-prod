@@ -20518,7 +20518,22 @@ async function renderDaily(ctx, root, opts = {}) {
           // Propager l'identifiant sur la ligne et rafraîchir la timeline avec IDs
           try { row.dataset.historyId = targetDocId; } catch (_) {}
           try {
-            const statusForTimeline = dotColor(consigne.type, normalizedValue, consigne) || "na";
+        // Aligner la couleur de la pastille sur le calcul du dot (skip + checklist __hasAnswer)
+        const statusValueForTimeline = (() => {
+          try {
+            if (row?.dataset?.skipAnswered === "1") {
+              // Même logique que mapValueForStatus: si skip sans valeur propre, statut 'skipped'
+              return { skipped: true };
+            }
+            if (consigne.type === "checklist") {
+              const hasAnswer = hasChecklistResponse(consigne, row, normalizedValue);
+              const base = normalizedValue && typeof normalizedValue === "object" ? normalizedValue : {};
+              return { ...base, __hasAnswer: hasAnswer };
+            }
+          } catch (_) {}
+          return normalizedValue;
+        })();
+        const statusForTimeline = dotColor(consigne.type, statusValueForTimeline, consigne) || "na";
             updateConsigneHistoryTimeline(row, statusForTimeline, {
               consigne,
               value: normalizedValue,
