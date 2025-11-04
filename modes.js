@@ -20468,7 +20468,7 @@ async function renderDaily(ctx, root, opts = {}) {
     } catch (_) {}
   } catch (_) {}
 
-  const handleValueChange = (consigne, row, value, { serialized, summary, baseSerialized } = {}) => {
+  const handleValueChange = async (consigne, row, value, { serialized, summary, baseSerialized } = {}) => {
     const normalizedValue = normalizeConsigneValueForPersistence(consigne, row, value);
     const skipActive = Boolean(row?.dataset?.skipAnswered === "1");
     const hasContent = skipActive
@@ -20504,26 +20504,33 @@ async function renderDaily(ctx, root, opts = {}) {
         responseDayKey: targetDocId,
         responseCreatedAt: new Date().toISOString(),
       };
-      await Schema.saveHistoryEntry(
-        ctx.db,
-        ctx.user.uid,
-        consigne.id,
-        targetDocId,
-        { value: normalizedValue },
-        responseSyncOptions,
-      );
-      // Propager l'identifiant sur la ligne et rafraîchir la timeline avec IDs
-      try { row.dataset.historyId = targetDocId; } catch (_) {}
-      try {
-        const statusForTimeline = dotColor(consigne.type, normalizedValue, consigne) || "na";
-        updateConsigneHistoryTimeline(row, statusForTimeline, {
-          consigne,
-          value: normalizedValue,
-          dayKey: targetDocId,
-          historyId: targetDocId,
-          responseId: responseSyncOptions.responseId || "",
+      Promise.resolve(
+        Schema.saveHistoryEntry(
+          ctx.db,
+          ctx.user.uid,
+          consigne.id,
+          targetDocId,
+          { value: normalizedValue },
+          responseSyncOptions,
+        ),
+      )
+        .then(() => {
+          // Propager l'identifiant sur la ligne et rafraîchir la timeline avec IDs
+          try { row.dataset.historyId = targetDocId; } catch (_) {}
+          try {
+            const statusForTimeline = dotColor(consigne.type, normalizedValue, consigne) || "na";
+            updateConsigneHistoryTimeline(row, statusForTimeline, {
+              consigne,
+              value: normalizedValue,
+              dayKey: targetDocId,
+              historyId: targetDocId,
+              responseId: responseSyncOptions.responseId || "",
+            });
+          } catch (_) {}
+        })
+        .catch((e) => {
+          try { console.warn("[daily] history.persist.onChange:save", e); } catch (_) {}
         });
-      } catch (_) {}
     }
   } catch (e) {
     try { console.warn("[daily] history.persist.onChange", e); } catch (_) {}
