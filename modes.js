@@ -8236,6 +8236,12 @@ const CONSIGNE_HISTORY_DAY_FULL_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
 const HISTORY_PANEL_FETCH_LIMIT = 120;
 const DAILY_HISTORY_MODE_KEYS = new Set(["daily"]);
 
+// Feature flag: activer/désactiver les gardes anti-pastilles 'na' sans IDs (par défaut: activé)
+const CONSIGNE_HISTORY_GUARDS_ENABLED = true;
+
+// Persistance minimale en daily: crée/écrase une entrée pour le jour courant lors du premier changement
+const DAILY_HISTORY_PERSIST_ON_CHANGE = true;
+
 function formatChecklistLogPayload(payload) {
   if (payload === undefined) {
     return "";
@@ -12636,14 +12642,12 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     responseId: resolvedResponseId,
   };
   if (!item) {
-    // Guard: éviter de créer un point 'na' sans IDs pour les checklists (pas d'historique réel)
+    // Guard global: éviter de créer un point sans IDs pour tous les statuts (pas d'historique réel)
     try {
-      const isChecklist = (options?.consigne?.type || consigne?.type) === "checklist";
       const noIds = !normalizedHistoryId && !normalizedResponseId;
-      const keepPlaceholder = options && options.keepPlaceholder === true;
-      if (isChecklist && status === "na" && noIds && !keepPlaceholder) {
+      if (CONSIGNE_HISTORY_GUARDS_ENABLED && noIds) {
         try {
-          logChecklistEvent("info", "[checklist-history] timeline.create.skipped", {
+          logChecklistEvent("info", "[checklist-history] timeline.create.blocked.noIds", {
             consigneId: consigne?.id ?? null,
             dayKey,
             status,
@@ -13017,11 +13021,21 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     if (typeof status !== "string" || !status) {
       return;
     }
-    // Guard: pour les checklists, n'alimente pas la timeline si statut 'na' et aucun historique pour le jour
+    // Garde général: ne pas alimenter la timeline si aucun identifiant d'historique (quel que soit le statut)
     try {
-      const type = consigne?.type || null;
       const hasHistoryId = typeof row?.dataset?.historyId === "string" && row.dataset.historyId.trim().length > 0;
-      if (type === "checklist" && status === "na" && !hasHistoryId) {
+      const hasResponseId = typeof row?.dataset?.historyResponseId === "string" && row.dataset.historyResponseId.trim().length > 0;
+      const hasIds = hasHistoryId || hasResponseId;
+      if (CONSIGNE_HISTORY_GUARDS_ENABLED && !hasIds) {
+        try {
+          logChecklistEvent("info", "[checklist-history] event.blocked.noIds", {
+            consigneId: consigne?.id ?? null,
+            dayKey: event?.detail?.dayKey || row?.dataset?.dayKey || null,
+            status,
+            hasHistoryId: Boolean(hasHistoryId),
+            hasResponseId: Boolean(hasResponseId),
+          });
+        } catch (_) {}
         return;
       }
     } catch (_) {}
@@ -20454,7 +20468,7 @@ async function renderDaily(ctx, root, opts = {}) {
     } catch (_) {}
   } catch (_) {}
 
-  const handleValueChange = (consigne, row, value, { serialized, summary, baseSerialized } = {}) => {
+  const handleValueChange = async (consigne, row, value, { serialized, summary, baseSerialized } = {}) => {
     const normalizedValue = normalizeConsigneValueForPersistence(consigne, row, value);
     const skipActive = Boolean(row?.dataset?.skipAnswered === "1");
     const hasContent = skipActive
@@ -20471,6 +20485,77 @@ async function renderDaily(ctx, root, opts = {}) {
         normalizedIsSkipped: !!(normalizedValue && typeof normalizedValue === 'object' && normalizedValue.skipped === true),
       });
     } catch (_) {}
+
+  // Persistance minimale en daily: créer une entrée d’historique au premier changement pour obtenir des IDs
+  try {
+    if (
+      DAILY_HISTORY_PERSIST_ON_CHANGE &&
+      hasContent &&
+      row &&
+      !(row?.dataset?.historyId || row?.dataset?.historyResponseId) &&
+      ctx?.db && ctx?.user?.uid && consigne?.id &&
+      typeof dayKey === "string" && dayKey.trim()
+    ) {
+      const targetDocId = dayKey.trim();
+      const responseSyncOptions = {
+        responseId: row?.dataset?.historyResponseId || "",
+        responseMode: "daily",
+        responseType: consigne.type,
+        responseDayKey: targetDocId,
+        responseCreatedAt: new Date().toISOString(),
+      };
+      Promise.resolve(
+        Schema.saveHistoryEntry(
+          ctx.db,
+          ctx.user.uid,
+          consigne.id,
+          targetDocId,
+          { value: normalizedValue },
+          responseSyncOptions,
+        ),
+      )
+        .then(() => {
+          // Propager l'identifiant sur la ligne et rafraîchir la timeline avec IDs
+          try { row.dataset.historyId = targetDocId; } catch (_) {}
+          try {
+        // Aligner la couleur de la pastille sur le calcul du dot (skip + checklist __hasAnswer)
+        const statusValueForTimeline = (() => {
+          try {
+            if (row?.dataset?.skipAnswered === "1") {
+              // Même logique que mapValueForStatus: si skip sans valeur propre, statut 'skipped'
+              return { skipped: true };
+            }
+            if (consigne.type === "checklist") {
+              const hasAnswer = hasChecklistResponse(consigne, row, normalizedValue);
+              const base = normalizedValue && typeof normalizedValue === "object" ? normalizedValue : {};
+              return { ...base, __hasAnswer: hasAnswer };
+            }
+          } catch (_) {}
+          return normalizedValue;
+        })();
+        const statusForTimeline = dotColor(consigne.type, statusValueForTimeline, consigne) || "na";
+            // IDs posés: notifier immédiatement les listeners pour une synchro instantanée
+            try {
+              row.dispatchEvent(new CustomEvent("consigne-status-changed", {
+                detail: { status: statusForTimeline, value: normalizedValue, dayKey: targetDocId },
+              }));
+            } catch (_) {}
+            updateConsigneHistoryTimeline(row, statusForTimeline, {
+              consigne,
+              value: normalizedValue,
+              dayKey: targetDocId,
+              historyId: targetDocId,
+              responseId: responseSyncOptions.responseId || "",
+            });
+          } catch (_) {}
+        })
+        .catch((e) => {
+          try { console.warn("[daily] history.persist.onChange:save", e); } catch (_) {}
+        });
+    }
+  } catch (e) {
+    try { console.warn("[daily] history.persist.onChange", e); } catch (_) {}
+  }
     if (!hasContent) {
       previousAnswers.delete(consigne.id);
       if (row) {
