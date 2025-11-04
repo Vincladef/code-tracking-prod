@@ -12639,12 +12639,12 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     responseId: resolvedResponseId,
   };
   if (!item) {
-    // Guard global: éviter de créer un point 'na' sans IDs pour tous les types (pas d'historique réel)
+    // Guard global: éviter de créer un point sans IDs pour tous les statuts (pas d'historique réel)
     try {
       const noIds = !normalizedHistoryId && !normalizedResponseId;
-      if (CONSIGNE_HISTORY_GUARDS_ENABLED && status === "na" && noIds) {
+      if (CONSIGNE_HISTORY_GUARDS_ENABLED && noIds) {
         try {
-          logChecklistEvent("info", "[checklist-history] timeline.create.skipped", {
+          logChecklistEvent("info", "[checklist-history] timeline.create.blocked.noIds", {
             consigneId: consigne?.id ?? null,
             dayKey,
             status,
