@@ -8236,6 +8236,9 @@ const CONSIGNE_HISTORY_DAY_FULL_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
 const HISTORY_PANEL_FETCH_LIMIT = 120;
 const DAILY_HISTORY_MODE_KEYS = new Set(["daily"]);
 
+// Feature flag: activer/désactiver les gardes anti-pastilles 'na' sans IDs (par défaut: activé)
+const CONSIGNE_HISTORY_GUARDS_ENABLED = true;
+
 function formatChecklistLogPayload(payload) {
   if (payload === undefined) {
     return "";
@@ -12636,12 +12639,10 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
     responseId: resolvedResponseId,
   };
   if (!item) {
-    // Guard: éviter de créer un point 'na' sans IDs pour les checklists (pas d'historique réel)
+    // Guard global: éviter de créer un point 'na' sans IDs pour tous les types (pas d'historique réel)
     try {
-      const isChecklist = (options?.consigne?.type || consigne?.type) === "checklist";
       const noIds = !normalizedHistoryId && !normalizedResponseId;
-      const keepPlaceholder = options && options.keepPlaceholder === true;
-      if (isChecklist && status === "na" && noIds && !keepPlaceholder) {
+      if (CONSIGNE_HISTORY_GUARDS_ENABLED && status === "na" && noIds) {
         try {
           logChecklistEvent("info", "[checklist-history] timeline.create.skipped", {
             consigneId: consigne?.id ?? null,
@@ -13017,11 +13018,21 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     if (typeof status !== "string" || !status) {
       return;
     }
-    // Guard: pour les checklists, n'alimente pas la timeline si statut 'na' et aucun historique pour le jour
+    // Garde général: ne pas alimenter la timeline si statut 'na' et aucun identifiant d'historique
     try {
-      const type = consigne?.type || null;
       const hasHistoryId = typeof row?.dataset?.historyId === "string" && row.dataset.historyId.trim().length > 0;
-      if (type === "checklist" && status === "na" && !hasHistoryId) {
+      const hasResponseId = typeof row?.dataset?.historyResponseId === "string" && row.dataset.historyResponseId.trim().length > 0;
+      const hasIds = hasHistoryId || hasResponseId;
+      if (CONSIGNE_HISTORY_GUARDS_ENABLED && status === "na" && !hasIds) {
+        try {
+          logChecklistEvent("info", "[checklist-history] event.na.blocked", {
+            consigneId: consigne?.id ?? null,
+            dayKey: event?.detail?.dayKey || row?.dataset?.dayKey || null,
+            status,
+            hasHistoryId: Boolean(hasHistoryId),
+            hasResponseId: Boolean(hasResponseId),
+          });
+        } catch (_) {}
         return;
       }
     } catch (_) {}
