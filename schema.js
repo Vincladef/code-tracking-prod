@@ -3197,6 +3197,7 @@ Object.assign(Schema, {
   buildUserDailyLink,
   todayKey,
   dayKeyFromDate,
+  buildSummaryResponseId,
   PRIORITIES,
   MODES,
   TYPES,
