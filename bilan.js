@@ -1273,6 +1273,28 @@
           ],
           metadataForPersist,
         );
+        try {
+          const responseId = typeof Schema?.buildSummaryResponseId === "function"
+            ? Schema.buildSummaryResponseId(period.scope, period.key, key, baseAnswer.consigneId)
+            : null;
+          const status = typeof Modes?.dotColor === "function"
+            ? Modes.dotColor(consigne.type, value, consigne) || "na"
+            : "na";
+          if (typeof Modes?.updateConsigneHistoryTimeline === "function" && row) {
+            Modes.updateConsigneHistoryTimeline(row, status, {
+              consigne,
+              value,
+              dayKey: summaryDayKey || "",
+              summaryScope: normalizedSummaryScope,
+              summaryLabel,
+              historyId: responseId || undefined,
+              responseId: responseId || undefined,
+              isBilan: true,
+            });
+          }
+        } catch (error) {
+          bilanLogger?.warn?.("bilan.summary.history.update", error);
+        }
         await syncObjectiveEntryFromSummary(ctx, consigne, value, true, period);
       } catch (error) {
         bilanLogger?.error?.("bilan.summary.persist", { error, key });
