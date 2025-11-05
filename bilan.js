@@ -1191,15 +1191,16 @@
     if (period.scope === "month" && period.key) {
       extras.monthKey = period.key;
     }
+    const summaryDayKey = typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(period?.end || period?.start || new Date())
+      : "";
     const metadata = {
       start: period.start,
       end: period.end,
       label: period.label,
       extras,
       moduleId: "bilan",
-      // Let schema compute and persist the dayKey from the period end (e.g., Sunday for a weekly bilan)
-      // so history items are dated on the relevant period day.
-      // summaryDayKey: false,
+      summaryDayKey: summaryDayKey || undefined,
     };
 
     const summaryLabel = normalizedSummaryScope === "monthly"
