@@ -1270,6 +1270,11 @@
                 isBilan: true,
                 remove: true,
               });
+            try {
+              if (typeof Modes?.triggerConsigneRowUpdateHighlight === "function") {
+                Modes.triggerConsigneRowUpdateHighlight(row);
+              }
+            } catch (_) {}
             }
         } catch (error) {
           bilanLogger?.warn?.("bilan.summary.history.remove", error);
@@ -1323,6 +1328,11 @@
               responseId: responseId || undefined,
               isBilan: true,
             });
+            try {
+              if (typeof Modes?.triggerConsigneRowUpdateHighlight === "function") {
+                Modes.triggerConsigneRowUpdateHighlight(row);
+              }
+            } catch (_) {}
           }
         } catch (error) {
           bilanLogger?.warn?.("bilan.summary.history.update", error);

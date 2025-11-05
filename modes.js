@@ -21433,6 +21433,7 @@ Modes.setupConsigneHistoryTimeline = setupConsigneHistoryTimeline;
 // Expose timeline updater and status resolver for other modules (bilan)
 Modes.updateConsigneHistoryTimeline = updateConsigneHistoryTimeline;
 Modes.dotColor = dotColor;
+Modes.triggerConsigneRowUpdateHighlight = triggerConsigneRowUpdateHighlight;
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
