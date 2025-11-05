@@ -1271,8 +1271,13 @@
                 remove: true,
               });
             }
-          } catch (error) {
-            bilanLogger?.warn?.("bilan.summary.history.remove", error);
+        } catch (error) {
+          bilanLogger?.warn?.("bilan.summary.history.remove", error);
+          try {
+            if (typeof Modes?.showToast === "function") {
+              Modes.showToast("Historique du bilan non mis à jour.");
+            }
+          } catch (_) {}
           }
           await syncObjectiveEntryFromSummary(ctx, consigne, value, false, period);
           return;
@@ -1325,6 +1330,11 @@
         await syncObjectiveEntryFromSummary(ctx, consigne, value, true, period);
       } catch (error) {
         bilanLogger?.error?.("bilan.summary.persist", { error, key });
+        try {
+          if (typeof Modes?.showToast === "function") {
+            Modes.showToast("Impossible de rafraîchir l’historique du bilan.");
+          }
+        } catch (_) {}
       }
     };
 
