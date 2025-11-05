@@ -1249,6 +1249,31 @@
             key,
             metadataForPersist,
           );
+          try {
+            const responseId = typeof Schema?.buildSummaryResponseId === "function"
+              ? Schema.buildSummaryResponseId(period.scope, period.key, key, baseAnswer.consigneId)
+              : null;
+            const status = typeof Modes?.dotColor === "function"
+              ? Modes.dotColor(consigne.type, "", consigne) || "na"
+              : "na";
+            if (typeof Modes?.updateConsigneHistoryTimeline === "function" && row) {
+              Modes.updateConsigneHistoryTimeline(row, status, {
+                consigne,
+                value: "",
+                dayKey: summaryDayKey || "",
+                summaryScope: normalizedSummaryScope,
+                summaryLabel,
+                summaryPeriod: period?.key || undefined,
+                periodKey: period?.key || undefined,
+                historyId: responseId || undefined,
+                responseId: responseId || undefined,
+                isBilan: true,
+                remove: true,
+              });
+            }
+          } catch (error) {
+            bilanLogger?.warn?.("bilan.summary.history.remove", error);
+          }
           await syncObjectiveEntryFromSummary(ctx, consigne, value, false, period);
           return;
         }
@@ -1287,6 +1312,8 @@
               dayKey: summaryDayKey || "",
               summaryScope: normalizedSummaryScope,
               summaryLabel,
+              summaryPeriod: period?.key || undefined,
+              periodKey: period?.key || undefined,
               historyId: responseId || undefined,
               responseId: responseId || undefined,
               isBilan: true,
