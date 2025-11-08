@@ -622,7 +622,28 @@
     if (value === null || value === undefined) return null;
     if (typeof value === "object") return null;
     const type = consigne.type;
-    if (type === "likert6" || type === "likert5" || type === "num") {
+    if (type === "likert6") {
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        const labelToNumeric = {
+          yes: 5,
+          rather_yes: 4,
+          medium: 3,
+          rather_no: 2,
+          no: 1,
+          no_answer: 0,
+        };
+        if (Object.prototype.hasOwnProperty.call(labelToNumeric, normalized)) {
+          return labelToNumeric[normalized];
+        }
+      }
+      const num = Number(value);
+      if (Number.isFinite(num)) {
+        return num;
+      }
+      return null;
+    }
+    if (type === "likert5" || type === "num") {
       const num = Number(value);
       if (Number.isFinite(num)) {
         return num;
