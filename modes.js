@@ -37,6 +37,8 @@ let runWithAutoSaveSuppressed = async (_consigneId, _scopeDayKey, task) => {
 };
 // History editors may call this to reflect changes in daily UI; rebound in views
 let applyDailyPrefillUpdate = (_nextValue) => {};
+let practiceMutationListener = null;
+let dailyMutationListener = null;
 
 function waitForCheckboxSetupFunction() {
   if (typeof window === "undefined") {
@@ -8017,9 +8019,24 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         }
       }
       m.remove();
-      const root = document.getElementById("view-root");
-      if (mode === "practice") renderPractice(ctx, root);
-      else renderDaily(ctx, root);
+      const action = consigne ? "update" : "create";
+      const enrichedConsigne = {
+        ...(consigne || {}),
+        ...payload,
+        id: consigneId,
+        objectiveId: selectedObjective || null,
+      };
+      dispatchConsigneMutation({
+        mode,
+        action,
+        consigneId,
+        consigne: enrichedConsigne,
+        fallback: () => {
+          const root = document.getElementById("view-root");
+          if (mode === "practice") renderPractice(ctx, root);
+          else renderDaily(ctx, root);
+        },
+      });
     } finally {
       modesLogger.groupEnd();
     }
@@ -13298,6 +13315,48 @@ function triggerConsigneRowUpdateHighlight(row) {
   consigneRowUpdateTimers.set(row, timeoutId);
 }
 
+function dispatchConsigneMutation({ mode, action, consigneId, consigne, fallback }) {
+  if (!mode) {
+    throw new Error("dispatchConsigneMutation: mode requis");
+  }
+  const detail = {
+    mode,
+    action: action || "update",
+    consigneId: consigneId ?? null,
+    consigne: consigne || null,
+  };
+  let event = null;
+  if (typeof CustomEvent === "function") {
+    event = new CustomEvent("consigne:mutated", {
+      cancelable: true,
+      detail,
+    });
+  } else {
+    event = {
+      type: "consigne:mutated",
+      cancelable: true,
+      detail,
+      defaultPrevented: false,
+      preventDefault() {
+        if (this.cancelable) {
+          this.defaultPrevented = true;
+        }
+      },
+    };
+  }
+  try {
+    if (typeof document?.dispatchEvent === "function") {
+      document.dispatchEvent(event);
+    }
+  } catch (error) {
+    console.warn("dispatchConsigneMutation:dispatch", error);
+  }
+  if (!event.defaultPrevented && typeof fallback === "function") {
+    fallback();
+  }
+  return event;
+}
+
 function updateConsigneStatusUI(row, consigne, rawValue) {
   if (!row || !consigne) return;
   const skipFlag = row.dataset.skipAnswered === "1";
@@ -18037,6 +18096,10 @@ async function openHistory(ctx, consigne, options = {}) {
 
 async function renderPractice(ctx, root, _opts = {}) {
   modesLogger.group("screen.practice.render", { hash: ctx.route });
+  if (practiceMutationListener) {
+    document.removeEventListener("consigne:mutated", practiceMutationListener);
+    practiceMutationListener = null;
+  }
   root.innerHTML = "";
   const container = document.createElement("div");
   container.className = "space-y-4";
@@ -18266,6 +18329,26 @@ async function renderPractice(ctx, root, _opts = {}) {
   const form = card.querySelector("#practice-form");
   const PRACTICE_EMPTY_HTML =
     '<div class="rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]">Aucune consigne visible pour cette itération.</div>';
+  const PRACTICE_EMPTY_TEXT = "Aucune consigne visible pour cette itération.";
+  const practiceHasPlaceholder = () => {
+    if (!form) return false;
+    if (form.childElementCount > 0) return false;
+    return form.textContent.trim() === PRACTICE_EMPTY_TEXT;
+  };
+  const clearPracticePlaceholder = () => {
+    if (!form) return;
+    if (practiceHasPlaceholder()) {
+      form.innerHTML = "";
+    }
+  };
+  const ensurePracticePlaceholder = () => {
+    if (!form) return;
+    const hasGroup = form.querySelector(".consigne-group");
+    const hasLowDetails = form.querySelector(".daily-category__low");
+    if (!hasGroup && !hasLowDetails) {
+      form.innerHTML = PRACTICE_EMPTY_HTML;
+    }
+  };
 
   const escapeHiddenId = (value) => {
     if (!value && value !== 0) return "";
@@ -18478,11 +18561,437 @@ async function renderPractice(ctx, root, _opts = {}) {
     }
   };
 
+  const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
+    const tone = priorityTone(c.priority);
+    const row = document.createElement("div");
+    row.className = `consigne-row priority-surface priority-surface-${tone}`;
+    row.dataset.id = c.id;
+    if (c?.id != null) {
+      const stringId = String(c.id);
+      row.dataset.consigneId = stringId;
+      row.setAttribute("data-consigne-id", stringId);
+    } else {
+      delete row.dataset.consigneId;
+      row.removeAttribute("data-consigne-id");
+    }
+    row.dataset.priorityTone = tone;
+    if (isChild) {
+      row.classList.add("consigne-row--child");
+      if (c.parentId) {
+        row.dataset.parentId = c.parentId;
+      } else {
+        delete row.dataset.parentId;
+      }
+      row.draggable = false;
+    } else {
+      row.classList.add("consigne-row--parent");
+      delete row.dataset.parentId;
+      row.draggable = true;
+    }
+    row.innerHTML = `
+        <div class="consigne-row__header">
+          <div class="consigne-row__main">
+            <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
+              <span class="consigne-row__title">${escapeHtml(c.text)}</span>
+              ${prioChip(Number(c.priority) || 2)}
+            </button>
+          </div>
+        <div class="consigne-row__meta">
+          <span class="consigne-row__status" data-status="na">
+            <button type="button"
+                    class="consigne-row__dot-button"
+                    data-priority-trigger
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    title="Changer la priorité">
+              <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+            </button>
+            <div class="consigne-row__priority-menu" data-priority-menu hidden></div>
+            <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
+            <span class="sr-only" data-status-live aria-live="polite"></span>
+          </span>
+          ${consigneActions()}
+        </div>
+        </div>
+        <div class="consigne-history" data-consigne-history hidden>
+          <button type="button" class="consigne-history__nav" data-consigne-history-prev aria-label="Faire défiler l’historique vers la gauche" hidden><span aria-hidden="true">&lsaquo;</span></button>
+          <div class="consigne-history__viewport" data-consigne-history-viewport>
+            <div class="consigne-history__track" data-consigne-history-track role="list"></div>
+          </div>
+          <button type="button" class="consigne-history__nav" data-consigne-history-next aria-label="Faire défiler l’historique vers la droite" hidden><span aria-hidden="true">&rsaquo;</span></button>
+        </div>
+        <div data-consigne-input-holder hidden></div>
+      `;
+    const statusHolder = row.querySelector("[data-status]");
+    if (statusHolder) {
+      statusHolder.dataset.priorityTone = tone;
+    }
+    const statusDot = row.querySelector("[data-status-dot]");
+    if (statusDot) {
+      statusDot.dataset.priorityTone = tone;
+    }
+    setupConsignePriorityMenu(row, c, ctx);
+    const holder = row.querySelector("[data-consigne-input-holder]");
+    if (holder) {
+      holder.innerHTML = inputForType(c);
+      enhanceRangeMeters(holder);
+      initializeChecklistScope(holder, { consigneId: c?.id ?? null });
+      ensureConsigneSkipField(row, c);
+    }
+    setupConsigneHistoryTimeline(row, c, ctx, { mode: "practice" });
+    const bH = row.querySelector(".js-histo");
+    const bE = row.querySelector(".js-edit");
+    const bD = row.querySelector(".js-del");
+    const bA = row.querySelector(".js-archive");
+    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c, { source: "practice" }); };
+    bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
+    bD.onclick = async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      closeConsigneActionMenuFromNode(bD);
+      if (confirm("Supprimer cette consigne ? (historique conservé)")) {
+        Schema.D.info("ui.deleteConsigne.confirm", c.id);
+        await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, c.id);
+        renderPractice(ctx, root);
+      }
+    };
+    if (bA) {
+      bA.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeConsigneActionMenuFromNode(bA);
+        await archiveConsigneWithRefresh(c, { row });
+      };
+    }
+    let srEnabled = c?.srEnabled !== false;
+    const delayBtn = row.querySelector(".js-delay");
+    const updateDelayState = (enabled) => {
+      if (!delayBtn) return;
+      delayBtn.disabled = !enabled;
+      delayBtn.classList.toggle("opacity-50", !enabled);
+      delayBtn.title = enabled
+        ? "Décaler la prochaine itération"
+        : "Active la répétition espacée pour décaler";
+    };
+    if (delayBtn) {
+      updateDelayState(srEnabled);
+      delayBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeConsigneActionMenuFromNode(delayBtn);
+        if (delayBtn.disabled) {
+          showToast("Active la répétition espacée pour utiliser le décalage.");
+          return;
+        }
+        const raw = prompt("Décaler de combien d'itérations ?", "1");
+        if (raw === null) return;
+        const value = Number(String(raw).replace(",", "."));
+        const rounded = Math.round(value);
+        if (!Number.isFinite(value) || !Number.isFinite(rounded) || rounded < 1) {
+          showToast("Entre un entier positif.");
+          return;
+        }
+        const amount = rounded;
+        delayBtn.disabled = true;
+        try {
+          const state = await Schema.delayConsigne({
+            db: ctx.db,
+            uid: ctx.user.uid,
+            consigne: c,
+            mode: "practice",
+            amount,
+            sessionIndex,
+          });
+          showToast(`Consigne décalée de ${amount} itération${amount > 1 ? "s" : ""}.`);
+          handlePracticeConsigneDelayed(c, row, state);
+        } catch (err) {
+          console.error(err);
+          showToast("Impossible de décaler la consigne.");
+        } finally {
+          updateDelayState(srEnabled);
+        }
+      };
+    }
+    setupConsigneActionMenus(row, () => ({
+      srToggle: {
+        getEnabled: () => srEnabled,
+        onToggle: async (next) => {
+          try {
+            await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { srEnabled: next });
+            srEnabled = next;
+            c.srEnabled = next;
+            updateDelayState(srEnabled);
+            return srEnabled;
+          } catch (err) {
+            console.error(err);
+            showToast("Impossible de mettre à jour la répétition espacée.");
+            return srEnabled;
+          }
+        },
+      },
+      archive: () => archiveConsigneWithRefresh(c, { row }),
+    }));
+    const applyDelayFromEditor = async (rawAmount, context = {}) => {
+      const numeric = Number(rawAmount);
+      const rounded = Math.round(numeric);
+      if (!Number.isFinite(numeric) || rounded < 1) {
+        return false;
+      }
+      if (!srEnabled) {
+        showToast("Active la répétition espacée pour utiliser le décalage.");
+        return false;
+      }
+      if (!ctx?.db || !ctx?.user?.uid) {
+        return false;
+      }
+      const answersToPersist = [];
+      const rawSessionIndex = Number(sessionIndex);
+      const normalizedSessionIndex = Number.isFinite(rawSessionIndex) ? rawSessionIndex : 0;
+      const sessionNumber = normalizedSessionIndex + 1;
+      const sessionId = `session-${String(sessionNumber).padStart(4, "0")}`;
+      const pushAnswer = (targetConsigne, targetRow, rawValue, extraSummary = null) => {
+        if (!targetConsigne || targetConsigne.id == null) {
+          return;
+        }
+        if (rawValue === undefined) {
+          return;
+        }
+        const hostRow = targetRow || row;
+        const normalizedValue = normalizeConsigneValueForPersistence(
+          targetConsigne,
+          hostRow,
+          rawValue,
+        );
+        const hasContent = hasValueForConsigne(targetConsigne, normalizedValue);
+        if (!hasContent) {
+          return;
+        }
+        const answer = {
+          consigne: targetConsigne,
+          value: normalizedValue,
+          sessionIndex: normalizedSessionIndex,
+          sessionNumber,
+          sessionId,
+        };
+        const normalizedSummary =
+          extraSummary && typeof extraSummary === "object"
+            ? normalizeSummaryMetadataInput(extraSummary)
+            : null;
+        if (normalizedSummary) {
+          Object.assign(answer, normalizedSummary);
+        }
+        answersToPersist.push(answer);
+      };
+      if (context && Object.prototype.hasOwnProperty.call(context, "value")) {
+        pushAnswer(c, row, context.value, context.summary || null);
+      }
+      if (Array.isArray(context?.childAnswers)) {
+        context.childAnswers.forEach((entry) => {
+          if (!entry || typeof entry !== "object") {
+            return;
+          }
+          pushAnswer(entry.consigne, entry.row || null, entry.value);
+        });
+      }
+      if (answersToPersist.length) {
+        try {
+          await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answersToPersist);
+        } catch (error) {
+          console.error("practice.delay.save", error);
+          showToast("Impossible d'enregistrer la réponse avant de décaler.");
+          return false;
+        }
+      }
+      try {
+        const state = await Schema.delayConsigne({
+          db: ctx.db,
+          uid: ctx.user.uid,
+          consigne: c,
+          mode: "practice",
+          amount: rounded,
+          sessionIndex,
+        });
+        showToast(`Consigne décalée de ${rounded} itération${rounded > 1 ? "s" : ""}.`);
+        handlePracticeConsigneDelayed(c, row, state);
+        return true;
+      } catch (err) {
+        console.error(err);
+        showToast("Impossible de décaler la consigne.");
+        return false;
+      }
+    };
+    const editorConfig = { variant: "modal", ...(editorOptions || {}) };
+    if (!editorConfig.delayOptions) {
+      editorConfig.delayOptions = {
+        amounts: [1, 3, 5, 10, 15, 20],
+        label: "Revoir dans",
+        placeholder: "Sans délai",
+        helper: "Appliqué après validation.",
+        disabledHint: "Active la répétition espacée pour décaler.",
+        getSrEnabled: () => srEnabled,
+        applyDelay: applyDelayFromEditor,
+        allowArchive: true,
+        archiveLabel: "Archiver la consigne",
+        archiveValue: CONSIGNE_ARCHIVE_DELAY_VALUE,
+        onArchive: ({ close } = {}) => archiveConsigneWithRefresh(c, { close, row }),
+      };
+    }
+    row.__practiceEditorConfig = editorConfig;
+    if (!deferEditor) {
+      attachConsigneEditor(row, c, editorConfig);
+    }
+    bindConsigneRowValue(row, c, {
+      onChange: (value) => {
+        if (value === null || value === undefined) {
+          delete row.dataset.currentValue;
+        } else {
+          row.dataset.currentValue = String(value);
+        }
+      },
+    });
+    return row;
+  };
+
+  const ensurePracticeLowContainer = () => {
+    if (!form) {
+      return { lowDetails: null, lowStack: null };
+    }
+    let lowDetails = form.querySelector(".daily-category__low");
+    let lowStack = lowDetails?.querySelector(".daily-category__items--nested") || null;
+    if (!lowDetails) {
+      lowDetails = document.createElement("details");
+      lowDetails.className = "daily-category__low";
+      const summary = document.createElement("summary");
+      summary.className = "daily-category__low-summary";
+      summary.textContent = "Priorité basse (0)";
+      lowDetails.appendChild(summary);
+      lowStack = document.createElement("div");
+      lowStack.className = "daily-category__items daily-category__items--nested";
+      lowDetails.appendChild(lowStack);
+      form.appendChild(lowDetails);
+    } else if (!lowStack) {
+      lowStack = document.createElement("div");
+      lowStack.className = "daily-category__items daily-category__items--nested";
+      lowDetails.appendChild(lowStack);
+    }
+    return { lowDetails, lowStack };
+  };
+
+  const updateLowPrioritySummary = () => {
+    if (!form) return;
+    const lowDetails = form.querySelector(".daily-category__low");
+    if (!lowDetails) return;
+    const lowStack = lowDetails.querySelector(".daily-category__items--nested");
+    const summary = lowDetails.querySelector(".daily-category__low-summary");
+    const count = lowStack ? lowStack.querySelectorAll(".consigne-group").length : 0;
+    if (summary) {
+      summary.textContent = `Priorité basse (${count})`;
+    }
+    if (!count) {
+      lowDetails.remove();
+      ensurePracticePlaceholder();
+    }
+  };
+
+  const createPracticeGroup = (nextConsigne) => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "consigne-group";
+    const row = makeItem(nextConsigne, { isChild: false, deferEditor: false });
+    wrapper.appendChild(row);
+    return { wrapper, row };
+  };
+  const highlightPracticeGroup = (group) => {
+    if (!group) return;
+    const targetRow =
+      group.querySelector(".consigne-row--parent") ||
+      group.querySelector(".consigne-row");
+    if (targetRow) {
+      triggerConsigneRowUpdateHighlight(targetRow);
+    }
+  };
+
+  const upsertPracticeConsigneRow = (nextConsigne, action = "update") => {
+    if (!nextConsigne || !form) return false;
+    if (nextConsigne.active === false || nextConsigne.archived === true || nextConsigne.visible === false || nextConsigne.hidden === true) {
+      return false;
+    }
+    if (nextConsigne.parentId) return false;
+    const targetCategory = nextConsigne.category || "";
+    if (targetCategory !== (currentCat || "")) return false;
+    const priorityValue = Number(nextConsigne.priority || 0);
+    const isLowPriority = priorityValue >= 3;
+    const existingRow = nextConsigne.id ? findPracticeConsigneRowById(nextConsigne.id, container) : null;
+    if (existingRow) {
+      const wrapper = existingRow.closest(".consigne-group");
+      if (!wrapper) return false;
+      if (wrapper.querySelector(".consigne-row--child:not(.consigne-row--parent)")) {
+        return false;
+      }
+      const parentNode = wrapper.parentElement;
+      if (!parentNode) return false;
+      const { wrapper: newGroup } = createPracticeGroup(nextConsigne);
+      parentNode.replaceChild(newGroup, wrapper);
+      highlightPracticeGroup(newGroup);
+      if (isLowPriority) {
+        const { lowStack } = ensurePracticeLowContainer();
+        if (lowStack) {
+          lowStack.appendChild(newGroup);
+        }
+      } else if (newGroup.closest(".daily-category__low")) {
+        const lowDetails = form.querySelector(".daily-category__low");
+        if (lowDetails) {
+          form.insertBefore(newGroup, lowDetails);
+        } else {
+          form.appendChild(newGroup);
+        }
+      }
+      updateLowPrioritySummary();
+      ensurePracticePlaceholder();
+      return true;
+    }
+    if (action !== "create") {
+      return false;
+    }
+    clearPracticePlaceholder();
+    const { wrapper: group } = createPracticeGroup(nextConsigne);
+    if (isLowPriority) {
+      const { lowStack } = ensurePracticeLowContainer();
+      if (!lowStack) return false;
+      lowStack.appendChild(group);
+      updateLowPrioritySummary();
+    } else {
+      const lowDetails = form.querySelector(".daily-category__low");
+      if (lowDetails) {
+        form.insertBefore(group, lowDetails);
+      } else {
+        form.appendChild(group);
+      }
+    }
+    ensurePracticePlaceholder();
+    highlightPracticeGroup(group);
+    return true;
+  };
+
+  practiceMutationListener = (event) => {
+    const detail = event?.detail || {};
+    if (!detail || detail.mode !== "practice") return;
+    const nextConsigne = detail.consigne || null;
+    if (!nextConsigne) return;
+    if ((nextConsigne.category || "") !== (currentCat || "")) return;
+    if (nextConsigne.summaryOnlyScope) return;
+    const handled = upsertPracticeConsigneRow(nextConsigne, detail.action || "update");
+    if (!handled) return;
+    if (typeof window.attachConsignesDragDrop === "function") {
+      window.attachConsignesDragDrop(form, ctx);
+    }
+    event.preventDefault();
+  };
+  document.addEventListener("consigne:mutated", practiceMutationListener);
+
   if (!visibleConsignes.length) {
     form.innerHTML = PRACTICE_EMPTY_HTML;
   } else {
     form.innerHTML = "";
-
+    /* Legacy practice rendering helpers (remapped earlier)
   const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
     const tone = priorityTone(c.priority);
     const row = document.createElement("div");
@@ -18773,6 +19282,128 @@ async function renderPractice(ctx, root, _opts = {}) {
       return row;
     };
 
+    const ensurePracticeLowContainer = () => {
+      if (!form) {
+        return { lowDetails: null, lowStack: null };
+      }
+      let lowDetails = form.querySelector(".daily-category__low");
+      let lowStack = lowDetails?.querySelector(".daily-category__items--nested") || null;
+      if (!lowDetails) {
+        lowDetails = document.createElement("details");
+        lowDetails.className = "daily-category__low";
+        const summary = document.createElement("summary");
+        summary.className = "daily-category__low-summary";
+        summary.textContent = "Priorité basse (0)";
+        lowDetails.appendChild(summary);
+        lowStack = document.createElement("div");
+        lowStack.className = "daily-category__items daily-category__items--nested";
+        lowDetails.appendChild(lowStack);
+        form.appendChild(lowDetails);
+      } else if (!lowStack) {
+        lowStack = document.createElement("div");
+        lowStack.className = "daily-category__items daily-category__items--nested";
+        lowDetails.appendChild(lowStack);
+      }
+      return { lowDetails, lowStack };
+    };
+
+    const updateLowPrioritySummary = () => {
+      if (!form) return;
+      const lowDetails = form.querySelector(".daily-category__low");
+      if (!lowDetails) return;
+      const lowStack = lowDetails.querySelector(".daily-category__items--nested");
+      const summary = lowDetails.querySelector(".daily-category__low-summary");
+      const count = lowStack ? lowStack.querySelectorAll(".consigne-group").length : 0;
+      if (summary) {
+        summary.textContent = `Priorité basse (${count})`;
+      }
+      if (!count) {
+        lowDetails.remove();
+        ensurePracticePlaceholder();
+      }
+    };
+
+    const createPracticeGroup = (nextConsigne) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "consigne-group";
+      const row = makeItem(nextConsigne, { isChild: false, deferEditor: false });
+      wrapper.appendChild(row);
+      return { wrapper, row };
+    };
+
+    const upsertPracticeConsigneRow = (nextConsigne, action = "update") => {
+      if (!nextConsigne || !form) return false;
+      if (nextConsigne.parentId) return false;
+      const targetCategory = nextConsigne.category || "";
+      if (targetCategory !== (currentCat || "")) return false;
+      const priorityValue = Number(nextConsigne.priority || 0);
+      const isLowPriority = priorityValue >= 3;
+      const existingRow = nextConsigne.id ? findPracticeConsigneRowById(nextConsigne.id, container) : null;
+      if (existingRow) {
+        const wrapper = existingRow.closest(".consigne-group");
+        if (!wrapper) return false;
+        if (wrapper.querySelector(".consigne-row--child:not(.consigne-row--parent)")) {
+          return false;
+        }
+        const parentNode = wrapper.parentElement;
+        if (!parentNode) return false;
+        const { wrapper: newGroup } = createPracticeGroup(nextConsigne);
+        parentNode.replaceChild(newGroup, wrapper);
+        if (isLowPriority) {
+          const { lowStack } = ensurePracticeLowContainer();
+          if (lowStack) {
+            lowStack.appendChild(newGroup);
+          }
+        } else if (newGroup.closest(".daily-category__low")) {
+          const lowDetails = form.querySelector(".daily-category__low");
+          if (lowDetails) {
+            form.insertBefore(newGroup, lowDetails);
+          } else {
+            form.appendChild(newGroup);
+          }
+        }
+        updateLowPrioritySummary();
+        ensurePracticePlaceholder();
+        return true;
+      }
+      if (action !== "create") {
+        return false;
+      }
+      clearPracticePlaceholder();
+      const { wrapper: group } = createPracticeGroup(nextConsigne);
+      if (isLowPriority) {
+        const { lowStack } = ensurePracticeLowContainer();
+        if (!lowStack) return false;
+        lowStack.appendChild(group);
+        updateLowPrioritySummary();
+      } else {
+        const lowDetails = form.querySelector(".daily-category__low");
+        if (lowDetails) {
+          form.insertBefore(group, lowDetails);
+        } else {
+          form.appendChild(group);
+        }
+      }
+      ensurePracticePlaceholder();
+      return true;
+    };
+
+    practiceMutationListener = (event) => {
+      const detail = event?.detail || {};
+      if (!detail || detail.mode !== "practice") return;
+      const nextConsigne = detail.consigne || null;
+      if (!nextConsigne) return;
+      if ((nextConsigne.category || "") !== (currentCat || "")) return;
+      if (nextConsigne.summaryOnlyScope) return;
+      const handled = upsertPracticeConsigneRow(nextConsigne, detail.action || "update");
+      if (!handled) return;
+      if (typeof window.attachConsignesDragDrop === "function") {
+        window.attachConsignesDragDrop(form, ctx);
+      }
+      event.preventDefault();
+    };
+    document.addEventListener("consigne:mutated", practiceMutationListener);
+    */
     const grouped = groupConsignes(visibleConsignes);
     const renderGroup = (group, target) => {
       const wrapper = document.createElement("div");
@@ -19601,6 +20232,10 @@ function daysBetween(a,b){
 }
 
 async function renderDaily(ctx, root, opts = {}) {
+  if (dailyMutationListener) {
+    document.removeEventListener("consigne:mutated", dailyMutationListener);
+    dailyMutationListener = null;
+  }
   root.innerHTML = "";
   const container = document.createElement("div");
   container.className = "space-y-4";
@@ -21020,6 +21655,307 @@ async function renderDaily(ctx, root, opts = {}) {
     event.preventDefault();
   });
   card.appendChild(form);
+  const DAILY_EMPTY_TEXT = "Aucune consigne visible pour ce jour.";
+  const findDailyPlaceholder = () => form.querySelector("[data-daily-empty-placeholder]");
+  const dailyHasPlaceholder = () => Boolean(findDailyPlaceholder());
+  const clearDailyPlaceholder = () => {
+    const placeholder = findDailyPlaceholder();
+    if (placeholder) {
+      placeholder.remove();
+    }
+  };
+  const hasDailyVisibleGroups = () =>
+    Boolean(form.querySelector(".daily-category[data-category] .consigne-group"));
+  const ensureDailyPlaceholder = () => {
+    if (hasDailyVisibleGroups()) {
+      clearDailyPlaceholder();
+      return;
+    }
+    if (!dailyHasPlaceholder()) {
+      const placeholder = document.createElement("div");
+      placeholder.className =
+        "rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)] daily-grid__item";
+      placeholder.textContent = DAILY_EMPTY_TEXT;
+      placeholder.dataset.dailyEmptyPlaceholder = "1";
+      const actionsNode = form.querySelector(".daily-grid__actions");
+      form.insertBefore(placeholder, actionsNode || null);
+    }
+  };
+  const escapeSelectorValue = (value) => {
+    if (value === null || value === undefined) return "";
+    const stringValue = String(value);
+    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+      return CSS.escape(stringValue);
+    }
+    return stringValue.replace(/"/g, '\\"');
+  };
+  const normalizeCategoryName = (value) => {
+    if (value === null || value === undefined) return "Général";
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return trimmed || "Général";
+    }
+    const stringValue = String(value).trim();
+    return stringValue || "Général";
+  };
+  const findDailyCategorySection = (categoryName) => {
+    const normalized = normalizeCategoryName(categoryName);
+    const selector = `.daily-category[data-category="${escapeSelectorValue(normalized)}"]`;
+    return form.querySelector(selector);
+  };
+  const getHighStackForSection = (section) => {
+    if (!section) return null;
+    return Array.from(section.children).find(
+      (child) =>
+        child instanceof Element &&
+        child.classList.contains("daily-category__items") &&
+        !child.classList.contains("daily-category__items--nested"),
+    ) || null;
+  };
+  const ensureCategoryLowContainer = (section) => {
+    const stack = getHighStackForSection(section);
+    if (!stack) {
+      return { lowDetails: null, lowStack: null };
+    }
+    let lowDetails = Array.from(stack.children).find((child) =>
+      child instanceof Element && child.classList.contains("daily-category__low"),
+    ) || null;
+    let lowStack = lowDetails?.querySelector(".daily-category__items--nested") || null;
+    if (!lowDetails) {
+      lowDetails = document.createElement("details");
+      lowDetails.className = "daily-category__low";
+      const summary = document.createElement("summary");
+      summary.className = "daily-category__low-summary";
+      summary.textContent = "Priorité basse (0)";
+      lowDetails.appendChild(summary);
+      lowStack = document.createElement("div");
+      lowStack.className = "daily-category__items daily-category__items--nested";
+      lowDetails.appendChild(lowStack);
+      stack.appendChild(lowDetails);
+    } else if (!lowStack) {
+      lowStack = document.createElement("div");
+      lowStack.className = "daily-category__items daily-category__items--nested";
+      lowDetails.appendChild(lowStack);
+    }
+    return { lowDetails, lowStack };
+  };
+  const computeGroupTotal = (groupEl) => {
+    if (!groupEl) return 0;
+    const hasParent = Boolean(groupEl.querySelector(".consigne-row--parent"));
+    const childCount = groupEl.querySelectorAll(".consigne-row--child:not(.consigne-row--parent)").length;
+    return (hasParent ? 1 : 0) + childCount;
+  };
+  const updateDailyCategoryStats = (section) => {
+    if (!section) return;
+    const groups = Array.from(section.querySelectorAll(".consigne-group"));
+    if (!groups.length) {
+      section.remove();
+      return;
+    }
+    const total = groups.reduce((sum, group) => sum + computeGroupTotal(group), 0);
+    const countLabel = section.querySelector(".daily-category__count");
+    if (countLabel) {
+      countLabel.textContent = `${total} consigne${total > 1 ? "s" : ""}`;
+    }
+    const stack = getHighStackForSection(section);
+    if (stack) {
+      const lowDetails = Array.from(stack.children).find((child) =>
+        child instanceof Element && child.classList.contains("daily-category__low"),
+      );
+      if (lowDetails) {
+        const lowStack = lowDetails.querySelector(".daily-category__items--nested");
+        const lowGroups = lowStack ? Array.from(lowStack.querySelectorAll(".consigne-group")) : [];
+        const lowTotal = lowGroups.reduce((sum, group) => sum + computeGroupTotal(group), 0);
+        const summary = lowDetails.querySelector(".daily-category__low-summary");
+        if (lowTotal) {
+          if (summary) {
+            summary.textContent = `Priorité basse (${lowTotal})`;
+          }
+        } else {
+          lowDetails.remove();
+        }
+      }
+    }
+  };
+  const insertCategorySection = (section) => {
+    if (!section) return;
+    const normalized = normalizeCategoryName(section.dataset.category);
+    const existingSections = Array.from(form.querySelectorAll(".daily-category[data-category]")).filter(
+      (node) => node !== section,
+    );
+    const insertionPoint = existingSections.find((node) => {
+      const name = normalizeCategoryName(node.dataset.category);
+      return name.localeCompare(normalized, "fr", { sensitivity: "base" }) > 0;
+    });
+    const actionsNode = form.querySelector(".daily-grid__actions");
+    if (insertionPoint) {
+      form.insertBefore(section, insertionPoint);
+    } else if (actionsNode) {
+      form.insertBefore(section, actionsNode);
+    } else {
+      form.appendChild(section);
+    }
+  };
+  const createDailyCategorySection = (categoryName) => {
+    const normalized = normalizeCategoryName(categoryName);
+    const section = document.createElement("section");
+    section.className = "daily-category daily-grid__item";
+    section.dataset.category = normalized;
+    section.innerHTML = `
+        <div class="daily-category__header">
+          <div class="daily-category__name">${escapeHtml(normalized)}</div>
+          <span class="daily-category__count">0 consigne</span>
+        </div>`;
+    const stack = document.createElement("div");
+    stack.className = "daily-category__items";
+    section.appendChild(stack);
+    insertCategorySection(section);
+    return { section, stack };
+  };
+  const ensureDailyCategorySection = (categoryName) => {
+    const existing = findDailyCategorySection(categoryName);
+    if (existing) {
+      return { section: existing, stack: getHighStackForSection(existing) };
+    }
+    return createDailyCategorySection(categoryName);
+  };
+  const insertGroupIntoSection = (groupEl, section, isLowPriority) => {
+    if (!groupEl || !section) return false;
+    const stack = getHighStackForSection(section);
+    if (!stack) return false;
+    if (isLowPriority) {
+      const { lowStack } = ensureCategoryLowContainer(section);
+      if (!lowStack) return false;
+      lowStack.appendChild(groupEl);
+      return true;
+    }
+    const lowDetails = Array.from(stack.children).find((child) =>
+      child instanceof Element && child.classList.contains("daily-category__low"),
+    ) || null;
+    stack.insertBefore(groupEl, lowDetails || null);
+    return true;
+  };
+  const buildDailyGroupElement = (consigne) => {
+    if (!consigne) return null;
+    const groups = groupConsignes([consigne]);
+    if (!groups.length) return null;
+    const tempContainer = document.createElement("div");
+    renderGroup(groups[0], tempContainer);
+    return tempContainer.firstElementChild;
+  };
+  const highlightDailyGroup = (group) => {
+    if (!group) return;
+    const targetRow =
+      group.querySelector(".consigne-row--parent") ||
+      group.querySelector(".consigne-row");
+    if (targetRow) {
+      triggerConsigneRowUpdateHighlight(targetRow);
+    }
+  };
+  const upsertDailyConsigneRow = (nextConsigne, action = "update") => {
+    if (!nextConsigne || !form) return false;
+    if (nextConsigne.active === false || nextConsigne.archived === true || nextConsigne.visible === false || nextConsigne.hidden === true) {
+      return false;
+    }
+    if (nextConsigne.parentId) return false;
+    if (Array.isArray(nextConsigne.children) && nextConsigne.children.length) return false;
+    if (nextConsigne.summaryOnlyScope) return false;
+    const nextId = nextConsigne.id ?? nextConsigne.consigneId ?? null;
+    if (nextConsigne.id == null && nextId != null) {
+      nextConsigne.id = nextId;
+    }
+    const shouldDisplayToday = (() => {
+      if (!Array.isArray(nextConsigne.days) || !nextConsigne.days.length) return true;
+      if (!currentDay) return false;
+      return nextConsigne.days.includes(currentDay);
+    })();
+    const selectorId = nextConsigne.id != null ? escapeSelectorValue(nextConsigne.id) : "";
+    const existingRow = selectorId
+      ? form.querySelector(`[data-consigne-id="${selectorId}"]`)
+      : null;
+    const existingGroup = existingRow ? existingRow.closest(".consigne-group") : null;
+    const existingSection = existingGroup
+      ? existingGroup.closest(".daily-category[data-category]")
+      : null;
+
+    if (!shouldDisplayToday) {
+      return false;
+    }
+
+    const targetCategory = normalizeCategoryName(nextConsigne.category);
+    const isLowPriority = Number(nextConsigne.priority || 0) >= 3;
+
+    if (existingGroup) {
+      const currentSection = existingSection;
+      const currentCategory = normalizeCategoryName(currentSection?.dataset?.category);
+      if (currentCategory !== targetCategory) {
+        return false;
+      }
+      const newGroup = buildDailyGroupElement(nextConsigne);
+      if (!newGroup) {
+        return false;
+      }
+      existingGroup.replaceWith(newGroup);
+      highlightDailyGroup(newGroup);
+      let finalGroup = newGroup;
+      const section = currentSection;
+      if (!section) return false;
+      if (isLowPriority && !finalGroup.closest(".daily-category__low")) {
+        const { lowStack } = ensureCategoryLowContainer(section);
+        if (!lowStack) return false;
+        lowStack.appendChild(finalGroup);
+      } else if (!isLowPriority && finalGroup.closest(".daily-category__low")) {
+        const stack = getHighStackForSection(section);
+        if (!stack) return false;
+        const lowDetails = Array.from(stack.children).find((child) =>
+          child instanceof Element && child.classList.contains("daily-category__low"),
+        ) || null;
+        stack.insertBefore(finalGroup, lowDetails || null);
+      }
+      updateDailyCategoryStats(section);
+      ensureDailyPlaceholder();
+      return true;
+    }
+
+    if (action !== "create") {
+      return false;
+    }
+
+    const newGroup = buildDailyGroupElement(nextConsigne);
+    if (!newGroup) {
+      return false;
+    }
+    clearDailyPlaceholder();
+    const ensured = ensureDailyCategorySection(targetCategory);
+    const targetSection = ensured.section;
+    if (!insertGroupIntoSection(newGroup, targetSection, isLowPriority)) {
+      return false;
+    }
+    updateDailyCategoryStats(targetSection);
+    ensureDailyPlaceholder();
+    highlightDailyGroup(newGroup);
+    return true;
+  };
+
+  dailyMutationListener = (event) => {
+    const detail = event?.detail || {};
+    if (detail.mode !== "daily") return;
+    const nextConsigne = detail.consigne ? { ...detail.consigne } : null;
+    if (!nextConsigne) return;
+    if (nextConsigne.id == null && detail.consigneId != null) {
+      nextConsigne.id = detail.consigneId;
+    }
+    const handled = upsertDailyConsigneRow(nextConsigne, detail.action || "update");
+    if (!handled) return;
+    if (typeof window.attachConsignesDragDrop === "function") {
+      window.attachConsignesDragDrop(form, ctx);
+    }
+    if (typeof window.attachDailyCategoryDragDrop === "function") {
+      window.attachDailyCategoryDragDrop(form, ctx);
+    }
+    event.preventDefault();
+  };
+  document.addEventListener("consigne:mutated", dailyMutationListener);
 
   // Insère une section dédiée si un ou plusieurs objectifs sont dus aujourd’hui
   const objectiveEntryKeyForDate = (objective, date) => {
@@ -21412,11 +22348,9 @@ async function renderDaily(ctx, root, opts = {}) {
   }
 
   if (!visibleConsignes.length) {
-    const empty = document.createElement("div");
-    empty.className = "rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)] daily-grid__item";
-    empty.innerText = "Aucune consigne visible pour ce jour.";
-    form.appendChild(empty);
+    ensureDailyPlaceholder();
   } else {
+    clearDailyPlaceholder();
     categoryGroups.forEach(([cat, info]) => {
       const { groups, total } = info;
       const section = document.createElement("section");
@@ -21688,6 +22622,7 @@ if (typeof module !== "undefined" && module.exports) {
     sanitizeChecklistItems,
     readChecklistStates,
     readChecklistSkipped,
+    dispatchConsigneMutation,
     // Expose select internals for tests (non-breaking for runtime)
     setConsigneSkipState,
     normalizeConsigneValueForPersistence,
@@ -21697,6 +22632,7 @@ if (typeof module !== "undefined" && module.exports) {
       resolveHistoryTimelineKeyBase,
       renderConsigneValueField,
       readConsigneValueFromForm,
+      dispatchConsigneMutation,
     },
   };
 }
