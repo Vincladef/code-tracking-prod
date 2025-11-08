@@ -21083,6 +21083,77 @@ async function renderDaily(ctx, root, opts = {}) {
     return "";
   };
 
+  const computeObjectivePeriodInfo = (objective, date) => {
+    const rawType = typeof objective?.type === "string" ? objective.type.trim().toLowerCase() : "";
+    const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
+    const baseDayKey = typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(safeDate)
+      : safeDate.toISOString().slice(0, 10);
+    if (rawType === "hebdo" || rawType === "weekly") {
+      const weekKey = typeof Schema?.weekKeyFromDate === "function"
+        ? Schema.weekKeyFromDate(safeDate)
+        : null;
+      const range = typeof Schema?.weekRangeFromDate === "function"
+        ? Schema.weekRangeFromDate(safeDate)
+        : null;
+      if (!weekKey || !range?.start || !range?.end) {
+        return null;
+      }
+      const periodLabel = summarizeObjectiveScopeLabel(objective, safeDate);
+      return {
+        scope: "week",
+        summaryScope: "weekly",
+        periodKey: weekKey,
+        periodLabel,
+        start: range.start,
+        end: range.end,
+        storageKey: `weekly:${weekKey}`,
+        summaryLabel: "Bilan hebdomadaire",
+      };
+    }
+    if (rawType === "mensuel" || rawType === "monthly") {
+      const monthKey = typeof Schema?.monthKeyFromDate === "function"
+        ? Schema.monthKeyFromDate(safeDate)
+        : null;
+      const range = monthKey && typeof Schema?.monthRangeFromKey === "function"
+        ? Schema.monthRangeFromKey(monthKey)
+        : null;
+      if (!monthKey || !range?.start || !range?.end) {
+        return null;
+      }
+      const monthLabel = safeDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+      const periodLabel = monthLabel ? monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1) : "";
+      return {
+        scope: "month",
+        summaryScope: "monthly",
+        periodKey: monthKey,
+        periodLabel,
+        start: range.start,
+        end: range.end,
+        storageKey: `monthly:${monthKey}`,
+        summaryLabel: "Bilan mensuel",
+      };
+    }
+    if (rawType === "annuel" || rawType === "yearly" || rawType === "annual") {
+      const year = safeDate.getFullYear();
+      const start = new Date(year, 0, 1);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(year, 11, 31);
+      end.setHours(23, 59, 59, 999);
+      return {
+        scope: "year",
+        summaryScope: "yearly",
+        periodKey: String(year),
+        periodLabel: String(year),
+        start,
+        end,
+        storageKey: `yearly:${year}`,
+        summaryLabel: "Bilan annuel",
+      };
+    }
+    return null;
+  };
+
   if (Array.isArray(objectivesDueToday) && objectivesDueToday.length) {
     const section = document.createElement("section");
     section.className = "daily-category daily-grid__item";
@@ -21225,6 +21296,66 @@ async function renderDaily(ctx, root, opts = {}) {
                   modesLogger?.warn?.("daily.objectivesDue.cleanup", cleanupError);
                 }
               }
+            const periodInfo = computeObjectivePeriodInfo(obj, selectedDate);
+            if (periodInfo && periodInfo.scope && periodInfo.periodKey) {
+              const summaryKey = `objective__${obj.id}`;
+              const baseLabel = obj?.titre || obj?.title || obj?.name || obj?.id || "Objectif";
+              const metadata = {
+                start: periodInfo.start,
+                end: periodInfo.end,
+                label: periodInfo.periodLabel,
+                moduleId: "daily",
+                summaryPeriodKey: periodInfo.periodKey,
+                summaryPeriodLabel: periodInfo.periodLabel,
+                summaryScope: periodInfo.summaryScope,
+                extras: {
+                  summaryScope: periodInfo.summaryScope,
+                  summaryPeriodKey: periodInfo.periodKey,
+                  summaryPeriodLabel: periodInfo.periodLabel,
+                },
+              };
+              if (val === null || val === undefined) {
+                try {
+                  await Schema.deleteSummaryAnswer(
+                    ctx.db,
+                    ctx.user.uid,
+                    periodInfo.scope,
+                    periodInfo.periodKey,
+                    summaryKey,
+                    metadata,
+                  );
+                } catch (summaryDeleteError) {
+                  modesLogger?.warn?.("daily.objectivesDue.summaryDelete", summaryDeleteError);
+                }
+              } else {
+                try {
+                  await Schema.saveSummaryAnswers(
+                    ctx.db,
+                    ctx.user.uid,
+                    periodInfo.scope,
+                    periodInfo.periodKey,
+                    [
+                      {
+                        key: summaryKey,
+                        consigneId: obj.id,
+                        family: "objective",
+                        type: obj.type || "likert6",
+                        value: val,
+                        summaryScope: periodInfo.summaryScope,
+                        summaryLabel: periodInfo.summaryLabel,
+                        label: baseLabel,
+                        category: "Objectifs",
+                        summaryPeriodKey: periodInfo.periodKey,
+                        summaryPeriodLabel: periodInfo.periodLabel,
+                      },
+                    ],
+                    metadata,
+                  );
+                } catch (summarySaveError) {
+                  modesLogger?.warn?.("daily.objectivesDue.summarySave", summarySaveError);
+                }
+              }
+            }
               applyObjectiveStatus(val);
               showToast('Réponse enregistrée.');
               close();
