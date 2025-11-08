@@ -916,7 +916,15 @@
       const hasExplicitValue = Object.prototype.hasOwnProperty.call(previous, "value");
       const looksLikeChecklistState = Array.isArray(previous.items);
       if (hasExplicitValue || looksLikeChecklistState) {
-        const initial = hasExplicitValue && previous.value !== undefined ? previous.value : previous;
+        let initial = previous;
+        if (hasExplicitValue) {
+          const numericValue = Number(previous.numericValue);
+          if (consigne?.family === "objective" && Number.isFinite(numericValue)) {
+            initial = numericValue;
+          } else if (previous.value !== undefined) {
+            initial = previous.value;
+          }
+        }
         Modes.setConsigneRowValue(row, consigne, initial);
       }
     }
