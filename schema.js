@@ -274,6 +274,44 @@ function dayKeyFromDate(dateInput = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+function dayKeyToDate(dayKey) {
+  if (typeof dayKey !== "string" || !dayKey) {
+    return null;
+  }
+  const parts = dayKey.split("-");
+  if (parts.length !== 3) {
+    return null;
+  }
+  const [yearStr, monthStr, dayStr] = parts;
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null;
+  }
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function enumerateDayKeys(startDate, endDate) {
+  const start = startOfDay(startDate);
+  const end = startOfDay(endDate);
+  if (!start || !end) return [];
+  if (end < start) return [];
+  const keys = [];
+  const cursor = new Date(start.getTime());
+  while (cursor <= end) {
+    keys.push(dayKeyFromDate(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+    cursor.setHours(0, 0, 0, 0);
+  }
+  return keys;
+}
+
 const todayKey = (d = new Date()) => dayKeyFromDate(d); // YYYY-MM-DD
 
 const PRIORITIES = ["high","medium","low"];
@@ -2746,21 +2784,90 @@ async function getObjectiveEntry(db, uid, objectifId, dateIso) {
   try {
     const ref = doc(db, "u", uid, "objectiveEntries", objectifId, "entries", dateIso);
     const snap = await getDoc(ref);
-    if (!snapshotExists(snap)) {
-      return null;
+    if (snapshotExists(snap)) {
+      const data = snap.data() || {};
+      return { id: snap.id, ...data };
     }
-    const data = snap.data() || {};
-    return { id: snap.id, ...data };
   } catch (error) {
     console.warn("getObjectiveEntry", error);
+  }
+
+  // Fallback: support legacy dayKey entries when requesting a period key
+  const scopeMatch = String(dateIso).match(/^(weekly|monthly|yearly):(.+)$/i);
+  if (!scopeMatch) {
     return null;
   }
+  const scope = scopeMatch[1].toLowerCase();
+  const periodKey = scopeMatch[2];
+
+  const collectDayKeysForScope = () => {
+    if (scope === "weekly") {
+      const base = dayKeyToDate(periodKey);
+      if (!base) return [];
+      const range = weekRangeFromDate(base);
+      if (!range?.start || !range?.end) return [];
+      return enumerateDayKeys(range.start, range.end);
+    }
+    if (scope === "monthly") {
+      const range = monthRangeFromKey(periodKey);
+      if (!range?.start || !range?.end) return [];
+      return enumerateDayKeys(range.start, range.end);
+    }
+    if (scope === "yearly") {
+      const yearNum = Number(periodKey);
+      if (!Number.isFinite(yearNum)) return [];
+      const start = new Date(yearNum, 0, 1);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(yearNum, 11, 31);
+      end.setHours(23, 59, 59, 999);
+      return enumerateDayKeys(start, end);
+    }
+    return [];
+  };
+
+  const candidates = collectDayKeysForScope();
+  for (const candidateKey of candidates) {
+    try {
+      const ref = doc(db, "u", uid, "objectiveEntries", objectifId, "entries", candidateKey);
+      const snap = await getDoc(ref);
+      if (!snapshotExists(snap)) {
+        continue;
+      }
+      const data = snap.data() || {};
+      const value = data?.v ?? data?.value ?? null;
+      const normalized = Number.isFinite(Number(value)) ? Number(value) : value;
+      if (normalized === null || normalized === undefined || normalized === "") {
+        continue;
+      }
+
+      // Migration: write under period key and delete legacy entry
+      await saveObjectiveEntry(db, uid, objectifId, dateIso, normalized);
+      try {
+        await deleteObjectiveEntry(db, uid, objectifId, candidateKey);
+      } catch (cleanupError) {
+        console.warn("getObjectiveEntry.migrate.cleanup", cleanupError);
+      }
+      return { id: dateIso, v: normalized };
+    } catch (error) {
+      console.warn("getObjectiveEntry.fallback", error);
+    }
+  }
+  return null;
+}
+
+async function listObjectiveEntryPairs(db, uid, objectifId) {
+  if (!db || !uid || !objectifId) return [];
+  const colRef = collection(db, "u", uid, "objectiveEntries", objectifId, "entries");
+  const snap = await getDocs(colRef);
+  return snap.docs.map((docSnap) => {
+    const data = docSnap.data() || {};
+    return { key: docSnap.id, value: data.v ?? data.value ?? null };
+  });
 }
 
 async function loadObjectiveEntriesRange(db, uid, objectifId, _fromIso, _toIso) {
-  const colRef = collection(db, "u", uid, "objectiveEntries", objectifId, "entries");
-  const snap = await getDocs(colRef);
-  return snap.docs.map((d) => ({ date: d.id, v: d.data().v }));
+  const pairs = await listObjectiveEntryPairs(db, uid, objectifId);
+  return pairs.map(({ key, value }) => ({ date: key, v: value }));
 }
 
 function summaryCollectionName(scope) {
@@ -3273,6 +3380,7 @@ Object.assign(Schema, {
   saveObjectiveEntry,
   deleteObjectiveEntry,
   getObjectiveEntry,
+  listObjectiveEntryPairs,
   loadObjectiveEntriesRange,
   loadSummaryAnswers,
   saveSummaryAnswers,
