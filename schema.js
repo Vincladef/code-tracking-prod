@@ -2928,6 +2928,7 @@ async function getObjectiveEntry(db, uid, objectifId, dateIso) {
   };
 
   const candidates = collectDayKeysForScope();
+  const foundEntries = [];
   for (const candidateKey of candidates) {
     try {
       const ref = doc(db, "u", uid, "objectiveEntries", objectifId, "entries", candidateKey);
@@ -2941,20 +2942,39 @@ async function getObjectiveEntry(db, uid, objectifId, dateIso) {
       if (normalized === null || normalized === undefined || normalized === "") {
         continue;
       }
-
-      // Migration: write under period key and delete legacy entry
-      await saveObjectiveEntry(db, uid, objectifId, dateIso, normalized);
-      try {
-        await deleteObjectiveEntry(db, uid, objectifId, candidateKey);
-      } catch (cleanupError) {
-        console.warn("getObjectiveEntry.migrate.cleanup", cleanupError);
-      }
-      return { id: dateIso, v: normalized };
+      const atTimestamp = data?.at && typeof data.at.toDate === "function" ? data.at.toDate() : null;
+      foundEntries.push({ candidateKey, normalized, at: atTimestamp });
     } catch (error) {
       console.warn("getObjectiveEntry.fallback", error);
     }
   }
-  return null;
+  if (!foundEntries.length) {
+    return null;
+  }
+  const periodEntry = foundEntries.find((entry) => entry.candidateKey === dateIso);
+  const otherEntries = foundEntries.filter((entry) => entry.candidateKey !== dateIso);
+  let chosenEntry = periodEntry || null;
+  if (!chosenEntry) {
+    otherEntries.sort((a, b) => {
+      const timeA = a.at instanceof Date && !Number.isNaN(a.at.getTime()) ? a.at.getTime() : 0;
+      const timeB = b.at instanceof Date && !Number.isNaN(b.at.getTime()) ? b.at.getTime() : 0;
+      if (timeA !== timeB) return timeB - timeA;
+      return 0;
+    });
+    chosenEntry = otherEntries[0] || null;
+  }
+  if (!chosenEntry) {
+    return null;
+  }
+  await saveObjectiveEntry(db, uid, objectifId, dateIso, chosenEntry.normalized);
+  if (chosenEntry.candidateKey !== dateIso) {
+    try {
+      await deleteObjectiveEntry(db, uid, objectifId, chosenEntry.candidateKey);
+    } catch (cleanupError) {
+      console.warn("getObjectiveEntry.migrate.cleanup", cleanupError);
+    }
+  }
+  return { id: dateIso, v: chosenEntry.normalized };
 }
 
 async function listObjectiveEntryPairs(db, uid, objectifId) {

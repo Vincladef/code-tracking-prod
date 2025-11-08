@@ -21289,9 +21289,18 @@ async function renderDaily(ctx, root, opts = {}) {
             const val = raw === '' ? null : Number(raw);
             try {
               await Schema.saveObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentEntryKey, val);
+              modesLogger?.info?.("daily.objectivesDue.saveEntry", {
+                objectiveId: obj.id,
+                storageKey: currentEntryKey,
+                value: val,
+              });
               if (existingEntryKey && existingEntryKey !== currentEntryKey) {
                 try {
                   await Schema.deleteObjectiveEntry(ctx.db, ctx.user.uid, obj.id, existingEntryKey);
+                  modesLogger?.info?.("daily.objectivesDue.cleanupEntry", {
+                    objectiveId: obj.id,
+                    removedKey: existingEntryKey,
+                  });
                 } catch (cleanupError) {
                   modesLogger?.warn?.("daily.objectivesDue.cleanup", cleanupError);
                 }
