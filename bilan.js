@@ -1642,7 +1642,6 @@
             sectionsData.objective.map(async (consigne) => {
               if (!consigne) return;
               const key = summaryKey(consigne);
-              if (answersMap.has(key)) return;
               const objectiveId = consigne?.originalGoal?.id || consigne?.id;
               if (!objectiveId) return;
               try {
@@ -1706,6 +1705,69 @@
                 if (normalizedValue === null || normalizedValue === undefined) {
                   return;
                 }
+
+                const previousAnswer = answersMap.get(key);
+                const previousValue = previousAnswer?.value;
+                const needsUpdate =
+                  previousValue === undefined || previousValue === null || Number(previousValue) !== Number(normalizedValue);
+
+                if (needsUpdate && periodInfo?.key) {
+                  const summaryKeyEntry = key;
+                  const baseLabel = consigne?.summaryLabel || consigne?.text || consigne?.journalText || consigne?.id || "Objectif";
+                  const metadata = {
+                    start: periodInfo.start,
+                    end: periodInfo.end,
+                    label: periodInfo.label,
+                    moduleId: "bilan",
+                    summaryPeriodKey: periodInfo.key,
+                    summaryPeriodLabel: periodInfo.label,
+                    summaryScope: normalizedSummaryScope,
+                    extras: {
+                      summaryScope: normalizedSummaryScope,
+                      summaryPeriodKey: periodInfo.key,
+                      summaryPeriodLabel: periodInfo.label,
+                    },
+                  };
+                  try {
+                    await Schema.saveSummaryAnswers(
+                      ctx.db,
+                      ctx.user.uid,
+                      period.scope,
+                      period.key,
+                      [
+                        {
+                          key: summaryKeyEntry,
+                          consigneId: consigne?.id || null,
+                          family: consigne?.family || null,
+                          type: consigne?.type || null,
+                          value: normalizedValue,
+                          summaryScope: normalizedSummaryScope || null,
+                          summaryLabel,
+                          label: baseLabel,
+                          category: consigne?.summaryCategory || consigne?.category || null,
+                          summaryPeriodKey: periodInfo.key,
+                          summaryPeriodLabel: periodInfo.label,
+                        },
+                      ],
+                      metadata,
+                    );
+                  } catch (summarySyncError) {
+                    bilanLogger?.warn?.("bilan.objectives.summaryOverride", {
+                      error: summarySyncError,
+                      objectiveId,
+                      period: periodInfo.key,
+                    });
+                  } else {
+                    bilanLogger?.info?.("bilan.objectives.summaryOverride", {
+                      objectiveId,
+                      consigneId: consigne?.id || null,
+                      periodKey: periodInfo.key,
+                      before: previousValue ?? null,
+                      after: normalizedValue,
+                    });
+                  }
+                }
+
                 answersMap.set(key, {
                   id: key,
                   key,
