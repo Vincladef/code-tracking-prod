@@ -10925,6 +10925,9 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             keepPlaceholder: true,
             remove: true,
           });
+          if (row instanceof HTMLElement) {
+            setConsigneRowValue(row, consigne, "");
+          }
           triggerConsigneRowUpdateHighlight(row);
           try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, ""); } catch (_) {}
           for (const childState of baseChildStates) {
@@ -10961,6 +10964,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               }
               const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
               if (childState.row) {
+                setConsigneRowValue(childState.row, childState.consigne, "");
                 updateConsigneHistoryTimeline(childState.row, childStatus, {
                   consigne: childState.consigne,
                   value: "",
@@ -11087,6 +11091,9 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         historyId: historyDocumentId,
         responseId: resolvedResponseId,
       });
+      if (row instanceof HTMLElement) {
+        setConsigneRowValue(row, consigne, parentHasValue ? rawValue : "");
+      }
       triggerConsigneRowUpdateHighlight(row);
       for (const { state, value, hasValue } of childResults) {
         const childConsigneId = state?.consigne?.id;
@@ -11109,6 +11116,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           state.consigne,
         ) || "na";
         if (state.row) {
+          setConsigneRowValue(state.row, state.consigne, hasValue ? value : "");
           updateConsigneHistoryTimeline(state.row, childStatus, {
             consigne: state.consigne,
             value: hasValue ? value : "",
@@ -21014,6 +21022,138 @@ async function renderDaily(ctx, root, opts = {}) {
   card.appendChild(form);
 
   // Insère une section dédiée si un ou plusieurs objectifs sont dus aujourd’hui
+  const objectiveEntryKeyForDate = (objective, date) => {
+    const rawType = typeof objective?.type === "string" ? objective.type.trim().toLowerCase() : "";
+    const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
+    const dayKey = typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(safeDate)
+      : safeDate.toISOString().slice(0, 10);
+
+    if (rawType === "hebdo" || rawType === "weekly") {
+      if (typeof Schema?.weekKeyFromDate === "function") {
+        const weekKey = Schema.weekKeyFromDate(safeDate);
+        if (weekKey) {
+          return `weekly:${weekKey}`;
+        }
+      }
+      return `weekly:${dayKey}`;
+    }
+
+    if (rawType === "mensuel" || rawType === "monthly") {
+      if (typeof Schema?.monthKeyFromDate === "function") {
+        const monthKey = Schema.monthKeyFromDate(safeDate);
+        if (monthKey) {
+          return `monthly:${monthKey}`;
+        }
+      }
+      const monthLabel = `${safeDate.getFullYear()}-${String(safeDate.getMonth() + 1).padStart(2, "0")}`;
+      return `monthly:${monthLabel}`;
+    }
+
+    if (rawType === "annuel" || rawType === "yearly" || rawType === "annual") {
+      return `yearly:${String(safeDate.getFullYear())}`;
+    }
+
+    return dayKey;
+  };
+
+  const summarizeObjectiveScopeLabel = (objective, date) => {
+    const rawType = typeof objective?.type === "string" ? objective.type.trim().toLowerCase() : "";
+    const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
+    if (rawType === "hebdo" || rawType === "weekly") {
+      const range = Schema.weekRangeFromDate
+        ? Schema.weekRangeFromDate(safeDate)
+        : null;
+      if (range?.start && range?.end) {
+        const startLabel = range.start.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+        const endLabel = range.end.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+        if (startLabel && endLabel) {
+          return startLabel === endLabel ? startLabel : `${startLabel} → ${endLabel}`;
+        }
+      }
+      return "Objectif hebdomadaire";
+    }
+    if (rawType === "mensuel" || rawType === "monthly") {
+      const label = safeDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+      return label ? label.charAt(0).toUpperCase() + label.slice(1) : "Objectif mensuel";
+    }
+    if (rawType === "annuel" || rawType === "yearly" || rawType === "annual") {
+      return String(safeDate.getFullYear());
+    }
+    return "";
+  };
+
+  const computeObjectivePeriodInfo = (objective, date) => {
+    const rawType = typeof objective?.type === "string" ? objective.type.trim().toLowerCase() : "";
+    const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
+    const baseDayKey = typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(safeDate)
+      : safeDate.toISOString().slice(0, 10);
+    if (rawType === "hebdo" || rawType === "weekly") {
+      const weekKey = typeof Schema?.weekKeyFromDate === "function"
+        ? Schema.weekKeyFromDate(safeDate)
+        : null;
+      const range = typeof Schema?.weekRangeFromDate === "function"
+        ? Schema.weekRangeFromDate(safeDate)
+        : null;
+      if (!weekKey || !range?.start || !range?.end) {
+        return null;
+      }
+      const periodLabel = summarizeObjectiveScopeLabel(objective, safeDate);
+      return {
+        scope: "week",
+        summaryScope: "weekly",
+        periodKey: weekKey,
+        periodLabel,
+        start: range.start,
+        end: range.end,
+        storageKey: `weekly:${weekKey}`,
+        summaryLabel: "Bilan hebdomadaire",
+      };
+    }
+    if (rawType === "mensuel" || rawType === "monthly") {
+      const monthKey = typeof Schema?.monthKeyFromDate === "function"
+        ? Schema.monthKeyFromDate(safeDate)
+        : null;
+      const range = monthKey && typeof Schema?.monthRangeFromKey === "function"
+        ? Schema.monthRangeFromKey(monthKey)
+        : null;
+      if (!monthKey || !range?.start || !range?.end) {
+        return null;
+      }
+      const monthLabel = safeDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+      const periodLabel = monthLabel ? monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1) : "";
+      return {
+        scope: "month",
+        summaryScope: "monthly",
+        periodKey: monthKey,
+        periodLabel,
+        start: range.start,
+        end: range.end,
+        storageKey: `monthly:${monthKey}`,
+        summaryLabel: "Bilan mensuel",
+      };
+    }
+    if (rawType === "annuel" || rawType === "yearly" || rawType === "annual") {
+      const year = safeDate.getFullYear();
+      const start = new Date(year, 0, 1);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(year, 11, 31);
+      end.setHours(23, 59, 59, 999);
+      return {
+        scope: "year",
+        summaryScope: "yearly",
+        periodKey: String(year),
+        periodLabel: String(year),
+        start,
+        end,
+        storageKey: `yearly:${year}`,
+        summaryLabel: "Bilan annuel",
+      };
+    }
+    return null;
+  };
+
   if (Array.isArray(objectivesDueToday) && objectivesDueToday.length) {
     const section = document.createElement("section");
     section.className = "daily-category daily-grid__item";
@@ -21035,11 +21175,13 @@ async function renderDaily(ctx, root, opts = {}) {
       row.dataset.objectiveId = String(obj?.id || "");
 
       const fieldId = `obj-${String(obj?.id || Math.random()).replace(/[^a-zA-Z0-9_-]/g, "")}`;
+      const periodLabel = summarizeObjectiveScopeLabel(obj, selectedDate);
       row.innerHTML = `
         <div class="consigne-row__header">
           <div class="consigne-row__main">
             <button type="button" class="consigne-row__toggle" data-objective-open aria-haspopup="dialog">
               <span class="consigne-row__title">${escapeHtml(title)}</span>
+              ${periodLabel ? `<span class="consigne-row__subtitle text-sm text-[var(--muted)]">${escapeHtml(periodLabel)}</span>` : ""}
             </button>
           </div>
           <div class="consigne-row__meta">
@@ -21052,9 +21194,15 @@ async function renderDaily(ctx, root, opts = {}) {
         </div>`;
 
       const openBtn = row.querySelector('[data-objective-open]');
-      const currentDayIso = typeof Schema?.dayKeyFromDate === "function"
+      const currentEntryKey = objectiveEntryKeyForDate(obj, selectedDate);
+      const fallbackDayKey = typeof Schema?.dayKeyFromDate === "function"
         ? Schema.dayKeyFromDate(selectedDate)
-        : (selectedDate && selectedDate.toISOString ? selectedDate.toISOString().slice(0,10) : "");
+        : (selectedDate && selectedDate.toISOString ? selectedDate.toISOString().slice(0, 10) : "");
+      const entryKeyCandidates = Array.from(
+        new Set(
+          [currentEntryKey, fallbackDayKey].filter((key) => typeof key === "string" && key.trim()),
+        ),
+      );
 
       // Utilitaire statut couleur comme les consignes
       const applyObjectiveStatus = (val) => {
@@ -21091,14 +21239,21 @@ async function renderDaily(ctx, root, opts = {}) {
       // Ouvre une modale pour répondre à l'objectif (même logique que les consignes)
       if (openBtn) {
         openBtn.addEventListener('click', async () => {
-          let initialValue = '';
-          try {
-            const existing = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso);
-            if (existing && existing.v !== undefined && existing.v !== null) {
-              initialValue = String(existing.v);
+          let initialValue = "";
+          let existingEntryKey = null;
+          let existingEntry = null;
+          for (const candidateKey of entryKeyCandidates) {
+            try {
+              const loaded = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, candidateKey);
+              if (loaded && loaded.v !== undefined && loaded.v !== null) {
+                initialValue = String(loaded.v);
+                existingEntryKey = candidateKey;
+                existingEntry = loaded;
+                break;
             }
           } catch (e) {
-            try { modesLogger?.warn?.('daily.objectivesDue.prefill', e); } catch (_) {}
+              try { modesLogger?.warn?.("daily.objectivesDue.prefill", e); } catch (_) {}
+            }
           }
           const content = document.createElement('div');
           content.innerHTML = `
@@ -21133,7 +21288,86 @@ async function renderDaily(ctx, root, opts = {}) {
             const raw = sel ? sel.value : '';
             const val = raw === '' ? null : Number(raw);
             try {
-              await Schema.saveObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso, val);
+              await Schema.saveObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentEntryKey, val);
+              modesLogger?.info?.("daily.objectivesDue.saveEntry", {
+                objectiveId: obj.id,
+                storageKey: currentEntryKey,
+                value: val,
+              });
+              if (existingEntryKey && existingEntryKey !== currentEntryKey) {
+                try {
+                  await Schema.deleteObjectiveEntry(ctx.db, ctx.user.uid, obj.id, existingEntryKey);
+                  modesLogger?.info?.("daily.objectivesDue.cleanupEntry", {
+                    objectiveId: obj.id,
+                    removedKey: existingEntryKey,
+                  });
+                } catch (cleanupError) {
+                  modesLogger?.warn?.("daily.objectivesDue.cleanup", cleanupError);
+                }
+              }
+            const periodInfo = computeObjectivePeriodInfo(obj, selectedDate);
+            if (periodInfo && periodInfo.scope && periodInfo.periodKey) {
+              const summaryKey = `objective__${obj.id}`;
+              const baseLabel = obj?.titre || obj?.title || obj?.name || obj?.id || "Objectif";
+              const metadata = {
+                start: periodInfo.start,
+                end: periodInfo.end,
+                label: periodInfo.periodLabel,
+                moduleId: "daily",
+                summaryPeriodKey: periodInfo.periodKey,
+                summaryPeriodLabel: periodInfo.periodLabel,
+                summaryScope: periodInfo.summaryScope,
+                extras: {
+                  summaryScope: periodInfo.summaryScope,
+                  summaryPeriodKey: periodInfo.periodKey,
+                  summaryPeriodLabel: periodInfo.periodLabel,
+                },
+              };
+              if (val === null || val === undefined) {
+                try {
+                  await Schema.deleteSummaryAnswer(
+                    ctx.db,
+                    ctx.user.uid,
+                    periodInfo.scope,
+                    periodInfo.periodKey,
+                    summaryKey,
+                    metadata,
+                  );
+                } catch (summaryDeleteError) {
+                  modesLogger?.warn?.("daily.objectivesDue.summaryDelete", summaryDeleteError);
+                }
+              } else {
+                try {
+                  const summaryValue = Schema.objectiveLikertLabelFromValue
+                    ? Schema.objectiveLikertLabelFromValue(val)
+                    : val;
+                  await Schema.saveSummaryAnswers(
+                    ctx.db,
+                    ctx.user.uid,
+                    periodInfo.scope,
+                    periodInfo.periodKey,
+                    [
+                      {
+                        key: summaryKey,
+                        consigneId: obj.id,
+                        family: "objective",
+                        type: obj.type || "likert6",
+                        value: summaryValue,
+                        summaryScope: periodInfo.summaryScope,
+                        summaryLabel: periodInfo.summaryLabel,
+                        label: baseLabel,
+                        category: "Objectifs",
+                        summaryPeriodKey: periodInfo.periodKey,
+                        summaryPeriodLabel: periodInfo.periodLabel,
+                      },
+                    ],
+                    metadata,
+                  );
+                } catch (summarySaveError) {
+                  modesLogger?.warn?.("daily.objectivesDue.summarySave", summarySaveError);
+                }
+              }
+            }
               applyObjectiveStatus(val);
               showToast('Réponse enregistrée.');
               close();
@@ -21150,9 +21384,20 @@ async function renderDaily(ctx, root, opts = {}) {
       // Initialiser le statut visuel depuis la valeur existante
       (async () => {
         try {
-          const existing = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso);
-          if (existing && existing.v !== undefined && existing.v !== null) {
-            applyObjectiveStatus(existing.v);
+          let initialEntry = null;
+          for (const candidateKey of entryKeyCandidates) {
+            try {
+              const loaded = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, candidateKey);
+              if (loaded && loaded.v !== undefined && loaded.v !== null) {
+                initialEntry = loaded;
+                break;
+              }
+            } catch (e) {
+              try { modesLogger?.warn?.("daily.objectivesDue.initStatus", e); } catch (_) {}
+            }
+          }
+          if (initialEntry && initialEntry.v !== undefined && initialEntry.v !== null) {
+            applyObjectiveStatus(initialEntry.v);
           } else {
             applyObjectiveStatus(null);
           }
@@ -21433,6 +21678,7 @@ Modes.setupConsigneHistoryTimeline = setupConsigneHistoryTimeline;
 // Expose timeline updater and status resolver for other modules (bilan)
 Modes.updateConsigneHistoryTimeline = updateConsigneHistoryTimeline;
 Modes.dotColor = dotColor;
+Modes.triggerConsigneRowUpdateHighlight = triggerConsigneRowUpdateHighlight;
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {

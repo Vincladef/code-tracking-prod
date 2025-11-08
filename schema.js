@@ -274,6 +274,58 @@ function dayKeyFromDate(dateInput = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+function dayKeyToDate(dayKey) {
+  if (typeof dayKey !== "string" || !dayKey) {
+    return null;
+  }
+  const parts = dayKey.split("-");
+  if (parts.length !== 3) {
+    return null;
+  }
+  const [yearStr, monthStr, dayStr] = parts;
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null;
+  }
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function enumerateDayKeys(startDate, endDate) {
+  const start = startOfDay(startDate);
+  const end = startOfDay(endDate);
+  if (!start || !end) return [];
+  if (end < start) return [];
+  const keys = [];
+  const cursor = new Date(start.getTime());
+  while (cursor <= end) {
+    keys.push(dayKeyFromDate(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+    cursor.setHours(0, 0, 0, 0);
+  }
+  return keys;
+}
+
+function objectiveLikertLabelFromValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "";
+  }
+  if (numeric >= 5) return "yes";
+  if (numeric === 4) return "rather_yes";
+  if (numeric === 3) return "medium";
+  if (numeric === 2) return "rather_no";
+  if (numeric === 1) return "no";
+  if (numeric === 0) return "no_answer";
+  return "";
+}
+
 const todayKey = (d = new Date()) => dayKeyFromDate(d); // YYYY-MM-DD
 
 const PRIORITIES = ["high","medium","low"];
@@ -777,6 +829,7 @@ function registerRecentResponses(mode, entries) {
         value: entry.value,
         type: entry.type || entry.consigne?.type || null,
         note: entry.note ?? null,
+        isBilan: entry.isBilan === true,
         summaryScope: entry.summaryScope || entry.summary_scope || null,
         summaryMode: entry.summaryMode || entry.summary_mode || null,
         summaryLabel: entry.summaryLabel || entry.summary_label || null,
@@ -2545,6 +2598,12 @@ async function listObjectivesDueOn(db, uid, dateInput) {
   byMonth.flat().forEach((row) => { if (row && row.id) map.set(row.id, row); });
   (byReminder || []).forEach((row) => { if (row && row.id) map.set(row.id, row); });
 
+  await Promise.all(
+    Array.from(map.values()).map((objective) =>
+      migrateObjectiveEntriesForObjective(db, uid, objective).catch(() => {})
+    ),
+  );
+
   const due = [];
   map.forEach((objective) => {
     if (!objective || objective.notifyOnTarget === false) return;
@@ -2740,26 +2799,211 @@ async function deleteObjectiveEntry(db, uid, objectifId, dateIso) {
   await deleteDoc(ref);
 }
 
+async function migrateObjectiveEntriesForObjective(db, uid, objective) {
+  if (!db || !uid || !objective || !objective.id) return;
+  const objectiveId = objective.id;
+  const typeRaw = typeof objective.type === "string" ? objective.type.trim().toLowerCase() : "";
+  if (!typeRaw) return;
+  try {
+    const entries = await listObjectiveEntryPairs(db, uid, objectiveId);
+    if (!entries.length) return;
+    for (const { key, value } of entries) {
+      if (!key || key.includes(":")) continue;
+      if (value === null || value === undefined || value === "") continue;
+      const date = dayKeyToDate(key);
+      if (!date) continue;
+      let targetKey = null;
+      if (typeRaw === "hebdo" || typeRaw === "weekly") {
+        const weekKey = weekKeyFromDate(date);
+        if (weekKey) {
+          targetKey = `weekly:${weekKey}`;
+        }
+      } else if (typeRaw === "mensuel" || typeRaw === "monthly") {
+        const monthKey = monthKeyFromDate(date);
+        if (monthKey) {
+          targetKey = `monthly:${monthKey}`;
+        }
+      } else if (typeRaw === "annuel" || typeRaw === "yearly" || typeRaw === "annual") {
+        targetKey = `yearly:${date.getFullYear()}`;
+      }
+      if (!targetKey || targetKey === key) continue;
+      try {
+        await saveObjectiveEntry(db, uid, objectiveId, targetKey, value);
+        await deleteObjectiveEntry(db, uid, objectiveId, key);
+        console.info("objective.migration", {
+          objectiveId,
+          from: key,
+          to: targetKey,
+        });
+      } catch (migrationError) {
+        console.warn("objective.migration.error", { objectiveId, from: key, to: targetKey, error: migrationError });
+      }
+    }
+  } catch (error) {
+    console.warn("objectiveEntries.migrate.fetch", { objectiveId, error });
+  }
+}
+
 async function getObjectiveEntry(db, uid, objectifId, dateIso) {
   if (!db || !uid || !objectifId || !dateIso) return null;
   try {
     const ref = doc(db, "u", uid, "objectiveEntries", objectifId, "entries", dateIso);
     const snap = await getDoc(ref);
-    if (!snapshotExists(snap)) {
-      return null;
+    if (snapshotExists(snap)) {
+      const data = snap.data() || {};
+      return { id: snap.id, ...data };
     }
-    const data = snap.data() || {};
-    return { id: snap.id, ...data };
   } catch (error) {
     console.warn("getObjectiveEntry", error);
+  }
+
+  // Fallback: support legacy dayKey entries when requesting a period key
+  const scopeMatch = String(dateIso).match(/^(weekly|monthly|yearly):(.+)$/i);
+  if (!scopeMatch) {
     return null;
   }
+  const scope = scopeMatch[1].toLowerCase();
+  const periodKey = scopeMatch[2];
+
+  const parseLegacyDateKey = (rawKey) => {
+    if (!rawKey || typeof rawKey !== "string") return null;
+    const trimmed = rawKey.trim();
+    if (!trimmed) return null;
+    const dateHyphen = dayKeyToDate(trimmed);
+    if (dateHyphen) return dateHyphen;
+    const slashParts = trimmed.split("/");
+    if (slashParts.length === 3) {
+      const [dayStr, monthStr, yearStr] = slashParts;
+      const day = Number(dayStr);
+      const month = Number(monthStr);
+      const year = Number(yearStr);
+      if (
+        Number.isFinite(day) &&
+        Number.isFinite(month) &&
+        Number.isFinite(year) &&
+        month >= 1 &&
+        month <= 12
+      ) {
+        const date = new Date(year, month - 1, day);
+        if (!Number.isNaN(date.getTime())) {
+          date.setHours(0, 0, 0, 0);
+          return date;
+        }
+      }
+    }
+    if (slashParts.length === 2) {
+      const [dayStr, monthStr] = slashParts;
+      const day = Number(dayStr);
+      const month = Number(monthStr);
+      if (
+        Number.isFinite(day) &&
+        Number.isFinite(month) &&
+        month >= 1 &&
+        month <= 12
+      ) {
+        const currentYear = new Date().getFullYear();
+        const date = new Date(currentYear, month - 1, day);
+        if (!Number.isNaN(date.getTime())) {
+          date.setHours(0, 0, 0, 0);
+          return date;
+        }
+      }
+    }
+    return null;
+  };
+
+  const collectDayKeysForScope = () => {
+    if (scope === "weekly") {
+      const base = dayKeyToDate(periodKey);
+      if (!base) return [];
+      const range = weekRangeFromDate(base);
+      if (!range?.start || !range?.end) return [];
+      return enumerateDayKeys(range.start, range.end);
+    }
+    if (scope === "monthly") {
+      const range = monthRangeFromKey(periodKey);
+      if (!range?.start || !range?.end) return [];
+      return enumerateDayKeys(range.start, range.end);
+    }
+    if (scope === "yearly") {
+      const yearNum = Number(periodKey);
+      if (!Number.isFinite(yearNum)) return [];
+      const start = new Date(yearNum, 0, 1);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(yearNum, 11, 31);
+      end.setHours(23, 59, 59, 999);
+      return enumerateDayKeys(start, end);
+    }
+    const legacyDate = parseLegacyDateKey(periodKey);
+    if (legacyDate) {
+      return [dayKeyFromDate(legacyDate)];
+    }
+    return [];
+  };
+
+  const candidates = collectDayKeysForScope();
+  const foundEntries = [];
+  for (const candidateKey of candidates) {
+    try {
+      const ref = doc(db, "u", uid, "objectiveEntries", objectifId, "entries", candidateKey);
+      const snap = await getDoc(ref);
+      if (!snapshotExists(snap)) {
+        continue;
+      }
+      const data = snap.data() || {};
+      const value = data?.v ?? data?.value ?? null;
+      const normalized = Number.isFinite(Number(value)) ? Number(value) : value;
+      if (normalized === null || normalized === undefined || normalized === "") {
+        continue;
+      }
+      const atTimestamp = data?.at && typeof data.at.toDate === "function" ? data.at.toDate() : null;
+      foundEntries.push({ candidateKey, normalized, at: atTimestamp });
+    } catch (error) {
+      console.warn("getObjectiveEntry.fallback", error);
+    }
+  }
+  if (!foundEntries.length) {
+    return null;
+  }
+  const periodEntry = foundEntries.find((entry) => entry.candidateKey === dateIso);
+  const otherEntries = foundEntries.filter((entry) => entry.candidateKey !== dateIso);
+  let chosenEntry = periodEntry || null;
+  if (!chosenEntry) {
+    otherEntries.sort((a, b) => {
+      const timeA = a.at instanceof Date && !Number.isNaN(a.at.getTime()) ? a.at.getTime() : 0;
+      const timeB = b.at instanceof Date && !Number.isNaN(b.at.getTime()) ? b.at.getTime() : 0;
+      if (timeA !== timeB) return timeB - timeA;
+      return 0;
+    });
+    chosenEntry = otherEntries[0] || null;
+  }
+  if (!chosenEntry) {
+    return null;
+  }
+  await saveObjectiveEntry(db, uid, objectifId, dateIso, chosenEntry.normalized);
+  if (chosenEntry.candidateKey !== dateIso) {
+    try {
+      await deleteObjectiveEntry(db, uid, objectifId, chosenEntry.candidateKey);
+    } catch (cleanupError) {
+      console.warn("getObjectiveEntry.migrate.cleanup", cleanupError);
+    }
+  }
+  return { id: dateIso, v: chosenEntry.normalized };
+}
+
+async function listObjectiveEntryPairs(db, uid, objectifId) {
+  if (!db || !uid || !objectifId) return [];
+  const colRef = collection(db, "u", uid, "objectiveEntries", objectifId, "entries");
+  const snap = await getDocs(colRef);
+  return snap.docs.map((docSnap) => {
+    const data = docSnap.data() || {};
+    return { key: docSnap.id, value: data.v ?? data.value ?? null };
+  });
 }
 
 async function loadObjectiveEntriesRange(db, uid, objectifId, _fromIso, _toIso) {
-  const colRef = collection(db, "u", uid, "objectiveEntries", objectifId, "entries");
-  const snap = await getDocs(colRef);
-  return snap.docs.map((d) => ({ date: d.id, v: d.data().v }));
+  const pairs = await listObjectiveEntryPairs(db, uid, objectifId);
+  return pairs.map(({ key, value }) => ({ date: key, v: value }));
 }
 
 function summaryCollectionName(scope) {
@@ -3106,6 +3350,7 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
         type: answer.type || null,
         mode: "summary",
         note: responsePayload.note ?? null,
+        isBilan: responsePayload.isBilan === true,
         summaryScope: responsePayload.summaryScope || null,
         summaryMode: responsePayload.summaryMode || null,
         summaryLabel: responsePayload.summaryLabel || null,
@@ -3195,6 +3440,7 @@ Object.assign(Schema, {
   buildUserDailyLink,
   todayKey,
   dayKeyFromDate,
+  buildSummaryResponseId,
   PRIORITIES,
   MODES,
   TYPES,
@@ -3236,6 +3482,7 @@ Object.assign(Schema, {
   normalizeChecklistItems,
   normalizeChecklistItemIds,
   valueToNumericPoint,
+  objectiveLikertLabelFromValue,
   listConsignesByCategory,
   loadConsigneHistory,
   saveHistoryEntry,
@@ -3270,7 +3517,9 @@ Object.assign(Schema, {
   saveObjectiveEntry,
   deleteObjectiveEntry,
   getObjectiveEntry,
+  listObjectiveEntryPairs,
   loadObjectiveEntriesRange,
+  migrateObjectiveEntriesForObjective,
   loadSummaryAnswers,
   saveSummaryAnswers,
   deleteSummaryAnswer,
@@ -3288,6 +3537,7 @@ if (typeof module !== "undefined" && module.exports) {
     shiftMonthKey,
     loadModuleSettings,
     saveModuleSettings,
+    objectiveLikertLabelFromValue,
     __test__: {
       normalizeChecklistItemPayload,
     },
