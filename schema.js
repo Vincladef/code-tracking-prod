@@ -2851,6 +2851,53 @@ async function getObjectiveEntry(db, uid, objectifId, dateIso) {
   const scope = scopeMatch[1].toLowerCase();
   const periodKey = scopeMatch[2];
 
+  const parseLegacyDateKey = (rawKey) => {
+    if (!rawKey || typeof rawKey !== "string") return null;
+    const trimmed = rawKey.trim();
+    if (!trimmed) return null;
+    const dateHyphen = dayKeyToDate(trimmed);
+    if (dateHyphen) return dateHyphen;
+    const slashParts = trimmed.split("/");
+    if (slashParts.length === 3) {
+      const [dayStr, monthStr, yearStr] = slashParts;
+      const day = Number(dayStr);
+      const month = Number(monthStr);
+      const year = Number(yearStr);
+      if (
+        Number.isFinite(day) &&
+        Number.isFinite(month) &&
+        Number.isFinite(year) &&
+        month >= 1 &&
+        month <= 12
+      ) {
+        const date = new Date(year, month - 1, day);
+        if (!Number.isNaN(date.getTime())) {
+          date.setHours(0, 0, 0, 0);
+          return date;
+        }
+      }
+    }
+    if (slashParts.length === 2) {
+      const [dayStr, monthStr] = slashParts;
+      const day = Number(dayStr);
+      const month = Number(monthStr);
+      if (
+        Number.isFinite(day) &&
+        Number.isFinite(month) &&
+        month >= 1 &&
+        month <= 12
+      ) {
+        const currentYear = new Date().getFullYear();
+        const date = new Date(currentYear, month - 1, day);
+        if (!Number.isNaN(date.getTime())) {
+          date.setHours(0, 0, 0, 0);
+          return date;
+        }
+      }
+    }
+    return null;
+  };
+
   const collectDayKeysForScope = () => {
     if (scope === "weekly") {
       const base = dayKeyToDate(periodKey);
@@ -2872,6 +2919,10 @@ async function getObjectiveEntry(db, uid, objectifId, dateIso) {
       const end = new Date(yearNum, 11, 31);
       end.setHours(23, 59, 59, 999);
       return enumerateDayKeys(start, end);
+    }
+    const legacyDate = parseLegacyDateKey(periodKey);
+    if (legacyDate) {
+      return [dayKeyFromDate(legacyDate)];
     }
     return [];
   };

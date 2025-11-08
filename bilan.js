@@ -1574,6 +1574,18 @@
       mount.appendChild(warn);
       return;
     }
+    if (ctx?.db && ctx?.user?.uid) {
+      try {
+        const objectivesForPeriod = await loadObjectivesForPeriod(ctx.db, ctx.user.uid, period);
+        await Promise.all(
+          objectivesForPeriod.map((consigne) =>
+            Schema.migrateObjectiveEntriesForObjective(ctx.db, ctx.user.uid, consigne.originalGoal || { id: consigne.id, type: consigne.type }),
+          ),
+        );
+      } catch (migrationError) {
+        bilanLogger?.warn?.("bilan.objectives.migrate", migrationError);
+      }
+    }
     const loading = document.createElement("p");
     loading.className = "text-sm text-[var(--muted)]";
     loading.textContent = "Chargement des consignes…";
