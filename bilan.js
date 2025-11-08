@@ -56,14 +56,14 @@
 
   function resolveAnswerValue(answer) {
     if (!answer) return null;
+    if (Object.prototype.hasOwnProperty.call(answer, "value")) {
+      return answer.value;
+    }
     if (Object.prototype.hasOwnProperty.call(answer, "numericValue")) {
       const numeric = answer.numericValue;
       if (numeric !== undefined && numeric !== null) {
         return numeric;
       }
-    }
-    if (Object.prototype.hasOwnProperty.call(answer, "value")) {
-      return answer.value;
     }
     if (Object.prototype.hasOwnProperty.call(answer || {}, "v")) {
       return answer.v;
