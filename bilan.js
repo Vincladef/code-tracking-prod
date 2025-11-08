@@ -854,6 +854,7 @@
     const descriptionHtml = consigne.summaryMeta?.description
       ? `<p class="consigne-row__description text-sm text-[var(--muted)]">${escapeHtml(consigne.summaryMeta.description)}</p>`
       : "";
+    const shouldRenderHistory = !isChild && consigne.family !== "objective";
     row.innerHTML = `
       <div class="consigne-row__header">
         <div class="consigne-row__main">
@@ -884,7 +885,7 @@
         </div>
       </div>
       ${descriptionHtml}
-      ${!isChild ? `
+      ${shouldRenderHistory ? `
       <div class="consigne-history" data-consigne-history hidden>
         <button type="button" class="consigne-history__nav" data-consigne-history-prev aria-label="Faire défiler l’historique vers la gauche" hidden><span aria-hidden="true">&lsaquo;</span></button>
         <div class="consigne-history__viewport" data-consigne-history-viewport>
