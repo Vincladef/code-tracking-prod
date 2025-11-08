@@ -21250,8 +21250,8 @@ async function renderDaily(ctx, root, opts = {}) {
                 existingEntryKey = candidateKey;
                 existingEntry = loaded;
                 break;
-              }
-            } catch (e) {
+            }
+          } catch (e) {
               try { modesLogger?.warn?.("daily.objectivesDue.prefill", e); } catch (_) {}
             }
           }

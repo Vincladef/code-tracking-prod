@@ -1702,6 +1702,13 @@
                   ? entry.v
                   : entry?.value ?? entry?.val ?? null;
                 const normalizedValue = normalizeObjectiveSummaryValue(consigne, rawValue);
+                bilanLogger?.info?.("bilan.objectives.entry", {
+                  objectiveId,
+                  consigneId: consigne?.id || null,
+                  rawValue,
+                  normalizedValue,
+                  candidateKeys,
+                });
                 if (normalizedValue === null || normalizedValue === undefined) {
                   return;
                 }
@@ -1782,6 +1789,10 @@
                   summaryLabel,
                   label: consigne?.summaryLabel || consigne?.text || null,
                   category: consigne?.summaryCategory || consigne?.category || null,
+                });
+                bilanLogger?.info?.("bilan.objectives.answersMap", {
+                  key,
+                  entry: answersMap.get(key),
                 });
               } catch (error) {
                 bilanLogger?.warn?.("bilan.objectives.prefill", {
