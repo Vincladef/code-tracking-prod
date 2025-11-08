@@ -1698,7 +1698,26 @@
 
     const onValueChange = buildSummarySaver(ctx, period, answersMap);
     FAMILY_ORDER.forEach((family) => {
-      buildFamilySection(grid, family, sectionsData?.[family] || [], answersMap, {
+      const familyData = Array.isArray(sectionsData?.[family]) ? sectionsData[family] : [];
+      if (family === "objective" && familyData.length) {
+        const periodInfo = objectiveSummaryKeyFromPeriod(period);
+        familyData.forEach((consigne) => {
+          if (!consigne || typeof consigne !== "object") return;
+          if (periodInfo?.label) {
+            consigne.summaryPeriodLabel = periodInfo.label;
+          }
+          if (periodInfo?.key) {
+            consigne.summaryPeriodKey = periodInfo.key;
+          }
+          if (periodInfo?.start instanceof Date && !Number.isNaN(periodInfo.start.getTime())) {
+            consigne.summaryPeriodStart = periodInfo.start;
+          }
+          if (periodInfo?.end instanceof Date && !Number.isNaN(periodInfo.end.getTime())) {
+            consigne.summaryPeriodEnd = periodInfo.end;
+          }
+        });
+      }
+      buildFamilySection(grid, family, familyData, answersMap, {
         onValueChange,
         ctx,
       });
