@@ -2991,6 +2991,450 @@
     return { emails, invalid: null };
   };
 
+  const emailMultiState = new WeakMap();
+  const EMAIL_MULTI_STYLES_ID = "email-multi-styles";
+
+  function ensureEmailMultiStyles() {
+    if (document.getElementById(EMAIL_MULTI_STYLES_ID)) {
+      return;
+    }
+    const style = document.createElement("style");
+    style.id = EMAIL_MULTI_STYLES_ID;
+    style.textContent = `
+      .email-multi {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .email-multi-editor {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        background: var(--card-bg, #ffffff);
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+        box-shadow: inset 0 1px 1px rgba(15, 23, 42, 0.04);
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+      .email-multi-editor:focus-within {
+        border-color: var(--accent, #3ea6eb);
+        box-shadow: 0 0 0 2px rgba(62, 166, 235, 0.15);
+      }
+      .email-multi-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .email-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        border-radius: 999px;
+        background: var(--accent, #3ea6eb);
+        color: #ffffff;
+        padding: 0.25rem 0.75rem;
+        font-size: 0.85rem;
+      }
+      .email-pill-remove {
+        border: none;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font-size: 0.9rem;
+        line-height: 1;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+      }
+      .email-pill-remove:focus-visible {
+        outline: 2px solid rgba(255, 255, 255, 0.7);
+        border-radius: 999px;
+      }
+      .email-multi-input {
+        flex: 1;
+        min-width: 12rem;
+        border: none;
+        background: transparent;
+        font-size: 0.95rem;
+      }
+      .email-multi-input:focus {
+        outline: none;
+      }
+      .email-multi-add {
+        border: none;
+        border-radius: 999px;
+        background: var(--accent, #3ea6eb);
+        color: #ffffff;
+        cursor: pointer;
+        font-size: 0.85rem;
+        padding: 0.4rem 0.9rem;
+        transition: background-color 0.15s ease, opacity 0.15s ease;
+      }
+      .email-multi-add:hover {
+        background: #3398d9;
+      }
+      .email-multi-add:focus-visible {
+        outline: 2px solid rgba(62, 166, 235, 0.35);
+        outline-offset: 2px;
+      }
+      .email-multi-helper {
+        font-size: 0.8rem;
+        color: var(--muted, #6b7280);
+      }
+      .email-multi-error {
+        font-size: 0.8rem;
+        color: #dc2626;
+      }
+      .email-modal-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        background: rgba(15, 23, 42, 0.35);
+        backdrop-filter: blur(2px);
+      }
+      .email-modal-card {
+        width: min(100%, 28rem);
+        background: var(--card-bg, #ffffff);
+        color: var(--text, #1f2937);
+        border-radius: 1rem;
+        padding: 1.75rem;
+        box-shadow: 0 24px 55px rgba(15, 23, 42, 0.25);
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+      }
+      .email-modal-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 0;
+      }
+      .email-modal-subtitle {
+        margin: 0.25rem 0 0;
+        font-size: 0.9rem;
+        color: var(--muted, #6b7280);
+      }
+      .email-modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function resolveEmailMultiRoot(reference) {
+    if (!reference) return null;
+    if (reference instanceof Element) return reference;
+    if (typeof reference === "string") return document.querySelector(reference);
+    return null;
+  }
+
+  function setupEmailMultiInput(root, options = {}) {
+    const target = resolveEmailMultiRoot(root);
+    if (!target || emailMultiState.has(target)) return null;
+
+    ensureEmailMultiStyles();
+
+    const {
+      initial = [],
+      placeholder = "Ajoutez une adresse email puis appuyez sur Entrée",
+      helperText = "Appuyez sur Entrée, Tab ou cliquez sur Ajouter pour valider chaque email. Vous pouvez aussi coller plusieurs adresses d’un coup.",
+      addButtonLabel = "Ajouter",
+      inputId = null,
+      autoFocus = false,
+    } = options;
+
+    target.innerHTML = "";
+    target.classList.add("email-multi");
+
+    const editor = document.createElement("div");
+    editor.className = "email-multi-editor";
+
+    const pills = document.createElement("div");
+    pills.className = "email-multi-pills";
+
+    const input = document.createElement("input");
+    input.type = "email";
+    input.placeholder = placeholder;
+    input.autocomplete = "off";
+    input.className = "email-multi-input";
+    if (inputId) {
+      input.id = inputId;
+    }
+
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "email-multi-add";
+    addButton.textContent = addButtonLabel;
+
+    editor.append(pills, input, addButton);
+    target.append(editor);
+
+    let helper = null;
+    if (helperText) {
+      helper = document.createElement("p");
+      helper.className = "email-multi-helper";
+      helper.textContent = helperText;
+      target.append(helper);
+    }
+
+    const error = document.createElement("p");
+    error.className = "email-multi-error";
+    error.style.display = "none";
+    target.append(error);
+
+    const state = {
+      emails: [],
+      seen: new Set(),
+      input,
+      pills,
+      error,
+      helper,
+      editor,
+    };
+
+    const setError = (message) => {
+      if (!error) return;
+      if (message) {
+        error.textContent = message;
+        error.style.display = "";
+      } else {
+        error.textContent = "";
+        error.style.display = "none";
+      }
+    };
+
+    const renderPills = () => {
+      pills.innerHTML = "";
+      state.emails.forEach((email) => {
+        const pill = document.createElement("span");
+        pill.className = "email-pill";
+        pill.dataset.emailPill = "1";
+        pill.dataset.value = email;
+
+        const text = document.createElement("span");
+        text.textContent = email;
+
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "email-pill-remove";
+        removeButton.dataset.emailRemove = email;
+        removeButton.setAttribute("aria-label", `Supprimer ${email}`);
+        removeButton.textContent = "×";
+
+        pill.append(text, removeButton);
+        pills.appendChild(pill);
+      });
+    };
+
+    const addEmails = (value, { fromInput = false, suppressError = false } = {}) => {
+      if (value === undefined || value === null || value === "") {
+        if (!suppressError) {
+          setError(null);
+        }
+        return true;
+      }
+      const serialized = Array.isArray(value) ? value.join("\n") : String(value);
+      const { emails, invalid } = parseEmailInput(serialized);
+      if (invalid) {
+        if (!suppressError) {
+          setError(`Adresse email invalide : ${invalid}`);
+        }
+        if (fromInput) {
+          state.input.focus();
+        }
+        return false;
+      }
+      let added = false;
+      emails.forEach((email) => {
+        const key = email.toLowerCase();
+        if (state.seen.has(key)) return;
+        state.seen.add(key);
+        state.emails.push(email);
+        added = true;
+      });
+      if (added) {
+        renderPills();
+      }
+      if (!suppressError) {
+        setError(null);
+      }
+      return true;
+    };
+
+    const removeEmail = (email) => {
+      if (!email) return;
+      const key = email.toLowerCase();
+      if (!state.seen.has(key)) return;
+      state.seen.delete(key);
+      const index = state.emails.findIndex((item) => item.toLowerCase() === key);
+      if (index >= 0) {
+        state.emails.splice(index, 1);
+      }
+      renderPills();
+      setError(null);
+    };
+
+    const removeLastEmail = () => {
+      if (!state.emails.length) return;
+      const last = state.emails.pop();
+      if (last) {
+        state.seen.delete(last.toLowerCase());
+      }
+      renderPills();
+      setError(null);
+    };
+
+    const commitPending = () => {
+      const raw = state.input.value;
+      if (!raw) {
+        setError(null);
+        return true;
+      }
+      const success = addEmails(raw, { fromInput: true });
+      if (success) {
+        state.input.value = "";
+      }
+      return success;
+    };
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === "Tab" || event.key === "," || event.key === ";") {
+        event.preventDefault();
+        commitPending();
+        return;
+      }
+      if (event.key === "Backspace" && !state.input.value) {
+        event.preventDefault();
+        removeLastEmail();
+      }
+    });
+
+    input.addEventListener("input", () => {
+      if (/[\n,;]/.test(state.input.value)) {
+        commitPending();
+      } else {
+        setError(null);
+      }
+    });
+
+    input.addEventListener("blur", () => {
+      commitPending();
+    });
+
+    addButton.addEventListener("click", () => {
+      commitPending();
+      state.input.focus();
+    });
+
+    target.addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-email-remove]");
+      if (!btn) return;
+      const email = btn.dataset.emailRemove;
+      removeEmail(email);
+      state.input.focus();
+    });
+
+    emailMultiState.set(target, {
+      ...state,
+      setError,
+      renderPills,
+      addEmails,
+      removeEmail,
+      removeLastEmail,
+      commitPending,
+      getValues: () => state.emails.slice(),
+      setValues: (values = []) => {
+        state.emails = [];
+        state.seen.clear();
+        renderPills();
+        if (Array.isArray(values) && values.length) {
+          addEmails(values, { suppressError: true });
+        } else {
+          setError(null);
+        }
+      },
+      focus: () => state.input.focus(),
+      clear: () => {
+        state.emails = [];
+        state.seen.clear();
+        renderPills();
+        setError(null);
+        state.input.value = "";
+      },
+    });
+
+    renderPills();
+    if (Array.isArray(initial) && initial.length) {
+      addEmails(initial, { suppressError: true });
+      renderPills();
+    }
+    if (autoFocus) {
+      setTimeout(() => {
+        state.input.focus();
+      }, 0);
+    }
+
+    return emailMultiState.get(target);
+  }
+
+  function getEmailMultiValues(reference) {
+    const root = resolveEmailMultiRoot(reference);
+    if (!root) return [];
+    const state = emailMultiState.get(root);
+    return state ? state.getValues() : [];
+  }
+
+  function setEmailMultiValues(reference, values = []) {
+    const root = resolveEmailMultiRoot(reference);
+    if (!root) return;
+    const state = emailMultiState.get(root);
+    if (state) {
+      state.setValues(values);
+    }
+  }
+
+  function commitEmailMultiPending(reference) {
+    const root = resolveEmailMultiRoot(reference);
+    if (!root) return true;
+    const state = emailMultiState.get(root);
+    return state ? state.commitPending() : true;
+  }
+
+  function focusEmailMultiInput(reference) {
+    const root = resolveEmailMultiRoot(reference);
+    if (!root) return;
+    const state = emailMultiState.get(root);
+    if (state) {
+      state.focus();
+    }
+  }
+
+  function clearEmailMultiInput(reference) {
+    const root = resolveEmailMultiRoot(reference);
+    if (!root) return;
+    const state = emailMultiState.get(root);
+    if (state) {
+      state.clear();
+    }
+  }
+
+  function setEmailMultiError(reference, message) {
+    const root = resolveEmailMultiRoot(reference);
+    if (!root) return;
+    const state = emailMultiState.get(root);
+    if (state) {
+      state.setError(message);
+    }
+  }
+
   function renderAdmin(db) {
     // Hide the sidebar in admin mode
     const sidebar = document.getElementById("sidebar");
@@ -3019,7 +3463,13 @@
               <p class="text-sm text-[var(--muted)]">Ajoutez rapidement une nouvelle fiche depuis votre téléphone.</p>
             </div>
             <input type="text" id="new-user-name" placeholder="Nom de l’utilisateur" required class="w-full" />
-            <input type="text" id="new-user-email" placeholder="Emails de l’utilisateur (séparés par des virgules, optionnel)" class="w-full" inputmode="email" autocomplete="email" />
+            <div class="space-y-2">
+              <label for="new-user-email-input" class="flex flex-col text-[var(--muted)]">
+                <span class="text-sm font-medium">Emails de l’utilisateur</span>
+                <span class="text-xs font-normal">Optionnel — validez chaque adresse avec Entrée ou le bouton “Ajouter”.</span>
+              </label>
+              <div id="new-user-email" data-input-id="new-user-email-input"></div>
+            </div>
             <button class="btn btn-primary w-full sm:w-auto" type="submit">Créer l’utilisateur</button>
           </form>
           <section class="card p-4 space-y-3">
@@ -3046,16 +3496,27 @@
       </div>
     `;
 
+    const newUserEmailRoot = document.getElementById("new-user-email");
+    if (newUserEmailRoot) {
+      setupEmailMultiInput(newUserEmailRoot, {
+        inputId: newUserEmailRoot.dataset.inputId || "new-user-email-input",
+        helperText:
+          "Appuyez sur Entrée, Tab ou cliquez sur Ajouter pour valider chaque email. Vous pouvez aussi coller plusieurs adresses à la fois.",
+      });
+    }
+
     const form = document.getElementById("new-user-form");
     if (form) {
       form.addEventListener("submit", async(e) => {
         e.preventDefault();
         const input = document.getElementById("new-user-name");
         const name = input?.value?.trim();
-        const emailInput = document.getElementById("new-user-email");
-        const emailValue = emailInput?.value?.trim();
-        const { emails, invalid } = parseEmailInput(emailValue || "");
+        const emailRoot = document.getElementById("new-user-email");
+        commitEmailMultiPending(emailRoot);
+        const emails = getEmailMultiValues(emailRoot);
+        const { invalid } = parseEmailInput(emails.join("\n"));
         if (invalid) {
+          setEmailMultiError(emailRoot, `Adresse email invalide : ${invalid}`);
           alert(`Adresse email invalide: ${invalid}`);
           return;
         }
@@ -3075,7 +3536,7 @@
               : {}),
           });
           if (input) input.value = "";
-          if (emailInput) emailInput.value = "";
+          if (emailRoot) clearEmailMultiInput(emailRoot);
           appLog("admin:newUser:created", { uid, name });
           loadUsers(db);
         } catch (error) {
@@ -3218,22 +3679,23 @@
               console.warn("admin:users:email:dataset:error", error);
               currentEmails = [];
             }
-            const currentLabel = currentEmails.join(", ");
-            appLog("admin:users:email:prompt", { uid, currentEmails });
-            const nextEmailInput = prompt(
-              "Adresses email de l’utilisateur (séparées par des virgules ou des retours à la ligne) :",
-              currentLabel
-            );
-            if (nextEmailInput === null) {
+            appLog("admin:users:email:dialog:open", { uid, currentEmails });
+            const dialogResult = await openEmailDialog({
+              title: name ? `Emails de ${name}` : "Emails du profil",
+              subtitle: "Ajoutez, modifiez ou supprimez les adresses email à notifier.",
+              initialEmails: currentEmails,
+            });
+            if (dialogResult === null) {
               appLog("admin:users:email:cancelled", { uid });
               return;
             }
-            const { emails: parsedEmails, invalid } = parseEmailInput(nextEmailInput);
+            const { emails: parsedEmails, invalid } = parseEmailInput(dialogResult.join("\n"));
             if (invalid) {
               appLog("admin:users:email:invalid", { uid, invalid });
               alert(`Adresse email invalide: ${invalid}`);
               return;
             }
+            appLog("admin:users:email:dialog:submit", { uid, nextEmails: parsedEmails });
             try {
               const userRef = appFirestore.doc(db, "u", uid);
               const hasEmails = parsedEmails.length > 0;
@@ -3345,6 +3807,124 @@
       appLog("admin:users:load:error", { message: error?.message || String(error) });
       list.innerHTML = "<div class='text-sm text-red-600'>Impossible de charger les utilisateurs.</div>";
     }
+  }
+
+  async function openEmailDialog({
+    title = "Adresses email",
+    subtitle = "",
+    initialEmails = [],
+    confirmLabel = "Enregistrer",
+    cancelLabel = "Annuler",
+  } = {}) {
+    ensureEmailMultiStyles();
+
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "email-modal-overlay";
+
+      const form = document.createElement("form");
+      form.className = "email-modal-card";
+      form.setAttribute("role", "dialog");
+      form.setAttribute("aria-modal", "true");
+      form.setAttribute("aria-label", title);
+
+      const header = document.createElement("div");
+      const titleEl = document.createElement("h3");
+      titleEl.className = "email-modal-title";
+      titleEl.textContent = title;
+      header.append(titleEl);
+      if (subtitle) {
+        const subtitleEl = document.createElement("p");
+        subtitleEl.className = "email-modal-subtitle";
+        subtitleEl.textContent = subtitle;
+        header.append(subtitleEl);
+      }
+      form.append(header);
+
+      const body = document.createElement("div");
+      body.className = "space-y-2";
+
+      const label = document.createElement("label");
+      label.setAttribute("for", "email-dialog-input");
+      label.className = "text-sm font-medium text-[var(--muted)]";
+      label.textContent = "Adresses email";
+      body.append(label);
+
+      const multiRoot = document.createElement("div");
+      multiRoot.dataset.inputId = "email-dialog-input";
+      body.append(multiRoot);
+
+      form.append(body);
+
+      const actions = document.createElement("div");
+      actions.className = "email-modal-actions";
+
+      const cancelButton = document.createElement("button");
+      cancelButton.type = "button";
+      cancelButton.className = "btn btn-ghost";
+      cancelButton.textContent = cancelLabel;
+      actions.append(cancelButton);
+
+      const submitButton = document.createElement("button");
+      submitButton.type = "submit";
+      submitButton.className = "btn btn-primary";
+      submitButton.textContent = confirmLabel;
+      actions.append(submitButton);
+
+      form.append(actions);
+      overlay.append(form);
+      document.body.append(overlay);
+
+      const previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+
+      setupEmailMultiInput(multiRoot, {
+        inputId: "email-dialog-input",
+        initial: initialEmails,
+        autoFocus: true,
+        helperText:
+          "Appuyez sur Entrée, Tab ou cliquez sur Ajouter pour valider chaque email. Vous pouvez aussi coller plusieurs adresses.",
+      });
+
+      const cleanup = (result) => {
+        document.body.style.overflow = previousOverflow;
+        document.removeEventListener("keydown", onKeydown, true);
+        overlay.remove();
+        resolve(result);
+      };
+
+      const onKeydown = (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          cleanup(null);
+        }
+      };
+
+      document.addEventListener("keydown", onKeydown, true);
+
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) {
+          cleanup(null);
+        }
+      });
+
+      cancelButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        cleanup(null);
+      });
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        commitEmailMultiPending(multiRoot);
+        const values = getEmailMultiValues(multiRoot);
+        const { invalid } = parseEmailInput(values.join("\n"));
+        if (invalid) {
+          setEmailMultiError(multiRoot, `Adresse email invalide : ${invalid}`);
+          return;
+        }
+        cleanup(values);
+      });
+    });
   }
 
   function renderUser(db, uid) {
