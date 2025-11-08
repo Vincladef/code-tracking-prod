@@ -1625,7 +1625,7 @@
         const storageKey = periodInfo?.key
           ? `${scopeKey || "period"}:${periodInfo.key}`
           : objectiveEntryDayKeyFromPeriod(period);
-        if (storageKey && ctx?.db && ctx?.user?.uid) {
+        if (ctx?.db && ctx?.user?.uid) {
           await Promise.all(
             sectionsData.objective.map(async (consigne) => {
               if (!consigne) return;
@@ -1634,23 +1634,59 @@
               const objectiveId = consigne?.originalGoal?.id || consigne?.id;
               if (!objectiveId) return;
               try {
-                let entry = await Schema.getObjectiveEntry(
-                  ctx.db,
-                  ctx.user.uid,
-                  objectiveId,
-                  storageKey,
-                );
-                if (!entry) {
-                  const fallbackKey = objectiveEntryDayKeyFromPeriod(period);
-                  if (fallbackKey && fallbackKey !== storageKey) {
+                let entry = null;
+                const candidateKeys = [];
+                if (storageKey) {
+                  candidateKeys.push(storageKey);
+                }
+                const fallbackKey = objectiveEntryDayKeyFromPeriod(period);
+                if (fallbackKey && (!storageKey || fallbackKey !== storageKey)) {
+                  candidateKeys.push(fallbackKey);
+                }
+                const rangeStart = periodInfo?.start instanceof Date && !Number.isNaN(periodInfo.start.getTime())
+                  ? periodInfo.start
+                  : period.start instanceof Date && !Number.isNaN(period.start.getTime())
+                  ? period.start
+                  : null;
+                const rangeEnd = periodInfo?.end instanceof Date && !Number.isNaN(periodInfo.end.getTime())
+                  ? periodInfo.end
+                  : period.end instanceof Date && !Number.isNaN(period.end.getTime())
+                  ? period.end
+                  : null;
+                if (rangeStart && rangeEnd && rangeEnd >= rangeStart) {
+                  const cursor = new Date(rangeStart.getTime());
+                  while (cursor <= rangeEnd) {
+                    const dayKey = typeof Schema?.dayKeyFromDate === "function"
+                      ? Schema.dayKeyFromDate(cursor)
+                      : cursor.toISOString().slice(0, 10);
+                    if (!candidateKeys.includes(dayKey)) {
+                      candidateKeys.push(dayKey);
+                    }
+                    cursor.setDate(cursor.getDate() + 1);
+                    cursor.setHours(0, 0, 0, 0);
+                  }
+                }
+
+                for (const candidateKey of candidateKeys) {
+                  try {
                     entry = await Schema.getObjectiveEntry(
                       ctx.db,
                       ctx.user.uid,
                       objectiveId,
-                      fallbackKey,
+                      candidateKey,
                     );
+                    if (entry && entry.v !== undefined && entry.v !== null) {
+                      break;
+                    }
+                  } catch (candidateError) {
+                    bilanLogger?.warn?.("bilan.objectives.prefill.candidate", {
+                      error: candidateError,
+                      objectiveId,
+                      key: candidateKey,
+                    });
                   }
                 }
+
                 const rawValue = entry && Object.prototype.hasOwnProperty.call(entry, "v")
                   ? entry.v
                   : entry?.value ?? entry?.val ?? null;
