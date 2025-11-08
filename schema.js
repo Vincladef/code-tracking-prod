@@ -2816,8 +2816,13 @@ async function migrateObjectiveEntriesForObjective(db, uid, objective) {
       try {
         await saveObjectiveEntry(db, uid, objectiveId, targetKey, value);
         await deleteObjectiveEntry(db, uid, objectiveId, key);
+        console.info("objective.migration", {
+          objectiveId,
+          from: key,
+          to: targetKey,
+        });
       } catch (migrationError) {
-        console.warn("objectiveEntries.migrate", { objectiveId, key, targetKey, migrationError });
+        console.warn("objective.migration.error", { objectiveId, from: key, to: targetKey, error: migrationError });
       }
     }
   } catch (error) {
