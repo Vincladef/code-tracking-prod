@@ -59,6 +59,12 @@
     if (Object.prototype.hasOwnProperty.call(answer, "value")) {
       return answer.value;
     }
+    if (Object.prototype.hasOwnProperty.call(answer, "numericValue")) {
+      const numeric = answer.numericValue;
+      if (numeric !== undefined && numeric !== null) {
+        return numeric;
+      }
+    }
     if (Object.prototype.hasOwnProperty.call(answer || {}, "v")) {
       return answer.v;
     }
@@ -446,12 +452,145 @@
     };
   }
 
+  function objectiveSummaryKeyFromPeriod(period) {
+    if (!period) {
+      return {
+        key: "",
+        label: "",
+        start: null,
+        end: null,
+      };
+    }
+    const scope = typeof period.scope === "string" ? period.scope.toLowerCase() : "";
+
+    const normalizeDate = (date) => {
+      if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+        return null;
+      }
+      return new Date(date.getTime());
+    };
+
+    const start = normalizeDate(period.start);
+    const end = normalizeDate(period.end);
+    let key = typeof period.key === "string" && period.key.trim() ? period.key.trim() : "";
+    let label = "";
+
+    const formatRangeLabel = (rangeStart, rangeEnd) => {
+      if (!rangeStart || !rangeEnd) return "";
+      const startLabel = rangeStart.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+      const endLabel = rangeEnd.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+      if (startLabel && endLabel) {
+        if (startLabel === endLabel) return startLabel;
+        return `${startLabel} → ${endLabel}`;
+      }
+      return "";
+    };
+
+    if (scope === "week" || scope === "weekly") {
+      if (!key && typeof Schema?.weekKeyFromDate === "function") {
+        const base = end || start || new Date();
+        const weekEndsOn = Number.isFinite(period.weekEndsOn) ? period.weekEndsOn : 0;
+        key = Schema.weekKeyFromDate(base, weekEndsOn);
+      }
+      const range = start && end
+        ? { start, end }
+        : Schema.weekRangeFromDate
+        ? Schema.weekRangeFromDate(start || end || new Date(), Number.isFinite(period.weekEndsOn) ? period.weekEndsOn : 0)
+        : null;
+      label = formatRangeLabel(range?.start || start, range?.end || end);
+      return {
+        key,
+        label,
+        start: range?.start || start || null,
+        end: range?.end || end || null,
+      };
+    }
+
+    if (scope === "month" || scope === "monthly") {
+      if (!key && typeof Schema?.monthKeyFromDate === "function") {
+        const base = end || start || new Date();
+        key = Schema.monthKeyFromDate(base);
+      }
+      const range = key && typeof Schema?.monthRangeFromKey === "function"
+        ? Schema.monthRangeFromKey(key)
+        : start && end
+        ? { start, end }
+        : null;
+      const monthDate = (range?.start || start || end || new Date());
+      const monthLabel = monthDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+      label = monthLabel ? monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1) : "";
+      return {
+        key,
+        label,
+        start: range?.start || start || null,
+        end: range?.end || end || null,
+      };
+    }
+
+    if (scope === "year" || scope === "yearly") {
+      if (!key) {
+        const base = end || start || new Date();
+        key = String(base.getFullYear());
+      }
+      const yearNum = Number(key);
+      const yearStart = new Date(yearNum, 0, 1);
+      yearStart.setHours(0, 0, 0, 0);
+      const yearEnd = new Date(yearNum, 11, 31);
+      yearEnd.setHours(23, 59, 59, 999);
+      label = String(yearNum);
+      return {
+        key,
+        label,
+        start: yearStart,
+        end: yearEnd,
+      };
+    }
+
+    if (!key && typeof Schema?.dayKeyFromDate === "function") {
+      const base = end || start || new Date();
+      key = Schema.dayKeyFromDate(base);
+    }
+    label = formatRangeLabel(start, end);
+    return {
+      key,
+      label,
+      start: start || null,
+      end: end || null,
+    };
+  }
+
   function objectiveEntryDayKeyFromPeriod(period) {
     if (!period) return "";
     const fallback = new Date();
     const end = period.end instanceof Date && !Number.isNaN(period.end.getTime()) ? period.end : null;
     const start = period.start instanceof Date && !Number.isNaN(period.start.getTime()) ? period.start : null;
-    const baseDate = end || start || fallback;
+    let baseDate = end || start || fallback;
+
+    const scope = typeof period?.scope === "string" ? period.scope.toLowerCase() : "";
+    if (!end && scope === "week" && typeof Schema?.weekEndsOn === "number") {
+      const candidate = Schema.weekRangeFromDate ? Schema.weekRangeFromDate(start || fallback, Schema.weekEndsOn) : null;
+      if (candidate?.end instanceof Date && !Number.isNaN(candidate.end.getTime())) {
+        baseDate = candidate.end;
+      }
+    }
+    if (!end && (scope === "month" || scope === "monthly")) {
+      const monthKey = typeof Schema?.monthKeyFromDate === "function"
+        ? Schema.monthKeyFromDate(start || fallback)
+        : null;
+      const monthRange = monthKey && typeof Schema?.monthRangeFromKey === "function"
+        ? Schema.monthRangeFromKey(monthKey)
+        : null;
+      if (monthRange?.end instanceof Date && !Number.isNaN(monthRange.end.getTime())) {
+        baseDate = monthRange.end;
+      }
+    }
+    if (!end && (scope === "year" || scope === "yearly")) {
+      const year = (start || fallback).getFullYear();
+      const lastDay = new Date(year, 11, 31);
+      lastDay.setHours(23, 59, 59, 999);
+      baseDate = lastDay;
+    }
+
     if (typeof Schema?.dayKeyFromDate === "function") {
       try {
         return Schema.dayKeyFromDate(baseDate);
@@ -460,9 +599,22 @@
       }
     }
     if (baseDate instanceof Date && !Number.isNaN(baseDate.getTime())) {
-      return baseDate.toISOString().slice(0, 10);
+      const iso = new Date(baseDate.getTime());
+      if (scope === "year" || scope === "yearly") {
+        iso.setHours(0, 0, 0, 0);
+      }
+      return iso.toISOString().slice(0, 10);
     }
     return "";
+  }
+
+  function scopeFromPeriod(period) {
+    const raw = typeof period?.scope === "string" ? period.scope.trim().toLowerCase() : "";
+    if (raw === "week" || raw === "weekly") return "weekly";
+    if (raw === "month" || raw === "monthly") return "monthly";
+    if (raw === "year" || raw === "yearly" || raw === "annual") return "yearly";
+    if (raw === "adhoc" || raw === "ponctuel" || raw === "ponctuelle") return "adhoc";
+    return raw;
   }
 
   function normalizeObjectiveSummaryValue(consigne, value) {
@@ -470,7 +622,28 @@
     if (value === null || value === undefined) return null;
     if (typeof value === "object") return null;
     const type = consigne.type;
-    if (type === "likert6" || type === "likert5" || type === "num") {
+    if (type === "likert6") {
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        const labelToNumeric = {
+          yes: 5,
+          rather_yes: 4,
+          medium: 3,
+          rather_no: 2,
+          no: 1,
+          no_answer: 0,
+        };
+        if (Object.prototype.hasOwnProperty.call(labelToNumeric, normalized)) {
+          return labelToNumeric[normalized];
+        }
+      }
+      const num = Number(value);
+      if (Number.isFinite(num)) {
+        return num;
+      }
+      return null;
+    }
+    if (type === "likert5" || type === "num") {
       const num = Number(value);
       if (Number.isFinite(num)) {
         return num;
@@ -515,14 +688,18 @@
     const goal = consigne.originalGoal || null;
     const objectiveId = goal?.id || consigne.id;
     if (!objectiveId) return;
-    const dayKey = objectiveEntryDayKeyFromPeriod(period);
-    if (!dayKey) return;
+    const periodInfo = objectiveSummaryKeyFromPeriod(period);
+    const scopeKey = scopeFromPeriod(period);
+    const storageKey = periodInfo?.key
+      ? `${scopeKey || "period"}:${periodInfo.key}`
+      : objectiveEntryDayKeyFromPeriod(period);
+    if (!storageKey) return;
     try {
       if (!hasValue) {
         if (typeof Schema?.deleteObjectiveEntry === "function") {
-          await Schema.deleteObjectiveEntry(db, uid, objectiveId, dayKey);
+          await Schema.deleteObjectiveEntry(db, uid, objectiveId, storageKey);
         } else if (typeof Schema?.saveObjectiveEntry === "function") {
-          await Schema.saveObjectiveEntry(db, uid, objectiveId, dayKey, null);
+          await Schema.saveObjectiveEntry(db, uid, objectiveId, storageKey, null);
         }
         return;
       }
@@ -530,9 +707,9 @@
       if (normalizedValue === null || normalizedValue === undefined) {
         return;
       }
-      await Schema.saveObjectiveEntry(db, uid, objectiveId, dayKey, normalizedValue);
+      await Schema.saveObjectiveEntry(db, uid, objectiveId, storageKey, normalizedValue);
     } catch (error) {
-      bilanLogger?.warn?.("bilan.objectives.sync", { error, objectiveId, dayKey });
+      bilanLogger?.warn?.("bilan.objectives.sync", { error, objectiveId, key: storageKey });
     }
   }
 
@@ -704,11 +881,13 @@
     const descriptionHtml = consigne.summaryMeta?.description
       ? `<p class="consigne-row__description text-sm text-[var(--muted)]">${escapeHtml(consigne.summaryMeta.description)}</p>`
       : "";
+    const shouldRenderHistory = !isChild && consigne.family !== "objective";
     row.innerHTML = `
       <div class="consigne-row__header">
         <div class="consigne-row__main">
           <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
             <span class="consigne-row__title">${escapeHtml(consigne.text)}</span>
+            ${consigne?.summaryPeriodLabel ? `<span class="consigne-row__subtitle text-sm text-[var(--muted)]">${escapeHtml(consigne.summaryPeriodLabel)}</span>` : ""}
             ${typeof Modes.prioChip === "function" ? Modes.prioChip(Number(consigne.priority) || 2) : ""}
           </button>
         </div>
@@ -733,7 +912,7 @@
         </div>
       </div>
       ${descriptionHtml}
-      ${!isChild ? `
+      ${shouldRenderHistory ? `
       <div class="consigne-history" data-consigne-history hidden>
         <button type="button" class="consigne-history__nav" data-consigne-history-prev aria-label="Faire défiler l’historique vers la gauche" hidden><span aria-hidden="true">&lsaquo;</span></button>
         <div class="consigne-history__viewport" data-consigne-history-viewport>
@@ -758,7 +937,15 @@
       const hasExplicitValue = Object.prototype.hasOwnProperty.call(previous, "value");
       const looksLikeChecklistState = Array.isArray(previous.items);
       if (hasExplicitValue || looksLikeChecklistState) {
-        const initial = hasExplicitValue && previous.value !== undefined ? previous.value : previous;
+        let initial = previous;
+        if (hasExplicitValue) {
+          const numericValue = Number(previous.numericValue);
+          if (consigne?.family === "objective" && Number.isFinite(numericValue)) {
+            initial = numericValue;
+          } else if (previous.value !== undefined) {
+            initial = previous.value;
+          }
+        }
         Modes.setConsigneRowValue(row, consigne, initial);
       }
     }
@@ -1191,15 +1378,16 @@
     if (period.scope === "month" && period.key) {
       extras.monthKey = period.key;
     }
+    const summaryDayKey = typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(period?.end || period?.start || new Date())
+      : "";
     const metadata = {
       start: period.start,
       end: period.end,
       label: period.label,
       extras,
       moduleId: "bilan",
-      // Let schema compute and persist the dayKey from the period end (e.g., Sunday for a weekly bilan)
-      // so history items are dated on the relevant period day.
-      // summaryDayKey: false,
+      summaryDayKey: summaryDayKey || undefined,
     };
 
     const summaryLabel = normalizedSummaryScope === "monthly"
@@ -1217,6 +1405,11 @@
       const hasValue = typeof Modes.hasValueForConsigne === "function"
         ? Modes.hasValueForConsigne(consigne, value)
         : !(value === null || value === undefined || value === "");
+      const isObjective = consigne?.family === "objective";
+      const periodInfo = isObjective ? objectiveSummaryKeyFromPeriod(period) : null;
+      const objectiveStorageKey = isObjective && periodInfo?.key
+        ? `${normalizedSummaryScope || scopeFromPeriod(period) || "period"}:${periodInfo.key}`
+        : null;
 
       const baseAnswer = {
         id: key,
@@ -1229,6 +1422,10 @@
         label: consigne?.summaryLabel || consigne?.text || null,
         category: consigne?.summaryCategory || consigne?.category || null,
       };
+      if (isObjective && periodInfo) {
+        baseAnswer.summaryPeriodKey = objectiveStorageKey || null;
+        baseAnswer.summaryPeriodLabel = periodInfo.label || null;
+      }
 
       if (hasValue) {
         answersMap.set(key, { ...baseAnswer, value });
@@ -1236,7 +1433,37 @@
         answersMap.delete(key);
       }
 
-      const metadataForPersist = { ...metadata, summaryLabel };
+      const metadataExtras = { ...(metadata.extras || {}) };
+      if (isObjective && periodInfo) {
+        if (periodInfo.key) {
+          metadataExtras.summaryPeriodKey = objectiveStorageKey || periodInfo.key;
+        }
+        if (periodInfo.label) {
+          metadataExtras.summaryPeriodLabel = periodInfo.label;
+        }
+        if (periodInfo.start instanceof Date && !Number.isNaN(periodInfo.start.getTime())) {
+          metadataExtras.summaryPeriodStart = periodInfo.start.toISOString();
+        }
+        if (periodInfo.end instanceof Date && !Number.isNaN(periodInfo.end.getTime())) {
+          metadataExtras.summaryPeriodEnd = periodInfo.end.toISOString();
+        }
+      }
+      const metadataForPersist = {
+        ...metadata,
+        summaryLabel,
+        extras: metadataExtras,
+      };
+      if (isObjective) {
+        if (metadataForPersist.summaryDayKey !== undefined) {
+          delete metadataForPersist.summaryDayKey;
+        }
+        if (objectiveStorageKey) {
+          metadataForPersist.summaryPeriodKey = objectiveStorageKey;
+        }
+        if (periodInfo?.label) {
+          metadataForPersist.summaryPeriodLabel = periodInfo.label;
+        }
+      }
 
       try {
         if (!hasValue) {
@@ -1248,6 +1475,41 @@
             key,
             metadataForPersist,
           );
+          try {
+            const responseId = typeof Schema?.buildSummaryResponseId === "function"
+              ? Schema.buildSummaryResponseId(period.scope, period.key, key, baseAnswer.consigneId)
+              : null;
+            const status = typeof Modes?.dotColor === "function"
+              ? Modes.dotColor(consigne.type, "", consigne) || "na"
+              : "na";
+            if (typeof Modes?.updateConsigneHistoryTimeline === "function" && row) {
+              Modes.updateConsigneHistoryTimeline(row, status, {
+                consigne,
+                value: "",
+                dayKey: isObjective ? (objectiveStorageKey || periodInfo?.key || "") : (summaryDayKey || ""),
+                summaryScope: normalizedSummaryScope,
+                summaryLabel,
+                summaryPeriod: period?.key || undefined,
+                periodKey: period?.key || undefined,
+                historyId: responseId || undefined,
+                responseId: responseId || undefined,
+                isBilan: true,
+                remove: true,
+              });
+            try {
+              if (typeof Modes?.triggerConsigneRowUpdateHighlight === "function") {
+                Modes.triggerConsigneRowUpdateHighlight(row);
+              }
+            } catch (_) {}
+            }
+        } catch (error) {
+          bilanLogger?.warn?.("bilan.summary.history.remove", error);
+          try {
+            if (typeof Modes?.showToast === "function") {
+              Modes.showToast("Historique du bilan non mis à jour.");
+            }
+          } catch (_) {}
+          }
           await syncObjectiveEntryFromSummary(ctx, consigne, value, false, period);
           return;
         }
@@ -1272,9 +1534,43 @@
           ],
           metadataForPersist,
         );
+        try {
+          const responseId = typeof Schema?.buildSummaryResponseId === "function"
+            ? Schema.buildSummaryResponseId(period.scope, period.key, key, baseAnswer.consigneId)
+            : null;
+          const status = typeof Modes?.dotColor === "function"
+            ? Modes.dotColor(consigne.type, value, consigne) || "na"
+            : "na";
+          if (typeof Modes?.updateConsigneHistoryTimeline === "function" && row) {
+            Modes.updateConsigneHistoryTimeline(row, status, {
+              consigne,
+              value,
+              dayKey: isObjective ? (objectiveStorageKey || periodInfo?.key || "") : (summaryDayKey || ""),
+              summaryScope: normalizedSummaryScope,
+              summaryLabel,
+              summaryPeriod: period?.key || undefined,
+              periodKey: period?.key || undefined,
+              historyId: responseId || undefined,
+              responseId: responseId || undefined,
+              isBilan: true,
+            });
+            try {
+              if (typeof Modes?.triggerConsigneRowUpdateHighlight === "function") {
+                Modes.triggerConsigneRowUpdateHighlight(row);
+              }
+            } catch (_) {}
+          }
+        } catch (error) {
+          bilanLogger?.warn?.("bilan.summary.history.update", error);
+        }
         await syncObjectiveEntryFromSummary(ctx, consigne, value, true, period);
       } catch (error) {
         bilanLogger?.error?.("bilan.summary.persist", { error, key });
+        try {
+          if (typeof Modes?.showToast === "function") {
+            Modes.showToast("Impossible de rafraîchir l’historique du bilan.");
+          }
+        } catch (_) {}
       }
     };
 
@@ -1313,12 +1609,41 @@
       mount.appendChild(warn);
       return;
     }
+    if (ctx?.db && ctx?.user?.uid) {
+      try {
+        const objectivesForPeriod = await loadObjectivesForPeriod(ctx.db, ctx.user.uid, period);
+        await Promise.all(
+          objectivesForPeriod.map((consigne) =>
+            Schema.migrateObjectiveEntriesForObjective(ctx.db, ctx.user.uid, consigne.originalGoal || { id: consigne.id, type: consigne.type }),
+          ),
+        );
+      } catch (migrationError) {
+        bilanLogger?.warn?.("bilan.objectives.migrate", migrationError);
+      }
+    }
     const loading = document.createElement("p");
     loading.className = "text-sm text-[var(--muted)]";
     loading.textContent = "Chargement des consignes…";
     mount.appendChild(loading);
     let sectionsData = null;
     let answersMap = new Map();
+    const normalizedSummaryScope = period.scope === "week"
+      ? "weekly"
+      : period.scope === "month"
+      ? "monthly"
+      : period.scope === "year"
+      ? "yearly"
+      : period.scope || "";
+    const summaryLabel = normalizedSummaryScope === "monthly"
+      ? "Bilan mensuel"
+      : normalizedSummaryScope === "weekly"
+      ? "Bilan hebdomadaire"
+      : normalizedSummaryScope === "yearly"
+      ? "Bilan annuel"
+      : normalizedSummaryScope === "adhoc"
+      ? "Bilan ponctuel"
+      : "Bilan";
+
     try {
       if (options.sections) {
         sectionsData = normalizeSectionsData(options.sections, period);
@@ -1327,6 +1652,217 @@
         sectionsData = await loadConsignesForPeriod(ctx.db, ctx.user.uid, period);
       }
       answersMap = await Schema.loadSummaryAnswers(ctx.db, ctx.user.uid, period.scope, period.key);
+      if (!(answersMap instanceof Map)) {
+        if (answersMap && typeof answersMap === "object") {
+          const entries = Array.isArray(answersMap)
+            ? answersMap
+            : Object.entries(answersMap);
+          answersMap = new Map(entries);
+        } else {
+          answersMap = new Map();
+        }
+      }
+      if (
+        Array.isArray(sectionsData?.objective) &&
+        sectionsData.objective.length &&
+        typeof Schema?.getObjectiveEntry === "function"
+      ) {
+        const periodInfo = objectiveSummaryKeyFromPeriod(period);
+        const scopeKey = scopeFromPeriod(period);
+        const storageKey = periodInfo?.key
+          ? `${scopeKey || "period"}:${periodInfo.key}`
+          : objectiveEntryDayKeyFromPeriod(period);
+        if (ctx?.db && ctx?.user?.uid) {
+          await Promise.all(
+            sectionsData.objective.map(async (consigne) => {
+              if (!consigne) return;
+              const key = summaryKey(consigne);
+              const objectiveId = consigne?.originalGoal?.id || consigne?.id;
+              if (!objectiveId) return;
+              try {
+                let entry = null;
+                const candidateKeys = [];
+                if (storageKey) {
+                  candidateKeys.push(storageKey);
+                }
+                const fallbackKey = objectiveEntryDayKeyFromPeriod(period);
+                if (fallbackKey && (!storageKey || fallbackKey !== storageKey)) {
+                  candidateKeys.push(fallbackKey);
+                }
+                const rangeStart = periodInfo?.start instanceof Date && !Number.isNaN(periodInfo.start.getTime())
+                  ? periodInfo.start
+                  : period.start instanceof Date && !Number.isNaN(period.start.getTime())
+                  ? period.start
+                  : null;
+                const rangeEnd = periodInfo?.end instanceof Date && !Number.isNaN(periodInfo.end.getTime())
+                  ? periodInfo.end
+                  : period.end instanceof Date && !Number.isNaN(period.end.getTime())
+                  ? period.end
+                  : null;
+                if (rangeStart && rangeEnd && rangeEnd >= rangeStart) {
+                  const cursor = new Date(rangeStart.getTime());
+                  while (cursor <= rangeEnd) {
+                    const dayKey = typeof Schema?.dayKeyFromDate === "function"
+                      ? Schema.dayKeyFromDate(cursor)
+                      : cursor.toISOString().slice(0, 10);
+                    if (!candidateKeys.includes(dayKey)) {
+                      candidateKeys.push(dayKey);
+                    }
+                    cursor.setDate(cursor.getDate() + 1);
+                    cursor.setHours(0, 0, 0, 0);
+                  }
+                }
+
+                for (const candidateKey of candidateKeys) {
+                  try {
+                    entry = await Schema.getObjectiveEntry(
+                      ctx.db,
+                      ctx.user.uid,
+                      objectiveId,
+                      candidateKey,
+                    );
+                    if (entry && entry.v !== undefined && entry.v !== null) {
+                      break;
+                    }
+                  } catch (candidateError) {
+                    bilanLogger?.warn?.("bilan.objectives.prefill.candidate", {
+                      error: candidateError,
+                      objectiveId,
+                      key: candidateKey,
+                    });
+                  }
+                }
+
+                const rawValue = entry && Object.prototype.hasOwnProperty.call(entry, "v")
+                  ? entry.v
+                  : entry?.value ?? entry?.val ?? null;
+                const normalizedValue = normalizeObjectiveSummaryValue(consigne, rawValue);
+                const normalizedNumeric = Number.isFinite(Number(normalizedValue))
+                  ? Number(normalizedValue)
+                  : null;
+                let labelValue = typeof Schema?.objectiveLikertLabelFromValue === "function"
+                  ? Schema.objectiveLikertLabelFromValue(normalizedNumeric)
+                  : null;
+                if (labelValue === null || labelValue === undefined || labelValue === "") {
+                  labelValue = normalizedNumeric;
+                }
+                bilanLogger?.info?.("bilan.objectives.entry", {
+                  objectiveId,
+                  consigneId: consigne?.id || null,
+                  rawValue,
+                  normalizedValue,
+                  labelValue,
+                  candidateKeys,
+                });
+                if (normalizedNumeric === null || normalizedNumeric === undefined) {
+                  return;
+                }
+
+                const previousAnswer = answersMap.get(key);
+                const previousNumericValue = typeof previousAnswer?.numericValue === "number"
+                  ? previousAnswer.numericValue
+                  : Number.isFinite(Number(previousAnswer?.value))
+                  ? Number(previousAnswer.value)
+                  : null;
+                const previousLabelValue = previousAnswer?.value ?? null;
+                const needsUpdate = Number.isFinite(normalizedNumeric)
+                  ? !Number.isFinite(previousNumericValue) || normalizedNumeric !== previousNumericValue
+                  : labelValue !== previousLabelValue;
+
+                if (needsUpdate && periodInfo?.key) {
+                  const summaryKeyEntry = key;
+                  const baseLabel = consigne?.summaryLabel || consigne?.text || consigne?.journalText || consigne?.id || "Objectif";
+                  const metadata = {
+                    start: periodInfo.start,
+                    end: periodInfo.end,
+                    label: periodInfo.label,
+                    moduleId: "bilan",
+                    summaryPeriodKey: periodInfo.key,
+                    summaryPeriodLabel: periodInfo.label,
+                    summaryScope: normalizedSummaryScope,
+                    extras: {
+                      summaryScope: normalizedSummaryScope,
+                      summaryPeriodKey: periodInfo.key,
+                      summaryPeriodLabel: periodInfo.label,
+                    },
+                  };
+                  let overrideSucceeded = false;
+                  try {
+                    await Schema.saveSummaryAnswers(
+                      ctx.db,
+                      ctx.user.uid,
+                      period.scope,
+                      period.key,
+                      [
+                        {
+                          key: summaryKeyEntry,
+                          consigneId: consigne?.id || null,
+                          family: consigne?.family || null,
+                          type: consigne?.type || null,
+                          value: labelValue,
+                          summaryScope: normalizedSummaryScope || null,
+                          summaryLabel,
+                          label: baseLabel,
+                          category: consigne?.summaryCategory || consigne?.category || null,
+                          summaryPeriodKey: periodInfo.key,
+                          summaryPeriodLabel: periodInfo.label,
+                        },
+                      ],
+                      metadata,
+                    );
+                    overrideSucceeded = true;
+                  } catch (summarySyncError) {
+                    bilanLogger?.warn?.("bilan.objectives.summaryOverride", {
+                      error: summarySyncError,
+                      objectiveId,
+                      period: periodInfo.key,
+                    });
+                  }
+                  if (overrideSucceeded) {
+                    bilanLogger?.info?.("bilan.objectives.summaryOverride", {
+                      objectiveId,
+                      consigneId: consigne?.id || null,
+                      periodKey: periodInfo.key,
+                      before: {
+                        numeric: previousNumericValue ?? null,
+                        label: previousLabelValue ?? null,
+                      },
+                      after: {
+                        numeric: normalizedNumeric,
+                        label: labelValue,
+                      },
+                    });
+                  }
+                }
+
+                answersMap.set(key, {
+                  id: key,
+                  key,
+                  consigneId: consigne?.id || null,
+                  family: consigne?.family || null,
+                  type: consigne?.type || null,
+                  value: labelValue,
+                  numericValue: normalizedNumeric,
+                  summaryScope: normalizedSummaryScope || null,
+                  summaryLabel,
+                  label: consigne?.summaryLabel || consigne?.text || null,
+                  category: consigne?.summaryCategory || consigne?.category || null,
+                });
+                bilanLogger?.info?.("bilan.objectives.answersMap", {
+                  key,
+                  entry: answersMap.get(key),
+                });
+              } catch (error) {
+                bilanLogger?.warn?.("bilan.objectives.prefill", {
+                  error,
+                  objectiveId,
+                  key: storageKey,
+                });
+              }
+            }),
+          );
+        }
+      }
     } catch (error) {
       bilanLogger?.error?.("bilan.render.load", error);
     }
@@ -1345,7 +1881,26 @@
 
     const onValueChange = buildSummarySaver(ctx, period, answersMap);
     FAMILY_ORDER.forEach((family) => {
-      buildFamilySection(grid, family, sectionsData?.[family] || [], answersMap, {
+      const familyData = Array.isArray(sectionsData?.[family]) ? sectionsData[family] : [];
+      if (family === "objective" && familyData.length) {
+        const periodInfo = objectiveSummaryKeyFromPeriod(period);
+        familyData.forEach((consigne) => {
+          if (!consigne || typeof consigne !== "object") return;
+          if (periodInfo?.label) {
+            consigne.summaryPeriodLabel = periodInfo.label;
+          }
+          if (periodInfo?.key) {
+            consigne.summaryPeriodKey = periodInfo.key;
+          }
+          if (periodInfo?.start instanceof Date && !Number.isNaN(periodInfo.start.getTime())) {
+            consigne.summaryPeriodStart = periodInfo.start;
+          }
+          if (periodInfo?.end instanceof Date && !Number.isNaN(periodInfo.end.getTime())) {
+            consigne.summaryPeriodEnd = periodInfo.end;
+          }
+        });
+      }
+      buildFamilySection(grid, family, familyData, answersMap, {
         onValueChange,
         ctx,
       });
