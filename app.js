@@ -2971,6 +2971,8 @@
     return "u-" + Math.random().toString(36).slice(2, 10);
   }
 
+  let adminUserSort = (typeof localStorage !== "undefined" && localStorage.getItem("admin:userSort")) || "name-asc";
+
   const parseEmailInput = (value) => {
     if (!value) return { emails: [], invalid: null };
     const tokens = String(value)
@@ -3491,6 +3493,18 @@
             <div class="font-semibold">Utilisateurs existants</div>
             <p class="text-xs text-[var(--muted)] sm:text-right">Utilisez les actions ci-dessous pour gérer chaque profil.</p>
           </div>
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p class="text-sm text-[var(--muted)]">Tri des utilisateurs</p>
+            <label class="flex items-center gap-2 text-sm text-[var(--muted)]">
+              <span>Afficher par :</span>
+              <select id="admin-user-sort" class="w-full sm:w-auto">
+                <option value="name-asc">Nom (A → Z)</option>
+                <option value="name-desc">Nom (Z → A)</option>
+                <option value="created-desc">Création (récent → ancien)</option>
+                <option value="created-asc">Création (ancien → récent)</option>
+              </select>
+            </label>
+          </div>
           <div id="user-list" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"></div>
         </section>
       </div>
@@ -3502,6 +3516,20 @@
         inputId: newUserEmailRoot.dataset.inputId || "new-user-email-input",
         helperText:
           "Appuyez sur Entrée, Tab ou cliquez sur Ajouter pour valider chaque email. Vous pouvez aussi coller plusieurs adresses à la fois.",
+      });
+    }
+
+    const sortSelect = document.getElementById("admin-user-sort");
+    if (sortSelect) {
+      sortSelect.value = adminUserSort;
+      sortSelect.addEventListener("change", () => {
+        adminUserSort = sortSelect.value;
+        try {
+          localStorage.setItem("admin:userSort", adminUserSort);
+        } catch (storageError) {
+          console.warn("admin:sort:storage:error", storageError);
+        }
+        loadUsers(db);
       });
     }
 
@@ -3591,7 +3619,67 @@
         const uid = d.id;
         const displayName = data.displayName || data.name || "(sans nom)";
         const emails = normalizeEmails(data);
+        const createdAtRaw = data.createdAt || data.createdAtIso || data.created_at || null;
+        const createdAtIso = (() => {
+          if (!createdAtRaw) return "";
+          if (createdAtRaw instanceof Date) return createdAtRaw.toISOString();
+          if (typeof createdAtRaw === "string") {
+            const trimmed = createdAtRaw.trim();
+            if (!trimmed) return "";
+            const date = new Date(trimmed);
+            if (!Number.isNaN(date.getTime())) return date.toISOString();
+            return trimmed;
+          }
+          return "";
+        })();
         appLog("admin:users:load:item", { uid, displayName });
+        items.push({
+          uid,
+          displayName,
+          emails,
+          createdAt: createdAtIso,
+          data,
+        });
+      });
+
+      const collator = new Intl.Collator("fr", { sensitivity: "base" });
+      const parseDate = (value) => {
+        if (!value) return null;
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? null : date.getTime();
+      };
+
+      items.sort((a, b) => {
+        switch (adminUserSort) {
+          case "name-desc":
+            return collator.compare(b.displayName, a.displayName);
+          case "created-asc": {
+            const aDate = parseDate(a.createdAt);
+            const bDate = parseDate(b.createdAt);
+            if (aDate === bDate) {
+              return collator.compare(a.displayName, b.displayName);
+            }
+            if (aDate === null) return 1;
+            if (bDate === null) return -1;
+            return aDate - bDate;
+          }
+          case "created-desc": {
+            const aDate = parseDate(a.createdAt);
+            const bDate = parseDate(b.createdAt);
+            if (aDate === bDate) {
+              return collator.compare(a.displayName, b.displayName);
+            }
+            if (aDate === null) return 1;
+            if (bDate === null) return -1;
+            return bDate - aDate;
+          }
+          case "name-asc":
+          default:
+            return collator.compare(a.displayName, b.displayName);
+        }
+      });
+
+      const cards = items.map(({ uid, displayName, emails }) => {
         const safeName = escapeHtml(displayName);
         const safeUid = escapeHtml(uid);
         const emailLinks = emails
@@ -3605,7 +3693,7 @@
         const encodedUid = encodeURIComponent(uid);
         const link = `${location.origin}${location.pathname}#/u/${encodedUid}/daily`;
         uids.push(uid);
-        items.push(`
+        return `
           <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
             <div class="flex flex-col gap-1">
               <div class="font-semibold text-base">${safeName}</div>
@@ -3649,9 +3737,9 @@
                       title="Supprimer ${safeName}">🗑️ Supprimer</button>
             </div>
           </div>
-        `);
+        `;
       });
-      list.innerHTML = items.join("") || "<div class='text-sm text-[var(--muted)]'>Aucun utilisateur</div>";
+      list.innerHTML = cards.join("") || "<div class='text-sm text-[var(--muted)]'>Aucun utilisateur</div>";
       uids.forEach((itemUid) => {
         syncNotificationButtonsForUid(itemUid);
       });
