@@ -1728,6 +1728,7 @@
                       summaryPeriodLabel: periodInfo.label,
                     },
                   };
+                  let overrideSucceeded = false;
                   try {
                     await Schema.saveSummaryAnswers(
                       ctx.db,
@@ -1751,13 +1752,15 @@
                       ],
                       metadata,
                     );
+                    overrideSucceeded = true;
                   } catch (summarySyncError) {
                     bilanLogger?.warn?.("bilan.objectives.summaryOverride", {
                       error: summarySyncError,
                       objectiveId,
                       period: periodInfo.key,
                     });
-                  } else {
+                  }
+                  if (overrideSucceeded) {
                     bilanLogger?.info?.("bilan.objectives.summaryOverride", {
                       objectiveId,
                       consigneId: consigne?.id || null,
