@@ -56,6 +56,12 @@
 
   function resolveAnswerValue(answer) {
     if (!answer) return null;
+    if (Object.prototype.hasOwnProperty.call(answer, "numericValue")) {
+      const numeric = answer.numericValue;
+      if (numeric !== undefined && numeric !== null) {
+        return numeric;
+      }
+    }
     if (Object.prototype.hasOwnProperty.call(answer, "value")) {
       return answer.value;
     }
@@ -1702,21 +1708,37 @@
                   ? entry.v
                   : entry?.value ?? entry?.val ?? null;
                 const normalizedValue = normalizeObjectiveSummaryValue(consigne, rawValue);
+                const normalizedNumeric = Number.isFinite(Number(normalizedValue))
+                  ? Number(normalizedValue)
+                  : null;
+                let labelValue = typeof Schema?.objectiveLikertLabelFromValue === "function"
+                  ? Schema.objectiveLikertLabelFromValue(normalizedNumeric)
+                  : null;
+                if (labelValue === null || labelValue === undefined || labelValue === "") {
+                  labelValue = normalizedNumeric;
+                }
                 bilanLogger?.info?.("bilan.objectives.entry", {
                   objectiveId,
                   consigneId: consigne?.id || null,
                   rawValue,
                   normalizedValue,
+                  labelValue,
                   candidateKeys,
                 });
-                if (normalizedValue === null || normalizedValue === undefined) {
+                if (normalizedNumeric === null || normalizedNumeric === undefined) {
                   return;
                 }
 
                 const previousAnswer = answersMap.get(key);
-                const previousValue = previousAnswer?.value;
-                const needsUpdate =
-                  previousValue === undefined || previousValue === null || Number(previousValue) !== Number(normalizedValue);
+                const previousNumericValue = typeof previousAnswer?.numericValue === "number"
+                  ? previousAnswer.numericValue
+                  : Number.isFinite(Number(previousAnswer?.value))
+                  ? Number(previousAnswer.value)
+                  : null;
+                const previousLabelValue = previousAnswer?.value ?? null;
+                const needsUpdate = Number.isFinite(normalizedNumeric)
+                  ? !Number.isFinite(previousNumericValue) || normalizedNumeric !== previousNumericValue
+                  : labelValue !== previousLabelValue;
 
                 if (needsUpdate && periodInfo?.key) {
                   const summaryKeyEntry = key;
@@ -1748,7 +1770,7 @@
                           consigneId: consigne?.id || null,
                           family: consigne?.family || null,
                           type: consigne?.type || null,
-                          value: normalizedValue,
+                          value: labelValue,
                           summaryScope: normalizedSummaryScope || null,
                           summaryLabel,
                           label: baseLabel,
@@ -1772,8 +1794,14 @@
                       objectiveId,
                       consigneId: consigne?.id || null,
                       periodKey: periodInfo.key,
-                      before: previousValue ?? null,
-                      after: normalizedValue,
+                      before: {
+                        numeric: previousNumericValue ?? null,
+                        label: previousLabelValue ?? null,
+                      },
+                      after: {
+                        numeric: normalizedNumeric,
+                        label: labelValue,
+                      },
                     });
                   }
                 }
@@ -1784,7 +1812,8 @@
                   consigneId: consigne?.id || null,
                   family: consigne?.family || null,
                   type: consigne?.type || null,
-                  value: normalizedValue,
+                  value: labelValue,
+                  numericValue: normalizedNumeric,
                   summaryScope: normalizedSummaryScope || null,
                   summaryLabel,
                   label: consigne?.summaryLabel || consigne?.text || null,

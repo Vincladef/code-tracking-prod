@@ -312,6 +312,20 @@ function enumerateDayKeys(startDate, endDate) {
   return keys;
 }
 
+function objectiveLikertLabelFromValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "";
+  }
+  if (numeric >= 5) return "yes";
+  if (numeric === 4) return "rather_yes";
+  if (numeric === 3) return "medium";
+  if (numeric === 2) return "rather_no";
+  if (numeric === 1) return "no";
+  if (numeric === 0) return "no_answer";
+  return "";
+}
+
 const todayKey = (d = new Date()) => dayKeyFromDate(d); // YYYY-MM-DD
 
 const PRIORITIES = ["high","medium","low"];
@@ -3468,6 +3482,7 @@ Object.assign(Schema, {
   normalizeChecklistItems,
   normalizeChecklistItemIds,
   valueToNumericPoint,
+  objectiveLikertLabelFromValue,
   listConsignesByCategory,
   loadConsigneHistory,
   saveHistoryEntry,
@@ -3522,6 +3537,7 @@ if (typeof module !== "undefined" && module.exports) {
     shiftMonthKey,
     loadModuleSettings,
     saveModuleSettings,
+    objectiveLikertLabelFromValue,
     __test__: {
       normalizeChecklistItemPayload,
     },

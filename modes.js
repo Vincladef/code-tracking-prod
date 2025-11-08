@@ -21338,6 +21338,9 @@ async function renderDaily(ctx, root, opts = {}) {
                 }
               } else {
                 try {
+                  const summaryValue = Schema.objectiveLikertLabelFromValue
+                    ? Schema.objectiveLikertLabelFromValue(val)
+                    : val;
                   await Schema.saveSummaryAnswers(
                     ctx.db,
                     ctx.user.uid,
@@ -21349,7 +21352,7 @@ async function renderDaily(ctx, root, opts = {}) {
                         consigneId: obj.id,
                         family: "objective",
                         type: obj.type || "likert6",
-                        value: val,
+                        value: summaryValue,
                         summaryScope: periodInfo.summaryScope,
                         summaryLabel: periodInfo.summaryLabel,
                         label: baseLabel,
