@@ -451,7 +451,33 @@
     const fallback = new Date();
     const end = period.end instanceof Date && !Number.isNaN(period.end.getTime()) ? period.end : null;
     const start = period.start instanceof Date && !Number.isNaN(period.start.getTime()) ? period.start : null;
-    const baseDate = end || start || fallback;
+    let baseDate = end || start || fallback;
+
+    const scope = typeof period?.scope === "string" ? period.scope.toLowerCase() : "";
+    if (!end && scope === "week" && typeof Schema?.weekEndsOn === "number") {
+      const candidate = Schema.weekRangeFromDate ? Schema.weekRangeFromDate(start || fallback, Schema.weekEndsOn) : null;
+      if (candidate?.end instanceof Date && !Number.isNaN(candidate.end.getTime())) {
+        baseDate = candidate.end;
+      }
+    }
+    if (!end && (scope === "month" || scope === "monthly")) {
+      const monthKey = typeof Schema?.monthKeyFromDate === "function"
+        ? Schema.monthKeyFromDate(start || fallback)
+        : null;
+      const monthRange = monthKey && typeof Schema?.monthRangeFromKey === "function"
+        ? Schema.monthRangeFromKey(monthKey)
+        : null;
+      if (monthRange?.end instanceof Date && !Number.isNaN(monthRange.end.getTime())) {
+        baseDate = monthRange.end;
+      }
+    }
+    if (!end && (scope === "year" || scope === "yearly")) {
+      const year = (start || fallback).getFullYear();
+      const lastDay = new Date(year, 11, 31);
+      lastDay.setHours(23, 59, 59, 999);
+      baseDate = lastDay;
+    }
+
     if (typeof Schema?.dayKeyFromDate === "function") {
       try {
         return Schema.dayKeyFromDate(baseDate);
@@ -460,7 +486,11 @@
       }
     }
     if (baseDate instanceof Date && !Number.isNaN(baseDate.getTime())) {
-      return baseDate.toISOString().slice(0, 10);
+      const iso = new Date(baseDate.getTime());
+      if (scope === "year" || scope === "yearly") {
+        iso.setHours(0, 0, 0, 0);
+      }
+      return iso.toISOString().slice(0, 10);
     }
     return "";
   }
