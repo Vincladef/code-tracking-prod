@@ -1389,6 +1389,23 @@
     mount.appendChild(loading);
     let sectionsData = null;
     let answersMap = new Map();
+    const normalizedSummaryScope = period.scope === "week"
+      ? "weekly"
+      : period.scope === "month"
+      ? "monthly"
+      : period.scope === "year"
+      ? "yearly"
+      : period.scope || "";
+    const summaryLabel = normalizedSummaryScope === "monthly"
+      ? "Bilan mensuel"
+      : normalizedSummaryScope === "weekly"
+      ? "Bilan hebdomadaire"
+      : normalizedSummaryScope === "yearly"
+      ? "Bilan annuel"
+      : normalizedSummaryScope === "adhoc"
+      ? "Bilan ponctuel"
+      : "Bilan";
+
     try {
       if (options.sections) {
         sectionsData = normalizeSectionsData(options.sections, period);
@@ -1397,6 +1414,67 @@
         sectionsData = await loadConsignesForPeriod(ctx.db, ctx.user.uid, period);
       }
       answersMap = await Schema.loadSummaryAnswers(ctx.db, ctx.user.uid, period.scope, period.key);
+      if (!(answersMap instanceof Map)) {
+        if (answersMap && typeof answersMap === "object") {
+          const entries = Array.isArray(answersMap)
+            ? answersMap
+            : Object.entries(answersMap);
+          answersMap = new Map(entries);
+        } else {
+          answersMap = new Map();
+        }
+      }
+      if (
+        Array.isArray(sectionsData?.objective) &&
+        sectionsData.objective.length &&
+        typeof Schema?.getObjectiveEntry === "function"
+      ) {
+        const dayKeyForObjectives = objectiveEntryDayKeyFromPeriod(period);
+        if (dayKeyForObjectives && ctx?.db && ctx?.user?.uid) {
+          await Promise.all(
+            sectionsData.objective.map(async (consigne) => {
+              if (!consigne) return;
+              const key = summaryKey(consigne);
+              if (answersMap.has(key)) return;
+              const objectiveId = consigne?.originalGoal?.id || consigne?.id;
+              if (!objectiveId) return;
+              try {
+                const entry = await Schema.getObjectiveEntry(
+                  ctx.db,
+                  ctx.user.uid,
+                  objectiveId,
+                  dayKeyForObjectives,
+                );
+                const rawValue = entry && Object.prototype.hasOwnProperty.call(entry, "v")
+                  ? entry.v
+                  : entry?.value ?? entry?.val ?? null;
+                const normalizedValue = normalizeObjectiveSummaryValue(consigne, rawValue);
+                if (normalizedValue === null || normalizedValue === undefined) {
+                  return;
+                }
+                answersMap.set(key, {
+                  id: key,
+                  key,
+                  consigneId: consigne?.id || null,
+                  family: consigne?.family || null,
+                  type: consigne?.type || null,
+                  value: normalizedValue,
+                  summaryScope: normalizedSummaryScope || null,
+                  summaryLabel,
+                  label: consigne?.summaryLabel || consigne?.text || null,
+                  category: consigne?.summaryCategory || consigne?.category || null,
+                });
+              } catch (error) {
+                bilanLogger?.warn?.("bilan.objectives.prefill", {
+                  error,
+                  objectiveId,
+                  dayKey: dayKeyForObjectives,
+                });
+              }
+            }),
+          );
+        }
+      }
     } catch (error) {
       bilanLogger?.error?.("bilan.render.load", error);
     }
