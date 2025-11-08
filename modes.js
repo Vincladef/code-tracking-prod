@@ -8026,21 +8026,17 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         id: consigneId,
         objectiveId: selectedObjective || null,
       };
-      const mutationEvent = new CustomEvent("consigne:mutated", {
-        cancelable: true,
-        detail: {
-          mode,
-          action,
-          consigneId,
-          consigne: enrichedConsigne,
+      dispatchConsigneMutation({
+        mode,
+        action,
+        consigneId,
+        consigne: enrichedConsigne,
+        fallback: () => {
+          const root = document.getElementById("view-root");
+          if (mode === "practice") renderPractice(ctx, root);
+          else renderDaily(ctx, root);
         },
       });
-      document.dispatchEvent(mutationEvent);
-      if (!mutationEvent.defaultPrevented) {
-        const root = document.getElementById("view-root");
-        if (mode === "practice") renderPractice(ctx, root);
-        else renderDaily(ctx, root);
-      }
     } finally {
       modesLogger.groupEnd();
     }
@@ -13317,6 +13313,48 @@ function triggerConsigneRowUpdateHighlight(row) {
     consigneRowUpdateTimers.delete(row);
   }, CONSIGNE_ROW_UPDATE_DURATION);
   consigneRowUpdateTimers.set(row, timeoutId);
+}
+
+function dispatchConsigneMutation({ mode, action, consigneId, consigne, fallback }) {
+  if (!mode) {
+    throw new Error("dispatchConsigneMutation: mode requis");
+  }
+  const detail = {
+    mode,
+    action: action || "update",
+    consigneId: consigneId ?? null,
+    consigne: consigne || null,
+  };
+  let event = null;
+  if (typeof CustomEvent === "function") {
+    event = new CustomEvent("consigne:mutated", {
+      cancelable: true,
+      detail,
+    });
+  } else {
+    event = {
+      type: "consigne:mutated",
+      cancelable: true,
+      detail,
+      defaultPrevented: false,
+      preventDefault() {
+        if (this.cancelable) {
+          this.defaultPrevented = true;
+        }
+      },
+    };
+  }
+  try {
+    if (typeof document?.dispatchEvent === "function") {
+      document.dispatchEvent(event);
+    }
+  } catch (error) {
+    console.warn("dispatchConsigneMutation:dispatch", error);
+  }
+  if (!event.defaultPrevented && typeof fallback === "function") {
+    fallback();
+  }
+  return event;
 }
 
 function updateConsigneStatusUI(row, consigne, rawValue) {
@@ -18861,6 +18899,15 @@ async function renderPractice(ctx, root, _opts = {}) {
     wrapper.appendChild(row);
     return { wrapper, row };
   };
+  const highlightPracticeGroup = (group) => {
+    if (!group) return;
+    const targetRow =
+      group.querySelector(".consigne-row--parent") ||
+      group.querySelector(".consigne-row");
+    if (targetRow) {
+      triggerConsigneRowUpdateHighlight(targetRow);
+    }
+  };
 
   const upsertPracticeConsigneRow = (nextConsigne, action = "update") => {
     if (!nextConsigne || !form) return false;
@@ -18883,6 +18930,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       if (!parentNode) return false;
       const { wrapper: newGroup } = createPracticeGroup(nextConsigne);
       parentNode.replaceChild(newGroup, wrapper);
+      highlightPracticeGroup(newGroup);
       if (isLowPriority) {
         const { lowStack } = ensurePracticeLowContainer();
         if (lowStack) {
@@ -18919,6 +18967,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       }
     }
     ensurePracticePlaceholder();
+    highlightPracticeGroup(group);
     return true;
   };
 
@@ -21794,6 +21843,15 @@ async function renderDaily(ctx, root, opts = {}) {
     renderGroup(groups[0], tempContainer);
     return tempContainer.firstElementChild;
   };
+  const highlightDailyGroup = (group) => {
+    if (!group) return;
+    const targetRow =
+      group.querySelector(".consigne-row--parent") ||
+      group.querySelector(".consigne-row");
+    if (targetRow) {
+      triggerConsigneRowUpdateHighlight(targetRow);
+    }
+  };
   const upsertDailyConsigneRow = (nextConsigne, action = "update") => {
     if (!nextConsigne || !form) return false;
     if (nextConsigne.active === false || nextConsigne.archived === true || nextConsigne.visible === false || nextConsigne.hidden === true) {
@@ -21838,6 +21896,7 @@ async function renderDaily(ctx, root, opts = {}) {
         return false;
       }
       existingGroup.replaceWith(newGroup);
+      highlightDailyGroup(newGroup);
       let finalGroup = newGroup;
       const section = currentSection;
       if (!section) return false;
@@ -21874,6 +21933,7 @@ async function renderDaily(ctx, root, opts = {}) {
     }
     updateDailyCategoryStats(targetSection);
     ensureDailyPlaceholder();
+    highlightDailyGroup(newGroup);
     return true;
   };
 
@@ -22562,6 +22622,7 @@ if (typeof module !== "undefined" && module.exports) {
     sanitizeChecklistItems,
     readChecklistStates,
     readChecklistSkipped,
+    dispatchConsigneMutation,
     // Expose select internals for tests (non-breaking for runtime)
     setConsigneSkipState,
     normalizeConsigneValueForPersistence,
@@ -22571,6 +22632,7 @@ if (typeof module !== "undefined" && module.exports) {
       resolveHistoryTimelineKeyBase,
       renderConsigneValueField,
       readConsigneValueFromForm,
+      dispatchConsigneMutation,
     },
   };
 }
