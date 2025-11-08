@@ -10925,6 +10925,9 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             keepPlaceholder: true,
             remove: true,
           });
+          if (row instanceof HTMLElement) {
+            setConsigneRowValue(row, consigne, "");
+          }
           triggerConsigneRowUpdateHighlight(row);
           try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, ""); } catch (_) {}
           for (const childState of baseChildStates) {
@@ -10961,6 +10964,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               }
               const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
               if (childState.row) {
+                setConsigneRowValue(childState.row, childState.consigne, "");
                 updateConsigneHistoryTimeline(childState.row, childStatus, {
                   consigne: childState.consigne,
                   value: "",
@@ -11087,6 +11091,9 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         historyId: historyDocumentId,
         responseId: resolvedResponseId,
       });
+      if (row instanceof HTMLElement) {
+        setConsigneRowValue(row, consigne, parentHasValue ? rawValue : "");
+      }
       triggerConsigneRowUpdateHighlight(row);
       for (const { state, value, hasValue } of childResults) {
         const childConsigneId = state?.consigne?.id;
@@ -11109,6 +11116,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           state.consigne,
         ) || "na";
         if (state.row) {
+          setConsigneRowValue(state.row, state.consigne, hasValue ? value : "");
           updateConsigneHistoryTimeline(state.row, childStatus, {
             consigne: state.consigne,
             value: hasValue ? value : "",
