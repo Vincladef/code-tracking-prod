@@ -2584,6 +2584,12 @@ async function listObjectivesDueOn(db, uid, dateInput) {
   byMonth.flat().forEach((row) => { if (row && row.id) map.set(row.id, row); });
   (byReminder || []).forEach((row) => { if (row && row.id) map.set(row.id, row); });
 
+  await Promise.all(
+    Array.from(map.values()).map((objective) =>
+      migrateObjectiveEntriesForObjective(db, uid, objective).catch(() => {})
+    ),
+  );
+
   const due = [];
   map.forEach((objective) => {
     if (!objective || objective.notifyOnTarget === false) return;
@@ -2777,6 +2783,46 @@ async function deleteObjectiveEntry(db, uid, objectifId, dateIso) {
   if (!db || !uid || !objectifId || !dateIso) return;
   const ref = doc(db, "u", uid, "objectiveEntries", objectifId, "entries", dateIso);
   await deleteDoc(ref);
+}
+
+async function migrateObjectiveEntriesForObjective(db, uid, objective) {
+  if (!db || !uid || !objective || !objective.id) return;
+  const objectiveId = objective.id;
+  const typeRaw = typeof objective.type === "string" ? objective.type.trim().toLowerCase() : "";
+  if (!typeRaw) return;
+  try {
+    const entries = await listObjectiveEntryPairs(db, uid, objectiveId);
+    if (!entries.length) return;
+    for (const { key, value } of entries) {
+      if (!key || key.includes(":")) continue;
+      if (value === null || value === undefined || value === "") continue;
+      const date = dayKeyToDate(key);
+      if (!date) continue;
+      let targetKey = null;
+      if (typeRaw === "hebdo" || typeRaw === "weekly") {
+        const weekKey = weekKeyFromDate(date);
+        if (weekKey) {
+          targetKey = `weekly:${weekKey}`;
+        }
+      } else if (typeRaw === "mensuel" || typeRaw === "monthly") {
+        const monthKey = monthKeyFromDate(date);
+        if (monthKey) {
+          targetKey = `monthly:${monthKey}`;
+        }
+      } else if (typeRaw === "annuel" || typeRaw === "yearly" || typeRaw === "annual") {
+        targetKey = `yearly:${date.getFullYear()}`;
+      }
+      if (!targetKey || targetKey === key) continue;
+      try {
+        await saveObjectiveEntry(db, uid, objectiveId, targetKey, value);
+        await deleteObjectiveEntry(db, uid, objectiveId, key);
+      } catch (migrationError) {
+        console.warn("objectiveEntries.migrate", { objectiveId, key, targetKey, migrationError });
+      }
+    }
+  } catch (error) {
+    console.warn("objectiveEntries.migrate.fetch", { objectiveId, error });
+  }
 }
 
 async function getObjectiveEntry(db, uid, objectifId, dateIso) {
