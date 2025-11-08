@@ -3484,6 +3484,7 @@ Object.assign(Schema, {
   getObjectiveEntry,
   listObjectiveEntryPairs,
   loadObjectiveEntriesRange,
+  migrateObjectiveEntriesForObjective,
   loadSummaryAnswers,
   saveSummaryAnswers,
   deleteSummaryAnswer,
