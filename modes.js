@@ -21022,6 +21022,67 @@ async function renderDaily(ctx, root, opts = {}) {
   card.appendChild(form);
 
   // Insère une section dédiée si un ou plusieurs objectifs sont dus aujourd’hui
+  const objectiveEntryKeyForDate = (objective, date) => {
+    const rawType = typeof objective?.type === "string" ? objective.type.trim().toLowerCase() : "";
+    const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
+    const dayKey = typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(safeDate)
+      : safeDate.toISOString().slice(0, 10);
+
+    if (rawType === "hebdo" || rawType === "weekly") {
+      if (typeof Schema?.weekKeyFromDate === "function") {
+        const weekKey = Schema.weekKeyFromDate(safeDate);
+        if (weekKey) {
+          return `weekly:${weekKey}`;
+        }
+      }
+      return `weekly:${dayKey}`;
+    }
+
+    if (rawType === "mensuel" || rawType === "monthly") {
+      if (typeof Schema?.monthKeyFromDate === "function") {
+        const monthKey = Schema.monthKeyFromDate(safeDate);
+        if (monthKey) {
+          return `monthly:${monthKey}`;
+        }
+      }
+      const monthLabel = `${safeDate.getFullYear()}-${String(safeDate.getMonth() + 1).padStart(2, "0")}`;
+      return `monthly:${monthLabel}`;
+    }
+
+    if (rawType === "annuel" || rawType === "yearly" || rawType === "annual") {
+      return `yearly:${String(safeDate.getFullYear())}`;
+    }
+
+    return dayKey;
+  };
+
+  const summarizeObjectiveScopeLabel = (objective, date) => {
+    const rawType = typeof objective?.type === "string" ? objective.type.trim().toLowerCase() : "";
+    const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
+    if (rawType === "hebdo" || rawType === "weekly") {
+      const range = Schema.weekRangeFromDate
+        ? Schema.weekRangeFromDate(safeDate)
+        : null;
+      if (range?.start && range?.end) {
+        const startLabel = range.start.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+        const endLabel = range.end.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+        if (startLabel && endLabel) {
+          return startLabel === endLabel ? startLabel : `${startLabel} → ${endLabel}`;
+        }
+      }
+      return "Objectif hebdomadaire";
+    }
+    if (rawType === "mensuel" || rawType === "monthly") {
+      const label = safeDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+      return label ? label.charAt(0).toUpperCase() + label.slice(1) : "Objectif mensuel";
+    }
+    if (rawType === "annuel" || rawType === "yearly" || rawType === "annual") {
+      return String(safeDate.getFullYear());
+    }
+    return "";
+  };
+
   if (Array.isArray(objectivesDueToday) && objectivesDueToday.length) {
     const section = document.createElement("section");
     section.className = "daily-category daily-grid__item";
@@ -21043,11 +21104,13 @@ async function renderDaily(ctx, root, opts = {}) {
       row.dataset.objectiveId = String(obj?.id || "");
 
       const fieldId = `obj-${String(obj?.id || Math.random()).replace(/[^a-zA-Z0-9_-]/g, "")}`;
+      const periodLabel = summarizeObjectiveScopeLabel(obj, selectedDate);
       row.innerHTML = `
         <div class="consigne-row__header">
           <div class="consigne-row__main">
             <button type="button" class="consigne-row__toggle" data-objective-open aria-haspopup="dialog">
               <span class="consigne-row__title">${escapeHtml(title)}</span>
+              ${periodLabel ? `<span class="consigne-row__subtitle text-sm text-[var(--muted)]">${escapeHtml(periodLabel)}</span>` : ""}
             </button>
           </div>
           <div class="consigne-row__meta">
@@ -21060,9 +21123,15 @@ async function renderDaily(ctx, root, opts = {}) {
         </div>`;
 
       const openBtn = row.querySelector('[data-objective-open]');
-      const currentDayIso = typeof Schema?.dayKeyFromDate === "function"
+      const currentEntryKey = objectiveEntryKeyForDate(obj, selectedDate);
+      const fallbackDayKey = typeof Schema?.dayKeyFromDate === "function"
         ? Schema.dayKeyFromDate(selectedDate)
-        : (selectedDate && selectedDate.toISOString ? selectedDate.toISOString().slice(0,10) : "");
+        : (selectedDate && selectedDate.toISOString ? selectedDate.toISOString().slice(0, 10) : "");
+      const entryKeyCandidates = Array.from(
+        new Set(
+          [currentEntryKey, fallbackDayKey].filter((key) => typeof key === "string" && key.trim()),
+        ),
+      );
 
       // Utilitaire statut couleur comme les consignes
       const applyObjectiveStatus = (val) => {
@@ -21099,14 +21168,21 @@ async function renderDaily(ctx, root, opts = {}) {
       // Ouvre une modale pour répondre à l'objectif (même logique que les consignes)
       if (openBtn) {
         openBtn.addEventListener('click', async () => {
-          let initialValue = '';
-          try {
-            const existing = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso);
-            if (existing && existing.v !== undefined && existing.v !== null) {
-              initialValue = String(existing.v);
+          let initialValue = "";
+          let existingEntryKey = null;
+          let existingEntry = null;
+          for (const candidateKey of entryKeyCandidates) {
+            try {
+              const loaded = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, candidateKey);
+              if (loaded && loaded.v !== undefined && loaded.v !== null) {
+                initialValue = String(loaded.v);
+                existingEntryKey = candidateKey;
+                existingEntry = loaded;
+                break;
+              }
+            } catch (e) {
+              try { modesLogger?.warn?.("daily.objectivesDue.prefill", e); } catch (_) {}
             }
-          } catch (e) {
-            try { modesLogger?.warn?.('daily.objectivesDue.prefill', e); } catch (_) {}
           }
           const content = document.createElement('div');
           content.innerHTML = `
@@ -21141,7 +21217,14 @@ async function renderDaily(ctx, root, opts = {}) {
             const raw = sel ? sel.value : '';
             const val = raw === '' ? null : Number(raw);
             try {
-              await Schema.saveObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso, val);
+              await Schema.saveObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentEntryKey, val);
+              if (existingEntryKey && existingEntryKey !== currentEntryKey) {
+                try {
+                  await Schema.deleteObjectiveEntry(ctx.db, ctx.user.uid, obj.id, existingEntryKey);
+                } catch (cleanupError) {
+                  modesLogger?.warn?.("daily.objectivesDue.cleanup", cleanupError);
+                }
+              }
               applyObjectiveStatus(val);
               showToast('Réponse enregistrée.');
               close();
@@ -21158,9 +21241,20 @@ async function renderDaily(ctx, root, opts = {}) {
       // Initialiser le statut visuel depuis la valeur existante
       (async () => {
         try {
-          const existing = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentDayIso);
-          if (existing && existing.v !== undefined && existing.v !== null) {
-            applyObjectiveStatus(existing.v);
+          let initialEntry = null;
+          for (const candidateKey of entryKeyCandidates) {
+            try {
+              const loaded = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, candidateKey);
+              if (loaded && loaded.v !== undefined && loaded.v !== null) {
+                initialEntry = loaded;
+                break;
+              }
+            } catch (e) {
+              try { modesLogger?.warn?.("daily.objectivesDue.initStatus", e); } catch (_) {}
+            }
+          }
+          if (initialEntry && initialEntry.v !== undefined && initialEntry.v !== null) {
+            applyObjectiveStatus(initialEntry.v);
           } else {
             applyObjectiveStatus(null);
           }

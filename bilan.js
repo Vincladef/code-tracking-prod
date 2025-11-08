@@ -446,6 +446,113 @@
     };
   }
 
+  function objectiveSummaryKeyFromPeriod(period) {
+    if (!period) {
+      return {
+        key: "",
+        label: "",
+        start: null,
+        end: null,
+      };
+    }
+    const scope = typeof period.scope === "string" ? period.scope.toLowerCase() : "";
+
+    const normalizeDate = (date) => {
+      if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+        return null;
+      }
+      return new Date(date.getTime());
+    };
+
+    const start = normalizeDate(period.start);
+    const end = normalizeDate(period.end);
+    let key = typeof period.key === "string" && period.key.trim() ? period.key.trim() : "";
+    let label = "";
+
+    const formatRangeLabel = (rangeStart, rangeEnd) => {
+      if (!rangeStart || !rangeEnd) return "";
+      const startLabel = rangeStart.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+      const endLabel = rangeEnd.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+      if (startLabel && endLabel) {
+        if (startLabel === endLabel) return startLabel;
+        return `${startLabel} → ${endLabel}`;
+      }
+      return "";
+    };
+
+    if (scope === "week" || scope === "weekly") {
+      if (!key && typeof Schema?.weekKeyFromDate === "function") {
+        const base = end || start || new Date();
+        const weekEndsOn = Number.isFinite(period.weekEndsOn) ? period.weekEndsOn : 0;
+        key = Schema.weekKeyFromDate(base, weekEndsOn);
+      }
+      const range = start && end
+        ? { start, end }
+        : Schema.weekRangeFromDate
+        ? Schema.weekRangeFromDate(start || end || new Date(), Number.isFinite(period.weekEndsOn) ? period.weekEndsOn : 0)
+        : null;
+      label = formatRangeLabel(range?.start || start, range?.end || end);
+      return {
+        key,
+        label,
+        start: range?.start || start || null,
+        end: range?.end || end || null,
+      };
+    }
+
+    if (scope === "month" || scope === "monthly") {
+      if (!key && typeof Schema?.monthKeyFromDate === "function") {
+        const base = end || start || new Date();
+        key = Schema.monthKeyFromDate(base);
+      }
+      const range = key && typeof Schema?.monthRangeFromKey === "function"
+        ? Schema.monthRangeFromKey(key)
+        : start && end
+        ? { start, end }
+        : null;
+      const monthDate = (range?.start || start || end || new Date());
+      const monthLabel = monthDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+      label = monthLabel ? monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1) : "";
+      return {
+        key,
+        label,
+        start: range?.start || start || null,
+        end: range?.end || end || null,
+      };
+    }
+
+    if (scope === "year" || scope === "yearly") {
+      if (!key) {
+        const base = end || start || new Date();
+        key = String(base.getFullYear());
+      }
+      const yearNum = Number(key);
+      const yearStart = new Date(yearNum, 0, 1);
+      yearStart.setHours(0, 0, 0, 0);
+      const yearEnd = new Date(yearNum, 11, 31);
+      yearEnd.setHours(23, 59, 59, 999);
+      label = String(yearNum);
+      return {
+        key,
+        label,
+        start: yearStart,
+        end: yearEnd,
+      };
+    }
+
+    if (!key && typeof Schema?.dayKeyFromDate === "function") {
+      const base = end || start || new Date();
+      key = Schema.dayKeyFromDate(base);
+    }
+    label = formatRangeLabel(start, end);
+    return {
+      key,
+      label,
+      start: start || null,
+      end: end || null,
+    };
+  }
+
   function objectiveEntryDayKeyFromPeriod(period) {
     if (!period) return "";
     const fallback = new Date();
@@ -493,6 +600,15 @@
       return iso.toISOString().slice(0, 10);
     }
     return "";
+  }
+
+  function scopeFromPeriod(period) {
+    const raw = typeof period?.scope === "string" ? period.scope.trim().toLowerCase() : "";
+    if (raw === "week" || raw === "weekly") return "weekly";
+    if (raw === "month" || raw === "monthly") return "monthly";
+    if (raw === "year" || raw === "yearly" || raw === "annual") return "yearly";
+    if (raw === "adhoc" || raw === "ponctuel" || raw === "ponctuelle") return "adhoc";
+    return raw;
   }
 
   function normalizeObjectiveSummaryValue(consigne, value) {
@@ -545,14 +661,18 @@
     const goal = consigne.originalGoal || null;
     const objectiveId = goal?.id || consigne.id;
     if (!objectiveId) return;
-    const dayKey = objectiveEntryDayKeyFromPeriod(period);
-    if (!dayKey) return;
+    const periodInfo = objectiveSummaryKeyFromPeriod(period);
+    const scopeKey = scopeFromPeriod(period);
+    const storageKey = periodInfo?.key
+      ? `${scopeKey || "period"}:${periodInfo.key}`
+      : objectiveEntryDayKeyFromPeriod(period);
+    if (!storageKey) return;
     try {
       if (!hasValue) {
         if (typeof Schema?.deleteObjectiveEntry === "function") {
-          await Schema.deleteObjectiveEntry(db, uid, objectiveId, dayKey);
+          await Schema.deleteObjectiveEntry(db, uid, objectiveId, storageKey);
         } else if (typeof Schema?.saveObjectiveEntry === "function") {
-          await Schema.saveObjectiveEntry(db, uid, objectiveId, dayKey, null);
+          await Schema.saveObjectiveEntry(db, uid, objectiveId, storageKey, null);
         }
         return;
       }
@@ -560,9 +680,9 @@
       if (normalizedValue === null || normalizedValue === undefined) {
         return;
       }
-      await Schema.saveObjectiveEntry(db, uid, objectiveId, dayKey, normalizedValue);
+      await Schema.saveObjectiveEntry(db, uid, objectiveId, storageKey, normalizedValue);
     } catch (error) {
-      bilanLogger?.warn?.("bilan.objectives.sync", { error, objectiveId, dayKey });
+      bilanLogger?.warn?.("bilan.objectives.sync", { error, objectiveId, key: storageKey });
     }
   }
 
@@ -739,6 +859,7 @@
         <div class="consigne-row__main">
           <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
             <span class="consigne-row__title">${escapeHtml(consigne.text)}</span>
+            ${consigne?.summaryPeriodLabel ? `<span class="consigne-row__subtitle text-sm text-[var(--muted)]">${escapeHtml(consigne.summaryPeriodLabel)}</span>` : ""}
             ${typeof Modes.prioChip === "function" ? Modes.prioChip(Number(consigne.priority) || 2) : ""}
           </button>
         </div>
@@ -1248,6 +1369,11 @@
       const hasValue = typeof Modes.hasValueForConsigne === "function"
         ? Modes.hasValueForConsigne(consigne, value)
         : !(value === null || value === undefined || value === "");
+      const isObjective = consigne?.family === "objective";
+      const periodInfo = isObjective ? objectiveSummaryKeyFromPeriod(period) : null;
+      const objectiveStorageKey = isObjective && periodInfo?.key
+        ? `${normalizedSummaryScope || scopeFromPeriod(period) || "period"}:${periodInfo.key}`
+        : null;
 
       const baseAnswer = {
         id: key,
@@ -1260,6 +1386,10 @@
         label: consigne?.summaryLabel || consigne?.text || null,
         category: consigne?.summaryCategory || consigne?.category || null,
       };
+      if (isObjective && periodInfo) {
+        baseAnswer.summaryPeriodKey = objectiveStorageKey || null;
+        baseAnswer.summaryPeriodLabel = periodInfo.label || null;
+      }
 
       if (hasValue) {
         answersMap.set(key, { ...baseAnswer, value });
@@ -1267,7 +1397,37 @@
         answersMap.delete(key);
       }
 
-      const metadataForPersist = { ...metadata, summaryLabel };
+      const metadataExtras = { ...(metadata.extras || {}) };
+      if (isObjective && periodInfo) {
+        if (periodInfo.key) {
+          metadataExtras.summaryPeriodKey = objectiveStorageKey || periodInfo.key;
+        }
+        if (periodInfo.label) {
+          metadataExtras.summaryPeriodLabel = periodInfo.label;
+        }
+        if (periodInfo.start instanceof Date && !Number.isNaN(periodInfo.start.getTime())) {
+          metadataExtras.summaryPeriodStart = periodInfo.start.toISOString();
+        }
+        if (periodInfo.end instanceof Date && !Number.isNaN(periodInfo.end.getTime())) {
+          metadataExtras.summaryPeriodEnd = periodInfo.end.toISOString();
+        }
+      }
+      const metadataForPersist = {
+        ...metadata,
+        summaryLabel,
+        extras: metadataExtras,
+      };
+      if (isObjective) {
+        if (metadataForPersist.summaryDayKey !== undefined) {
+          delete metadataForPersist.summaryDayKey;
+        }
+        if (objectiveStorageKey) {
+          metadataForPersist.summaryPeriodKey = objectiveStorageKey;
+        }
+        if (periodInfo?.label) {
+          metadataForPersist.summaryPeriodLabel = periodInfo.label;
+        }
+      }
 
       try {
         if (!hasValue) {
@@ -1290,7 +1450,7 @@
               Modes.updateConsigneHistoryTimeline(row, status, {
                 consigne,
                 value: "",
-                dayKey: summaryDayKey || "",
+                dayKey: isObjective ? (objectiveStorageKey || periodInfo?.key || "") : (summaryDayKey || ""),
                 summaryScope: normalizedSummaryScope,
                 summaryLabel,
                 summaryPeriod: period?.key || undefined,
@@ -1349,7 +1509,7 @@
             Modes.updateConsigneHistoryTimeline(row, status, {
               consigne,
               value,
-              dayKey: summaryDayKey || "",
+              dayKey: isObjective ? (objectiveStorageKey || periodInfo?.key || "") : (summaryDayKey || ""),
               summaryScope: normalizedSummaryScope,
               summaryLabel,
               summaryPeriod: period?.key || undefined,
@@ -1459,8 +1619,12 @@
         sectionsData.objective.length &&
         typeof Schema?.getObjectiveEntry === "function"
       ) {
-        const dayKeyForObjectives = objectiveEntryDayKeyFromPeriod(period);
-        if (dayKeyForObjectives && ctx?.db && ctx?.user?.uid) {
+        const periodInfo = objectiveSummaryKeyFromPeriod(period);
+        const scopeKey = scopeFromPeriod(period);
+        const storageKey = periodInfo?.key
+          ? `${scopeKey || "period"}:${periodInfo.key}`
+          : objectiveEntryDayKeyFromPeriod(period);
+        if (storageKey && ctx?.db && ctx?.user?.uid) {
           await Promise.all(
             sectionsData.objective.map(async (consigne) => {
               if (!consigne) return;
@@ -1469,12 +1633,23 @@
               const objectiveId = consigne?.originalGoal?.id || consigne?.id;
               if (!objectiveId) return;
               try {
-                const entry = await Schema.getObjectiveEntry(
+                let entry = await Schema.getObjectiveEntry(
                   ctx.db,
                   ctx.user.uid,
                   objectiveId,
-                  dayKeyForObjectives,
+                  storageKey,
                 );
+                if (!entry) {
+                  const fallbackKey = objectiveEntryDayKeyFromPeriod(period);
+                  if (fallbackKey && fallbackKey !== storageKey) {
+                    entry = await Schema.getObjectiveEntry(
+                      ctx.db,
+                      ctx.user.uid,
+                      objectiveId,
+                      fallbackKey,
+                    );
+                  }
+                }
                 const rawValue = entry && Object.prototype.hasOwnProperty.call(entry, "v")
                   ? entry.v
                   : entry?.value ?? entry?.val ?? null;
@@ -1498,7 +1673,7 @@
                 bilanLogger?.warn?.("bilan.objectives.prefill", {
                   error,
                   objectiveId,
-                  dayKey: dayKeyForObjectives,
+                  key: storageKey,
                 });
               }
             }),
