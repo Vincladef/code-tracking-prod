@@ -9753,11 +9753,23 @@ function buildConsigneHistoryTimeline(entries, consigne) {
     try {
       const existingKeys = new Set(records.map((r) => r.dayKey).filter(Boolean));
       const limit = typeof CONSIGNE_HISTORY_TIMELINE_DAY_COUNT === "number" ? CONSIGNE_HISTORY_TIMELINE_DAY_COUNT : 21;
+      const DOW = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
+
       for (let i = 0; i < limit; i++) {
         const d = new Date(today);
         d.setDate(d.getDate() - i);
         const key = coerceDayKeyFromDate(d);
-        if (key && !existingKeys.has(key)) {
+
+        // Check schedule if defined
+        let isScheduled = true;
+        if (Array.isArray(consigne?.days) && consigne.days.length > 0) {
+          const dayCode = DOW[d.getDay()];
+          if (!consigne.days.includes(dayCode)) {
+            isScheduled = false;
+          }
+        }
+
+        if (isScheduled && key && !existingKeys.has(key)) {
           records.push({
             dayKey: key,
             date: d,
