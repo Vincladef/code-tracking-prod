@@ -3526,9 +3526,31 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         submitBtn.disabled = true;
         if (clearBtn) clearBtn.disabled = true;
         try {
-          console.log("[DEBUG] Submit clicked. Form:", form);
+          // Force manual sync to ensure hidden input is up to date
+          const richTextRoot = form.querySelector("[data-rich-text-root]");
+          if (richTextRoot) {
+            const content = richTextRoot.querySelector("[data-rich-text-content]");
+            const hidden = richTextRoot.querySelector("[data-rich-text-input]");
+            if (content && hidden) {
+              const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
+              boxes.forEach((box) => {
+                if (box.checked) box.setAttribute("checked", "");
+                else box.removeAttribute("checked");
+              });
+              const html = content.innerHTML;
+              const checkboxes = boxes.map((box) => Boolean(box.checked));
+              const payload = {
+                kind: "richtext",
+                version: 1,
+                html: html,
+                text: content.textContent || "",
+                checkboxes: checkboxes,
+              };
+              hidden.value = JSON.stringify(payload);
+            }
+          }
+
           const rawValue = readValueFromForm(consigne, form);
-          console.log("[DEBUG] Read value from form:", rawValue);
           const note = (form.elements.note?.value || "").trim();
           const isRawEmpty = rawValue === "" || rawValue == null;
           if (isRawEmpty && !note) {
