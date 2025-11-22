@@ -15006,7 +15006,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
             responseMode: "daily",
           };
 
-          await Schema.saveHistoryEntry(
+          Schema.saveHistoryEntry(
             db,
             uid,
             consigne.id,
@@ -15014,7 +15014,9 @@ function attachConsigneEditor(row, consigne, options = {}) {
             newValue,
             note,
             responseSyncOptions
-          );
+          ).catch((error) => {
+            console.warn("daily.editor.saveHistory:promise", error);
+          });
         }
       } catch (error) {
         console.warn("daily.editor.saveHistory", error);
