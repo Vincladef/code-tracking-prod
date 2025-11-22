@@ -5003,6 +5003,7 @@ function setupRichTextEditor(root) {
     content.addEventListener("keyup", handleSelectionEvent);
     content.addEventListener("focus", handleSelectionEvent);
     content.addEventListener("input", schedule);
+    content.addEventListener("change", schedule);
     content.addEventListener("blur", updateToolbarStates);
   }
 
