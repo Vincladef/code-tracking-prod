@@ -11821,6 +11821,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   const cancelBtn = overlay.querySelector("[data-cancel]");
   const clearBtn = overlay.querySelector("[data-clear]");
   const submitBtn = form?.querySelector('button[type="submit"]');
+  console.log("[FORM DEBUG] Form found:", !!form, "Submit button:", !!submitBtn);
   const restoreFocus = () => {
     if (trigger && typeof trigger.focus === "function") {
       try {
