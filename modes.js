@@ -5015,7 +5015,10 @@ function setupRichTextEditor(root) {
     content.addEventListener("focus", handleSelectionEvent);
     content.addEventListener("input", schedule);
     content.addEventListener("change", schedule);
-    content.addEventListener("blur", updateToolbarStates);
+    content.addEventListener("blur", () => {
+      updateToolbarStates();
+      sync();
+    });
   }
 
   if (ownerDocument && typeof ownerDocument.addEventListener === "function") {
