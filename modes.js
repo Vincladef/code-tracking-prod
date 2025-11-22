@@ -3449,7 +3449,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           ? Schema.dayKeyFromDate(createdAt)
           : "";
         return {
-          responseMode: "practice",
+          responseId: point.responseId,
+          responseMode: stat.mode || "practice",
           responseType: consigne?.type,
           responseDayKey: dayKey,
           responseCreatedAt: createdAtIso,
@@ -3526,30 +3527,6 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         submitBtn.disabled = true;
         if (clearBtn) clearBtn.disabled = true;
         try {
-          // Force manual sync to ensure hidden input is up to date
-          const richTextRoot = form.querySelector("[data-rich-text-root]");
-          if (richTextRoot) {
-            const content = richTextRoot.querySelector("[data-rich-text-content]");
-            const hidden = richTextRoot.querySelector("[data-rich-text-input]");
-            if (content && hidden) {
-              const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
-              boxes.forEach((box) => {
-                if (box.checked) box.setAttribute("checked", "");
-                else box.removeAttribute("checked");
-              });
-              const html = content.innerHTML;
-              const checkboxes = boxes.map((box) => Boolean(box.checked));
-              const payload = {
-                kind: "richtext",
-                version: 1,
-                html: html,
-                text: content.textContent || "",
-                checkboxes: checkboxes,
-              };
-              hidden.value = JSON.stringify(payload);
-            }
-          }
-
           const rawValue = readValueFromForm(consigne, form);
           const note = (form.elements.note?.value || "").trim();
           const isRawEmpty = rawValue === "" || rawValue == null;
@@ -4468,11 +4445,7 @@ function renderRichTextInput(
 
 function setupRichTextEditor(root) {
   if (!(root instanceof HTMLElement)) return;
-  console.log("[DEBUG] setupRichTextEditor called for", root);
-  if (root.dataset.richTextReady === "1") {
-    console.log("[DEBUG] setupRichTextEditor already ready");
-    return;
-  }
+  if (root.dataset.richTextReady === "1") return;
 
   const utils = window.Modes?.richText || {};
   const content = root.querySelector("[data-rich-text-content]");
@@ -5005,7 +4978,6 @@ function setupRichTextEditor(root) {
       }
     }
     if (serializedValue === lastSerialized) return;
-    console.log("[DEBUG] Syncing value:", serializedValue);
     lastSerialized = serializedValue;
     hidden.value = serializedValue;
     if (hasContent) {
