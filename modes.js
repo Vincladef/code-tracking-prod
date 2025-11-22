@@ -3449,7 +3449,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           ? Schema.dayKeyFromDate(createdAt)
           : "";
         return {
-          responseMode: "practice",
+          responseId: point.responseId,
+          responseMode: stat.mode || "practice",
           responseType: consigne?.type,
           responseDayKey: dayKey,
           responseCreatedAt: createdAtIso,
@@ -3488,6 +3489,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         </form>
       `;
       const panel = modal(editorHtml);
+      const richTextRoot = panel.querySelector("[data-rich-text-root]");
+      if (richTextRoot) {
+        setupRichTextEditor(richTextRoot);
+      }
       const form = panel.querySelector("form");
       const cancelBtn = form.querySelector("[data-cancel]");
       const clearBtn = form.querySelector("[data-clear]");
@@ -4558,7 +4563,7 @@ function setupRichTextEditor(root) {
       wrapper.setAttribute("contenteditable", "false");
       wrapper.contentEditable = "false";
       const nextSibling = wrapper.nextSibling;
-      if (isWhitespaceNode(nextSibling) && nextSibling.textContent?.includes("\u00a0")) {
+      if (nextSibling && nextSibling.nodeType === 3 && nextSibling.textContent?.includes("\u00a0")) {
         nextSibling.textContent = nextSibling.textContent.replace(/\u00a0/g, " ");
       }
     }
@@ -4945,7 +4950,9 @@ function setupRichTextEditor(root) {
       }
     }
     const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
+    console.log("[CHECKBOX DEBUG] Found", boxes.length, "checkboxes");
     boxes.forEach((box, index) => {
+      console.log(`[CHECKBOX DEBUG] Box ${index}: checked=${box.checked}, hasAttribute=${box.hasAttribute("checked")}`);
       ensureCheckboxWrapper(box);
       box.setAttribute("data-rich-checkbox-index", String(index));
       if (box.checked) {
@@ -4957,14 +4964,17 @@ function setupRichTextEditor(root) {
     ensureNotEmpty();
     const html = sanitizeHtml(content.innerHTML);
     const plain = toPlainText(html);
+    const checkboxStates = boxes.map((box) => Boolean(box.checked));
+    console.log("[CHECKBOX DEBUG] Checkbox states:", checkboxStates);
     const payload = {
       kind: "richtext",
       version: utils.version || RICH_TEXT_VERSION,
       html,
       text: plain,
-      checkboxes: boxes.map((box) => Boolean(box.checked)),
+      checkboxes: checkboxStates,
     };
     const serializedValue = JSON.stringify(payload);
+    console.log("[CHECKBOX DEBUG] Serialized:", serializedValue.substring(0, 200));
     if (content) {
       if (hasContent && hasContent(payload)) {
         content.removeAttribute("data-rich-text-empty");
@@ -5002,7 +5012,12 @@ function setupRichTextEditor(root) {
     content.addEventListener("mouseup", handleSelectionEvent);
     content.addEventListener("keyup", handleSelectionEvent);
     content.addEventListener("focus", handleSelectionEvent);
-    content.addEventListener("blur", updateToolbarStates);
+    content.addEventListener("input", schedule);
+    content.addEventListener("change", schedule);
+    content.addEventListener("blur", () => {
+      updateToolbarStates();
+      sync();
+    });
   }
 
   if (ownerDocument && typeof ownerDocument.addEventListener === "function") {
@@ -11744,6 +11759,10 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   if (!overlay) {
     return;
   }
+  const richTextRoot = overlay.querySelector("[data-rich-text-root]");
+  if (richTextRoot) {
+    setupRichTextEditor(richTextRoot);
+  }
   initializeChecklistScope(overlay, { dateKey: resolvedDayKey, hydrate: false });
   if (consigne.type === "checklist") {
     requestAnimationFrame(() => {
@@ -11802,6 +11821,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   const cancelBtn = overlay.querySelector("[data-cancel]");
   const clearBtn = overlay.querySelector("[data-clear]");
   const submitBtn = form?.querySelector('button[type="submit"]');
+  console.log("[FORM DEBUG] Form found:", !!form, "Submit button:", !!submitBtn);
   const restoreFocus = () => {
     if (trigger && typeof trigger.focus === "function") {
       try {
@@ -14489,6 +14509,10 @@ function attachConsigneEditor(row, consigne, options = {}) {
       overlay.classList.add(preferTop ? "phone-top" : "phone-center");
     }
     initializeChecklistScope(overlay, {});
+    const richTextRoot = overlay.querySelector("[data-rich-text-root]");
+    if (richTextRoot) {
+      setupRichTextEditor(richTextRoot);
+    }
     overlay.querySelectorAll("textarea").forEach((textarea) => {
       autoGrowTextarea(textarea);
     });
