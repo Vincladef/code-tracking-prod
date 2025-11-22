@@ -4563,7 +4563,7 @@ function setupRichTextEditor(root) {
       wrapper.setAttribute("contenteditable", "false");
       wrapper.contentEditable = "false";
       const nextSibling = wrapper.nextSibling;
-      if (isWhitespaceNode(nextSibling) && nextSibling.textContent?.includes("\u00a0")) {
+      if (nextSibling && nextSibling.nodeType === 3 && nextSibling.textContent?.includes("\u00a0")) {
         nextSibling.textContent = nextSibling.textContent.replace(/\u00a0/g, " ");
       }
     }
