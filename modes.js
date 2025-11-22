@@ -3,13 +3,13 @@
 window.Modes = window.Modes || {};
 const modesFirestore = Schema.firestore || window.firestoreAPI || {};
 
-const modesLogger = Schema.D || { info: () => {}, group: () => {}, groupEnd: () => {}, debug: () => {}, warn: () => {}, error: () => {} };
+const modesLogger = Schema.D || { info: () => { }, group: () => { }, groupEnd: () => { }, debug: () => { }, warn: () => { }, error: () => { } };
 // Lightweight audit logger for prefill issues
 const prefillLog = (...args) => {
   try {
     modesLogger?.info?.("[prefill-audit]", ...args);
   } catch (_) {
-    try { console.info("[prefill-audit]", ...args); } catch (_) {}
+    try { console.info("[prefill-audit]", ...args); } catch (_) { }
   }
 };
 // Emphasized alert for problematic prefill states (styled red in console)
@@ -23,12 +23,12 @@ const prefillAlert = (label, payload = {}) => {
     } else if (typeof modesLogger?.warn === "function") {
       modesLogger.warn(msg, payload);
     }
-  } catch (_) {}
+  } catch (_) { }
 };
 
 let checkboxBehaviorSetupPromise = null;
 
-let flushAutoSaveForConsigne = async () => {};
+let flushAutoSaveForConsigne = async () => { };
 let runWithAutoSaveSuppressed = async (_consigneId, _scopeDayKey, task) => {
   if (typeof task === "function") {
     return await task();
@@ -36,7 +36,7 @@ let runWithAutoSaveSuppressed = async (_consigneId, _scopeDayKey, task) => {
   return undefined;
 };
 // History editors may call this to reflect changes in daily UI; rebound in views
-let applyDailyPrefillUpdate = (_nextValue) => {};
+let applyDailyPrefillUpdate = (_nextValue) => { };
 let practiceMutationListener = null;
 let dailyMutationListener = null;
 
@@ -820,8 +820,8 @@ function renderConsigneValueField(consigne, value, fieldId, options = {}) {
   const ownerId = options.ownerId !== undefined && options.ownerId !== null
     ? String(options.ownerId)
     : consigne?.id != null
-    ? String(consigne.id)
-    : "";
+      ? String(consigne.id)
+      : "";
   const historyAttrParts = [`data-history-field="${escapeHtml(rawFieldName)}"`];
   if (ownerId) {
     historyAttrParts.push(`data-history-consigne="${escapeHtml(ownerId)}"`);
@@ -834,9 +834,8 @@ function renderConsigneValueField(consigne, value, fieldId, options = {}) {
   }
   if (type === "num") {
     const current = value === "" || value == null ? "" : Number(value);
-    return `<input id="${fieldId}" name="${escapeHtml(rawFieldName)}" type="number" step="0.1" class="practice-editor__input" placeholder="Réponse" value="${
-      Number.isFinite(current) ? escapeHtml(String(current)) : ""
-    }"${historyAttrString}>`;
+    return `<input id="${fieldId}" name="${escapeHtml(rawFieldName)}" type="number" step="0.1" class="practice-editor__input" placeholder="Réponse" value="${Number.isFinite(current) ? escapeHtml(String(current)) : ""
+      }"${historyAttrString}>`;
   }
   if (type === "montant") {
     const normalized = normalizeMontantValue(value, consigne);
@@ -1166,8 +1165,8 @@ function resolveChecklistItemId(consigne, index, label, stableIds = null) {
   const idsSource = Array.isArray(stableIds)
     ? stableIds
     : Array.isArray(consigne?.checklistItemIds)
-    ? consigne.checklistItemIds
-    : [];
+      ? consigne.checklistItemIds
+      : [];
   const explicitId = typeof idsSource[index] === "string" ? idsSource[index].trim() : "";
   if (explicitId) {
     return explicitId;
@@ -1284,8 +1283,8 @@ function readChecklistSkipped(value) {
   const raw = Array.isArray(value.skipped)
     ? value.skipped
     : Array.isArray(value.skipStates)
-    ? value.skipStates
-    : [];
+      ? value.skipStates
+      : [];
   const base = raw.map((item) => item === true);
   if (value.answers && typeof value.answers === "object") {
     const normalizeSkipValue = (input) => {
@@ -1350,7 +1349,7 @@ function readChecklistDomState(container) {
       const host = input.closest("[data-checklist-item]");
       const isSkipped = Boolean(
         (input.dataset && input.dataset.checklistSkip === "1") ||
-          (host && host.dataset && host.dataset.checklistSkipped === "1")
+        (host && host.dataset && host.dataset.checklistSkipped === "1")
       );
       items.push(Boolean(input.checked));
       skipped.push(isSkipped);
@@ -1632,8 +1631,8 @@ function formatConsigneValue(type, value, options = {}) {
           const statusClass = skippedState
             ? "history-checklist__item--skipped"
             : checked
-            ? "history-checklist__item--checked"
-            : "history-checklist__item--unchecked";
+              ? "history-checklist__item--checked"
+              : "history-checklist__item--unchecked";
           const symbol = checked ? "☑︎" : "☐";
           const skippedBadge = skippedState
             ? '<span class="badge-skipped">passée</span>'
@@ -1714,7 +1713,7 @@ function navigate(hash) {
   else window.location.hash = hash;
 }
 
-function showToast(msg){
+function showToast(msg) {
   const el = document.createElement("div");
   el.className = "fixed top-4 right-4 z-50 card px-3 py-2 text-sm shadow-lg";
   el.style.transition = "opacity .25s ease, transform .25s ease";
@@ -1723,7 +1722,7 @@ function showToast(msg){
   el.textContent = msg;
   document.body.appendChild(el);
   requestAnimationFrame(() => { el.style.opacity = "1"; el.style.transform = "translateY(0)"; });
-  setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; setTimeout(()=>el.remove(), 250); }, 1200);
+  setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; setTimeout(() => el.remove(), 250); }, 1200);
 }
 
 const CONSIGNE_PRIORITY_OPTIONS = [
@@ -2138,11 +2137,11 @@ async function openBilanModal(ctx, options = {}) {
               <div class="space-y-2">
                 <label class="block text-sm font-medium">Jour du bilan hebdomadaire</label>
                 <select class="w-full" data-bilan-weekendson>
-                  ${[0,1,2,3,4,5,6].map((i)=>{
-                    const d=new Date(); d.setDate(d.getDate() + ((i - d.getDay() + 7)%7));
-                    const label = DAILY_WEEKDAY_FORMATTER.format(d);
-                    return `<option value="${i}">${escapeHtml(label)}</option>`;
-                  }).join("")}
+                  ${[0, 1, 2, 3, 4, 5, 6].map((i) => {
+    const d = new Date(); d.setDate(d.getDate() + ((i - d.getDay() + 7) % 7));
+    const label = DAILY_WEEKDAY_FORMATTER.format(d);
+    return `<option value="${i}">${escapeHtml(label)}</option>`;
+  }).join("")}
                 </select>
                 <p class="text-xs text-[var(--muted)]">Ce jour détermine quand le bilan hebdo apparaît dans l’onglet journalier et le jour du rappel hebdo.</p>
               </div>
@@ -2313,12 +2312,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     if (type === "likert6") return Math.max(0, Math.min(1, value / (LIKERT6_ORDER.length - 1 || 1)));
     if (type === "yesno") return Math.max(0, Math.min(1, value));
     if (type === "montant") return Math.max(0, Math.min(1, Number(value)));
-  if (type === "checklist") {
-    const states = readChecklistStates(value);
-    if (!states.length) return null;
-    const completed = states.filter(Boolean).length;
-    return Math.max(0, Math.min(1, completed / states.length));
-  }
+    if (type === "checklist") {
+      const states = readChecklistStates(value);
+      if (!states.length) return null;
+      const completed = states.filter(Boolean).length;
+      return Math.max(0, Math.min(1, completed / states.length));
+    }
     return null;
   }
 
@@ -2597,8 +2596,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
           const rawSkipped = Array.isArray(input.skipped)
             ? input.skipped
             : Array.isArray(input.skipStates)
-            ? input.skipStates
-            : null;
+              ? input.skipStates
+              : null;
           const normalizedItems = rawItems.map((item) => normalizeChecklistFlag(item));
           const normalizedStates = normalizeChecklistStateArrays(
             { items: normalizedItems, skipped: Array.isArray(rawSkipped) ? rawSkipped : [] },
@@ -2630,17 +2629,17 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       if (!currentIsChecklist) {
         return nextIsChecklist
           ? {
-              ...nextValue,
-              items: nextValue.items.slice(),
-              ...(Array.isArray(nextValue.labels) ? { labels: nextValue.labels.slice() } : {}),
-              ...(
-                Array.isArray(nextValue.skipped)
-                  ? { skipped: nextValue.skipped.slice() }
-                  : Array.isArray(nextValue.skipStates)
+            ...nextValue,
+            items: nextValue.items.slice(),
+            ...(Array.isArray(nextValue.labels) ? { labels: nextValue.labels.slice() } : {}),
+            ...(
+              Array.isArray(nextValue.skipped)
+                ? { skipped: nextValue.skipped.slice() }
+                : Array.isArray(nextValue.skipStates)
                   ? { skipped: nextValue.skipStates.slice() }
                   : {}
-              ),
-            }
+            ),
+          }
           : nextValue;
       }
       if (!nextIsChecklist) {
@@ -2655,13 +2654,13 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const nextSkipRaw = Array.isArray(nextValue.skipped)
         ? nextValue.skipped
         : Array.isArray(nextValue.skipStates)
-        ? nextValue.skipStates
-        : [];
+          ? nextValue.skipStates
+          : [];
       const currentSkipRaw = Array.isArray(currentValue.skipped)
         ? currentValue.skipped
         : Array.isArray(currentValue.skipStates)
-        ? currentValue.skipStates
-        : [];
+          ? currentValue.skipStates
+          : [];
       const hasNextSkip = Array.isArray(nextValue.skipped) || Array.isArray(nextValue.skipStates);
       const hasCurrentSkip = Array.isArray(currentValue.skipped) || Array.isArray(currentValue.skipStates);
       const mergedSkipSource = hasNextSkip ? nextSkipRaw : currentSkipRaw;
@@ -2804,8 +2803,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
                 rawIndex !== undefined && rawIndex !== null && rawIndex !== ""
                   ? Number(rawIndex)
                   : rawNumber !== undefined && rawNumber !== null && rawNumber !== ""
-                  ? Number(rawNumber) - 1
-                  : null;
+                    ? Number(rawNumber) - 1
+                    : null;
               sessionId =
                 row.sessionId ||
                 row.session_id ||
@@ -2931,8 +2930,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             Number.isFinite(meta.sessionNumber)
               ? Number(meta.sessionNumber)
               : Number.isFinite(meta.sessionIndex)
-              ? Number(meta.sessionIndex) + 1
-              : null;
+                ? Number(meta.sessionIndex) + 1
+                : null;
           label = `Itération ${displayIndex}`;
           if (dateObj) {
             fullLabel = fullDateTimeFormatter.format(dateObj);
@@ -3033,8 +3032,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         averageNormalized != null
           ? percentFormatter.format(averageNormalized)
           : averageNumeric != null
-          ? numberFormatter.format(averageNumeric)
-          : "—";
+            ? numberFormatter.format(averageNumeric)
+            : "—";
       const scoreDisplay = consigne.type === "info" ? "" : rawScoreDisplay;
       const scoreTitle =
         averageNormalized != null
@@ -3042,8 +3041,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
             ? "Score converti en pourcentage sur une échelle de 0 à 4."
             : "Taux moyen de réussite sur la période affichée."
           : averageNumeric != null
-          ? "Moyenne des valeurs numériques enregistrées."
-          : "Aucune donnée disponible pour le moment.";
+            ? "Moyenne des valeurs numériques enregistrées."
+            : "Aucune donnée disponible pour le moment.";
 
       const name = consigne.text || consigne.titre || consigne.name || consigne.id;
       const lastFormattedText = formatConsigneValue(consigne.type, lastValue, { consigne });
@@ -3067,7 +3066,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         lastDateShort: lastDateObj ? shortDateFormatter.format(lastDateObj) : "Jamais",
         lastDateFull: lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais",
         lastRelative: formatRelativeDate(lastDateObj || lastDateIso),
-  lastDayDateObj,
+        lastDayDateObj,
         lastValue,
         lastFormatted: lastFormattedText,
         lastFormattedHtml,
@@ -3090,22 +3089,22 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     const titleText = customTitle
       ? customTitle
       : providedConsignes
-      ? "Consignes liées"
-      : isPractice
-      ? effectiveCategory || "Pratique"
-      : effectiveCategory
-      ? `Journalier — ${effectiveCategory}`
-      : "Journalier — toutes les catégories";
+        ? "Consignes liées"
+        : isPractice
+          ? effectiveCategory || "Pratique"
+          : effectiveCategory
+            ? `Journalier — ${effectiveCategory}`
+            : "Journalier — toutes les catégories";
     const headerMainTitle = providedConsignes
       ? "Progression"
       : isPractice
-      ? "Tableau de bord"
-      : "Progression quotidienne";
+        ? "Tableau de bord"
+        : "Progression quotidienne";
     const headerSubtitle = providedConsignes
       ? "Suivi des consignes sélectionnées et de leur progression."
       : isPractice
-      ? "Suivi de vos consignes et progression."
-      : "Suivi de vos journées et progression.";
+        ? "Suivi de vos consignes et progression."
+        : "Suivi de vos journées et progression.";
 
     const headerContextText = (() => {
       if (providedConsignes) {
@@ -3125,8 +3124,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
     const historySubtitleText = providedConsignes
       ? "Historique des consignes sélectionnées."
       : isPractice
-      ? "Historique des sessions de pratique, du plus récent au plus ancien."
-      : "Historique quotidien classé par entrée, du plus récent au plus ancien.";
+        ? "Historique des sessions de pratique, du plus récent au plus ancien."
+        : "Historique quotidien classé par entrée, du plus récent au plus ancien.";
 
     const html = `
       <div class="goal-modal modal practice-dashboard practice-dashboard--minimal">
@@ -3209,13 +3208,13 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const renderedStats = (isPractice || allowMixedMode)
         ? stats
         : stats
-            .slice()
-            .sort((a, b) => {
-              const at = a.lastDayDateObj ? a.lastDayDateObj.getTime() : -Infinity;
-              const bt = b.lastDayDateObj ? b.lastDayDateObj.getTime() : -Infinity;
-              // tri décroissant: plus récent en haut
-              return bt - at;
-            });
+          .slice()
+          .sort((a, b) => {
+            const at = a.lastDayDateObj ? a.lastDayDateObj.getTime() : -Infinity;
+            const bt = b.lastDayDateObj ? b.lastDayDateObj.getTime() : -Infinity;
+            // tri décroissant: plus récent en haut
+            return bt - at;
+          });
 
       const cards = renderedStats
         .map((stat) => {
@@ -3342,12 +3341,12 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const renderedStats = (isPractice || allowMixedMode)
         ? stats
         : stats
-            .slice()
-            .sort((a, b) => {
-              const at = a.lastDayDateObj ? a.lastDayDateObj.getTime() : -Infinity;
-              const bt = b.lastDayDateObj ? b.lastDayDateObj.getTime() : -Infinity;
-              return bt - at;
-            });
+          .slice()
+          .sort((a, b) => {
+            const at = a.lastDayDateObj ? a.lastDayDateObj.getTime() : -Infinity;
+            const bt = b.lastDayDateObj ? b.lastDayDateObj.getTime() : -Infinity;
+            return bt - at;
+          });
       const stat = renderedStats.find((item) => item.id === consigneId) || stats.find((item) => item.id === consigneId);
       if (!stat) return;
       if (stat.type === "info") return;
@@ -3397,16 +3396,16 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const updatedAverageDisplay = stat.averageNormalized != null
         ? percentFormatter.format(stat.averageNormalized)
         : stat.averageNumeric != null
-        ? numberFormatter.format(stat.averageNumeric)
-        : "—";
+          ? numberFormatter.format(stat.averageNumeric)
+          : "—";
       stat.averageDisplay = stat.type === "info" ? "" : updatedAverageDisplay;
       stat.averageTitle = stat.averageNormalized != null
         ? stat.type === "likert5"
           ? "Score converti en pourcentage sur une échelle de 0 à 4."
           : "Taux moyen de réussite sur la période affichée."
         : stat.averageNumeric != null
-        ? "Moyenne des valeurs numériques enregistrées."
-        : "Aucune donnée disponible pour le moment.";
+          ? "Moyenne des valeurs numériques enregistrées."
+          : "Aucune donnée disponible pour le moment.";
 
       stat.totalEntries = stat.entries.length;
       const lastEntry = stat.entries[stat.entries.length - 1] || null;
@@ -3414,8 +3413,8 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       const lastMeta = lastDateIso ? iterationMetaByKey.get(lastDateIso) : null;
       const lastDateObj = lastEntry?.createdAt || lastMeta?.dateObj || null;
       const lastValue = lastEntry?.value ?? "";
-  // Maintenir la date de jour utilisée pour le tri décroissant en mode daily
-  stat.lastDayDateObj = lastMeta?.dateObj || null;
+      // Maintenir la date de jour utilisée pour le tri décroissant en mode daily
+      stat.lastDayDateObj = lastMeta?.dateObj || null;
       stat.lastDateIso = lastDateIso;
       stat.lastDateShort = lastDateObj ? shortDateFormatter.format(lastDateObj) : "Jamais";
       stat.lastDateFull = lastDateObj ? fullDateTimeFormatter.format(lastDateObj) : "Jamais";
@@ -3428,7 +3427,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       stat.statusKind = dotColor(stat.type, lastValue, stat.consigne);
     }
 
-  function openCellEditor(stat, pointIndex) {
+    function openCellEditor(stat, pointIndex) {
       if (stat?.type === "info") {
         return;
       }
@@ -3436,7 +3435,7 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
       if (!point) return;
       const consigne = stat.consigne;
       const valueId = `practice-editor-value-${stat.id}-${pointIndex}-${Date.now()}`;
-  const valueField = buildValueField(consigne, point.rawValue, valueId);
+      const valueField = buildValueField(consigne, point.rawValue, valueId);
       const noteValue = point.note || "";
       const iterationInfo = iterationMeta[pointIndex];
       const iterationLabel = iterationInfo?.label || `Itération ${pointIndex + 1}`;
@@ -3594,7 +3593,7 @@ window.attachConsignesDragDrop = function attachConsignesDragDrop(container, ctx
     const cards = [...container.querySelectorAll('.consigne-row:not([data-parent-id])')];
     try {
       await Promise.all(cards.map((el, idx) =>
-        Schema.updateConsigneOrder(ctx.db, ctx.user.uid, el.dataset.id, (idx+1)*10)
+        Schema.updateConsigneOrder(ctx.db, ctx.user.uid, el.dataset.id, (idx + 1) * 10)
       ));
     } catch (err) {
       console.warn('drag-drop:save-order:error', err);
@@ -5747,13 +5746,13 @@ function inputForType(consigne, initialValue = null, options = {}) {
           </label>`;
       })
       .join("");
-    const fallbackDateKey = 
+    const fallbackDateKey =
       options.pageContext?.pageDateIso ||
       (typeof window !== "undefined" && window.AppCtx?.dateIso
         ? String(window.AppCtx.dateIso)
         : typeof Schema?.todayKey === "function"
-        ? Schema.todayKey()
-        : null);
+          ? Schema.todayKey()
+          : null);
     const initialPayload = {
       items: normalizedValue,
       skipped: normalizedSkipped,
@@ -6346,9 +6345,8 @@ function inputForType(consigne, initialValue = null, options = {}) {
     return `
       <div class="grid gap-2" data-checklist-root data-consigne-id="${escapeHtml(String(consigne.id ?? ""))}"${optionsAttr}${historyAttr}>
         ${checkboxes || `<p class="text-sm text-[var(--muted)]">Aucun élément défini</p>`}
-        <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state data-autosave-track="1"${historyAttr}${autosaveAttr} ${
-          hasInitialStates ? 'data-dirty="1"' : ""
-        }>
+        <input type="hidden" name="checklist:${consigne.id}" value="${initialSerialized}" data-checklist-state data-autosave-track="1"${historyAttr}${autosaveAttr} ${hasInitialStates ? 'data-dirty="1"' : ""
+      }>
       </div>
       ${scriptContent}
     `;
@@ -6534,8 +6532,8 @@ function buildSummaryMetadataForScope(scope, { date = new Date() } = {}) {
       typeof Schema?.weekKeyFromDate === "function"
         ? Schema.weekKeyFromDate(baseDate, DAILY_WEEK_ENDS_ON)
         : typeof Schema?.dayKeyFromDate === "function"
-        ? Schema.dayKeyFromDate(baseDate)
-        : "";
+          ? Schema.dayKeyFromDate(baseDate)
+          : "";
     result.summaryPeriod = weekKey;
   } else if (
     raw === "adhoc" ||
@@ -6845,12 +6843,12 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
   const summaryOnlyScope = normalizedSummaryOnlyScope === "weekly" || normalizedSummaryOnlyScope === "week"
     ? "weekly"
     : normalizedSummaryOnlyScope === "monthly" || normalizedSummaryOnlyScope === "month"
-    ? "monthly"
-    : normalizedSummaryOnlyScope === "yearly" || normalizedSummaryOnlyScope === "year"
-    ? "yearly"
-    : normalizedSummaryOnlyScope === "summary" || normalizedSummaryOnlyScope === "bilan" || normalizedSummaryOnlyScope === "bilans"
-    ? "summary"
-    : "";
+      ? "monthly"
+      : normalizedSummaryOnlyScope === "yearly" || normalizedSummaryOnlyScope === "year"
+        ? "yearly"
+        : normalizedSummaryOnlyScope === "summary" || normalizedSummaryOnlyScope === "bilan" || normalizedSummaryOnlyScope === "bilans"
+          ? "summary"
+          : "";
   let weeklySummaryEnabled = consigne?.weeklySummaryEnabled !== false;
   let monthlySummaryEnabled = consigne?.monthlySummaryEnabled !== false;
   let yearlySummaryEnabled = consigne?.yearlySummaryEnabled !== false;
@@ -6883,12 +6881,12 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
   const html = `
     <h3 class="text-lg font-semibold mb-2">${consigne ? "Modifier" : "Nouvelle"} consigne</h3>
     <form class="grid gap-4" id="consigne-form" data-autosave-key="${escapeHtml(
-      [
-        "consigne",
-        ctx.user?.uid || "anon",
-        consigne?.id ? `edit-${consigne.id}` : `new-${mode}`,
-      ].map((part) => String(part)).join(":")
-    )}">
+    [
+      "consigne",
+      ctx.user?.uid || "anon",
+      consigne?.id ? `edit-${consigne.id}` : `new-${mode}`,
+    ].map((part) => String(part)).join(":")
+  )}">
       <label class="grid gap-1">
         <span class="text-sm text-[var(--muted)]">Texte de la consigne</span>
         <input name="text" required class="w-full"
@@ -6899,13 +6897,13 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         <span class="text-sm text-[var(--muted)]">Type de réponse</span>
         <select name="type" class="w-full">
           <option value="likert6" ${!consigne || consigne?.type === "likert6" ? "selected" : ""}>Échelle de Likert (0–4)</option>
-          <option value="yesno"   ${consigne?.type === "yesno"   ? "selected" : ""}>Oui / Non</option>
-          <option value="short"   ${consigne?.type === "short"   ? "selected" : ""}>Texte court</option>
-          <option value="long"    ${consigne?.type === "long"    ? "selected" : ""}>Texte long</option>
-          <option value="num"     ${consigne?.type === "num"     ? "selected" : ""}>Échelle numérique (0–10)</option>
+          <option value="yesno"   ${consigne?.type === "yesno" ? "selected" : ""}>Oui / Non</option>
+          <option value="short"   ${consigne?.type === "short" ? "selected" : ""}>Texte court</option>
+          <option value="long"    ${consigne?.type === "long" ? "selected" : ""}>Texte long</option>
+          <option value="num"     ${consigne?.type === "num" ? "selected" : ""}>Échelle numérique (0–10)</option>
           <option value="montant" ${consigne?.type === "montant" ? "selected" : ""}>Montant</option>
           <option value="checklist" ${consigne?.type === "checklist" ? "selected" : ""}>Checklist</option>
-          <option value="info"    ${consigne?.type === "info"    ? "selected" : ""}>${INFO_RESPONSE_LABEL}</option>
+          <option value="info"    ${consigne?.type === "info" ? "selected" : ""}>${INFO_RESPONSE_LABEL}</option>
         </select>
       </label>
 
@@ -6996,13 +6994,13 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         </label>
 
         <div class="flex flex-wrap gap-2" id="daily-days">
-          ${["LUN","MAR","MER","JEU","VEN","SAM","DIM"].map((day) => {
-            const selected = Array.isArray(consigne?.days) && consigne.days.includes(day);
-            return `<label class="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-sm">
+          ${["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"].map((day) => {
+    const selected = Array.isArray(consigne?.days) && consigne.days.includes(day);
+    return `<label class="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-sm">
         <input type="checkbox" name="days" value="${day}" ${selected ? "checked" : ""}>
         <span>${day}</span>
       </label>`;
-          }).join("")}
+  }).join("")}
         </div>
       </fieldset>
       ` : ""}
@@ -7636,7 +7634,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
     }
   }
   const dailyAll = m.querySelector("#daily-all");
-  const daysBox  = m.querySelector("#daily-days");
+  const daysBox = m.querySelector("#daily-days");
   if (dailyAll && daysBox) {
     const dayInputs = Array.from(daysBox.querySelectorAll('input[name="days"]'));
     const syncDaysState = (isDaily) => {
@@ -7680,8 +7678,7 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         const normalizedDuration = Math.round(rawDurationValue);
         if (!Number.isFinite(normalizedDuration) || normalizedDuration <= 0) {
           alert(
-            `Indique une durée valide en ${
-              mode === "daily" ? "jours" : "itérations"
+            `Indique une durée valide en ${mode === "daily" ? "jours" : "itérations"
             } (minimum 1).`
           );
           return;
@@ -7740,13 +7737,13 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
         weeklySummaryEnabled,
         monthlySummaryEnabled,
         yearlySummaryEnabled,
-      summaryOnlyScope: summaryOnlyScopeValue,
-      ephemeral: ephemeralEnabled,
-      ephemeralDurationDays,
-      ephemeralDurationIterations,
-      active: true,
-      parentId: consigne?.parentId || null,
-    };
+        summaryOnlyScope: summaryOnlyScopeValue,
+        ephemeral: ephemeralEnabled,
+        ephemeralDurationDays,
+        ephemeralDurationIterations,
+        active: true,
+        parentId: consigne?.parentId || null,
+      };
       if (payload.type === "montant") {
         const unitField = m.querySelector('input[name="montant-unit"]');
         const goalField = m.querySelector('input[name="montant-goal"]');
@@ -7925,8 +7922,8 @@ async function openConsigneForm(ctx, consigne = null, options = {}) {
             parentId: consigneId,
           };
           const childDays = mode === "daily" ? payload.days || [] : undefined;
-      const updates = [];
-      let invalidSubMontantGoal = false;
+          const updates = [];
+          let invalidSubMontantGoal = false;
           if (subRows.length) {
             subRows.forEach((row, rowIndex) => {
               const textInput = row.querySelector('input[name="sub-text"]');
@@ -8076,7 +8073,7 @@ function hasTextualNote(value) {
   return extractTextualNote(value).length > 0;
 }
 
-function dotColor(type, v, consigne){
+function dotColor(type, v, consigne) {
   if (v && typeof v === "object" && v.skipped === true) {
     return "note";
   }
@@ -8295,7 +8292,7 @@ function logChecklistEvent(level, label, payload) {
   } catch (_) {
     try {
       logger(label);
-    } catch (_) {}
+    } catch (_) { }
   }
 }
 
@@ -8380,7 +8377,7 @@ function resolveHistoryResponseDayKey(row, createdAt) {
         return base.dayKey.trim();
       }
     }
-  } catch (_) {}
+  } catch (_) { }
   const rawDay =
     row?.dayKey ||
     row?.day_key ||
@@ -8537,8 +8534,8 @@ function buildHistoryTimelineTitle(date, fallbackKey, status) {
     const rawKey = typeof canonical?.dayKey === "string" && canonical.dayKey
       ? canonical.dayKey
       : typeof fallbackKey === "string"
-      ? fallbackKey.trim()
-      : "";
+        ? fallbackKey.trim()
+        : "";
     if (rawKey) {
       return `${capitalizeHistoryLabel(rawKey)} — ${statusLabel}`;
     }
@@ -8686,8 +8683,8 @@ function coerceHistoryChecklistStructure(input) {
       const rawSkipped = Array.isArray(input.skipped)
         ? input.skipped
         : Array.isArray(input.skipStates)
-        ? input.skipStates
-        : null;
+          ? input.skipStates
+          : null;
       const normalizedItems = rawItems.map((item) => normalizeHistoryChecklistFlag(item));
       const normalizedStates = normalizeChecklistStateArrays(
         { items: normalizedItems, skipped: Array.isArray(rawSkipped) ? rawSkipped : [] },
@@ -8782,7 +8779,7 @@ function resolveHistoryTimelineValue(entry, consigne) {
       if (parsed && typeof parsed === "object") {
         value = parsed;
       }
-    } catch (_) {}
+    } catch (_) { }
   }
   if (value === undefined || value === null || value === "") {
     const noteCandidates = ["note", "comment", "remark", "memo", "text", "message"];
@@ -8937,8 +8934,8 @@ function formatConsigneHistoryPoint(record, consigne) {
         typeof record.timestamp === "number"
           ? record.timestamp
           : date instanceof Date && !Number.isNaN(date.getTime())
-          ? date.getTime()
-          : null,
+            ? date.getTime()
+            : null,
     },
   };
 }
@@ -9464,7 +9461,7 @@ function coerceDayKeyFromDate(date) {
       if (typeof derived === "string" && derived.trim()) {
         return derived.trim();
       }
-    } catch (_) {}
+    } catch (_) { }
   }
   const year = normalized.getFullYear();
   const month = String(normalized.getMonth() + 1).padStart(2, "0");
@@ -9725,10 +9722,10 @@ function buildConsigneHistoryTimeline(entries, consigne) {
         typeof timestamp === "number"
           ? timestamp
           : effectiveDate instanceof Date && !Number.isNaN(effectiveDate.getTime())
-          ? effectiveDate.getTime()
-          : typeof iterationIndex === "number"
-          ? iterationIndex
-          : today.getTime();
+            ? effectiveDate.getTime()
+            : typeof iterationIndex === "number"
+              ? iterationIndex
+              : today.getTime();
       const historyId = resolveHistoryDocumentId(entry, dayKey);
       const responseId = resolveHistoryResponseId(entry);
       records.push({
@@ -9749,6 +9746,53 @@ function buildConsigneHistoryTimeline(entries, consigne) {
       });
     });
   }
+
+  // Fill in missing days with placeholders (Daily mode only)
+  const isPractice = consigne?.mode === "practice";
+  if (!isPractice) {
+    try {
+      const existingKeys = new Set(records.map((r) => r.dayKey).filter(Boolean));
+      const limit = typeof CONSIGNE_HISTORY_TIMELINE_DAY_COUNT === "number" ? CONSIGNE_HISTORY_TIMELINE_DAY_COUNT : 21;
+      const DOW = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
+
+      for (let i = 0; i < limit; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const key = coerceDayKeyFromDate(d);
+
+        // Check schedule if defined
+        let isScheduled = true;
+        if (Array.isArray(consigne?.days) && consigne.days.length > 0) {
+          const dayCode = DOW[d.getDay()];
+          if (!consigne.days.includes(dayCode)) {
+            isScheduled = false;
+          }
+        }
+
+        if (isScheduled && key && !existingKeys.has(key)) {
+          records.push({
+            dayKey: key,
+            date: d,
+            status: "na",
+            value: "",
+            note: "",
+            isBilan: false,
+            isSummary: false,
+            summaryScope: "",
+            timestamp: d.getTime(),
+            iterationIndex: null,
+            iterationNumber: null,
+            iterationLabel: "",
+            historyId: "",
+            responseId: "",
+            isPlaceholder: true,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("buildConsigneHistoryTimeline.fillMissing", err);
+    }
+  }
   records.sort((a, b) => {
     if (typeof b.timestamp === "number" && typeof a.timestamp === "number" && b.timestamp !== a.timestamp) {
       return b.timestamp - a.timestamp;
@@ -9756,6 +9800,17 @@ function buildConsigneHistoryTimeline(entries, consigne) {
     return (b.date?.getTime?.() || 0) - (a.date?.getTime?.() || 0);
   });
   const limited = records.slice(0, CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
+
+  // DEBUG: Log generated records
+  try {
+    console.log("[DEBUG] buildConsigneHistoryTimeline", {
+      totalRecords: records.length,
+      limited: limited.length,
+      placeholders: records.filter(r => r.isPlaceholder).length,
+      sample: limited.slice(0, 5).map(r => ({ k: r.dayKey, s: r.status, p: r.isPlaceholder }))
+    });
+  } catch (_) { }
+
   const result = limited
     .map((record) =>
       formatConsigneHistoryPoint(
@@ -9766,7 +9821,7 @@ function buildConsigneHistoryTimeline(entries, consigne) {
           value: record.value,
           note: record.note,
           timestamp: record.timestamp,
-          isPlaceholder: false,
+          isPlaceholder: record.isPlaceholder,
           isBilan: record.isBilan === true,
           isSummary: record.isSummary === true,
           summaryScope: typeof record.summaryScope === "string" ? record.summaryScope : "",
@@ -9780,7 +9835,7 @@ function buildConsigneHistoryTimeline(entries, consigne) {
       ),
     )
     .filter(Boolean);
-  
+
   return result;
 }
 
@@ -9862,7 +9917,7 @@ function applyConsigneHistoryPoint(item, point) {
       incomingWeekday: point?.weekdayLabel || "",
       status: point?.status || "",
     });
-  } catch (_) {}
+  } catch (_) { }
   if (point.dayKey) {
     item.dataset.historyDay = point.dayKey;
   } else {
@@ -9882,7 +9937,7 @@ function applyConsigneHistoryPoint(item, point) {
     } else {
       delete item.dataset.summaryScope;
     }
-  } catch (_) {}
+  } catch (_) { }
   const dot = ensureConsigneHistoryDot(item);
   if (dot) {
     dot.className = `consigne-history__dot consigne-row__dot consigne-row__dot--${status}`;
@@ -9960,9 +10015,9 @@ function applyConsigneHistoryPoint(item, point) {
               appliedWeekday: weekdayEl?.textContent || "",
               status,
             });
-          } catch (_) {}
+          } catch (_) { }
         }
-      } catch (_) {}
+      } catch (_) { }
     }
   }
   if (point.isBilan) {
@@ -10119,7 +10174,7 @@ function setupConsigneHistoryNavigation(state) {
         resizeObserver.observe(state.track);
       }
       state.resizeObserver = resizeObserver;
-    } catch (_) {}
+    } catch (_) { }
   }
   state.updateNavState();
 }
@@ -10284,8 +10339,8 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
       typeof keyInfo?.timestamp === "number"
         ? keyInfo.timestamp
         : keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime())
-        ? keyInfo.date.getTime()
-        : Date.now();
+          ? keyInfo.date.getTime()
+          : Date.now();
 
     const historyMatch = historyTarget && resolvedHistoryId && resolvedHistoryId === historyTarget;
     const responseMatch = responseTarget && resolvedResponseId && resolvedResponseId === responseTarget;
@@ -10295,8 +10350,8 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
       typeof entry?.summaryScope === "string"
         ? entry.summaryScope
         : typeof entry?.summary_scope === "string"
-        ? entry.summary_scope
-        : "";
+          ? entry.summary_scope
+          : "";
     const isSummaryEntry = Boolean(keyInfo?.isSummary) || Boolean(summaryScopeCandidate);
 
     if (!allowSummaries && isSummaryEntry) {
@@ -10377,7 +10432,7 @@ function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
           summaryDiff: best.summaryDiff || [],
         },
       });
-  } catch (_) {}
+    } catch (_) { }
   }
   return best;
 }
@@ -10507,8 +10562,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   const iterationNumber = Number.isFinite(details?.iterationNumber)
     ? details.iterationNumber
     : Number.isFinite(keyInfo?.iterationNumber)
-    ? keyInfo.iterationNumber
-    : null;
+      ? keyInfo.iterationNumber
+      : null;
   const rawIterationLabel = (() => {
     if (typeof details?.iterationLabel === "string" && details.iterationLabel.trim()) {
       return details.iterationLabel.trim();
@@ -10588,8 +10643,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
         ? createdAt.toISOString()
         : typeof createdAtSource === "string"
-        ? createdAtSource
-        : "",
+          ? createdAtSource
+          : "",
   };
   let childCandidates = [];
   if (ctx?.db && ctx?.user?.uid && consigne?.id) {
@@ -10601,7 +10656,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           consigneId: consigne.id,
           error,
         });
-      } catch (_) {}
+      } catch (_) { }
       childCandidates = [];
     }
   }
@@ -10614,7 +10669,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       } catch (error) {
         try {
           modesLogger?.warn?.("bilan.history.editor.child.load", { childId: child.id, error });
-        } catch (_) {}
+        } catch (_) { }
         childEntries = [];
       }
       const childMatch = findHistoryEntryForDayKey(childEntries, child, resolvedDayKey, {
@@ -10650,15 +10705,15 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           childCreatedAt instanceof Date && !Number.isNaN(childCreatedAt.getTime())
             ? childCreatedAt.toISOString()
             : typeof childCreatedAtSource === "string"
-            ? childCreatedAtSource
-            : "",
+              ? childCreatedAtSource
+              : "",
       };
       const selectorValue = String(child.id ?? "").replace(/"/g, '\\"');
       const inRow =
         row && row.matches?.(`[data-consigne-id="${selectorValue}"]`)
           ? row
           : row?.querySelector?.(`[data-consigne-id="${selectorValue}"]`) ||
-            document.querySelector(`[data-consigne-id="${selectorValue}"]`);
+          document.querySelector(`[data-consigne-id="${selectorValue}"]`);
       const domId = `bilan-history-child-${String(child.id ?? "child")}-${Math.random()
         .toString(36)
         .slice(2, 8)}`;
@@ -10701,40 +10756,39 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         </header>
         <div class="space-y-3">
           ${baseChildStates
-            .map((childState, index) => {
-              const child = childState.consigne || {};
-              const childTitle =
-                child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
-              const childDescription = child.description || child.details || child.helper || "";
-              const childFieldMarkup = renderConsigneValueField(
-                child,
-                childState.value,
-                childState.fieldId,
-                {
-                  fieldName: `history-child-${String(child.id ?? index)}`,
-                  ownerId: child?.id ?? "",
-                },
-              );
-              return `
+      .map((childState, index) => {
+        const child = childState.consigne || {};
+        const childTitle =
+          child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
+        const childDescription = child.description || child.details || child.helper || "";
+        const childFieldMarkup = renderConsigneValueField(
+          child,
+          childState.value,
+          childState.fieldId,
+          {
+            fieldName: `history-child-${String(child.id ?? index)}`,
+            ownerId: child?.id ?? "",
+          },
+        );
+        return `
                 <article class="space-y-3 rounded-xl border border-slate-200 p-3" data-history-child="${escapeHtml(childState.domId)}" data-consigne-id="${escapeHtml(
-                String(child.id ?? ""),
-              )}">
+          String(child.id ?? ""),
+        )}">
                   <div class="space-y-1">
                     <div class="font-medium text-slate-800">${escapeHtml(childTitle)}</div>
-                    ${
-                      childDescription
-                        ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(
-                            childDescription,
-                          )}</p>`
-                        : ""
-                    }
+                    ${childDescription
+            ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(
+              childDescription,
+            )}</p>`
+            : ""
+          }
                   </div>
                   <div class="space-y-2">
                     ${childFieldMarkup}
                   </div>
                 </article>`;
-            })
-            .join("")}
+      })
+      .join("")}
         </div>
       </section>`
     : "";
@@ -10742,9 +10796,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
   const editorHtml = `
     <div class="space-y-5">
       <header class="space-y-1">
-        <p class="text-sm text-[var(--muted)]">${escapeHtml(dateLabel)}${
-          relative ? ` <span class="text-xs">(${escapeHtml(relative)})</span>` : ""
-        }</p>
+        <p class="text-sm text-[var(--muted)]">${escapeHtml(dateLabel)}${relative ? ` <span class="text-xs">(${escapeHtml(relative)})</span>` : ""
+    }</p>
         <h2 class="text-lg font-semibold">Modifier la réponse</h2>
         <p class="text-sm text-slate-600">${escapeHtml(safeConsigneLabel(consigne))}</p>
       </header>
@@ -10783,7 +10836,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     overlay = document.createElement('div');
     overlay.className = 'history-panel__edit-overlay';
     // Force a very high z-index to ensure it sits above any panel content or other overlays
-    try { overlay.style.zIndex = '99999'; } catch (_) {}
+    try { overlay.style.zIndex = '99999'; } catch (_) { }
     overlay.innerHTML = `
       <div class="history-panel__edit-dialog" role="dialog" aria-modal="true" tabindex="-1">
         ${editorHtml}
@@ -10826,7 +10879,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
     overlayObserver = new MutationObserver(() => {
       if (!overlay.isConnected && cleanup) cleanup();
     });
-    try { overlayObserver.observe(historyPanel, { childList: true }); } catch (_) {}
+    try { overlayObserver.observe(historyPanel, { childList: true }); } catch (_) { }
     overlay.addEventListener('click', (event) => {
       if (event.target === overlay) {
         closeEditor();
@@ -10915,10 +10968,10 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
             try {
               await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
-            } catch (_) {}
+            } catch (_) { }
           }
-          try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) {}
-          try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+          try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) { }
+          try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
           // If this history entry originates from a bilan summary, also delete the underlying summary answer
           try {
@@ -10946,7 +10999,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
             setConsigneRowValue(row, consigne, "");
           }
           triggerConsigneRowUpdateHighlight(row);
-          try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, ""); } catch (_) {}
+          try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, ""); } catch (_) { }
           for (const childState of baseChildStates) {
             const childConsigneId = childState?.consigne?.id;
             if (!childConsigneId) {
@@ -10956,10 +11009,10 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               if (ctx?.db && ctx?.user?.uid && dayKeyToClear) {
                 try {
                   await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
-                } catch (_) {}
+                } catch (_) { }
               }
-              try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
-              try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
+              try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) { }
+              try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) { }
               await Schema.deleteHistoryEntry(
                 ctx.db,
                 ctx.user.uid,
@@ -10995,7 +11048,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
                 triggerConsigneRowUpdateHighlight(childState.row);
               }
               // Fully clear the daily UI and autosave footprint for the child as well
-              try { applyDailyPrefillUpdate(childState.consigne.id, resolvedDayKey, ""); } catch (_) {}
+              try { applyDailyPrefillUpdate(childState.consigne.id, resolvedDayKey, ""); } catch (_) { }
             });
           }
           try {
@@ -11014,7 +11067,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
               setConsigneRowValue(dailyRow, consigne, "");
               clearConsigneSummaryMetadata(dailyRow);
             }
-          } catch (_) {}
+          } catch (_) { }
         });
         showToast("Réponses effacées pour ce bilan.");
         // If we are inside the history panel, remove the corresponding list item immediately
@@ -11031,10 +11084,10 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
                 listEl.innerHTML = '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>';
               }
             }
-          } catch (_) {}
+          } catch (_) { }
         }
         if (typeof options.onChange === 'function') {
-          try { options.onChange(); } catch (e) {}
+          try { options.onChange(); } catch (e) { }
         }
         if (typeof requestClose === 'function') requestClose();
         flushHistoryPanelRefresh();
@@ -11042,7 +11095,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
             window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
           }
-        } catch (_) {}
+        } catch (_) { }
       } catch (error) {
         console.error("bilan.history.editor.clear", error);
         clearBtn.disabled = false;
@@ -11086,8 +11139,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         { value: parentHasValue ? rawValue : "" },
         responseSyncOptions,
       );
-      try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
-      try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+      try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) { }
+      try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
       const parentStatus = dotColor(
         consigne.type,
         parentHasValue ? rawValue : "",
@@ -11125,8 +11178,8 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           { value: hasValue ? value : "" },
           state.responseSyncOptions,
         );
-        try { removeRecentResponsesForDay(childConsigneId, resolvedDayKey); } catch (e) {}
-        try { clearRecentResponsesForConsigne(childConsigneId); } catch (e) {}
+        try { removeRecentResponsesForDay(childConsigneId, resolvedDayKey); } catch (e) { }
+        try { clearRecentResponsesForConsigne(childConsigneId); } catch (e) { }
         const childStatus = dotColor(
           state.consigne.type,
           hasValue ? value : "",
@@ -11144,11 +11197,11 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           });
           triggerConsigneRowUpdateHighlight(state.row);
         }
-        try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, hasValue ? value : ""); } catch (_) {}
+        try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, hasValue ? value : ""); } catch (_) { }
       }
       showToast("Réponses enregistrées.");
       if (typeof options.onChange === 'function') {
-        try { options.onChange(); } catch (e) {}
+        try { options.onChange(); } catch (e) { }
       }
       if (typeof requestClose === 'function') requestClose();
       flushHistoryPanelRefresh();
@@ -11156,7 +11209,7 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
         if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
           window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
         }
-      } catch (_) {}
+      } catch (_) { }
     } catch (error) {
       console.error("bilan.history.editor.save", error);
       submitBtn.disabled = false;
@@ -11218,7 +11271,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   } catch (error) {
     try {
       modesLogger?.warn?.("consigne.history.entry.load", error);
-    } catch (_) {}
+    } catch (_) { }
     showToast("Impossible de charger cette réponse.");
     return;
   }
@@ -11295,7 +11348,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       if (typeof computed === "string" && computed.trim()) {
         return computed.trim();
       }
-    } catch (_) {}
+    } catch (_) { }
     return "";
   })();
   const normalizeChecklistValueForEditor = (raw) => {
@@ -11339,13 +11392,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   const keyInfo = match?.keyInfo || null;
   const matchInfo = match
     ? {
-        type: match.matchType || "",
-        historyId: match.historyId || "",
-        responseId: match.responseId || "",
-        candidateDayKey: match.keyInfo?.dayKey || "",
-        weight: match.weight ?? null,
-        summaryDiff: Array.isArray(match.summaryDiff) ? match.summaryDiff : [],
-      }
+      type: match.matchType || "",
+      historyId: match.historyId || "",
+      responseId: match.responseId || "",
+      candidateDayKey: match.keyInfo?.dayKey || "",
+      weight: match.weight ?? null,
+      summaryDiff: Array.isArray(match.summaryDiff) ? match.summaryDiff : [],
+    }
     : null;
   const resolvedDayKey = keyInfo?.dayKey || dayKey;
   logHistoryDebug("editor.open.match", {
@@ -11358,23 +11411,23 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     responseId: match?.responseId || null,
     keyInfo: keyInfo
       ? {
-          dayKey: keyInfo?.dayKey || null,
-          iterationNumber: keyInfo?.iterationNumber ?? null,
-          iterationLabel: keyInfo?.iterationLabel || null,
-        }
+        dayKey: keyInfo?.dayKey || null,
+        iterationNumber: keyInfo?.iterationNumber ?? null,
+        iterationLabel: keyInfo?.iterationLabel || null,
+      }
       : null,
     hasEntry: Boolean(entry),
     entrySummary: entry
       ? {
-          ...summarizeHistoryEntry(entry),
-          valueSummary: summarizeHistoryValue(entry?.value),
-        }
+        ...summarizeHistoryEntry(entry),
+        valueSummary: summarizeHistoryValue(entry?.value),
+      }
       : null,
     detailsSummary: details
       ? {
-          valueSummary: summarizeHistoryValue(details?.rawValue ?? details?.value ?? null),
-          note: typeof details?.note === "string" ? details.note.slice(0, 160) : null,
-        }
+        valueSummary: summarizeHistoryValue(details?.rawValue ?? details?.value ?? null),
+        note: typeof details?.note === "string" ? details.note.slice(0, 160) : null,
+      }
       : null,
   });
   if (consigne.type === "checklist" && !entry) {
@@ -11405,8 +11458,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   const iterationNumber = Number.isFinite(details?.iterationNumber)
     ? details.iterationNumber
     : Number.isFinite(keyInfo?.iterationNumber)
-    ? keyInfo.iterationNumber
-    : null;
+      ? keyInfo.iterationNumber
+      : null;
   const rawIterationLabel = (() => {
     if (typeof details?.iterationLabel === "string" && details.iterationLabel.trim()) {
       return details.iterationLabel.trim();
@@ -11467,13 +11520,13 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
     displayValueSummary: summarizeHistoryValue(displayValue),
     matchSummary: matchInfo
       ? {
-          type: matchInfo.type || null,
-          historyId: matchInfo.historyId || null,
-          responseId: matchInfo.responseId || null,
-          candidateDayKey: matchInfo.candidateDayKey || null,
-          weight: matchInfo.weight ?? null,
-          summaryDiff: Array.isArray(matchInfo.summaryDiff) ? matchInfo.summaryDiff.slice(0, 5) : [],
-        }
+        type: matchInfo.type || null,
+        historyId: matchInfo.historyId || null,
+        responseId: matchInfo.responseId || null,
+        candidateDayKey: matchInfo.candidateDayKey || null,
+        weight: matchInfo.weight ?? null,
+        summaryDiff: Array.isArray(matchInfo.summaryDiff) ? matchInfo.summaryDiff.slice(0, 5) : [],
+      }
       : null,
   });
   const autosaveKey = ["history-entry-edit", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
@@ -11491,8 +11544,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
         ? createdAt.toISOString()
         : typeof createdAtSource === "string"
-        ? createdAtSource
-        : "",
+          ? createdAtSource
+          : "",
   };
   if (consigne.type === "checklist") {
     const panelEntry = options.panelEntry || null;
@@ -11516,18 +11569,18 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       },
       panelSummary: panelSummary
         ? {
-            summary: panelSummary,
-            responseId:
-              (typeof panelEntry?.responseId === "string" && panelEntry.responseId.trim()) ||
-              (typeof panelEntry?.response_id === "string" && panelEntry.response_id.trim()) ||
-              (typeof panelEntry?.id === "string" && panelEntry.id.trim()) ||
-              "",
-            historyId:
-              (typeof panelEntry?.historyId === "string" && panelEntry.historyId.trim()) ||
-              (typeof panelEntry?.history_id === "string" && panelEntry.history_id.trim()) ||
-              "",
-            rawValue: panelNormalized,
-          }
+          summary: panelSummary,
+          responseId:
+            (typeof panelEntry?.responseId === "string" && panelEntry.responseId.trim()) ||
+            (typeof panelEntry?.response_id === "string" && panelEntry.response_id.trim()) ||
+            (typeof panelEntry?.id === "string" && panelEntry.id.trim()) ||
+            "",
+          historyId:
+            (typeof panelEntry?.historyId === "string" && panelEntry.historyId.trim()) ||
+            (typeof panelEntry?.history_id === "string" && panelEntry.history_id.trim()) ||
+            "",
+          rawValue: panelNormalized,
+        }
         : null,
       matchInfo,
       entries: historyEntries,
@@ -11544,7 +11597,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           consigneId: consigne.id,
           error,
         });
-      } catch (_) {}
+      } catch (_) { }
       childCandidates = [];
     }
   }
@@ -11557,7 +11610,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       } catch (error) {
         try {
           modesLogger?.warn?.("consigne.history.entry.child.load", { childId: child.id, error });
-        } catch (_) {}
+        } catch (_) { }
         childEntries = [];
       }
       const childMatch = findHistoryEntryForDayKey(childEntries, child, resolvedDayKey);
@@ -11591,15 +11644,15 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           childCreatedAt instanceof Date && !Number.isNaN(childCreatedAt.getTime())
             ? childCreatedAt.toISOString()
             : typeof childCreatedAtSource === "string"
-            ? childCreatedAtSource
-            : "",
+              ? childCreatedAtSource
+              : "",
       };
       const selectorValue = String(child.id ?? "").replace(/"/g, '\\"');
       const inRow =
         row && row.matches?.(`[data-consigne-id="${selectorValue}"]`)
           ? row
           : row?.querySelector?.(`[data-consigne-id="${selectorValue}"]`) ||
-            document.querySelector(`[data-consigne-id="${selectorValue}"]`);
+          document.querySelector(`[data-consigne-id="${selectorValue}"]`);
       const domId = `history-child-${String(child.id ?? "child")}-${Math.random().toString(36).slice(2, 8)}`;
       const fieldBase = `${domId}-${Date.now().toString(36)}`;
       const childInitialHasValue = hasValueForConsigne(child, childValue);
@@ -11627,40 +11680,39 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
         </header>
         <div class="space-y-3">
           ${baseChildStates
-            .map((childState, index) => {
-              const child = childState.consigne || {};
-              const childTitle =
-                child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
-              const childDescription = child.description || child.details || child.helper || "";
-              const childFieldMarkup = renderConsigneValueField(
-                child,
-                childState.value,
-                childState.fieldId,
-                {
-                  fieldName: `history-child-${String(child.id ?? index)}`,
-                  ownerId: child?.id ?? "",
-                },
-              );
-              return `
+      .map((childState, index) => {
+        const child = childState.consigne || {};
+        const childTitle =
+          child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
+        const childDescription = child.description || child.details || child.helper || "";
+        const childFieldMarkup = renderConsigneValueField(
+          child,
+          childState.value,
+          childState.fieldId,
+          {
+            fieldName: `history-child-${String(child.id ?? index)}`,
+            ownerId: child?.id ?? "",
+          },
+        );
+        return `
                 <article class="space-y-3 rounded-xl border border-slate-200 p-3" data-history-child="${escapeHtml(childState.domId)}" data-consigne-id="${escapeHtml(
-                String(child.id ?? ""),
-              )}">
+          String(child.id ?? ""),
+        )}">
                   <div class="space-y-1">
                     <div class="font-medium text-slate-800">${escapeHtml(childTitle)}</div>
-                    ${
-                      childDescription
-                        ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(
-                            childDescription,
-                          )}</p>`
-                        : ""
-                    }
+                    ${childDescription
+            ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(
+              childDescription,
+            )}</p>`
+            : ""
+          }
                   </div>
                   <div class="space-y-2">
                     ${childFieldMarkup}
                   </div>
                 </article>`;
-            })
-            .join("")}
+      })
+      .join("")}
         </div>
       </section>`
     : "";
@@ -11668,9 +11720,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   const editorHtml = `
     <div class="space-y-5">
       <header class="space-y-1">
-        ${primaryLabel ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(primaryLabel)}${
-          relative ? ` <span class="text-xs">(${escapeHtml(relative)})</span>` : ""
-        }</p>` : ""}
+        ${primaryLabel ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(primaryLabel)}${relative ? ` <span class="text-xs">(${escapeHtml(relative)})</span>` : ""
+      }</p>` : ""}
         ${secondaryLabel ? `<p class="text-xs text-slate-500">${escapeHtml(secondaryLabel)}</p>` : ""}
         <h2 class="text-lg font-semibold">Modifier la réponse</h2>
         <p class="text-sm text-slate-600">${escapeHtml(safeConsigneLabel(consigne))}</p>
@@ -11837,8 +11888,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               }, "error");
             }
           }
-          try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) {}
-          try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+          try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) { }
+          try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
           logHistoryDebug("editor.clear.deleteHistoryEntry", {
             consigneId: consigne?.id ?? null,
             dayKey: dayKeyToClear,
@@ -11883,7 +11934,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             responseId: responseSyncOptions?.responseId || null,
           });
           triggerConsigneRowUpdateHighlight(row);
-          try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) {}
+          try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) { }
           for (const childState of baseChildStates) {
             const childConsigneId = childState?.consigne?.id;
             if (!childConsigneId) {
@@ -11907,8 +11958,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
                   }, "error");
                 }
               }
-              try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) {}
-              try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) {}
+              try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) { }
+              try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) { }
               logHistoryDebug("editor.clear.child.deleteHistoryEntry", {
                 parentConsigneId: consigne?.id ?? null,
                 childConsigneId,
@@ -11945,16 +11996,16 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               }
               const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
               if (childState.row) {
-                  updateConsigneHistoryTimeline(childState.row, childStatus, {
-                    consigne: childState.consigne,
-                    value: "",
-                    dayKey: resolvedDayKey,
-                    historyId: childState.historyDocumentId,
-                    responseId: childState.responseSyncOptions?.responseId || "",
-                    iterationLabel,
-                    keepPlaceholder: true,
-                    remove: true,
-                  });
+                updateConsigneHistoryTimeline(childState.row, childStatus, {
+                  consigne: childState.consigne,
+                  value: "",
+                  dayKey: resolvedDayKey,
+                  historyId: childState.historyDocumentId,
+                  responseId: childState.responseSyncOptions?.responseId || "",
+                  iterationLabel,
+                  keepPlaceholder: true,
+                  remove: true,
+                });
                 logHistoryDebug("editor.clear.timeline-child", {
                   parentConsigneId: consigne?.id ?? null,
                   childConsigneId,
@@ -11983,7 +12034,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               setConsigneRowValue(dailyRow, consigne, "");
               clearConsigneSummaryMetadata(dailyRow);
             }
-          } catch (_) {}
+          } catch (_) { }
         });
         showToast("Réponses effacées.");
         closeOverlay();
@@ -11992,7 +12043,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
             window.dispatchEvent(new CustomEvent("consigne:history:refresh", { detail: { consigneId: consigne.id } }));
           }
-        } catch (_) {}
+        } catch (_) { }
       } catch (error) {
         console.error("consigne.history.editor.clear", error);
         clearBtn.disabled = false;
@@ -12044,8 +12095,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             responseId: responseSyncOptions?.responseId || null,
           });
           await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-          try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
-          try { clearRecentResponsesForConsigne(consigne.id); } catch (e) {}
+          try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) { }
+          try { clearRecentResponsesForConsigne(consigne.id); } catch (e) { }
           if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
             logHistoryDebug("editor.submit.deleteAllResponses", {
               consigneId: consigne?.id ?? null,
@@ -12080,7 +12131,7 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             console.error("consigne.history.editor.save.summaryDelete", err);
           }
         });
-  try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) {}
+        try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) { }
       } else {
         logHistoryDebug("editor.submit.saveHistoryEntry", {
           consigneId: consigne?.id ?? null,
@@ -12096,8 +12147,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
           { value: rawValue },
           responseSyncOptions,
         );
-        try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, rawValue); } catch (_) {}
-        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) {}
+        try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, rawValue); } catch (_) { }
+        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) { }
       }
       const parentStatus = dotColor(
         consigne.type,
@@ -12150,8 +12201,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
               state.historyDocumentId,
               state.responseSyncOptions,
             );
-            try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
-            try { clearRecentResponsesForConsigne(state.consigne.id); } catch (e) {}
+            try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) { }
+            try { clearRecentResponsesForConsigne(state.consigne.id); } catch (e) { }
             if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
               logHistoryDebug("editor.submit.child.deleteAllResponses", {
                 parentConsigneId: consigne?.id ?? null,
@@ -12206,8 +12257,8 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
             { value },
             state.responseSyncOptions,
           );
-          try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, value); } catch (_) {}
-          try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) {}
+          try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, value); } catch (_) { }
+          try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) { }
         }
         const childStatus = dotColor(
           state.consigne.type,
@@ -12244,18 +12295,18 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       const toastMessage = allValuesCleared
         ? "Réponses effacées."
         : childCleared || (!parentHasValue && parentInitialHasValue)
-        ? "Réponses mises à jour."
-        : "Réponses enregistrées.";
+          ? "Réponses mises à jour."
+          : "Réponses enregistrées.";
       showToast(toastMessage);
       closeOverlay();
       flushHistoryPanelRefresh();
       // Clear local recent cache and notify global listeners so "global history" views refresh
-      try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+      try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
       try {
         if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
           window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
         }
-      } catch (_) {}
+      } catch (_) { }
     } catch (error) {
       console.error("consigne.history.editor.save", error);
       submitBtn.disabled = false;
@@ -12331,7 +12382,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
           return;
         }
       }
-    } catch (_) {}
+    } catch (_) { }
     const normalizedScope =
       typeof options.summaryScope === "string" && options.summaryScope.trim() ? options.summaryScope.trim() : "";
     const resolveDayKey = () => {
@@ -12344,7 +12395,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
           if (typeof resolved === "string" && resolved.trim()) {
             return resolved.trim();
           }
-        } catch (_) {}
+        } catch (_) { }
       }
       if (row?.dataset?.dayKey) {
         const fromDataset = row.dataset.dayKey.trim();
@@ -12392,7 +12443,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       if (isChecklist && noIds) {
         keepPlaceholder = false;
       }
-    } catch (_) {}
+    } catch (_) { }
     if (item) {
       if (keepPlaceholder && dayKey) {
         const consigne = options?.consigne || null;
@@ -12478,7 +12529,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
         if (typeof resolved === "string" && resolved.trim()) {
           return resolved.trim();
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     if (row?.dataset?.dayKey) {
       const fromDataset = row.dataset.dayKey.trim();
@@ -12496,7 +12547,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       if (typeof qd === "string" && qd.trim()) {
         return qd.trim();
       }
-    } catch (_) {}
+    } catch (_) { }
     if (typeof window !== "undefined" && window.AppCtx && typeof window.AppCtx.dateIso === "string") {
       const fromCtx = window.AppCtx.dateIso.trim();
       if (fromCtx) {
@@ -12649,7 +12700,7 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
         row.dataset.status = status;
       }
     }
-  } catch (_) {}
+  } catch (_) { }
   const record = {
     dayKey,
     date: normalizedRecordDate,
@@ -12677,10 +12728,10 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
             dayKey,
             status,
           });
-        } catch (_) {}
+        } catch (_) { }
         return;
       }
-    } catch (_) {}
+    } catch (_) { }
     item = document.createElement("div");
     item.className = "consigne-history__item";
     item.setAttribute("role", "listitem");
@@ -12782,11 +12833,11 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
   if (previousState) {
     try {
       previousState.resizeObserver?.disconnect?.();
-    } catch (_) {}
+    } catch (_) { }
     if (previousState.viewport && previousState.viewportScrollHandler) {
       try {
         previousState.viewport.removeEventListener("scroll", previousState.viewportScrollHandler);
-      } catch (_) {}
+      } catch (_) { }
     }
   }
   let explicitDayKey = "";
@@ -12834,7 +12885,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       if (result.error) {
         try {
           modesLogger?.warn?.("consigne.history.timeline", result.error);
-        } catch (_) {}
+        } catch (_) { }
         scheduleConsigneHistoryNavUpdate(state);
         return;
       }
@@ -12867,7 +12918,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
             const nextValue = (details && (details.rawValue !== undefined ? details.rawValue : details.value)) ?? "";
             applyDailyPrefillUpdate(consigne.id, dayKeyForAudit, nextValue);
           }
-        } catch (_) {}
+        } catch (_) { }
         // Highlight if row shows an answer but no timeline point exists for the day
         try {
           const rowStatus = row?.dataset?.status || null;
@@ -12881,14 +12932,14 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
               timelineHasPoint: hasPoint,
             });
           }
-        } catch (_) {}
-      } catch (_) {}
+        } catch (_) { }
+      } catch (_) { }
       scheduleConsigneHistoryNavUpdate(state);
     })
     .catch((error) => {
       try {
         modesLogger?.warn?.("consigne.history.timeline", error);
-      } catch (_) {}
+      } catch (_) { }
       scheduleConsigneHistoryNavUpdate(state);
     });
   const handleHistoryActivation = (event) => {
@@ -12897,7 +12948,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       return;
     }
     const target = event.target.closest(".consigne-history__item");
-    
+
     if (!target || !state.track.contains(target)) {
       return;
     }
@@ -12915,20 +12966,20 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       !isBilanPoint && (target.dataset.historySource === "summary" || rawDetails?.isSummary === true);
     const bilanDayKey = isBilanPoint
       ? historyDayKey ||
-        (typeof rawDetails?.dayKey === "string" && rawDetails.dayKey.trim() ? rawDetails.dayKey.trim() : "")
+      (typeof rawDetails?.dayKey === "string" && rawDetails.dayKey.trim() ? rawDetails.dayKey.trim() : "")
       : "";
     const responseIdCandidate =
       typeof rawDetails?.responseId === "string" && rawDetails.responseId.trim()
         ? rawDetails.responseId.trim()
         : typeof target.dataset.historyResponseId === "string" && target.dataset.historyResponseId.trim()
-        ? target.dataset.historyResponseId.trim()
-        : "";
+          ? target.dataset.historyResponseId.trim()
+          : "";
     const historyIdCandidate =
       typeof rawDetails?.historyId === "string" && rawDetails.historyId.trim()
         ? rawDetails.historyId.trim()
         : typeof target.dataset.historyId === "string" && target.dataset.historyId.trim()
-        ? target.dataset.historyId.trim()
-        : "";
+          ? target.dataset.historyId.trim()
+          : "";
     logHistoryDebug("timeline.activation", {
       consigneId: consigne?.id ?? null,
       consigneType: consigne?.type || null,
@@ -12941,12 +12992,12 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       source: options.mode || null,
       rawDetails: rawDetails
         ? {
-            hasContent: rawDetails?.hasContent ?? null,
-            summaryScope: rawDetails?.summaryScope || null,
-            summaryPeriod: rawDetails?.summaryPeriod || null,
-            iterationLabel: rawDetails?.iterationLabel || null,
-            valueSummary: summarizeHistoryValue(rawDetails?.rawValue ?? rawDetails?.value ?? null),
-          }
+          hasContent: rawDetails?.hasContent ?? null,
+          summaryScope: rawDetails?.summaryScope || null,
+          summaryPeriod: rawDetails?.summaryPeriod || null,
+          iterationLabel: rawDetails?.iterationLabel || null,
+          valueSummary: summarizeHistoryValue(rawDetails?.rawValue ?? rawDetails?.value ?? null),
+        }
         : null,
     });
     if (isBilanPoint && bilanDayKey) {
@@ -13060,10 +13111,10 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
             hasHistoryId: Boolean(hasHistoryId),
             hasResponseId: Boolean(hasResponseId),
           });
-        } catch (_) {}
+        } catch (_) { }
         return;
       }
-    } catch (_) {}
+    } catch (_) { }
     updateConsigneHistoryTimeline(row, status, {
       consigne,
       value: event?.detail?.value,
@@ -13103,11 +13154,11 @@ function safeJsonSample(value, maxLength = 160) {
     if (typeof raw === "string") {
       return raw.length > maxLength ? `${raw.slice(0, maxLength)}…` : raw;
     }
-  } catch (_) {}
+  } catch (_) { }
   try {
     const str = String(value);
     return str.length > maxLength ? `${str.slice(0, maxLength)}…` : str;
-  } catch (_) {}
+  } catch (_) { }
   return null;
 }
 
@@ -13385,14 +13436,14 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
       prevStatus: row?.dataset?.status || null,
       hasOwnAnswer,
     });
-  } catch (_) {}
+  } catch (_) { }
   try {
     modesLogger?.debug?.("consigne.status.update", {
       consigneId: consigne?.id ?? null,
       skip: Boolean(skipFlag),
       status,
     });
-  } catch (_) {}
+  } catch (_) { }
   // Persist hasAnswer flag for parent propagation logic
   if (hasOwnAnswer) {
     row.dataset.hasAnswer = "1";
@@ -13439,7 +13490,7 @@ function updateConsigneStatusUI(row, consigne, rawValue) {
       const hasHistoryForDay = typeof row?.dataset?.historyId === "string" && row.dataset.historyId.trim().length > 0;
       const shouldHideDot = status === "na" && !hasOwnAnswer && !hasHistoryForDay;
       dot.hidden = shouldHideDot ? true : false;
-    } catch (_) {}
+    } catch (_) { }
   }
   if (mark) {
     const isAnswered = status !== "na";
@@ -13715,7 +13766,7 @@ function initializeChecklistScope(scope, { consigneId = null, dateKey = null, hy
           const qp = new URLSearchParams((hash.split("?")[1] || ""));
           const d = (qp.get("d") || "").trim();
           pageDateKey = d || "";
-        } catch (_) {}
+        } catch (_) { }
         if (!pageDateKey) {
           const ctxKey = (typeof window !== "undefined" && window.AppCtx?.dateIso) ? String(window.AppCtx.dateIso) : "";
           pageDateKey = ctxKey || (typeof Schema?.todayKey === "function" ? Schema.todayKey() : "");
@@ -13737,7 +13788,7 @@ function initializeChecklistScope(scope, { consigneId = null, dateKey = null, hy
               } else {
                 hidden.setAttribute("data-checklist-history-date", providedDateKey);
               }
-            } catch (_) {}
+            } catch (_) { }
           }
         }
         const hydrateOptions = {
@@ -13787,7 +13838,7 @@ function applyConsigneSkipState(row, consigne, shouldSkip, { updateUI = true } =
       consigneId: consigne?.id ?? null,
       shouldSkip: Boolean(shouldSkip),
     });
-  } catch (_) {}
+  } catch (_) { }
   if (shouldSkip) {
     row.dataset.skipAnswered = "1";
     clearConsigneSummaryMetadata(row);
@@ -13821,7 +13872,7 @@ function ensureConsigneSkipField(row, consigne) {
           name: input.name,
           autosaveField: input.getAttribute("data-autosave-field"),
         });
-      } catch (_) {}
+      } catch (_) { }
     } else {
       input.name = "skip";
     }
@@ -13836,7 +13887,7 @@ function ensureConsigneSkipField(row, consigne) {
           raw: input.value,
           parsed: shouldSkip,
         });
-      } catch (_) {}
+      } catch (_) { }
       applyConsigneSkipState(row, consigne, shouldSkip, { updateUI: true });
       // Déclenche la persistance applicative (autosave schemas)
       try {
@@ -13868,7 +13919,7 @@ function setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents = tru
       emitInputEvents: Boolean(emitInputEvents),
       updateUI: Boolean(updateUI),
     });
-  } catch (_) {}
+  } catch (_) { }
   if (input.value === nextValue) return;
   input.value = nextValue;
   if (emitInputEvents) {
@@ -13888,7 +13939,7 @@ function normalizeConsigneValueForPersistence(consigne, row, value) {
           consigneId: consigne?.id ?? null,
           alreadySkipped: true,
         });
-      } catch (_) {}
+      } catch (_) { }
       return value;
     }
     try {
@@ -13896,7 +13947,7 @@ function normalizeConsigneValueForPersistence(consigne, row, value) {
         consigneId: consigne?.id ?? null,
         forceSkipped: true,
       });
-    } catch (_) {}
+    } catch (_) { }
     return { skipped: true };
   }
   if (consigne?.type === "montant") {
@@ -13941,7 +13992,7 @@ function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
     if (wasSkipped) {
       setConsigneSkipState(row, consigne, true, { emitInputEvents: false, updateUI: true });
     }
-  } catch (_) {}
+  } catch (_) { }
   return row;
 }
 
@@ -13958,7 +14009,7 @@ function setConsigneRowValue(row, consigne, value) {
       directSource: currentDebugContext?.source || null,
       stack: new Error("prefill-update-trace").stack,
     });
-  } catch (_) {}
+  } catch (_) { }
   const maintainOrClearSkip = (hasAnswer) => {
     if (skipWasActive && !hasAnswer) {
       applyConsigneSkipState(row, consigne, true, { updateUI: true });
@@ -14280,7 +14331,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
       trigger.setAttribute("aria-expanded", "true");
     }
     const currentValue = readConsigneCurrentValue(consigne, row);
-    try { reportUnexpectedPrefillOnEditorOpen(consigne, row, currentValue); } catch (_) {}
+    try { reportUnexpectedPrefillOnEditorOpen(consigne, row, currentValue); } catch (_) { }
     const title = consigne.text || consigne.titre || consigne.name || consigne.id;
     const description = consigne.description || consigne.details || consigne.helper || "";
     const requiresValidation = consigne.type !== "info" || childConsignes.length > 0;
@@ -14376,13 +14427,13 @@ function attachConsigneEditor(row, consigne, options = {}) {
           <select id="${escapeHtml(delayConfig.selectId)}" class="practice-editor__delay-select" data-consigne-editor-delay>
             <option value="">${escapeHtml(delayConfig.placeholder)}</option>
             ${delayConfig.amounts
-              .map((amount) => `<option value="${amount}">${amount} itération${amount > 1 ? "s" : ""}</option>`)
-              .join("")}
+        .map((amount) => `<option value="${amount}">${amount} itération${amount > 1 ? "s" : ""}</option>`)
+        .join("")}
             ${delayConfig.allowArchive
-              ? `<optgroup label="Actions">
+        ? `<optgroup label="Actions">
                   <option value="${escapeHtml(delayConfig.archiveValue)}" data-consigne-editor-archive-option>🗄️ ${escapeHtml(delayConfig.archiveLabel)}</option>
                 </optgroup>`
-              : ""}
+        : ""}
           </select>
           ${delayConfig.helper ? `<span class="practice-editor__delay-note">${escapeHtml(delayConfig.helper)}</span>` : ""}
           <span class="practice-editor__delay-helper" data-consigne-editor-delay-helper hidden>${escapeHtml(delayConfig.disabledHint)}</span>
@@ -14402,11 +14453,11 @@ function attachConsigneEditor(row, consigne, options = {}) {
         : "";
     const primaryButtons = requiresValidation
       ? [
-          delayControlMarkup,
-          '<button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>',
-          '<button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>',
-          `<button type="button" class="btn btn-primary" data-consigne-editor-validate>${escapeHtml(validateButtonLabel)}</button>`,
-        ].filter(Boolean)
+        delayControlMarkup,
+        '<button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>',
+        '<button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>',
+        `<button type="button" class="btn btn-primary" data-consigne-editor-validate>${escapeHtml(validateButtonLabel)}</button>`,
+      ].filter(Boolean)
       : ['<button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>'];
     const primaryActionsMarkup = `<div class="practice-editor__actions-buttons">${primaryButtons.join("\n          ")}</div>`;
     const sideControls = [summaryControlMarkup].filter(Boolean);
@@ -14454,7 +14505,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
       } catch (error) {
         try {
           modesLogger?.debug?.("consigne.delay.sr-state", error);
-        } catch (_) {}
+        } catch (_) { }
         srEnabled = true;
       }
       if (srEnabled) {
@@ -14805,7 +14856,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
           } catch (error) {
             try {
               modesLogger?.warn?.("consigne.delay.archive", error);
-            } catch (_) {}
+            } catch (_) { }
             revertSelection();
             return;
           }
@@ -14930,7 +14981,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
           .catch((error) => {
             try {
               modesLogger?.warn?.("consigne.delay.apply", error);
-            } catch (_) {}
+            } catch (_) { }
           });
       }
       return true;
@@ -15065,7 +15116,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
         // Assure la présence du champ caché et met à jour l'UI immédiatement
         try {
           modesLogger?.group?.("ui.consigne.skip.click", { consigneId: consigne?.id ?? null });
-        } catch (_) {}
+        } catch (_) { }
         try {
           const targetRow = (row && row.isConnected) ? row : overlay.ownerDocument?.querySelector?.(`[data-consigne-id="${String(consigne?.id ?? "")}" ]`);
           const r = targetRow || row;
@@ -15096,7 +15147,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
                   consigneId: consigne?.id ?? null,
                   hasChecklistRoot: Boolean(root),
                 });
-              } catch (_) {}
+              } catch (_) { }
               Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
                 console.warn('[consigne] persist:skip', e);
               });
@@ -15104,14 +15155,14 @@ function attachConsigneEditor(row, consigne, options = {}) {
             // Persistance daily "responses" désactivée: ne pas appeler Schema.saveResponses('daily')
             try {
               modesLogger?.info?.('consigne.skip.persist.disabled', { consigneId: consigne?.id ?? null });
-            } catch (_) {}
+            } catch (_) { }
             try {
               modesLogger?.info?.('consigne.skip.ui', {
                 consigneId: consigne?.id ?? null,
                 status: r?.dataset?.status || null,
                 skipFlag: r?.dataset?.skipAnswered || null,
               });
-            } catch (_) {}
+            } catch (_) { }
           }
         } catch (err) {
           console.warn('[consigne] skip:handler', err);
@@ -15123,7 +15174,7 @@ function attachConsigneEditor(row, consigne, options = {}) {
           options.onSkip({ event, close: closeOverlay, consigne, row });
         }
         closeOverlay();
-        try { modesLogger?.groupEnd?.(); } catch (_) {}
+        try { modesLogger?.groupEnd?.(); } catch (_) { }
       });
     }
     const validateBtn = overlay.querySelector("[data-consigne-editor-validate]");
@@ -15154,7 +15205,7 @@ function hasChecklistResponse(consigne, row, value) {
     if (stats && Number.isFinite(stats.total) && stats.total > 0) {
       return true;
     }
-  } catch (_) {}
+  } catch (_) { }
   if (checklistHasSelection(value)) {
     return true;
   }
@@ -15207,7 +15258,7 @@ function hasValueForConsigne(consigne, value) {
       if (stats && Number.isFinite(stats.total) && stats.total > 0) {
         return true;
       }
-    } catch (_) {}
+    } catch (_) { }
     if (checklistHasSelection(value)) {
       return true;
     }
@@ -15319,8 +15370,8 @@ function renderHistoryChart(data, { type, mode } = {}) {
   const dataset = Array.isArray(data)
     ? { points: data }
     : data && typeof data === "object"
-    ? data
-    : { points: [] };
+      ? data
+      : { points: [] };
   const rawPoints = Array.isArray(dataset.points) ? dataset.points : [];
   const supportsChart = !(type === "long" || type === "short" || type === "info");
   if (!supportsChart) {
@@ -15333,89 +15384,89 @@ function renderHistoryChart(data, { type, mode } = {}) {
 
   const sanitizedPoints = Array.isArray(rawPoints)
     ? rawPoints
-        .filter(
-          (entry) =>
-            entry &&
-            entry.date instanceof Date &&
-            !Number.isNaN(entry.date.getTime()) &&
-            entry.value !== null &&
-            entry.value !== undefined &&
-            Number.isFinite(Number(entry.value))
-        )
-        .map((entry) => {
-          const rawScope =
-            typeof entry.summaryScope === "string"
-              ? entry.summaryScope
-              : typeof entry.summary_scope === "string"
+      .filter(
+        (entry) =>
+          entry &&
+          entry.date instanceof Date &&
+          !Number.isNaN(entry.date.getTime()) &&
+          entry.value !== null &&
+          entry.value !== undefined &&
+          Number.isFinite(Number(entry.value))
+      )
+      .map((entry) => {
+        const rawScope =
+          typeof entry.summaryScope === "string"
+            ? entry.summaryScope
+            : typeof entry.summary_scope === "string"
               ? entry.summary_scope
               : "";
-          const normalizedScope = rawScope.trim().toLowerCase();
-          const recordedAtValue =
-            entry.recordedAt instanceof Date && !Number.isNaN(entry.recordedAt.getTime())
-              ? new Date(entry.recordedAt.getTime())
-              : null;
-          const recordedAtFromString =
-            !recordedAtValue && typeof entry.recordedAt === "string"
-              ? new Date(entry.recordedAt)
-              : null;
-          const recordedAt =
-            recordedAtValue && recordedAtValue instanceof Date && !Number.isNaN(recordedAtValue.getTime())
-              ? recordedAtValue
-              : recordedAtFromString && !Number.isNaN(recordedAtFromString.getTime())
+        const normalizedScope = rawScope.trim().toLowerCase();
+        const recordedAtValue =
+          entry.recordedAt instanceof Date && !Number.isNaN(entry.recordedAt.getTime())
+            ? new Date(entry.recordedAt.getTime())
+            : null;
+        const recordedAtFromString =
+          !recordedAtValue && typeof entry.recordedAt === "string"
+            ? new Date(entry.recordedAt)
+            : null;
+        const recordedAt =
+          recordedAtValue && recordedAtValue instanceof Date && !Number.isNaN(recordedAtValue.getTime())
+            ? recordedAtValue
+            : recordedAtFromString && !Number.isNaN(recordedAtFromString.getTime())
               ? recordedAtFromString
               : null;
-          const dayKeyValue =
-            typeof entry.dayKey === "string"
-              ? entry.dayKey
-              : typeof entry.day_key === "string"
+        const dayKeyValue =
+          typeof entry.dayKey === "string"
+            ? entry.dayKey
+            : typeof entry.day_key === "string"
               ? entry.day_key
               : "";
-          let summaryScope = "";
-          if (normalizedScope.includes("mensu") || normalizedScope.includes("month")) {
-            summaryScope = "monthly";
-          } else if (
-            normalizedScope.includes("hebdo") ||
-            normalizedScope.includes("week") ||
-            /\bhebdomadaire\b/.test(normalizedScope)
-          ) {
-            summaryScope = "weekly";
-          } else if (
-            normalizedScope.includes("annuel") ||
-            normalizedScope.includes("annuelle") ||
-            normalizedScope.includes("annual") ||
-            normalizedScope.includes("yearly")
-          ) {
-            summaryScope = "yearly";
-          } else if (
-            normalizedScope.includes("ponct") ||
-            normalizedScope.includes("adhoc") ||
-            normalizedScope.includes("ad-hoc")
-          ) {
-            summaryScope = "adhoc";
-          }
-          const hasBilanFlag = Boolean(entry.isBilan) || normalizedScope.includes("bilan");
-          const hasSummaryFlag =
-            Boolean(entry.isSummary) ||
-            Boolean(summaryScope) ||
-            hasBilanFlag ||
-            normalizedScope.includes("summary") ||
-            normalizedScope.includes("yearly") ||
-            normalizedScope.includes("annuel") ||
-            normalizedScope.includes("ponct");
-          return {
-            date: new Date(entry.date),
-            value: Number(entry.value),
-            progress:
-              entry.progress !== undefined && entry.progress !== null && Number.isFinite(Number(entry.progress))
-                ? Number(entry.progress)
-                : null,
-            isSummary: hasSummaryFlag,
-            summaryScope,
-            isBilan: hasBilanFlag,
-            recordedAt: recordedAt ? new Date(recordedAt.getTime()) : null,
-            dayKey: dayKeyValue,
-          };
-        })
+        let summaryScope = "";
+        if (normalizedScope.includes("mensu") || normalizedScope.includes("month")) {
+          summaryScope = "monthly";
+        } else if (
+          normalizedScope.includes("hebdo") ||
+          normalizedScope.includes("week") ||
+          /\bhebdomadaire\b/.test(normalizedScope)
+        ) {
+          summaryScope = "weekly";
+        } else if (
+          normalizedScope.includes("annuel") ||
+          normalizedScope.includes("annuelle") ||
+          normalizedScope.includes("annual") ||
+          normalizedScope.includes("yearly")
+        ) {
+          summaryScope = "yearly";
+        } else if (
+          normalizedScope.includes("ponct") ||
+          normalizedScope.includes("adhoc") ||
+          normalizedScope.includes("ad-hoc")
+        ) {
+          summaryScope = "adhoc";
+        }
+        const hasBilanFlag = Boolean(entry.isBilan) || normalizedScope.includes("bilan");
+        const hasSummaryFlag =
+          Boolean(entry.isSummary) ||
+          Boolean(summaryScope) ||
+          hasBilanFlag ||
+          normalizedScope.includes("summary") ||
+          normalizedScope.includes("yearly") ||
+          normalizedScope.includes("annuel") ||
+          normalizedScope.includes("ponct");
+        return {
+          date: new Date(entry.date),
+          value: Number(entry.value),
+          progress:
+            entry.progress !== undefined && entry.progress !== null && Number.isFinite(Number(entry.progress))
+              ? Number(entry.progress)
+              : null,
+          isSummary: hasSummaryFlag,
+          summaryScope,
+          isBilan: hasBilanFlag,
+          recordedAt: recordedAt ? new Date(recordedAt.getTime()) : null,
+          dayKey: dayKeyValue,
+        };
+      })
     : [];
 
   const sorted = sanitizedPoints.slice().sort((a, b) => a.date - b.date);
@@ -15512,14 +15563,14 @@ function renderHistoryChart(data, { type, mode } = {}) {
       entry.summaryScope === "monthly"
         ? "Bilan mensuel"
         : entry.summaryScope === "weekly"
-        ? "Bilan hebdomadaire"
-        : entry.summaryScope === "yearly"
-        ? "Bilan annuel"
-        : entry.isBilan
-        ? "Bilan"
-        : entry.isSummary
-        ? "Synthèse"
-        : "";
+          ? "Bilan hebdomadaire"
+          : entry.summaryScope === "yearly"
+            ? "Bilan annuel"
+            : entry.isBilan
+              ? "Bilan"
+              : entry.isSummary
+                ? "Synthèse"
+                : "";
     const tooltipMeta = [tooltipDate, timeLabel, summaryLabel]
       .map((part) => part && part.trim())
       .filter(Boolean)
@@ -15636,8 +15687,8 @@ function renderHistoryChart(data, { type, mode } = {}) {
     .map(
       (tick) => `
         <text class="history-chart__axis-label history-chart__axis-label--y" x="${(paddingLeft - 16).toFixed(2)}" y="${(tick.y + 4).toFixed(2)}">${escapeHtml(
-          tick.label
-        )}</text>
+        tick.label
+      )}</text>
       `
     )
     .join("");
@@ -15696,8 +15747,8 @@ function renderHistoryChart(data, { type, mode } = {}) {
       <div class="history-panel__chart-scroll">
         <figure class="history-chart">
           <svg class="history-chart__svg" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="${escapeHtml(
-            chartLabel
-          )}" focusable="false">
+    chartLabel
+  )}" focusable="false">
           <defs>
             <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stop-color="${escapeHtml(colorPalette.gradientTop)}"></stop>
@@ -15705,27 +15756,25 @@ function renderHistoryChart(data, { type, mode } = {}) {
             </linearGradient>
           </defs>
           <rect class="history-chart__surface" x="${paddingLeft.toFixed(2)}" y="${paddingTop.toFixed(2)}" width="${innerWidth.toFixed(
-            2
-          )}" height="${innerHeight.toFixed(2)}" rx="18"></rect>
+    2
+  )}" height="${innerHeight.toFixed(2)}" rx="18"></rect>
           ${horizontalLines}
           <line class="history-chart__axis-line" x1="${paddingLeft.toFixed(2)}" y1="${baselineY.toFixed(2)}" x2="${(chartWidth -
-            paddingRight
-          ).toFixed(2)}" y2="${baselineY.toFixed(2)}"></line>
+      paddingRight
+    ).toFixed(2)}" y2="${baselineY.toFixed(2)}"></line>
           <line class="history-chart__axis-line" x1="${paddingLeft.toFixed(2)}" y1="${paddingTop.toFixed(2)}" x2="${paddingLeft.toFixed(
-            2
-          )}" y2="${baselineY.toFixed(2)}"></line>
+      2
+    )}" y2="${baselineY.toFixed(2)}"></line>
           ${yAxisLabels}
           ${xAxisLabels}
-          ${
-            areaPath
-              ? `<path class="history-chart__area" d="${areaPath}" fill="url(#${gradientId})"></path>`
-              : ""
-          }
-          ${
-            linePath
-              ? `<path class="history-chart__line" d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}"></path>`
-              : ""
-          }
+          ${areaPath
+      ? `<path class="history-chart__area" d="${areaPath}" fill="url(#${gradientId})"></path>`
+      : ""
+    }
+          ${linePath
+      ? `<path class="history-chart__line" d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}"></path>`
+      : ""
+    }
           ${pointsMarkup}
         </svg>
         </figure>
@@ -15976,15 +16025,15 @@ function fallbackAsDate(value) {
       typeof value.seconds === "number"
         ? value.seconds
         : typeof value._seconds === "number"
-        ? value._seconds
-        : null;
+          ? value._seconds
+          : null;
     if (seconds && Number.isFinite(seconds)) {
       const nanosRaw =
         typeof value.nanoseconds === "number"
           ? value.nanoseconds
           : typeof value._nanoseconds === "number"
-          ? value._nanoseconds
-          : 0;
+            ? value._nanoseconds
+            : 0;
       const nanos = Number.isFinite(nanosRaw) ? nanosRaw : 0;
       const millis = seconds * 1000 + Math.floor(nanos / 1e6);
       if (millis > 0) {
@@ -16367,7 +16416,7 @@ function refreshOpenHistoryPanel(consigneId) {
     } catch (error) {
       try {
         console.warn("history.panel.refresh", { consigneId, error });
-      } catch (_) {}
+      } catch (_) { }
     }
   }
   return false;
@@ -16384,11 +16433,11 @@ if (typeof window !== "undefined" && !window.__hpHistoryRefreshBound) {
         if (targetId == null) return;
         try {
           refreshOpenHistoryPanel(String(targetId));
-        } catch (_) {}
+        } catch (_) { }
       },
       { passive: true },
     );
-  } catch (_) {}
+  } catch (_) { }
 }
 
 function refreshConsigneTimelineWithRows(consigne, rows) {
@@ -16403,7 +16452,7 @@ function refreshConsigneTimelineWithRows(consigne, rows) {
   try {
     // Cache for later comparison/logging when DOM snapshot isn't available yet
     CONSIGNE_HISTORY_LAST_POINTS.set(String(consigne.id), Array.isArray(points) ? points.slice() : []);
-  } catch (_) {}
+  } catch (_) { }
   const state = CONSIGNE_HISTORY_ROW_STATE.get(snapshot.row) || null;
   const rendered = renderConsigneHistoryTimeline(snapshot.row, points);
   if (state) {
@@ -16431,8 +16480,8 @@ function summarizeChecklistValue(value) {
       typeof stats.isEmpty === "boolean"
         ? stats.isEmpty
         : checkedCount != null
-        ? checkedCount === 0
-        : false;
+          ? checkedCount === 0
+          : false;
     return {
       total,
       checked: checkedCount,
@@ -16616,17 +16665,17 @@ function logConsigneHistoryComparison(consigne, panelMetas, context = {}) {
             historyId: pt?.historyId || "",
           }));
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     const timelineEntries = timelineItems
       ? timelineItems.map((item) => ({
-          index: item.index,
-          dayKey: item.dayKey,
-          normalizedDayKey: item.normalizedDayKey,
-          status: item.status || "",
-          responseId: item.responseId || "",
-          historyId: item.historyId || "",
-        }))
+        index: item.index,
+        dayKey: item.dayKey,
+        normalizedDayKey: item.normalizedDayKey,
+        status: item.status || "",
+        responseId: item.responseId || "",
+        historyId: item.historyId || "",
+      }))
       : null;
     const panelEntries = panelMetas.map((meta) => ({
       index: meta.index,
@@ -17144,20 +17193,20 @@ async function openHistory(ctx, consigne, options = {}) {
         timelineKeyInfo?.date instanceof Date && !Number.isNaN(timelineKeyInfo.date.getTime())
           ? timelineKeyInfo.date
           : dayKey
-          ? modesParseDayKeyToDate(dayKey)
-          : null;
+            ? modesParseDayKeyToDate(dayKey)
+            : null;
       const displayDate = firstValidDate([dayDate, primaryDate, recordedAt]);
       const iso = displayDate instanceof Date ? displayDate.toISOString() : "";
       const dateText = displayDate instanceof Date
         ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
         : "Date inconnue";
       const relative = displayDate instanceof Date ? relativeLabel(displayDate) : "";
-  const formattedText = formatConsigneValue(consigne.type, r.value, { consigne });
-  const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html", consigne });
-  // Align panel status computation with timeline by normalizing the value first
-  const normalizedValueForStatus = resolveHistoryTimelineValue(r, consigne);
-  const status = dotColor(consigne.type, normalizedValueForStatus ?? r.value, consigne) || "na";
-  const numericValue = numericPoint(consigne.type, normalizedValueForStatus ?? r.value, consigne);
+      const formattedText = formatConsigneValue(consigne.type, r.value, { consigne });
+      const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html", consigne });
+      // Align panel status computation with timeline by normalizing the value first
+      const normalizedValueForStatus = resolveHistoryTimelineValue(r, consigne);
+      const status = dotColor(consigne.type, normalizedValueForStatus ?? r.value, consigne) || "na";
+      const numericValue = numericPoint(consigne.type, normalizedValueForStatus ?? r.value, consigne);
       const montantDetails =
         consigne.type === "montant" ? normalizeMontantValue(r.value, consigne) : null;
       const chartValue =
@@ -17193,23 +17242,23 @@ async function openHistory(ctx, consigne, options = {}) {
       });
       const rawSummaryLabel = summaryInfo.isSummary
         ? firstNonEmptyString(
-            r.summaryLabel,
-            r.summary_label,
-            r.summary?.label,
-            r.summary?.title,
-            r.summaryTitle,
-            r.summary_title,
-            r.label
-          )
+          r.summaryLabel,
+          r.summary_label,
+          r.summary?.label,
+          r.summary?.title,
+          r.summaryTitle,
+          r.summary_title,
+          r.label
+        )
         : "";
       const defaultBilanLabel = summaryInfo.isBilan
         ? summaryInfo.scope === "monthly"
           ? "Bilan mensuel"
           : summaryInfo.scope === "weekly"
-          ? "Bilan hebdomadaire"
-          : summaryInfo.scope === "yearly"
-          ? "Bilan annuel"
-          : "Bilan"
+            ? "Bilan hebdomadaire"
+            : summaryInfo.scope === "yearly"
+              ? "Bilan annuel"
+              : "Bilan"
         : "";
       const summaryLabel = rawSummaryLabel || defaultBilanLabel;
       const summaryNoteLabel = summaryLabel
@@ -17217,10 +17266,10 @@ async function openHistory(ctx, consigne, options = {}) {
           ? summaryInfo.scope === "monthly"
             ? "Note de bilan mensuel"
             : summaryInfo.scope === "weekly"
-            ? "Note de bilan hebdomadaire"
-            : summaryInfo.scope === "yearly"
-            ? "Note de bilan annuel"
-            : "Note de bilan"
+              ? "Note de bilan hebdomadaire"
+              : summaryInfo.scope === "yearly"
+                ? "Note de bilan annuel"
+                : "Note de bilan"
           : summaryLabel
         : "";
       const noteClasses = ["history-panel__note"];
@@ -17380,15 +17429,15 @@ async function openHistory(ctx, consigne, options = {}) {
   const chartMarkup = renderHistoryChart(initialChartPoints, { type: consigne.type, mode: historySource });
   const consigneOptionsMarkup = hasDropdownSelection
     ? dropdownConsignes
-        .map((item) => {
-          const id = String(item?.id ?? "");
-          if (!id) return "";
-          const selected = id === String(consigne.id ?? "");
-          return `<option value="${escapeHtml(id)}"${selected ? " selected" : ""}>${escapeHtml(
-            safeConsigneLabel(item)
-          )}</option>`;
-        })
-        .join("")
+      .map((item) => {
+        const id = String(item?.id ?? "");
+        if (!id) return "";
+        const selected = id === String(consigne.id ?? "");
+        return `<option value="${escapeHtml(id)}"${selected ? " selected" : ""}>${escapeHtml(
+          safeConsigneLabel(item)
+        )}</option>`;
+      })
+      .join("")
     : "";
   const historyHeadingMarkup = hasDropdownSelection
     ? `Historique — <span class="history-panel__heading-select"><span class="sr-only">Choisir une consigne</span><select data-history-consigne aria-label="Choisir une consigne">${consigneOptionsMarkup}</select></span>`
@@ -17508,20 +17557,20 @@ async function openHistory(ctx, consigne, options = {}) {
         focusDayKey: dayKey,
         panelSummary: panelSummary
           ? {
-              summary: panelSummary,
-              responseId:
-                (typeof row.responseId === "string" && row.responseId.trim()) ||
-                (typeof row.response_id === "string" && row.response_id.trim()) ||
-                (typeof row.id === "string" && row.id.trim()) ||
-                (responseIdAttr && responseIdAttr.trim()) ||
-                "",
-              historyId:
-                (typeof row.historyId === "string" && row.historyId.trim()) ||
-                (typeof row.history_id === "string" && row.history_id.trim()) ||
-                (historyIdAttr && historyIdAttr.trim()) ||
-                "",
-              rawValue: row.value ?? null,
-            }
+            summary: panelSummary,
+            responseId:
+              (typeof row.responseId === "string" && row.responseId.trim()) ||
+              (typeof row.response_id === "string" && row.response_id.trim()) ||
+              (typeof row.id === "string" && row.id.trim()) ||
+              (responseIdAttr && responseIdAttr.trim()) ||
+              "",
+            historyId:
+              (typeof row.historyId === "string" && row.historyId.trim()) ||
+              (typeof row.history_id === "string" && row.history_id.trim()) ||
+              (historyIdAttr && historyIdAttr.trim()) ||
+              "",
+            rawValue: row.value ?? null,
+          }
           : null,
         entries: [],
       });
@@ -17550,7 +17599,7 @@ async function openHistory(ctx, consigne, options = {}) {
       if (resolveHistoryDocPromise) {
         try {
           await resolveHistoryDocPromise;
-        } catch (_) {}
+        } catch (_) { }
         resolveHistoryDocPromise = null;
       }
       return historyDocumentId;
@@ -17593,8 +17642,8 @@ async function openHistory(ctx, consigne, options = {}) {
         createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
           ? createdAt.toISOString()
           : typeof createdAtSource === 'string'
-          ? createdAtSource
-          : '',
+            ? createdAtSource
+            : '',
     };
     const syncTimelineAfterPanelChange = ({
       remove = false,
@@ -17648,7 +17697,7 @@ async function openHistory(ctx, consigne, options = {}) {
         } catch (_) {
           return Boolean(
             nextValue !== "" &&
-              !(typeof nextValue === "object" && Object.keys(nextValue || {}).length === 0),
+            !(typeof nextValue === "object" && Object.keys(nextValue || {}).length === 0),
           );
         }
       })();
@@ -17697,12 +17746,12 @@ async function openHistory(ctx, consigne, options = {}) {
           popPrefillDebugContext();
         }
         triggerConsigneRowUpdateHighlight(dailyRow);
-      } catch (_) {}
+      } catch (_) { }
     };
     const propagateDailyPrefillUpdate = (nextValue) => {
       try {
         updateDailyPrefillCacheForHistoryEdit(nextValue);
-      } catch (_) {}
+      } catch (_) { }
       const normalizedValue = nextValue === undefined ? null : nextValue;
       const context = {
         source: "history:propagateDailyPrefillUpdate",
@@ -17717,7 +17766,7 @@ async function openHistory(ctx, consigne, options = {}) {
         } else if (typeof applyDailyPrefillUpdate === "function") {
           applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue);
         }
-      } catch (_) {}
+      } catch (_) { }
       popPrefillDebugContext();
     };
     const labelForAttr3 = consigne.type === "checklist" ? "" : ` for="${fieldId}"`;
@@ -17762,7 +17811,7 @@ async function openHistory(ctx, consigne, options = {}) {
     // Initialize checklist behaviors and scoping for history inline editor
     try {
       initializeChecklistScope(overlay, { dateKey: dayKey });
-    } catch (_) {}
+    } catch (_) { }
     const form = overlay.querySelector('form');
     const cancelBtn = form?.querySelector('[data-cancel]');
     const clearBtn = form?.querySelector('[data-clear]');
@@ -17833,16 +17882,16 @@ async function openHistory(ctx, consigne, options = {}) {
           const targetDocId = await ensureHistoryDocumentId();
           await runWithAutoSaveSuppressed(consigne.id, dayKey, async () => {
             await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
-            try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
-            try { clearRecentResponsesForConsigne(consigne.id); } catch (e) {}
-            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) {}
+            try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) { }
+            try { clearRecentResponsesForConsigne(consigne.id); } catch (e) { }
+            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) { }
             syncTimelineAfterPanelChange({
               remove: true,
               historyId: targetDocId,
               responseId: responseSyncOptions?.responseId || "",
               keepPlaceholder: true,
             });
-            try { propagateDailyPrefillUpdate(null); } catch (_) {}
+            try { propagateDailyPrefillUpdate(null); } catch (_) { }
           });
           // Remove the item immediately in the UI for instant feedback
           try {
@@ -17860,16 +17909,16 @@ async function openHistory(ctx, consigne, options = {}) {
                 listEl.innerHTML = '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>';
               }
             }
-          } catch (_) {}
+          } catch (_) { }
           closeEditor();
           reopenHistory();
           // Clear local recent cache and notify global listeners so other views refresh
-          try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+          try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
           try {
             if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
               window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
             }
-          } catch (_) {}
+          } catch (_) { }
         } catch (error) {
           console.error('history-entry:clear', error);
           clearBtn.disabled = false;
@@ -17889,7 +17938,7 @@ async function openHistory(ctx, consigne, options = {}) {
         const targetDocId = await ensureHistoryDocumentId();
         if (isRawEmpty && !note) {
           // Do not delete implicitly on empty submit. Ask user to use "Effacer" instead.
-          try { showToast && showToast('Réponse vide non enregistrée. Utilise le bouton Effacer pour supprimer.'); } catch (_) {}
+          try { showToast && showToast('Réponse vide non enregistrée. Utilise le bouton Effacer pour supprimer.'); } catch (_) { }
           submitBtn.disabled = false;
           if (clearBtn) clearBtn.disabled = false;
           return;
@@ -17905,7 +17954,7 @@ async function openHistory(ctx, consigne, options = {}) {
             },
             responseSyncOptions
           );
-          try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) {}
+          try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) { }
           syncTimelineAfterPanelChange({
             remove: false,
             value: rawValue,
@@ -17913,17 +17962,17 @@ async function openHistory(ctx, consigne, options = {}) {
             historyId: targetDocId,
             responseId: responseSyncOptions?.responseId || "",
           });
-          try { propagateDailyPrefillUpdate(rawValue); } catch (_) {}
+          try { propagateDailyPrefillUpdate(rawValue); } catch (_) { }
         }
         closeEditor();
         reopenHistory();
         // Clear local recent cache and notify global listeners so other views refresh
-        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) {}
+        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
         try {
           if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
             window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
           }
-        } catch (_) {}
+        } catch (_) { }
       } catch (error) {
         console.error('history-entry:save', error);
         submitBtn.disabled = false;
@@ -19281,7 +19330,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       });
       return row;
     };
-
+ 
     const ensurePracticeLowContainer = () => {
       if (!form) {
         return { lowDetails: null, lowStack: null };
@@ -19306,7 +19355,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       }
       return { lowDetails, lowStack };
     };
-
+ 
     const updateLowPrioritySummary = () => {
       if (!form) return;
       const lowDetails = form.querySelector(".daily-category__low");
@@ -19322,7 +19371,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         ensurePracticePlaceholder();
       }
     };
-
+ 
     const createPracticeGroup = (nextConsigne) => {
       const wrapper = document.createElement("div");
       wrapper.className = "consigne-group";
@@ -19330,7 +19379,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       wrapper.appendChild(row);
       return { wrapper, row };
     };
-
+ 
     const upsertPracticeConsigneRow = (nextConsigne, action = "update") => {
       if (!nextConsigne || !form) return false;
       if (nextConsigne.parentId) return false;
@@ -19387,7 +19436,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       ensurePracticePlaceholder();
       return true;
     };
-
+ 
     practiceMutationListener = (event) => {
       const detail = event?.detail || {};
       if (!detail || detail.mode !== "practice") return;
@@ -19583,7 +19632,7 @@ async function renderPractice(ctx, root, _opts = {}) {
   modesLogger.groupEnd();
 }
 
-const DOW = ["DIM","LUN","MAR","MER","JEU","VEN","SAM"];
+const DOW = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
 const DAILY_ENTRY_TYPES = {
   DAY: "day",
   WEEKLY: "week",
@@ -19929,8 +19978,8 @@ function computeDailyPageContext({ date, dayKey } = {}) {
   const weekStart = weekStartDate && typeof Schema?.dayKeyFromDate === "function"
     ? Schema.dayKeyFromDate(weekStartDate)
     : weekStartDate
-    ? weekStartDate.toISOString().slice(0, 10)
-    : "";
+      ? weekStartDate.toISOString().slice(0, 10)
+      : "";
   const pageDayIndex = ((baseDate.getDay() + 6) % 7 + 7) % 7;
   const pageDate = modesToFirestoreTimestamp(baseDate);
   return {
@@ -20205,8 +20254,8 @@ function entryToQuery(entry, basePath, qp) {
     const viewValue = entry.type === DAILY_ENTRY_TYPES.WEEKLY
       ? "week"
       : entry.type === DAILY_ENTRY_TYPES.MONTHLY
-      ? "month"
-      : "year";
+        ? "month"
+        : "year";
     params.set("view", viewValue);
     const key = entryToDayKey(entry);
     if (key) {
@@ -20216,9 +20265,9 @@ function entryToQuery(entry, basePath, qp) {
   const search = params.toString();
   return `${basePath}${search ? `?${search}` : ""}`;
 }
-function dateForDayFromToday(label){
+function dateForDayFromToday(label) {
   const target = DOW.indexOf(label);
-  const today = new Date(); today.setHours(0,0,0,0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
   if (target < 0) return today;
   const cur = today.getDay(); // 0..6 (DIM=0)
   const delta = (target - cur + 7) % 7;
@@ -20226,9 +20275,9 @@ function dateForDayFromToday(label){
   d.setDate(d.getDate() + delta);
   return d;
 }
-function daysBetween(a,b){
-  const ms = (b.setHours(0,0,0,0), a.setHours(0,0,0,0), (b-a));
-  return Math.max(0, Math.round(ms/86400000));
+function daysBetween(a, b) {
+  const ms = (b.setHours(0, 0, 0, 0), a.setHours(0, 0, 0, 0), (b - a));
+  return Math.max(0, Math.round(ms / 86400000));
 }
 
 async function renderDaily(ctx, root, opts = {}) {
@@ -20257,12 +20306,12 @@ async function renderDaily(ctx, root, opts = {}) {
   const baseDate = explicitDate
     ? new Date(explicitDate.getTime())
     : requestedDay
-    ? (() => {
+      ? (() => {
         const d = dateForDayFromToday(requestedDay);
         d.setHours(0, 0, 0, 0);
         return d;
       })()
-    : toStartOfDay(new Date());
+      : toStartOfDay(new Date());
 
   if (baseDate) {
     selectedDate = new Date(baseDate.getTime());
@@ -20312,7 +20361,7 @@ async function renderDaily(ctx, root, opts = {}) {
       ctx.dateIso = nextIso;
       window.AppCtx.dateIso = nextIso;
     }
-  } catch (_) {}
+  } catch (_) { }
   const pageContext = computeDailyPageContext({ date: selectedDate, dayKey: selectedKey });
   modesLogger.group("screen.daily.render", {
     hash: ctx.route,
@@ -20410,11 +20459,11 @@ async function renderDaily(ctx, root, opts = {}) {
               <div class="space-y-2">
                 <label class="block text-sm font-medium">Jour du bilan hebdomadaire</label>
                 <select class="w-full" data-bilan-weekendson>
-                  ${[0,1,2,3,4,5,6].map((i)=>{
-                    const d=new Date(); d.setDate(d.getDate() + ((i - d.getDay() + 7)%7));
-                    const label = DAILY_WEEKDAY_FORMATTER.format(d);
-                    return `<option value="${i}">${escapeHtml(label)}</option>`;
-                  }).join("")}
+                  ${[0, 1, 2, 3, 4, 5, 6].map((i) => {
+      const d = new Date(); d.setDate(d.getDate() + ((i - d.getDay() + 7) % 7));
+      const label = DAILY_WEEKDAY_FORMATTER.format(d);
+      return `<option value="${i}">${escapeHtml(label)}</option>`;
+    }).join("")}
                 </select>
                 <p class="text-xs text-[var(--muted)]">Ce jour détermine quand le bilan hebdo apparaît dans l’onglet journalier et le jour du rappel hebdo.</p>
               </div>
@@ -20451,7 +20500,7 @@ async function renderDaily(ctx, root, opts = {}) {
     if (!summaryRoot) {
       modesLogger.groupEnd();
       if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
-        window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+        window.__appBadge.refresh(ctx.user?.uid).catch(() => { });
       }
       return;
     }
@@ -20461,7 +20510,7 @@ async function renderDaily(ctx, root, opts = {}) {
       summaryRoot.innerHTML = `<p class="text-sm text-[var(--muted)]">Module de bilan indisponible.</p>`;
       modesLogger.groupEnd();
       if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
-        window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+        window.__appBadge.refresh(ctx.user?.uid).catch(() => { });
       }
       return;
     }
@@ -20473,7 +20522,7 @@ async function renderDaily(ctx, root, opts = {}) {
     }
     modesLogger.groupEnd();
     if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
-      window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+      window.__appBadge.refresh(ctx.user?.uid).catch(() => { });
     }
     return;
   }
@@ -20484,7 +20533,7 @@ async function renderDaily(ctx, root, opts = {}) {
   try {
     objectivesDueToday = await Schema.listObjectivesDueOn(ctx.db, ctx.user.uid, selectedDate);
   } catch (e) {
-    try { modesLogger?.warn?.("daily.objectivesDue.load", e); } catch (_) {}
+    try { modesLogger?.warn?.("daily.objectivesDue.load", e); } catch (_) { }
     objectivesDueToday = [];
   }
   const interactiveConsignes = all.filter((c) => !c.summaryOnlyScope);
@@ -20779,7 +20828,7 @@ async function renderDaily(ctx, root, opts = {}) {
         dayKey,
         skipped: !!(pendingValue && typeof pendingValue === 'object' && pendingValue.skipped === true),
       });
-    } catch (_) {}
+    } catch (_) { }
     const savePromise = Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers);
     state.inFlightPromise = savePromise;
     autoSaveStates.set(consigneId, state);
@@ -20790,7 +20839,7 @@ async function renderDaily(ctx, root, opts = {}) {
             consigneId: consigne?.id ?? null,
             dayKey,
           });
-        } catch (_) {}
+        } catch (_) { }
         markAnswerAsSaved(consigne, pendingValue, pendingSerialized, normalizedSummary);
         if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
           try {
@@ -20808,7 +20857,7 @@ async function renderDaily(ctx, root, opts = {}) {
             dayKey,
             error: String(error && error.message || error) || "unknown",
           });
-        } catch (_) {}
+        } catch (_) { }
         notifyAutoSaveError();
         const retryDelay = Math.min(10000, Math.max(2000, resolveAutoSaveDelay(consigne) * 2));
         state.timeout = setTimeout(() => runAutoSave(consigneId), retryDelay);
@@ -20873,7 +20922,7 @@ async function renderDaily(ctx, root, opts = {}) {
     if (promise && typeof promise.then === "function") {
       try {
         await promise;
-      } catch (_) {}
+      } catch (_) { }
     } else if (state.inFlight) {
       await new Promise((resolve) => {
         const startedAt = Date.now();
@@ -21045,26 +21094,26 @@ async function renderDaily(ctx, root, opts = {}) {
       const canonicalTargetKey = canonicalInfo?.dayKey
         ? canonicalInfo.dayKey
         : typeof targetDayKey === "string" && targetDayKey.trim()
-        ? targetDayKey.trim()
-        : typeof dayKey === "string" && dayKey.trim()
-        ? dayKey.trim()
-        : "";
+          ? targetDayKey.trim()
+          : typeof dayKey === "string" && dayKey.trim()
+            ? dayKey.trim()
+            : "";
       const normalizedTarget = canonicalTargetKey
         ? normalizeHistoryDayKey(canonicalTargetKey)
         : normalizeHistoryDayKey(targetDayKey || dayKey || "");
-      try { observedValues.delete(consigneId); } catch (_) {}
-      try { previousAnswers.delete(consigneId); } catch (_) {}
-      try { removeRecentResponsesForDay(consigneId, canonicalTargetKey || normalizedTarget); } catch (_) {}
-      try { clearRecentResponsesForConsigne(consigneId); } catch (_) {}
+      try { observedValues.delete(consigneId); } catch (_) { }
+      try { previousAnswers.delete(consigneId); } catch (_) { }
+      try { removeRecentResponsesForDay(consigneId, canonicalTargetKey || normalizedTarget); } catch (_) { }
+      try { clearRecentResponsesForConsigne(consigneId); } catch (_) { }
 
       // Prevent autosave relaunch while clearing
       try {
         const scopeKey = resolveAutoSaveScopeKey(consigneId, normalizedTarget);
         suppressedAutoSaveScopes.add(scopeKey);
         setTimeout(() => suppressedAutoSaveScopes.delete(scopeKey), 1500);
-      } catch (_) {}
+      } catch (_) { }
       // Flush any pending autosave state for this consigne
-      try { if (typeof flushAutoSaveForConsigneImpl === "function") { flushAutoSaveForConsigneImpl(consigneId, normalizedTarget); } } catch (_) {}
+      try { if (typeof flushAutoSaveForConsigneImpl === "function") { flushAutoSaveForConsigneImpl(consigneId, normalizedTarget); } } catch (_) { }
 
       // Update DOM row
       try {
@@ -21082,7 +21131,7 @@ async function renderDaily(ctx, root, opts = {}) {
             delete dailyRow.dataset.skipAnswered;
             delete dailyRow.dataset.childAnswered;
             delete dailyRow.dataset.hasAnswer;
-          } catch (_) {}
+          } catch (_) { }
           // Also clear any restored skip/autosave footprint for this consigne in the enclosing form
           try {
             const form = dailyRow.closest && dailyRow.closest("form");
@@ -21097,19 +21146,19 @@ async function renderDaily(ctx, root, opts = {}) {
                 skipInput.dispatchEvent(new Event("change", { bubbles: true }));
               }
             }
-          } catch (_) {}
-          try { updateConsigneStatusUI(dailyRow, consigne, nextValue); } catch (_) {}
+          } catch (_) { }
+          try { updateConsigneStatusUI(dailyRow, consigne, nextValue); } catch (_) { }
           triggerConsigneRowUpdateHighlight(dailyRow);
         }
-      } catch (_) {}
+      } catch (_) { }
     };
     // Also expose on window for safety
     try {
       window.Modes = window.Modes || {};
       window.Modes.applyDailyPrefillUpdate = applyDailyPrefillUpdate;
       window.applyDailyPrefillUpdate = applyDailyPrefillUpdate;
-    } catch (_) {}
-  } catch (_) {}
+    } catch (_) { }
+  } catch (_) { }
 
   const handleValueChange = async (consigne, row, value, { serialized, summary, baseSerialized } = {}) => {
     const normalizedValue = normalizeConsigneValueForPersistence(consigne, row, value);
@@ -21127,78 +21176,78 @@ async function renderDaily(ctx, root, opts = {}) {
         hasContent,
         normalizedIsSkipped: !!(normalizedValue && typeof normalizedValue === 'object' && normalizedValue.skipped === true),
       });
-    } catch (_) {}
+    } catch (_) { }
 
-  // Persistance minimale en daily: créer une entrée d’historique au premier changement pour obtenir des IDs
-  try {
-    if (
-      DAILY_HISTORY_PERSIST_ON_CHANGE &&
-      hasContent &&
-      row &&
-      !(row?.dataset?.historyId || row?.dataset?.historyResponseId) &&
-      ctx?.db && ctx?.user?.uid && consigne?.id &&
-      typeof dayKey === "string" && dayKey.trim()
-    ) {
-      const targetDocId = dayKey.trim();
-      const responseSyncOptions = {
-        responseId: row?.dataset?.historyResponseId || "",
-        responseMode: "daily",
-        responseType: consigne.type,
-        responseDayKey: targetDocId,
-        responseCreatedAt: new Date().toISOString(),
-      };
-      Promise.resolve(
-        Schema.saveHistoryEntry(
-          ctx.db,
-          ctx.user.uid,
-          consigne.id,
-          targetDocId,
-          { value: normalizedValue },
-          responseSyncOptions,
-        ),
-      )
-        .then(() => {
-          // Propager l'identifiant sur la ligne et rafraîchir la timeline avec IDs
-          try { row.dataset.historyId = targetDocId; } catch (_) {}
-          try {
-        // Aligner la couleur de la pastille sur le calcul du dot (skip + checklist __hasAnswer)
-        const statusValueForTimeline = (() => {
-          try {
-            if (row?.dataset?.skipAnswered === "1") {
-              // Même logique que mapValueForStatus: si skip sans valeur propre, statut 'skipped'
-              return { skipped: true };
-            }
-            if (consigne.type === "checklist") {
-              const hasAnswer = hasChecklistResponse(consigne, row, normalizedValue);
-              const base = normalizedValue && typeof normalizedValue === "object" ? normalizedValue : {};
-              return { ...base, __hasAnswer: hasAnswer };
-            }
-          } catch (_) {}
-          return normalizedValue;
-        })();
-        const statusForTimeline = dotColor(consigne.type, statusValueForTimeline, consigne) || "na";
-            // IDs posés: notifier immédiatement les listeners pour une synchro instantanée
+    // Persistance minimale en daily: créer une entrée d’historique au premier changement pour obtenir des IDs
+    try {
+      if (
+        DAILY_HISTORY_PERSIST_ON_CHANGE &&
+        hasContent &&
+        row &&
+        !(row?.dataset?.historyId || row?.dataset?.historyResponseId) &&
+        ctx?.db && ctx?.user?.uid && consigne?.id &&
+        typeof dayKey === "string" && dayKey.trim()
+      ) {
+        const targetDocId = dayKey.trim();
+        const responseSyncOptions = {
+          responseId: row?.dataset?.historyResponseId || "",
+          responseMode: "daily",
+          responseType: consigne.type,
+          responseDayKey: targetDocId,
+          responseCreatedAt: new Date().toISOString(),
+        };
+        Promise.resolve(
+          Schema.saveHistoryEntry(
+            ctx.db,
+            ctx.user.uid,
+            consigne.id,
+            targetDocId,
+            { value: normalizedValue },
+            responseSyncOptions,
+          ),
+        )
+          .then(() => {
+            // Propager l'identifiant sur la ligne et rafraîchir la timeline avec IDs
+            try { row.dataset.historyId = targetDocId; } catch (_) { }
             try {
-              row.dispatchEvent(new CustomEvent("consigne-status-changed", {
-                detail: { status: statusForTimeline, value: normalizedValue, dayKey: targetDocId },
-              }));
-            } catch (_) {}
-            updateConsigneHistoryTimeline(row, statusForTimeline, {
-              consigne,
-              value: normalizedValue,
-              dayKey: targetDocId,
-              historyId: targetDocId,
-              responseId: responseSyncOptions.responseId || "",
-            });
-          } catch (_) {}
-        })
-        .catch((e) => {
-          try { console.warn("[daily] history.persist.onChange:save", e); } catch (_) {}
-        });
+              // Aligner la couleur de la pastille sur le calcul du dot (skip + checklist __hasAnswer)
+              const statusValueForTimeline = (() => {
+                try {
+                  if (row?.dataset?.skipAnswered === "1") {
+                    // Même logique que mapValueForStatus: si skip sans valeur propre, statut 'skipped'
+                    return { skipped: true };
+                  }
+                  if (consigne.type === "checklist") {
+                    const hasAnswer = hasChecklistResponse(consigne, row, normalizedValue);
+                    const base = normalizedValue && typeof normalizedValue === "object" ? normalizedValue : {};
+                    return { ...base, __hasAnswer: hasAnswer };
+                  }
+                } catch (_) { }
+                return normalizedValue;
+              })();
+              const statusForTimeline = dotColor(consigne.type, statusValueForTimeline, consigne) || "na";
+              // IDs posés: notifier immédiatement les listeners pour une synchro instantanée
+              try {
+                row.dispatchEvent(new CustomEvent("consigne-status-changed", {
+                  detail: { status: statusForTimeline, value: normalizedValue, dayKey: targetDocId },
+                }));
+              } catch (_) { }
+              updateConsigneHistoryTimeline(row, statusForTimeline, {
+                consigne,
+                value: normalizedValue,
+                dayKey: targetDocId,
+                historyId: targetDocId,
+                responseId: responseSyncOptions.responseId || "",
+              });
+            } catch (_) { }
+          })
+          .catch((e) => {
+            try { console.warn("[daily] history.persist.onChange:save", e); } catch (_) { }
+          });
+      }
+    } catch (e) {
+      try { console.warn("[daily] history.persist.onChange", e); } catch (_) { }
     }
-  } catch (e) {
-    try { console.warn("[daily] history.persist.onChange", e); } catch (_) {}
-  }
     if (!hasContent) {
       previousAnswers.delete(consigne.id);
       if (row) {
@@ -21238,7 +21287,7 @@ async function renderDaily(ctx, root, opts = {}) {
   };
 
   const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
-  const previous = previousAnswers.get(item.id);
+    const previous = previousAnswers.get(item.id);
     const previousHasValue = Boolean(
       previous && Object.prototype.hasOwnProperty.call(previous, "value"),
     );
@@ -21256,22 +21305,22 @@ async function renderDaily(ctx, root, opts = {}) {
         hasPrevValue = true;
       }
     }
-  // Neutraliser le prefill daily si aucun point d'historique ne correspond au jour courant
-  try {
-    const snapshot = collectConsigneTimelineSnapshot(item);
-    const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
-    const targetKey = normalizedCurrentDayKey || (typeof dayKey === "string" ? normalizeHistoryDayKey(dayKey) : "");
-    const hasTimelineMatch = targetKey
-      ? items.some((it) => {
+    // Neutraliser le prefill daily si aucun point d'historique ne correspond au jour courant
+    try {
+      const snapshot = collectConsigneTimelineSnapshot(item);
+      const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+      const targetKey = normalizedCurrentDayKey || (typeof dayKey === "string" ? normalizeHistoryDayKey(dayKey) : "");
+      const hasTimelineMatch = targetKey
+        ? items.some((it) => {
           const k = it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "");
           const hasId = Boolean((it && it.historyId) || (it && it.responseId));
           return k === targetKey && hasId;
         })
-      : false;
-    if (!hasTimelineMatch) {
-      hasPrevValue = false;
-    }
-  } catch (_) {}
+        : false;
+      if (!hasTimelineMatch) {
+        hasPrevValue = false;
+      }
+    } catch (_) { }
     const initialValue = hasPrevValue ? previous.value : null;
     const row = document.createElement("div");
     const tone = priorityTone(item.priority);
@@ -21360,7 +21409,7 @@ async function renderDaily(ctx, root, opts = {}) {
         if (wasSkipped) {
           setConsigneSkipState(row, item, true, { emitInputEvents: false, updateUI: true });
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     setupConsigneHistoryTimeline(row, item, ctx, { mode: "daily", dayKey });
     const previousSummary = normalizeSummaryMetadataInput(previous);
@@ -21514,9 +21563,9 @@ async function renderDaily(ctx, root, opts = {}) {
               at: "renderItemCard:post",
             });
           }
-        } catch (_) {}
+        } catch (_) { }
       });
-    } catch (_) {}
+    } catch (_) { }
 
     return row;
   };
@@ -21552,15 +21601,15 @@ async function renderDaily(ctx, root, opts = {}) {
         const targetKey = normalizedCurrentDayKey || (typeof dayKey === "string" ? normalizeHistoryDayKey(dayKey) : "");
         const hasTimelineMatch = targetKey
           ? items.some((it) => {
-              const k = it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "");
-              const hasId = Boolean((it && it.historyId) || (it && it.responseId));
-              return k === targetKey && hasId;
-            })
+            const k = it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "");
+            const hasId = Boolean((it && it.historyId) || (it && it.responseId));
+            return k === targetKey && hasId;
+          })
           : false;
         if (!hasTimelineMatch) {
           hasPrevValue = false;
         }
-      } catch (_) {}
+      } catch (_) { }
       const initialValue = hasPrevValue ? previous.value : null;
       const childRow = createHiddenConsigneRow(child, { initialValue });
       childRow.dataset.parentId = child.parentId || group.consigne.id || "";
@@ -22186,9 +22235,9 @@ async function renderDaily(ctx, root, opts = {}) {
                 existingEntryKey = candidateKey;
                 existingEntry = loaded;
                 break;
-            }
-          } catch (e) {
-              try { modesLogger?.warn?.("daily.objectivesDue.prefill", e); } catch (_) {}
+              }
+            } catch (e) {
+              try { modesLogger?.warn?.("daily.objectivesDue.prefill", e); } catch (_) { }
             }
           }
           const content = document.createElement('div');
@@ -22201,13 +22250,13 @@ async function renderDaily(ctx, root, opts = {}) {
               <div class="grid gap-2">
                 <label class="text-sm" for="${fieldId}">Réponse</label>
                 <select id="${fieldId}" class="practice-editor__select">
-                  <option value="" ${initialValue===''?'selected':''}>—</option>
-                  <option value="5" ${initialValue==='5'?'selected':''}>Oui</option>
-                  <option value="4" ${initialValue==='4'?'selected':''}>Plutôt oui</option>
-                  <option value="3" ${initialValue==='3'?'selected':''}>Neutre</option>
-                  <option value="2" ${initialValue==='2'?'selected':''}>Plutôt non</option>
-                  <option value="1" ${initialValue==='1'?'selected':''}>Non</option>
-                  <option value="0" ${initialValue==='0'?'selected':''}>Pas de réponse</option>
+                  <option value="" ${initialValue === '' ? 'selected' : ''}>—</option>
+                  <option value="5" ${initialValue === '5' ? 'selected' : ''}>Oui</option>
+                  <option value="4" ${initialValue === '4' ? 'selected' : ''}>Plutôt oui</option>
+                  <option value="3" ${initialValue === '3' ? 'selected' : ''}>Neutre</option>
+                  <option value="2" ${initialValue === '2' ? 'selected' : ''}>Plutôt non</option>
+                  <option value="1" ${initialValue === '1' ? 'selected' : ''}>Non</option>
+                  <option value="0" ${initialValue === '0' ? 'selected' : ''}>Pas de réponse</option>
                 </select>
               </div>
               <div class="flex justify-end gap-2">
@@ -22241,69 +22290,69 @@ async function renderDaily(ctx, root, opts = {}) {
                   modesLogger?.warn?.("daily.objectivesDue.cleanup", cleanupError);
                 }
               }
-            const periodInfo = computeObjectivePeriodInfo(obj, selectedDate);
-            if (periodInfo && periodInfo.scope && periodInfo.periodKey) {
-              const summaryKey = `objective__${obj.id}`;
-              const baseLabel = obj?.titre || obj?.title || obj?.name || obj?.id || "Objectif";
-              const metadata = {
-                start: periodInfo.start,
-                end: periodInfo.end,
-                label: periodInfo.periodLabel,
-                moduleId: "daily",
-                summaryPeriodKey: periodInfo.periodKey,
-                summaryPeriodLabel: periodInfo.periodLabel,
-                summaryScope: periodInfo.summaryScope,
-                extras: {
-                  summaryScope: periodInfo.summaryScope,
+              const periodInfo = computeObjectivePeriodInfo(obj, selectedDate);
+              if (periodInfo && periodInfo.scope && periodInfo.periodKey) {
+                const summaryKey = `objective__${obj.id}`;
+                const baseLabel = obj?.titre || obj?.title || obj?.name || obj?.id || "Objectif";
+                const metadata = {
+                  start: periodInfo.start,
+                  end: periodInfo.end,
+                  label: periodInfo.periodLabel,
+                  moduleId: "daily",
                   summaryPeriodKey: periodInfo.periodKey,
                   summaryPeriodLabel: periodInfo.periodLabel,
-                },
-              };
-              if (val === null || val === undefined) {
-                try {
-                  await Schema.deleteSummaryAnswer(
-                    ctx.db,
-                    ctx.user.uid,
-                    periodInfo.scope,
-                    periodInfo.periodKey,
-                    summaryKey,
-                    metadata,
-                  );
-                } catch (summaryDeleteError) {
-                  modesLogger?.warn?.("daily.objectivesDue.summaryDelete", summaryDeleteError);
-                }
-              } else {
-                try {
-                  const summaryValue = Schema.objectiveLikertLabelFromValue
-                    ? Schema.objectiveLikertLabelFromValue(val)
-                    : val;
-                  await Schema.saveSummaryAnswers(
-                    ctx.db,
-                    ctx.user.uid,
-                    periodInfo.scope,
-                    periodInfo.periodKey,
-                    [
-                      {
-                        key: summaryKey,
-                        consigneId: obj.id,
-                        family: "objective",
-                        type: obj.type || "likert6",
-                        value: summaryValue,
-                        summaryScope: periodInfo.summaryScope,
-                        summaryLabel: periodInfo.summaryLabel,
-                        label: baseLabel,
-                        category: "Objectifs",
-                        summaryPeriodKey: periodInfo.periodKey,
-                        summaryPeriodLabel: periodInfo.periodLabel,
-                      },
-                    ],
-                    metadata,
-                  );
-                } catch (summarySaveError) {
-                  modesLogger?.warn?.("daily.objectivesDue.summarySave", summarySaveError);
+                  summaryScope: periodInfo.summaryScope,
+                  extras: {
+                    summaryScope: periodInfo.summaryScope,
+                    summaryPeriodKey: periodInfo.periodKey,
+                    summaryPeriodLabel: periodInfo.periodLabel,
+                  },
+                };
+                if (val === null || val === undefined) {
+                  try {
+                    await Schema.deleteSummaryAnswer(
+                      ctx.db,
+                      ctx.user.uid,
+                      periodInfo.scope,
+                      periodInfo.periodKey,
+                      summaryKey,
+                      metadata,
+                    );
+                  } catch (summaryDeleteError) {
+                    modesLogger?.warn?.("daily.objectivesDue.summaryDelete", summaryDeleteError);
+                  }
+                } else {
+                  try {
+                    const summaryValue = Schema.objectiveLikertLabelFromValue
+                      ? Schema.objectiveLikertLabelFromValue(val)
+                      : val;
+                    await Schema.saveSummaryAnswers(
+                      ctx.db,
+                      ctx.user.uid,
+                      periodInfo.scope,
+                      periodInfo.periodKey,
+                      [
+                        {
+                          key: summaryKey,
+                          consigneId: obj.id,
+                          family: "objective",
+                          type: obj.type || "likert6",
+                          value: summaryValue,
+                          summaryScope: periodInfo.summaryScope,
+                          summaryLabel: periodInfo.summaryLabel,
+                          label: baseLabel,
+                          category: "Objectifs",
+                          summaryPeriodKey: periodInfo.periodKey,
+                          summaryPeriodLabel: periodInfo.periodLabel,
+                        },
+                      ],
+                      metadata,
+                    );
+                  } catch (summarySaveError) {
+                    modesLogger?.warn?.("daily.objectivesDue.summarySave", summarySaveError);
+                  }
                 }
               }
-            }
               applyObjectiveStatus(val);
               showToast('Réponse enregistrée.');
               close();
@@ -22329,7 +22378,7 @@ async function renderDaily(ctx, root, opts = {}) {
                 break;
               }
             } catch (e) {
-              try { modesLogger?.warn?.("daily.objectivesDue.initStatus", e); } catch (_) {}
+              try { modesLogger?.warn?.("daily.objectivesDue.initStatus", e); } catch (_) { }
             }
           }
           if (initialEntry && initialEntry.v !== undefined && initialEntry.v !== null) {
@@ -22338,7 +22387,7 @@ async function renderDaily(ctx, root, opts = {}) {
             applyObjectiveStatus(null);
           }
         } catch (e) {
-          try { modesLogger?.warn?.('daily.objectivesDue.initStatus', e); } catch (_) {}
+          try { modesLogger?.warn?.('daily.objectivesDue.initStatus', e); } catch (_) { }
         }
       })();
     });
@@ -22435,11 +22484,11 @@ async function renderDaily(ctx, root, opts = {}) {
 
   modesLogger.groupEnd();
   if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
-    window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
+    window.__appBadge.refresh(ctx.user?.uid).catch(() => { });
   }
 }
 
-function renderHistory() {}
+function renderHistory() { }
 
 async function openPracticeArchiveViewer(ctx) {
   if (!ctx?.db || !ctx?.user?.uid) {
