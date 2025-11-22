@@ -4950,7 +4950,9 @@ function setupRichTextEditor(root) {
       }
     }
     const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
+    console.log("[CHECKBOX DEBUG] Found", boxes.length, "checkboxes");
     boxes.forEach((box, index) => {
+      console.log(`[CHECKBOX DEBUG] Box ${index}: checked=${box.checked}, hasAttribute=${box.hasAttribute("checked")}`);
       ensureCheckboxWrapper(box);
       box.setAttribute("data-rich-checkbox-index", String(index));
       if (box.checked) {
@@ -4962,14 +4964,17 @@ function setupRichTextEditor(root) {
     ensureNotEmpty();
     const html = sanitizeHtml(content.innerHTML);
     const plain = toPlainText(html);
+    const checkboxStates = boxes.map((box) => Boolean(box.checked));
+    console.log("[CHECKBOX DEBUG] Checkbox states:", checkboxStates);
     const payload = {
       kind: "richtext",
       version: utils.version || RICH_TEXT_VERSION,
       html,
       text: plain,
-      checkboxes: boxes.map((box) => Boolean(box.checked)),
+      checkboxes: checkboxStates,
     };
     const serializedValue = JSON.stringify(payload);
+    console.log("[CHECKBOX DEBUG] Serialized:", serializedValue.substring(0, 200));
     if (content) {
       if (hasContent && hasContent(payload)) {
         content.removeAttribute("data-rich-text-empty");
