@@ -11754,6 +11754,10 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
   if (!overlay) {
     return;
   }
+  const richTextRoot = overlay.querySelector("[data-rich-text-root]");
+  if (richTextRoot) {
+    setupRichTextEditor(richTextRoot);
+  }
   initializeChecklistScope(overlay, { dateKey: resolvedDayKey, hydrate: false });
   if (consigne.type === "checklist") {
     requestAnimationFrame(() => {
