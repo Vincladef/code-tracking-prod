@@ -3526,7 +3526,9 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         submitBtn.disabled = true;
         if (clearBtn) clearBtn.disabled = true;
         try {
+          console.log("[DEBUG] Submit clicked. Form:", form);
           const rawValue = readValueFromForm(consigne, form);
+          console.log("[DEBUG] Read value from form:", rawValue);
           const note = (form.elements.note?.value || "").trim();
           const isRawEmpty = rawValue === "" || rawValue == null;
           if (isRawEmpty && !note) {
@@ -4444,7 +4446,11 @@ function renderRichTextInput(
 
 function setupRichTextEditor(root) {
   if (!(root instanceof HTMLElement)) return;
-  if (root.dataset.richTextReady === "1") return;
+  console.log("[DEBUG] setupRichTextEditor called for", root);
+  if (root.dataset.richTextReady === "1") {
+    console.log("[DEBUG] setupRichTextEditor already ready");
+    return;
+  }
 
   const utils = window.Modes?.richText || {};
   const content = root.querySelector("[data-rich-text-content]");
@@ -4977,6 +4983,7 @@ function setupRichTextEditor(root) {
       }
     }
     if (serializedValue === lastSerialized) return;
+    console.log("[DEBUG] Syncing value:", serializedValue);
     lastSerialized = serializedValue;
     hidden.value = serializedValue;
     if (hasContent) {
