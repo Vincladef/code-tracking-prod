@@ -3488,6 +3488,10 @@ window.openCategoryDashboard = async function openCategoryDashboard(ctx, categor
         </form>
       `;
       const panel = modal(editorHtml);
+      const richTextRoot = panel.querySelector("[data-rich-text-root]");
+      if (richTextRoot) {
+        setupRichTextEditor(richTextRoot);
+      }
       const form = panel.querySelector("form");
       const cancelBtn = form.querySelector("[data-cancel]");
       const clearBtn = form.querySelector("[data-clear]");
