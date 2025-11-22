@@ -9780,998 +9780,963 @@ function buildConsigneHistoryTimeline(entries, consigne) {
   }
   records.sort((a, b) => {
     if (typeof b.timestamp === "number" && typeof a.timestamp === "number" && b.timestamp !== a.timestamp) {
-      return b.timestamp - a.timestamp;
+      return CSS.escape(value);
     }
-    return (b.date?.getTime?.() || 0) - (a.date?.getTime?.() || 0);
-  });
-  const limited = records.slice(0, CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
-  const result = limited
-    .map((record) =>
-      formatConsigneHistoryPoint(
-        {
-          dayKey: record.dayKey,
-          date: record.date,
-          status: record.status,
-          value: record.value,
-          note: record.note,
-          timestamp: record.timestamp,
-          isPlaceholder: false,
-          isBilan: record.isBilan === true,
-          isSummary: record.isSummary === true,
-          summaryScope: typeof record.summaryScope === "string" ? record.summaryScope : "",
-          iterationIndex: record.iterationIndex,
-          iterationNumber: record.iterationNumber,
-          iterationLabel: record.iterationLabel,
-          historyId: record.historyId,
-          responseId: record.responseId,
-        },
-        consigne,
-      ),
-    )
-    .filter(Boolean);
-
-  return result;
-}
-
-function escapeTimelineSelector(value) {
-  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
-    return CSS.escape(value);
+    return String(value).replace(/"/g, '\\"');
   }
-  return String(value).replace(/"/g, '\\"');
-}
 
 function ensureConsigneHistoryDot(item) {
-  if (!item) return null;
-  let dot = item.querySelector(".consigne-history__dot");
-  if (!dot) {
-    dot = document.createElement("span");
-    dot.className = "consigne-history__dot consigne-row__dot";
-    item.insertBefore(dot, item.firstChild || null);
-  }
-  return dot;
-}
+      if (!item) return null;
+      let dot = item.querySelector(".consigne-history__dot");
+      if (!dot) {
+        dot = document.createElement("span");
+        dot.className = "consigne-history__dot consigne-row__dot";
+        item.insertBefore(dot, item.firstChild || null);
+      }
+      return dot;
+    }
 
 function ensureConsigneHistorySr(item) {
-  if (!item) return null;
-  let sr = item.querySelector(".sr-only");
-  if (!sr) {
-    sr = document.createElement("span");
-    sr.className = "sr-only";
-    item.appendChild(sr);
-  }
-  return sr;
-}
+      if (!item) return null;
+      let sr = item.querySelector(".sr-only");
+      if (!sr) {
+        sr = document.createElement("span");
+        sr.className = "sr-only";
+        item.appendChild(sr);
+      }
+      return sr;
+    }
 
 function ensureConsigneHistoryMeta(item) {
-  if (!item) return null;
-  const sr = ensureConsigneHistorySr(item);
-  let meta = item.querySelector(".consigne-history__meta");
-  if (!meta) {
-    meta = document.createElement("span");
-    meta.className = "consigne-history__meta";
-    if (sr && sr.parentNode === item) {
-      item.insertBefore(meta, sr);
-    } else {
-      item.appendChild(meta);
+      if (!item) return null;
+      const sr = ensureConsigneHistorySr(item);
+      let meta = item.querySelector(".consigne-history__meta");
+      if (!meta) {
+        meta = document.createElement("span");
+        meta.className = "consigne-history__meta";
+        if (sr && sr.parentNode === item) {
+          item.insertBefore(meta, sr);
+        } else {
+          item.appendChild(meta);
+        }
+      }
+      return meta;
     }
-  }
-  return meta;
-}
 
 function ensureConsigneHistoryLabel(meta) {
-  if (!meta) return null;
-  let label = meta.querySelector(".consigne-history__label");
-  if (!label) {
-    label = document.createElement("span");
-    label.className = "consigne-history__label";
-    meta.appendChild(label);
-  }
-  return label;
-}
+      if (!meta) return null;
+      let label = meta.querySelector(".consigne-history__label");
+      if (!label) {
+        label = document.createElement("span");
+        label.className = "consigne-history__label";
+        meta.appendChild(label);
+      }
+      return label;
+    }
 
 function ensureConsigneHistoryWeekday(meta) {
-  if (!meta) return null;
-  let weekday = meta.querySelector(".consigne-history__weekday");
-  if (!weekday) {
-    weekday = document.createElement("span");
-    weekday.className = "consigne-history__weekday";
-    meta.appendChild(weekday);
-  }
-  return weekday;
-}
+      if (!meta) return null;
+      let weekday = meta.querySelector(".consigne-history__weekday");
+      if (!weekday) {
+        weekday = document.createElement("span");
+        weekday.className = "consigne-history__weekday";
+        meta.appendChild(weekday);
+      }
+      return weekday;
+    }
 
 function applyConsigneHistoryPoint(item, point) {
-  if (!item || !point) {
-    return;
-  }
-  try {
-    modesLogger?.debug?.("timeline.apply", {
-      incomingDayKey: point?.dayKey || null,
-      incomingLabel: point?.label || "",
-      incomingWeekday: point?.weekdayLabel || "",
-      status: point?.status || "",
-    });
-  } catch (_) { }
-  if (point.dayKey) {
-    item.dataset.historyDay = point.dayKey;
-  } else {
-    delete item.dataset.historyDay;
-  }
-  // Remove dateIso dataset - we only use historyDay (page date)
-  delete item.dataset.dateIso;
-  const status = point.status || "na";
-  item.dataset.status = status;
-  item.dataset.placeholder = point.isPlaceholder ? "1" : "0";
-  item.tabIndex = 0;
-  // Tag scope to allow styling (weekly/monthly/yearly) for bilan points
-  try {
-    const scope = typeof point.summaryScope === "string" ? point.summaryScope.trim() : "";
-    if (scope) {
-      item.dataset.summaryScope = scope;
-    } else {
-      delete item.dataset.summaryScope;
-    }
-  } catch (_) { }
-  const dot = ensureConsigneHistoryDot(item);
-  if (dot) {
-    dot.className = `consigne-history__dot consigne-row__dot consigne-row__dot--${status}`;
-    dot.textContent = "";
-    dot.setAttribute("aria-hidden", "true");
-  }
-  const sr = ensureConsigneHistorySr(item);
-  const srText = point.srLabel || point.title || STATUS_LABELS[status] || status;
-  if (sr) {
-    sr.textContent = srText;
-  }
-  const meta = ensureConsigneHistoryMeta(item);
-  if (meta) {
-    const labelEl = ensureConsigneHistoryLabel(meta);
-    const weekdayEl = ensureConsigneHistoryWeekday(meta);
-    if (labelEl) {
-      labelEl.textContent = point.label || "";
-      labelEl.hidden = !point.label;
-    }
-    if (weekdayEl) {
-      weekdayEl.textContent = point.weekdayLabel || "";
-      weekdayEl.hidden = !point.weekdayLabel;
-    }
-    meta.hidden = !point.label && !point.weekdayLabel;
-
-    const hasRecordedDate = point.date instanceof Date && !Number.isNaN(point.date.getTime());
-    if (!hasRecordedDate) {
-      // Legacy fallback: derive label from dayKey when no recorded date is available
+      if (!item || !point) {
+        return;
+      }
       try {
-        const dayKey = (point.dayKey && String(point.dayKey)) || (item.dataset && item.dataset.historyDay) || "";
-        if (dayKey) {
-          let newLabel = "";
-          let newWeekday = "";
-          let useIteration = false;
-          if (point?.details?.isPractice === true || (typeof point?.label === "string" && point.label.trim() && /session-/i.test(dayKey))) {
-            useIteration = true;
-          }
-          if (!useIteration) {
-            const sessionMatch = /session-(\d+)/i.exec(dayKey);
-            if (sessionMatch) {
-              const n = Number.parseInt(sessionMatch[1], 10);
-              if (Number.isFinite(n) && n > 0) {
-                newLabel = String(n);
-                newWeekday = "";
+        modesLogger?.debug?.("timeline.apply", {
+          incomingDayKey: point?.dayKey || null,
+          incomingLabel: point?.label || "",
+          incomingWeekday: point?.weekdayLabel || "",
+          status: point?.status || "",
+        });
+      } catch (_) { }
+      if (point.dayKey) {
+        item.dataset.historyDay = point.dayKey;
+      } else {
+        delete item.dataset.historyDay;
+      }
+      // Remove dateIso dataset - we only use historyDay (page date)
+      delete item.dataset.dateIso;
+      const status = point.status || "na";
+      item.dataset.status = status;
+      item.dataset.placeholder = point.isPlaceholder ? "1" : "0";
+      item.tabIndex = 0;
+      // Tag scope to allow styling (weekly/monthly/yearly) for bilan points
+      try {
+        const scope = typeof point.summaryScope === "string" ? point.summaryScope.trim() : "";
+        if (scope) {
+          item.dataset.summaryScope = scope;
+        } else {
+          delete item.dataset.summaryScope;
+        }
+      } catch (_) { }
+      const dot = ensureConsigneHistoryDot(item);
+      if (dot) {
+        dot.className = `consigne-history__dot consigne-row__dot consigne-row__dot--${status}`;
+        dot.textContent = "";
+        dot.setAttribute("aria-hidden", "true");
+      }
+      const sr = ensureConsigneHistorySr(item);
+      const srText = point.srLabel || point.title || STATUS_LABELS[status] || status;
+      if (sr) {
+        sr.textContent = srText;
+      }
+      const meta = ensureConsigneHistoryMeta(item);
+      if (meta) {
+        const labelEl = ensureConsigneHistoryLabel(meta);
+        const weekdayEl = ensureConsigneHistoryWeekday(meta);
+        if (labelEl) {
+          labelEl.textContent = point.label || "";
+          labelEl.hidden = !point.label;
+        }
+        if (weekdayEl) {
+          weekdayEl.textContent = point.weekdayLabel || "";
+          weekdayEl.hidden = !point.weekdayLabel;
+        }
+        meta.hidden = !point.label && !point.weekdayLabel;
+
+        const hasRecordedDate = point.date instanceof Date && !Number.isNaN(point.date.getTime());
+        if (!hasRecordedDate) {
+          // Legacy fallback: derive label from dayKey when no recorded date is available
+          try {
+            const dayKey = (point.dayKey && String(point.dayKey)) || (item.dataset && item.dataset.historyDay) || "";
+            if (dayKey) {
+              let newLabel = "";
+              let newWeekday = "";
+              let useIteration = false;
+              if (point?.details?.isPractice === true || (typeof point?.label === "string" && point.label.trim() && /session-/i.test(dayKey))) {
+                useIteration = true;
               }
-            } else {
-              const parsed = modesParseDayKeyToDate(dayKey);
-              if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
-                newLabel = formatHistoryDayLabel(parsed);
-                newWeekday = formatHistoryWeekdayLabel(parsed);
-                const long = formatHistoryDayFullLabel(parsed);
-                const statusLabel = STATUS_LABELS[status] || status;
-                const computedTitle = long ? `${long} — ${statusLabel}` : statusLabel;
-                if (computedTitle) {
-                  item.title = computedTitle;
-                  if (sr) sr.textContent = computedTitle;
+              if (!useIteration) {
+                const sessionMatch = /session-(\d+)/i.exec(dayKey);
+                if (sessionMatch) {
+                  const n = Number.parseInt(sessionMatch[1], 10);
+                  if (Number.isFinite(n) && n > 0) {
+                    newLabel = String(n);
+                    newWeekday = "";
+                  }
+                } else {
+                  const parsed = modesParseDayKeyToDate(dayKey);
+                  if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+                    newLabel = formatHistoryDayLabel(parsed);
+                    newWeekday = formatHistoryWeekdayLabel(parsed);
+                    const long = formatHistoryDayFullLabel(parsed);
+                    const statusLabel = STATUS_LABELS[status] || status;
+                    const computedTitle = long ? `${long} — ${statusLabel}` : statusLabel;
+                    if (computedTitle) {
+                      item.title = computedTitle;
+                      if (sr) sr.textContent = computedTitle;
+                    }
+                  }
                 }
               }
+              if (labelEl && newLabel) {
+                labelEl.textContent = newLabel;
+                labelEl.hidden = false;
+              }
+              if (weekdayEl) {
+                weekdayEl.textContent = newWeekday || "";
+                weekdayEl.hidden = !newWeekday;
+              }
+              meta.hidden = !(labelEl && labelEl.textContent) && !(weekdayEl && weekdayEl.textContent);
+              try {
+                modesLogger?.debug?.("timeline.hard-render", {
+                  dayKey,
+                  pointLabel: point.label || "",
+                  appliedLabel: labelEl?.textContent || "",
+                  appliedWeekday: weekdayEl?.textContent || "",
+                  status,
+                });
+              } catch (_) { }
             }
-          }
-          if (labelEl && newLabel) {
-            labelEl.textContent = newLabel;
-            labelEl.hidden = false;
-          }
-          if (weekdayEl) {
-            weekdayEl.textContent = newWeekday || "";
-            weekdayEl.hidden = !newWeekday;
-          }
-          meta.hidden = !(labelEl && labelEl.textContent) && !(weekdayEl && weekdayEl.textContent);
-          try {
-            modesLogger?.debug?.("timeline.hard-render", {
-              dayKey,
-              pointLabel: point.label || "",
-              appliedLabel: labelEl?.textContent || "",
-              appliedWeekday: weekdayEl?.textContent || "",
-              status,
-            });
           } catch (_) { }
         }
-      } catch (_) { }
+      }
+      if (point.isBilan) {
+        item.dataset.historySource = "bilan";
+        if (dot) {
+          dot.className = "consigne-history__dot consigne-history__dot--bilan";
+          dot.textContent = "★";
+        }
+      } else if (point.isSummary) {
+        item.dataset.historySource = "summary";
+        if (dot) {
+          dot.textContent = "";
+        }
+      } else {
+        if (item.dataset) {
+          delete item.dataset.historySource;
+        }
+        if (dot) {
+          dot.textContent = "";
+        }
+      }
+      const details = point.details || null;
+      if (details) {
+        const detailCopy = { ...details };
+        if (!detailCopy.historyId && point.historyId) {
+          detailCopy.historyId = point.historyId;
+        }
+        if (!detailCopy.responseId && point.responseId) {
+          detailCopy.responseId = point.responseId;
+        }
+        item._historyDetails = detailCopy;
+        item.dataset.historyHasDetails = details.hasContent ? "1" : "0";
+        item.setAttribute("aria-haspopup", "dialog");
+      } else {
+        delete item._historyDetails;
+        item.dataset.historyHasDetails = "0";
+        item.setAttribute("aria-haspopup", "dialog");
+      }
+      if (point.historyId) {
+        item.dataset.historyId = point.historyId;
+      } else {
+        delete item.dataset.historyId;
+      }
+      if (point.responseId) {
+        item.dataset.historyResponseId = point.responseId;
+      } else {
+        delete item.dataset.historyResponseId;
+      }
+      if (point.title) {
+        item.title = point.title;
+      } else {
+        item.removeAttribute("title");
+      }
+      const ariaParts = [];
+      const fullLabel = item.title || details?.fullDateLabel || point.title || "";
+      if (fullLabel) {
+        ariaParts.push(fullLabel);
+      }
+      const statusLabel = details?.statusLabel || STATUS_LABELS[status] || "";
+      if (statusLabel) {
+        ariaParts.push(statusLabel);
+      }
+      if (ariaParts.length) {
+        item.setAttribute("aria-label", ariaParts.join(" — "));
+      } else {
+        item.removeAttribute("aria-label");
+      }
     }
-  }
-  if (point.isBilan) {
-    item.dataset.historySource = "bilan";
-    if (dot) {
-      dot.className = "consigne-history__dot consigne-history__dot--bilan";
-      dot.textContent = "★";
-    }
-  } else if (point.isSummary) {
-    item.dataset.historySource = "summary";
-    if (dot) {
-      dot.textContent = "";
-    }
-  } else {
-    if (item.dataset) {
-      delete item.dataset.historySource;
-    }
-    if (dot) {
-      dot.textContent = "";
-    }
-  }
-  const details = point.details || null;
-  if (details) {
-    const detailCopy = { ...details };
-    if (!detailCopy.historyId && point.historyId) {
-      detailCopy.historyId = point.historyId;
-    }
-    if (!detailCopy.responseId && point.responseId) {
-      detailCopy.responseId = point.responseId;
-    }
-    item._historyDetails = detailCopy;
-    item.dataset.historyHasDetails = details.hasContent ? "1" : "0";
-    item.setAttribute("aria-haspopup", "dialog");
-  } else {
-    delete item._historyDetails;
-    item.dataset.historyHasDetails = "0";
-    item.setAttribute("aria-haspopup", "dialog");
-  }
-  if (point.historyId) {
-    item.dataset.historyId = point.historyId;
-  } else {
-    delete item.dataset.historyId;
-  }
-  if (point.responseId) {
-    item.dataset.historyResponseId = point.responseId;
-  } else {
-    delete item.dataset.historyResponseId;
-  }
-  if (point.title) {
-    item.title = point.title;
-  } else {
-    item.removeAttribute("title");
-  }
-  const ariaParts = [];
-  const fullLabel = item.title || details?.fullDateLabel || point.title || "";
-  if (fullLabel) {
-    ariaParts.push(fullLabel);
-  }
-  const statusLabel = details?.statusLabel || STATUS_LABELS[status] || "";
-  if (statusLabel) {
-    ariaParts.push(statusLabel);
-  }
-  if (ariaParts.length) {
-    item.setAttribute("aria-label", ariaParts.join(" — "));
-  } else {
-    item.removeAttribute("aria-label");
-  }
-}
 
 function computeConsigneHistoryScrollStep(viewport) {
-  if (!viewport) {
-    return CONSIGNE_HISTORY_SCROLL_MIN_STEP;
-  }
-  const width = viewport.clientWidth || 0;
-  if (width <= 0) {
-    return CONSIGNE_HISTORY_SCROLL_MIN_STEP;
-  }
-  const ratioStep = Math.round(width * 0.8);
-  return Math.max(CONSIGNE_HISTORY_SCROLL_MIN_STEP, ratioStep);
-}
+      if (!viewport) {
+        return CONSIGNE_HISTORY_SCROLL_MIN_STEP;
+      }
+      const width = viewport.clientWidth || 0;
+      if (width <= 0) {
+        return CONSIGNE_HISTORY_SCROLL_MIN_STEP;
+      }
+      const ratioStep = Math.round(width * 0.8);
+      return Math.max(CONSIGNE_HISTORY_SCROLL_MIN_STEP, ratioStep);
+    }
 
 function updateConsigneHistoryNavState(state) {
-  if (!state) {
-    return;
-  }
-  const { viewport, navPrev, navNext, container } = state;
-  if (!viewport || (!navPrev && !navNext)) {
-    return;
-  }
-  const containerHidden = container?.hidden === true;
-  const scrollWidth = viewport.scrollWidth || 0;
-  const clientWidth = viewport.clientWidth || 0;
-  const widthDelta = Math.round(scrollWidth) - Math.round(clientWidth);
-  const maxScrollRaw = Math.max(0, scrollWidth - clientWidth);
-  const maxScroll = Math.max(0, Math.round(maxScrollRaw));
-  const normalizedScrollLeft = Math.round(viewport.scrollLeft || 0);
-  const hasOverflow = !containerHidden && widthDelta > CONSIGNE_HISTORY_SCROLL_EPSILON;
-  const atStart = normalizedScrollLeft <= CONSIGNE_HISTORY_SCROLL_EPSILON;
-  const atEnd = normalizedScrollLeft >= maxScroll - CONSIGNE_HISTORY_SCROLL_EPSILON;
-  if (navPrev) {
-    const showPrev = hasOverflow && !atStart;
-    navPrev.hidden = !showPrev;
-    navPrev.disabled = !showPrev;
-  }
-  if (navNext) {
-    const showNext = hasOverflow && !atEnd;
-    navNext.hidden = !showNext;
-    navNext.disabled = !showNext;
-  }
-}
+      if (!state) {
+        return;
+      }
+      const { viewport, navPrev, navNext, container } = state;
+      if (!viewport || (!navPrev && !navNext)) {
+        return;
+      }
+      const containerHidden = container?.hidden === true;
+      const scrollWidth = viewport.scrollWidth || 0;
+      const clientWidth = viewport.clientWidth || 0;
+      const widthDelta = Math.round(scrollWidth) - Math.round(clientWidth);
+      const maxScrollRaw = Math.max(0, scrollWidth - clientWidth);
+      const maxScroll = Math.max(0, Math.round(maxScrollRaw));
+      const normalizedScrollLeft = Math.round(viewport.scrollLeft || 0);
+      const hasOverflow = !containerHidden && widthDelta > CONSIGNE_HISTORY_SCROLL_EPSILON;
+      const atStart = normalizedScrollLeft <= CONSIGNE_HISTORY_SCROLL_EPSILON;
+      const atEnd = normalizedScrollLeft >= maxScroll - CONSIGNE_HISTORY_SCROLL_EPSILON;
+      if (navPrev) {
+        const showPrev = hasOverflow && !atStart;
+        navPrev.hidden = !showPrev;
+        navPrev.disabled = !showPrev;
+      }
+      if (navNext) {
+        const showNext = hasOverflow && !atEnd;
+        navNext.hidden = !showNext;
+        navNext.disabled = !showNext;
+      }
+    }
 
 function setupConsigneHistoryNavigation(state) {
-  if (!state) {
-    return;
-  }
-  const { viewport, navPrev, navNext } = state;
-  state.updateNavState = () => updateConsigneHistoryNavState(state);
-  if (!viewport) {
-    return;
-  }
-  const handleScroll = () => state.updateNavState();
-  viewport.addEventListener("scroll", handleScroll, { passive: true });
-  state.viewportScrollHandler = handleScroll;
-  if (navPrev) {
-    navPrev.addEventListener("click", (event) => {
-      event.preventDefault();
-      const step = computeConsigneHistoryScrollStep(viewport);
-      try {
-        viewport.scrollBy({ left: -step, behavior: "smooth" });
-      } catch (_) {
-        viewport.scrollLeft = Math.max(0, viewport.scrollLeft - step);
+      if (!state) {
+        return;
+      }
+      const { viewport, navPrev, navNext } = state;
+      state.updateNavState = () => updateConsigneHistoryNavState(state);
+      if (!viewport) {
+        return;
+      }
+      const handleScroll = () => state.updateNavState();
+      viewport.addEventListener("scroll", handleScroll, { passive: true });
+      state.viewportScrollHandler = handleScroll;
+      if (navPrev) {
+        navPrev.addEventListener("click", (event) => {
+          event.preventDefault();
+          const step = computeConsigneHistoryScrollStep(viewport);
+          try {
+            viewport.scrollBy({ left: -step, behavior: "smooth" });
+          } catch (_) {
+            viewport.scrollLeft = Math.max(0, viewport.scrollLeft - step);
+          }
+          state.updateNavState();
+        });
+      }
+      if (navNext) {
+        navNext.addEventListener("click", (event) => {
+          event.preventDefault();
+          const step = computeConsigneHistoryScrollStep(viewport);
+          try {
+            viewport.scrollBy({ left: step, behavior: "smooth" });
+          } catch (_) {
+            const maxScroll = Math.max(0, (viewport.scrollWidth || 0) - (viewport.clientWidth || 0));
+            viewport.scrollLeft = Math.min(viewport.scrollLeft + step, maxScroll);
+          }
+          state.updateNavState();
+        });
+      }
+      if (typeof ResizeObserver === "function") {
+        try {
+          const resizeObserver = new ResizeObserver(() => state.updateNavState());
+          resizeObserver.observe(viewport);
+          if (state.track) {
+            resizeObserver.observe(state.track);
+          }
+          state.resizeObserver = resizeObserver;
+        } catch (_) { }
       }
       state.updateNavState();
-    });
-  }
-  if (navNext) {
-    navNext.addEventListener("click", (event) => {
-      event.preventDefault();
-      const step = computeConsigneHistoryScrollStep(viewport);
-      try {
-        viewport.scrollBy({ left: step, behavior: "smooth" });
-      } catch (_) {
-        const maxScroll = Math.max(0, (viewport.scrollWidth || 0) - (viewport.clientWidth || 0));
-        viewport.scrollLeft = Math.min(viewport.scrollLeft + step, maxScroll);
-      }
-      state.updateNavState();
-    });
-  }
-  if (typeof ResizeObserver === "function") {
-    try {
-      const resizeObserver = new ResizeObserver(() => state.updateNavState());
-      resizeObserver.observe(viewport);
-      if (state.track) {
-        resizeObserver.observe(state.track);
-      }
-      state.resizeObserver = resizeObserver;
-    } catch (_) { }
-  }
-  state.updateNavState();
-}
+    }
 
 function scheduleConsigneHistoryNavUpdate(state) {
-  if (!state?.updateNavState) {
-    return;
-  }
-  if (typeof requestAnimationFrame === "function") {
-    requestAnimationFrame(state.updateNavState);
-  } else {
-    setTimeout(state.updateNavState, 0);
-  }
-}
+      if (!state?.updateNavState) {
+        return;
+      }
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(state.updateNavState);
+      } else {
+        setTimeout(state.updateNavState, 0);
+      }
+    }
 
 const BILAN_HISTORY_DAY_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
-  weekday: "long",
-  day: "2-digit",
-  month: "long",
-});
-
-function capitalizeFirstLetter(value) {
-  if (typeof value !== "string" || !value.length) {
-    return value;
-  }
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function formatBilanHistoryDateLabel(date, fallback) {
-  if (date instanceof Date && !Number.isNaN(date.getTime())) {
-    return capitalizeFirstLetter(BILAN_HISTORY_DAY_FORMATTER.format(date));
-  }
-  return fallback || "";
-}
-
-function computeRelativeHistoryLabel(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    return "";
-  }
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const base = new Date(date.getTime());
-  base.setHours(0, 0, 0, 0);
-  const diffDays = Math.round((today.getTime() - base.getTime()) / 86400000);
-  if (diffDays === 0) return "Aujourd’hui";
-  if (diffDays === 1) return "Hier";
-  if (diffDays > 1 && diffDays < 7) return `Il y a ${diffDays} j`;
-  if (diffDays < 0) {
-    const future = Math.abs(diffDays);
-    if (future === 1) return "Demain";
-    if (future < 7) return `Dans ${future} j`;
-  }
-  return "";
-}
-
-function normalizeHistoryDayKey(value) {
-  const canonical = canonicalDayKeyFromValue(value);
-  if (canonical?.dayKey) {
-    if (canonical.isSession) {
-      return canonical.dayKey.trim().toLowerCase();
-    }
-    return canonical.dayKey.trim();
-  }
-  if (typeof value === "string") {
-    return value.trim().toLowerCase();
-  }
-  if (value instanceof Date || typeof value === "number") {
-    const fallback = canonicalDayKeyFromValue(value);
-    if (fallback?.dayKey) {
-      return fallback.isSession ? fallback.dayKey.trim().toLowerCase() : fallback.dayKey.trim();
-    }
-  }
-  return "";
-}
-
-function resolveHistoryDocumentId(entry, fallback) {
-  if (entry && typeof entry === "object") {
-    const candidates = [
-      entry.id,
-      entry.historyId,
-      entry.history_id,
-      entry.documentId,
-      entry.document_id,
-      entry.docId,
-      entry.doc_id,
-    ];
-    for (const candidate of candidates) {
-      if (typeof candidate === "string") {
-        const trimmed = candidate.trim();
-        if (trimmed) {
-          return trimmed;
-        }
-      }
-    }
-  }
-  if (typeof fallback === "string" && fallback.trim()) {
-    return fallback.trim();
-  }
-  return "";
-}
-
-function resolveHistoryResponseId(entry, fallback = "") {
-  if (entry && typeof entry === "object") {
-    const candidates = [
-      entry.responseId,
-      entry.response_id,
-      entry.responseDocId,
-      entry.response_doc_id,
-      entry.responseRef,
-      entry.response_ref,
-    ];
-    for (const candidate of candidates) {
-      if (typeof candidate === "string") {
-        const trimmed = candidate.trim();
-        if (trimmed) {
-          return trimmed;
-        }
-      }
-    }
-    if (entry.metadata && typeof entry.metadata === "object") {
-      const metaResolved = resolveHistoryResponseId(entry.metadata);
-      if (metaResolved) {
-        return metaResolved;
-      }
-    }
-  }
-  if (typeof fallback === "string" && fallback.trim()) {
-    return fallback.trim();
-  }
-  return "";
-}
-
-function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
-  if (!Array.isArray(entries) || !dayKey) {
-    return null;
-  }
-  const normalizedTarget = normalizeHistoryDayKey(dayKey);
-  const allowSummaries = options.allowSummaries === true;
-  const responseTarget =
-    typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
-  const historyTarget =
-    typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
-  const debugLabel = typeof options.debug === "string" ? options.debug : "";
-  const expectedSummary =
-    consigne?.type === "checklist" && options.expectedSummary && typeof options.expectedSummary === "object"
-      ? options.expectedSummary
-      : null;
-
-  const scoredMatches = [];
-
-  entries.forEach((entry) => {
-    if (!entry || typeof entry !== "object") {
-      return;
-    }
-    const keyInfo = resolveHistoryTimelineKey(entry, consigne);
-    const candidateKey = normalizeHistoryDayKey(keyInfo?.dayKey);
-    const resolvedHistoryId = resolveHistoryDocumentId(entry, keyInfo?.dayKey || dayKey || candidateKey || "");
-    const resolvedResponseId = resolveHistoryResponseId(entry);
-    const checklistSummary =
-      consigne?.type === "checklist" ? summarizeChecklistValue(entry?.value) : null;
-    const timestamp =
-      typeof keyInfo?.timestamp === "number"
-        ? keyInfo.timestamp
-        : keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime())
-          ? keyInfo.date.getTime()
-          : Date.now();
-
-    const historyMatch = historyTarget && resolvedHistoryId && resolvedHistoryId === historyTarget;
-    const responseMatch = responseTarget && resolvedResponseId && resolvedResponseId === responseTarget;
-    const dayMatch = normalizedTarget && candidateKey && candidateKey === normalizedTarget;
-
-    const summaryScopeCandidate =
-      typeof entry?.summaryScope === "string"
-        ? entry.summaryScope
-        : typeof entry?.summary_scope === "string"
-          ? entry.summary_scope
-          : "";
-    const isSummaryEntry = Boolean(keyInfo?.isSummary) || Boolean(summaryScopeCandidate);
-
-    if (!allowSummaries && isSummaryEntry) {
-      return;
-    }
-
-    // Skip obvious non-matches when neither ids nor day align.
-    if (!historyMatch && !responseMatch && !dayMatch) {
-      return;
-    }
-
-    let weight = 0;
-    if (historyMatch) weight += 1000;
-    if (responseMatch) weight += 200;
-    if (dayMatch) weight += 50;
-    let summaryDiff = [];
-    if (expectedSummary) {
-      if (checklistSummary) {
-        summaryDiff = diffChecklistSummaries(expectedSummary, checklistSummary);
-        if (summaryDiff.length === 0) {
-          weight += 400;
-        } else {
-          weight -= summaryDiff.length * 40;
-        }
-      } else {
-        weight -= 120;
-      }
-    }
-    if (isSummaryEntry) {
-      weight -= allowSummaries ? 40 : 0;
-    } else if (typeof entry?.source === "string" && entry.source.includes("summary")) {
-      weight -= 40;
-    }
-
-    scoredMatches.push({
-      entry,
-      keyInfo,
-      timestamp,
-      historyId: resolvedHistoryId || "",
-      responseId: resolvedResponseId || "",
-      weight,
-      matchType: historyMatch ? "history" : responseMatch ? "response" : "day",
-      summaryDiff,
-      checklistSummary,
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
     });
-  });
 
-  if (!scoredMatches.length) {
-    return null;
+  function capitalizeFirstLetter(value) {
+    if (typeof value !== "string" || !value.length) {
+      return value;
+    }
+    return value.charAt(0).toUpperCase() + value.slice(1);
   }
 
-  scoredMatches.sort((a, b) => {
-    if (b.weight !== a.weight) {
-      return b.weight - a.weight;
+  function formatBilanHistoryDateLabel(date, fallback) {
+    if (date instanceof Date && !Number.isNaN(date.getTime())) {
+      return capitalizeFirstLetter(BILAN_HISTORY_DAY_FORMATTER.format(date));
     }
-    if (b.timestamp !== a.timestamp) {
-      return b.timestamp - a.timestamp;
-    }
-    if (b.historyId !== a.historyId) {
-      return (b.historyId || "").localeCompare(a.historyId || "");
-    }
-    return (b.responseId || "").localeCompare(a.responseId || "");
-  });
+    return fallback || "";
+  }
 
-  const best = scoredMatches[0];
-  if (debugLabel && typeof console !== "undefined" && console?.debug) {
-    try {
-      console.debug(`[history-match] ${debugLabel}`, {
-        dayKey,
-        responseTarget,
-        historyTarget,
-        normalizedTarget,
-        best: {
-          historyId: best.historyId,
-          responseId: best.responseId,
-          matchType: best.matchType,
-          weight: best.weight,
-          summaryDiff: best.summaryDiff || [],
-        },
-      });
-    } catch (_) { }
-  }
-  return best;
-}
-
-function resolveHistoryMode(entry) {
-  if (!entry || typeof entry !== "object") {
-    return "";
-  }
-  const candidates = [entry.mode, entry.source, entry.origin, entry.context];
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim();
-    }
-  }
-  return "";
-}
-
-function safeConsigneLabel(consigne) {
-  return (
-    consigne?.text ||
-    consigne?.titre ||
-    consigne?.name ||
-    consigne?.label ||
-    consigne?.id ||
-    "Consigne"
-  ).toString();
-}
-
-async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
-  const dayKey = typeof options.dayKey === "string" ? options.dayKey.trim() : "";
-  const details = options.details && typeof options.details === "object" ? options.details : null;
-  const trigger = options.trigger instanceof HTMLElement ? options.trigger : null;
-  const renderInPanel = options.renderInPanel === true;
-  const historyPanel = options.panel instanceof HTMLElement ? options.panel : null;
-  if (!dayKey) {
-    showToast("Date de bilan introuvable.");
-    return;
-  }
-  if (!ctx?.db || !ctx?.user?.uid) {
-    showToast("Connexion requise pour modifier cette réponse.");
-    return;
-  }
-  if (!EDITABLE_HISTORY_TYPES.has(consigne?.type)) {
-    showToast("Modification non disponible pour ce type de consigne.");
-    return;
-  }
-  if (!consigne?.id) {
-    showToast("Consigne introuvable.");
-    return;
-  }
-  const historyPanelsToRefresh = new Set();
-  const registerHistoryPanelRefresh = (candidate) => {
-    if (!candidate) {
-      return;
-    }
-    const identifier = typeof candidate === "object" ? candidate.id : candidate;
-    if (identifier == null) {
-      return;
-    }
-    historyPanelsToRefresh.add(String(identifier));
-  };
-  const flushHistoryPanelRefresh = () => {
-    historyPanelsToRefresh.forEach((identifier) => {
-      refreshOpenHistoryPanel(identifier);
-    });
-  };
-  registerHistoryPanelRefresh(consigne);
-  let historyEntries = [];
-  try {
-    historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
-  } catch (error) {
-    modesLogger?.warn?.("bilan.history.editor.load", error);
-    showToast("Impossible de charger cette réponse de bilan.");
-    return;
-  }
-  const explicitResponseId =
-    typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
-  const explicitHistoryId =
-    typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
-  const normalizeChecklistValueForEditor = (raw) => {
-    if (raw == null) {
-      return null;
-    }
-    try {
-      const fallback = raw && typeof raw === "object" ? raw : null;
-      const normalized = buildChecklistValue(consigne, raw, fallback);
-      if (!normalized || (Array.isArray(normalized.items) && normalized.items.length === 0 && !normalized.skipped)) {
-        return normalized || null;
-      }
-      return normalized;
-    } catch (error) {
-      logChecklistEvent("warn", "[checklist-history] normalize", { error: String(error) });
-      return null;
-    }
-  };
-  const timelineNormalized =
-    consigne.type === "checklist" ? normalizeChecklistValueForEditor(details?.rawValue ?? details?.value ?? null) : null;
-  const expectedSummary =
-    consigne.type === "checklist"
-      ? options.expectedSummary || (timelineNormalized ? summarizeChecklistValue(timelineNormalized) : null)
-      : null;
-  const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey, {
-    responseId: explicitResponseId,
-    historyId: explicitHistoryId,
-    debug: consigne.type === "checklist" ? "bilan-editor" : "",
-    expectedSummary,
-    allowSummaries: true,
-  });
-  const entry = match?.entry || null;
-  const keyInfo = match?.keyInfo || null;
-  const resolvedDayKey = keyInfo?.dayKey || dayKey;
-  const historyDocumentId = resolveHistoryDocumentId(entry, resolvedDayKey);
-  // For bilan editors, do NOT prefill from timeline/details when no saved entry exists,
-  // to avoid showing pre-checked states when there is no recorded bilan answer for this period.
-  const entryValue = entry?.value !== undefined ? entry.value : "";
-  const createdAtSource =
-    entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? details?.timestamp ?? null;
-  const createdAt = asDate(createdAtSource);
-  const dateCandidate =
-    (keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime()) ? keyInfo.date : null) ||
-    (details?.date instanceof Date && !Number.isNaN(details.date.getTime()) ? details.date : null) ||
-    (modesParseDayKeyToDate(resolvedDayKey) ?? null) ||
-    createdAt ||
-    null;
-  const dateLabel = formatBilanHistoryDateLabel(dateCandidate, resolvedDayKey);
-  const relative = computeRelativeHistoryLabel(dateCandidate);
-  const iterationNumber = Number.isFinite(details?.iterationNumber)
-    ? details.iterationNumber
-    : Number.isFinite(keyInfo?.iterationNumber)
-      ? keyInfo.iterationNumber
-      : null;
-  const rawIterationLabel = (() => {
-    if (typeof details?.iterationLabel === "string" && details.iterationLabel.trim()) {
-      return details.iterationLabel.trim();
-    }
-    if (typeof keyInfo?.iterationLabel === "string" && keyInfo.iterationLabel.trim()) {
-      return keyInfo.iterationLabel.trim();
-    }
-    return "";
-  })();
-  const iterationLabel = sanitizeIterationLabel(rawIterationLabel, iterationNumber);
-  const fieldId = `bilan-history-edit-${consigne?.id || "consigne"}-${Date.now().toString(36)}`;
-  const timelineSummary = consigne.type === "checklist" && timelineNormalized
-    ? summarizeChecklistValue(timelineNormalized)
-    : null;
-  let displayValue = entryValue;
-  let entrySummary = consigne.type === "checklist" ? null : null;
-  if (consigne.type === "checklist") {
-    const entryNormalized = normalizeChecklistValueForEditor(entryValue);
-    if (entryNormalized) {
-      displayValue = { ...entryNormalized };
-    } else if (timelineNormalized) {
-      displayValue = { ...timelineNormalized };
-      if (!entry) {
-        logChecklistEvent("warn", "[checklist-history] using timeline value (bilan, no entry)", {
-          consigneId: consigne.id ?? null,
-          dayKey: resolvedDayKey,
-        });
-      } else {
-        logChecklistEvent("warn", "[checklist-history] overriding bilan entry value with timeline summary", {
-          consigneId: consigne.id ?? null,
-          dayKey: resolvedDayKey,
-        });
-      }
-    }
-    entrySummary = summarizeChecklistValue(displayValue);
-  }
-  if (consigne.type === "checklist" && displayValue && typeof displayValue === "object") {
-    displayValue = { ...displayValue, __historyDateKey: resolvedDayKey };
-  }
-  const valueField = renderConsigneValueField(consigne, displayValue, fieldId);
-  const autosaveKey = ["history-entry-bilan", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
-    .map((part) => String(part || ""))
-    .join(":");
-  const entryMode = resolveHistoryMode(entry) || "bilan";
-  const triggerResponseId = (() => {
-    if (!(trigger instanceof HTMLElement)) {
+  function computeRelativeHistoryLabel(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
       return "";
     }
-    const direct =
-      (typeof trigger.dataset?.historyResponseId === "string" && trigger.dataset.historyResponseId.trim()
-        ? trigger.dataset.historyResponseId.trim()
-        : "") ||
-      trigger.getAttribute?.("data-history-response-id") ||
-      "";
-    if (direct && typeof direct === "string" && direct.trim()) {
-      return direct.trim();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const base = new Date(date.getTime());
+    base.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((today.getTime() - base.getTime()) / 86400000);
+    if (diffDays === 0) return "Aujourd’hui";
+    if (diffDays === 1) return "Hier";
+    if (diffDays > 1 && diffDays < 7) return `Il y a ${diffDays} j`;
+    if (diffDays < 0) {
+      const future = Math.abs(diffDays);
+      if (future === 1) return "Demain";
+      if (future < 7) return `Dans ${future} j`;
     }
-    const container = trigger.closest("[data-history-entry]");
-    if (container) {
-      const attr = container.getAttribute("data-response-id");
-      if (attr && attr.trim()) {
-        return attr.trim();
+    return "";
+  }
+
+  function normalizeHistoryDayKey(value) {
+    const canonical = canonicalDayKeyFromValue(value);
+    if (canonical?.dayKey) {
+      if (canonical.isSession) {
+        return canonical.dayKey.trim().toLowerCase();
+      }
+      return canonical.dayKey.trim();
+    }
+    if (typeof value === "string") {
+      return value.trim().toLowerCase();
+    }
+    if (value instanceof Date || typeof value === "number") {
+      const fallback = canonicalDayKeyFromValue(value);
+      if (fallback?.dayKey) {
+        return fallback.isSession ? fallback.dayKey.trim().toLowerCase() : fallback.dayKey.trim();
       }
     }
     return "";
-  })();
-  const detailResponseId = resolveHistoryResponseId(details);
-  const entryResponseId = resolveHistoryResponseId(entry);
-  const resolvedResponseId =
-    explicitResponseId || triggerResponseId || detailResponseId || entryResponseId || "";
-  const responseSyncOptions = {
-    responseId: resolvedResponseId,
-    responseMode: entryMode,
-    responseType: typeof entry?.type === "string" && entry.type.trim() ? entry.type.trim() : consigne?.type,
-    responseDayKey: resolvedDayKey,
-    responseCreatedAt:
-      createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
-        ? createdAt.toISOString()
-        : typeof createdAtSource === "string"
-          ? createdAtSource
-          : "",
-  };
-  let childCandidates = [];
-  if (ctx?.db && ctx?.user?.uid && consigne?.id) {
-    try {
-      childCandidates = await Schema.listChildConsignes(ctx.db, ctx.user.uid, consigne.id);
-    } catch (error) {
-      try {
-        modesLogger?.warn?.("bilan.history.editor.children.load", {
-          consigneId: consigne.id,
-          error,
-        });
-      } catch (_) { }
-      childCandidates = [];
-    }
   }
-  const parentInitialHasValue = hasValueForConsigne(consigne, displayValue);
-  const baseChildStates = await Promise.all(
-    childCandidates.map(async (child) => {
-      let childEntries = [];
-      try {
-        childEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, child.id);
-      } catch (error) {
-        try {
-          modesLogger?.warn?.("bilan.history.editor.child.load", { childId: child.id, error });
-        } catch (_) { }
-        childEntries = [];
-      }
-      const childMatch = findHistoryEntryForDayKey(childEntries, child, resolvedDayKey, {
-        allowSummaries: true,
-      });
-      const childEntry = childMatch?.entry || null;
-      const childRawValue = childEntry?.value !== undefined ? childEntry.value : "";
-      let childValue = childRawValue;
-      if (child.type === "checklist") {
-        try {
-          const fallbackValue =
-            childRawValue && typeof childRawValue === "object" ? childRawValue : null;
-          const normalizedChild = buildChecklistValue(child, childRawValue, fallbackValue);
-          childValue = normalizedChild ? { ...normalizedChild, __historyDateKey: resolvedDayKey } : null;
-        } catch (error) {
-          childValue = null;
+
+  function resolveHistoryDocumentId(entry, fallback) {
+    if (entry && typeof entry === "object") {
+      const candidates = [
+        entry.id,
+        entry.historyId,
+        entry.history_id,
+        entry.documentId,
+        entry.document_id,
+        entry.docId,
+        entry.doc_id,
+      ];
+      for (const candidate of candidates) {
+        if (typeof candidate === "string") {
+          const trimmed = candidate.trim();
+          if (trimmed) {
+            return trimmed;
+          }
         }
       }
-      const childCreatedAtSource =
-        childEntry?.createdAt ?? childEntry?.updatedAt ?? childEntry?.recordedAt ?? null;
-      const childCreatedAt = asDate(childCreatedAtSource);
-      const childHistoryDocumentId = resolveHistoryDocumentId(childEntry, resolvedDayKey);
-      const childResponseId = resolveHistoryResponseId(childEntry);
-      const childResponseSyncOptions = {
-        responseId: childResponseId,
-        responseMode: resolveHistoryMode(childEntry) || entryMode,
-        responseType:
-          typeof childEntry?.type === "string" && childEntry.type.trim()
-            ? childEntry.type.trim()
-            : child.type,
-        responseDayKey: resolvedDayKey,
-        responseCreatedAt:
-          childCreatedAt instanceof Date && !Number.isNaN(childCreatedAt.getTime())
-            ? childCreatedAt.toISOString()
-            : typeof childCreatedAtSource === "string"
-              ? childCreatedAtSource
-              : "",
-      };
-      const selectorValue = String(child.id ?? "").replace(/"/g, '\\"');
-      const inRow =
-        row && row.matches?.(`[data-consigne-id="${selectorValue}"]`)
-          ? row
-          : row?.querySelector?.(`[data-consigne-id="${selectorValue}"]`) ||
-          document.querySelector(`[data-consigne-id="${selectorValue}"]`);
-      const domId = `bilan-history-child-${String(child.id ?? "child")}-${Math.random()
-        .toString(36)
-        .slice(2, 8)}`;
-      const fieldBase = `${domId}-${Date.now().toString(36)}`;
-      const childInitialHasValue = hasValueForConsigne(child, childValue);
-      return {
-        consigne: child,
-        entry: childEntry,
-        value: childValue,
-        domId,
-        fieldId: `${fieldBase}-value`,
-        row: inRow instanceof HTMLElement ? inRow : null,
-        responseSyncOptions: childResponseSyncOptions,
-        historyDocumentId: childHistoryDocumentId,
-        initialHasValue: childInitialHasValue,
-      };
-    }),
-  );
-  baseChildStates.forEach((childState) => {
-    registerHistoryPanelRefresh(childState?.consigne);
-  });
-  logHistoryDebug("editor.open.children", {
-    consigneId: consigne?.id ?? null,
-    dayKey: resolvedDayKey,
-    childCount: baseChildStates.length,
-    children: baseChildStates.slice(0, 5).map((childState) => ({
-      consigneId: childState?.consigne?.id ?? null,
-      type: childState?.consigne?.type || null,
-      initialHasValue: childState?.initialHasValue || false,
-      historyId: childState?.historyDocumentId || null,
-      responseId: childState?.responseSyncOptions?.responseId || null,
-      valueSummary: summarizeHistoryValue(childState?.value),
-    })),
-  });
-  const childMarkup = baseChildStates.length
-    ? `<section class="practice-editor__section space-y-3 border-t border-slate-200 pt-3 mt-3" data-history-children>
+    }
+    if (typeof fallback === "string" && fallback.trim()) {
+      return fallback.trim();
+    }
+    return "";
+  }
+
+  function resolveHistoryResponseId(entry, fallback = "") {
+    if (entry && typeof entry === "object") {
+      const candidates = [
+        entry.responseId,
+        entry.response_id,
+        entry.responseDocId,
+        entry.response_doc_id,
+        entry.responseRef,
+        entry.response_ref,
+      ];
+      for (const candidate of candidates) {
+        if (typeof candidate === "string") {
+          const trimmed = candidate.trim();
+          if (trimmed) {
+            return trimmed;
+          }
+        }
+      }
+      if (entry.metadata && typeof entry.metadata === "object") {
+        const metaResolved = resolveHistoryResponseId(entry.metadata);
+        if (metaResolved) {
+          return metaResolved;
+        }
+      }
+    }
+    if (typeof fallback === "string" && fallback.trim()) {
+      return fallback.trim();
+    }
+    return "";
+  }
+
+  function findHistoryEntryForDayKey(entries, consigne, dayKey, options = {}) {
+    if (!Array.isArray(entries) || !dayKey) {
+      return null;
+    }
+    const normalizedTarget = normalizeHistoryDayKey(dayKey);
+    const allowSummaries = options.allowSummaries === true;
+    const responseTarget =
+      typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
+    const historyTarget =
+      typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
+    const debugLabel = typeof options.debug === "string" ? options.debug : "";
+    const expectedSummary =
+      consigne?.type === "checklist" && options.expectedSummary && typeof options.expectedSummary === "object"
+        ? options.expectedSummary
+        : null;
+
+    const scoredMatches = [];
+
+    entries.forEach((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return;
+      }
+      const keyInfo = resolveHistoryTimelineKey(entry, consigne);
+      const candidateKey = normalizeHistoryDayKey(keyInfo?.dayKey);
+      const resolvedHistoryId = resolveHistoryDocumentId(entry, keyInfo?.dayKey || dayKey || candidateKey || "");
+      const resolvedResponseId = resolveHistoryResponseId(entry);
+      const checklistSummary =
+        consigne?.type === "checklist" ? summarizeChecklistValue(entry?.value) : null;
+      const timestamp =
+        typeof keyInfo?.timestamp === "number"
+          ? keyInfo.timestamp
+          : keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime())
+            ? keyInfo.date.getTime()
+            : Date.now();
+
+      const historyMatch = historyTarget && resolvedHistoryId && resolvedHistoryId === historyTarget;
+      const responseMatch = responseTarget && resolvedResponseId && resolvedResponseId === responseTarget;
+      const dayMatch = normalizedTarget && candidateKey && candidateKey === normalizedTarget;
+
+      const summaryScopeCandidate =
+        typeof entry?.summaryScope === "string"
+          ? entry.summaryScope
+          : typeof entry?.summary_scope === "string"
+            ? entry.summary_scope
+            : "";
+      const isSummaryEntry = Boolean(keyInfo?.isSummary) || Boolean(summaryScopeCandidate);
+
+      if (!allowSummaries && isSummaryEntry) {
+        return;
+      }
+
+      // Skip obvious non-matches when neither ids nor day align.
+      if (!historyMatch && !responseMatch && !dayMatch) {
+        return;
+      }
+
+      let weight = 0;
+      if (historyMatch) weight += 1000;
+      if (responseMatch) weight += 200;
+      if (dayMatch) weight += 50;
+      let summaryDiff = [];
+      if (expectedSummary) {
+        if (checklistSummary) {
+          summaryDiff = diffChecklistSummaries(expectedSummary, checklistSummary);
+          if (summaryDiff.length === 0) {
+            weight += 400;
+          } else {
+            weight -= summaryDiff.length * 40;
+          }
+        } else {
+          weight -= 120;
+        }
+      }
+      if (isSummaryEntry) {
+        weight -= allowSummaries ? 40 : 0;
+      } else if (typeof entry?.source === "string" && entry.source.includes("summary")) {
+        weight -= 40;
+      }
+
+      scoredMatches.push({
+        entry,
+        keyInfo,
+        timestamp,
+        historyId: resolvedHistoryId || "",
+        responseId: resolvedResponseId || "",
+        weight,
+        matchType: historyMatch ? "history" : responseMatch ? "response" : "day",
+        summaryDiff,
+        checklistSummary,
+      });
+    });
+
+    if (!scoredMatches.length) {
+      return null;
+    }
+
+    scoredMatches.sort((a, b) => {
+      if (b.weight !== a.weight) {
+        return b.weight - a.weight;
+      }
+      if (b.timestamp !== a.timestamp) {
+        return b.timestamp - a.timestamp;
+      }
+      if (b.historyId !== a.historyId) {
+        return (b.historyId || "").localeCompare(a.historyId || "");
+      }
+      return (b.responseId || "").localeCompare(a.responseId || "");
+    });
+
+    const best = scoredMatches[0];
+    if (debugLabel && typeof console !== "undefined" && console?.debug) {
+      try {
+        console.debug(`[history-match] ${debugLabel}`, {
+          dayKey,
+          responseTarget,
+          historyTarget,
+          normalizedTarget,
+          best: {
+            historyId: best.historyId,
+            responseId: best.responseId,
+            matchType: best.matchType,
+            weight: best.weight,
+            summaryDiff: best.summaryDiff || [],
+          },
+        });
+      } catch (_) { }
+    }
+    return best;
+  }
+
+  function resolveHistoryMode(entry) {
+    if (!entry || typeof entry !== "object") {
+      return "";
+    }
+    const candidates = [entry.mode, entry.source, entry.origin, entry.context];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+    return "";
+  }
+
+  function safeConsigneLabel(consigne) {
+    return (
+      consigne?.text ||
+      consigne?.titre ||
+      consigne?.name ||
+      consigne?.label ||
+      consigne?.id ||
+      "Consigne"
+    ).toString();
+  }
+
+  async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
+    const dayKey = typeof options.dayKey === "string" ? options.dayKey.trim() : "";
+    const details = options.details && typeof options.details === "object" ? options.details : null;
+    const trigger = options.trigger instanceof HTMLElement ? options.trigger : null;
+    const renderInPanel = options.renderInPanel === true;
+    const historyPanel = options.panel instanceof HTMLElement ? options.panel : null;
+    if (!dayKey) {
+      showToast("Date de bilan introuvable.");
+      return;
+    }
+    if (!ctx?.db || !ctx?.user?.uid) {
+      showToast("Connexion requise pour modifier cette réponse.");
+      return;
+    }
+    if (!EDITABLE_HISTORY_TYPES.has(consigne?.type)) {
+      showToast("Modification non disponible pour ce type de consigne.");
+      return;
+    }
+    if (!consigne?.id) {
+      showToast("Consigne introuvable.");
+      return;
+    }
+    const historyPanelsToRefresh = new Set();
+    const registerHistoryPanelRefresh = (candidate) => {
+      if (!candidate) {
+        return;
+      }
+      const identifier = typeof candidate === "object" ? candidate.id : candidate;
+      if (identifier == null) {
+        return;
+      }
+      historyPanelsToRefresh.add(String(identifier));
+    };
+    const flushHistoryPanelRefresh = () => {
+      historyPanelsToRefresh.forEach((identifier) => {
+        refreshOpenHistoryPanel(identifier);
+      });
+    };
+    registerHistoryPanelRefresh(consigne);
+    let historyEntries = [];
+    try {
+      historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+    } catch (error) {
+      modesLogger?.warn?.("bilan.history.editor.load", error);
+      showToast("Impossible de charger cette réponse de bilan.");
+      return;
+    }
+    const explicitResponseId =
+      typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
+    const explicitHistoryId =
+      typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
+    const normalizeChecklistValueForEditor = (raw) => {
+      if (raw == null) {
+        return null;
+      }
+      try {
+        const fallback = raw && typeof raw === "object" ? raw : null;
+        const normalized = buildChecklistValue(consigne, raw, fallback);
+        if (!normalized || (Array.isArray(normalized.items) && normalized.items.length === 0 && !normalized.skipped)) {
+          return normalized || null;
+        }
+        return normalized;
+      } catch (error) {
+        logChecklistEvent("warn", "[checklist-history] normalize", { error: String(error) });
+        return null;
+      }
+    };
+    const timelineNormalized =
+      consigne.type === "checklist" ? normalizeChecklistValueForEditor(details?.rawValue ?? details?.value ?? null) : null;
+    const expectedSummary =
+      consigne.type === "checklist"
+        ? options.expectedSummary || (timelineNormalized ? summarizeChecklistValue(timelineNormalized) : null)
+        : null;
+    const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey, {
+      responseId: explicitResponseId,
+      historyId: explicitHistoryId,
+      debug: consigne.type === "checklist" ? "bilan-editor" : "",
+      expectedSummary,
+      allowSummaries: true,
+    });
+    const entry = match?.entry || null;
+    const keyInfo = match?.keyInfo || null;
+    const resolvedDayKey = keyInfo?.dayKey || dayKey;
+    const historyDocumentId = resolveHistoryDocumentId(entry, resolvedDayKey);
+    // For bilan editors, do NOT prefill from timeline/details when no saved entry exists,
+    // to avoid showing pre-checked states when there is no recorded bilan answer for this period.
+    const entryValue = entry?.value !== undefined ? entry.value : "";
+    const createdAtSource =
+      entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? details?.timestamp ?? null;
+    const createdAt = asDate(createdAtSource);
+    const dateCandidate =
+      (keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime()) ? keyInfo.date : null) ||
+      (details?.date instanceof Date && !Number.isNaN(details.date.getTime()) ? details.date : null) ||
+      (modesParseDayKeyToDate(resolvedDayKey) ?? null) ||
+      createdAt ||
+      null;
+    const dateLabel = formatBilanHistoryDateLabel(dateCandidate, resolvedDayKey);
+    const relative = computeRelativeHistoryLabel(dateCandidate);
+    const iterationNumber = Number.isFinite(details?.iterationNumber)
+      ? details.iterationNumber
+      : Number.isFinite(keyInfo?.iterationNumber)
+        ? keyInfo.iterationNumber
+        : null;
+    const rawIterationLabel = (() => {
+      if (typeof details?.iterationLabel === "string" && details.iterationLabel.trim()) {
+        return details.iterationLabel.trim();
+      }
+      if (typeof keyInfo?.iterationLabel === "string" && keyInfo.iterationLabel.trim()) {
+        return keyInfo.iterationLabel.trim();
+      }
+      return "";
+    })();
+    const iterationLabel = sanitizeIterationLabel(rawIterationLabel, iterationNumber);
+    const fieldId = `bilan-history-edit-${consigne?.id || "consigne"}-${Date.now().toString(36)}`;
+    const timelineSummary = consigne.type === "checklist" && timelineNormalized
+      ? summarizeChecklistValue(timelineNormalized)
+      : null;
+    let displayValue = entryValue;
+    let entrySummary = consigne.type === "checklist" ? null : null;
+    if (consigne.type === "checklist") {
+      const entryNormalized = normalizeChecklistValueForEditor(entryValue);
+      if (entryNormalized) {
+        displayValue = { ...entryNormalized };
+      } else if (timelineNormalized) {
+        displayValue = { ...timelineNormalized };
+        if (!entry) {
+          logChecklistEvent("warn", "[checklist-history] using timeline value (bilan, no entry)", {
+            consigneId: consigne.id ?? null,
+            dayKey: resolvedDayKey,
+          });
+        } else {
+          logChecklistEvent("warn", "[checklist-history] overriding bilan entry value with timeline summary", {
+            consigneId: consigne.id ?? null,
+            dayKey: resolvedDayKey,
+          });
+        }
+      }
+      entrySummary = summarizeChecklistValue(displayValue);
+    }
+    if (consigne.type === "checklist" && displayValue && typeof displayValue === "object") {
+      displayValue = { ...displayValue, __historyDateKey: resolvedDayKey };
+    }
+    const valueField = renderConsigneValueField(consigne, displayValue, fieldId);
+    const autosaveKey = ["history-entry-bilan", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
+      .map((part) => String(part || ""))
+      .join(":");
+    const entryMode = resolveHistoryMode(entry) || "bilan";
+    const triggerResponseId = (() => {
+      if (!(trigger instanceof HTMLElement)) {
+        return "";
+      }
+      const direct =
+        (typeof trigger.dataset?.historyResponseId === "string" && trigger.dataset.historyResponseId.trim()
+          ? trigger.dataset.historyResponseId.trim()
+          : "") ||
+        trigger.getAttribute?.("data-history-response-id") ||
+        "";
+      if (direct && typeof direct === "string" && direct.trim()) {
+        return direct.trim();
+      }
+      const container = trigger.closest("[data-history-entry]");
+      if (container) {
+        const attr = container.getAttribute("data-response-id");
+        if (attr && attr.trim()) {
+          return attr.trim();
+        }
+      }
+      return "";
+    })();
+    const detailResponseId = resolveHistoryResponseId(details);
+    const entryResponseId = resolveHistoryResponseId(entry);
+    const resolvedResponseId =
+      explicitResponseId || triggerResponseId || detailResponseId || entryResponseId || "";
+    const responseSyncOptions = {
+      responseId: resolvedResponseId,
+      responseMode: entryMode,
+      responseType: typeof entry?.type === "string" && entry.type.trim() ? entry.type.trim() : consigne?.type,
+      responseDayKey: resolvedDayKey,
+      responseCreatedAt:
+        createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
+          ? createdAt.toISOString()
+          : typeof createdAtSource === "string"
+            ? createdAtSource
+            : "",
+    };
+    let childCandidates = [];
+    if (ctx?.db && ctx?.user?.uid && consigne?.id) {
+      try {
+        childCandidates = await Schema.listChildConsignes(ctx.db, ctx.user.uid, consigne.id);
+      } catch (error) {
+        try {
+          modesLogger?.warn?.("bilan.history.editor.children.load", {
+            consigneId: consigne.id,
+            error,
+          });
+        } catch (_) { }
+        childCandidates = [];
+      }
+    }
+    const parentInitialHasValue = hasValueForConsigne(consigne, displayValue);
+    const baseChildStates = await Promise.all(
+      childCandidates.map(async (child) => {
+        let childEntries = [];
+        try {
+          childEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, child.id);
+        } catch (error) {
+          try {
+            modesLogger?.warn?.("bilan.history.editor.child.load", { childId: child.id, error });
+          } catch (_) { }
+          childEntries = [];
+        }
+        const childMatch = findHistoryEntryForDayKey(childEntries, child, resolvedDayKey, {
+          allowSummaries: true,
+        });
+        const childEntry = childMatch?.entry || null;
+        const childRawValue = childEntry?.value !== undefined ? childEntry.value : "";
+        let childValue = childRawValue;
+        if (child.type === "checklist") {
+          try {
+            const fallbackValue =
+              childRawValue && typeof childRawValue === "object" ? childRawValue : null;
+            const normalizedChild = buildChecklistValue(child, childRawValue, fallbackValue);
+            childValue = normalizedChild ? { ...normalizedChild, __historyDateKey: resolvedDayKey } : null;
+          } catch (error) {
+            childValue = null;
+          }
+        }
+        const childCreatedAtSource =
+          childEntry?.createdAt ?? childEntry?.updatedAt ?? childEntry?.recordedAt ?? null;
+        const childCreatedAt = asDate(childCreatedAtSource);
+        const childHistoryDocumentId = resolveHistoryDocumentId(childEntry, resolvedDayKey);
+        const childResponseId = resolveHistoryResponseId(childEntry);
+        const childResponseSyncOptions = {
+          responseId: childResponseId,
+          responseMode: resolveHistoryMode(childEntry) || entryMode,
+          responseType:
+            typeof childEntry?.type === "string" && childEntry.type.trim()
+              ? childEntry.type.trim()
+              : child.type,
+          responseDayKey: resolvedDayKey,
+          responseCreatedAt:
+            childCreatedAt instanceof Date && !Number.isNaN(childCreatedAt.getTime())
+              ? childCreatedAt.toISOString()
+              : typeof childCreatedAtSource === "string"
+                ? childCreatedAtSource
+                : "",
+        };
+        const selectorValue = String(child.id ?? "").replace(/"/g, '\\"');
+        const inRow =
+          row && row.matches?.(`[data-consigne-id="${selectorValue}"]`)
+            ? row
+            : row?.querySelector?.(`[data-consigne-id="${selectorValue}"]`) ||
+            document.querySelector(`[data-consigne-id="${selectorValue}"]`);
+        const domId = `bilan-history-child-${String(child.id ?? "child")}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+        const fieldBase = `${domId}-${Date.now().toString(36)}`;
+        const childInitialHasValue = hasValueForConsigne(child, childValue);
+        return {
+          consigne: child,
+          entry: childEntry,
+          value: childValue,
+          domId,
+          fieldId: `${fieldBase}-value`,
+          row: inRow instanceof HTMLElement ? inRow : null,
+          responseSyncOptions: childResponseSyncOptions,
+          historyDocumentId: childHistoryDocumentId,
+          initialHasValue: childInitialHasValue,
+        };
+      }),
+    );
+    baseChildStates.forEach((childState) => {
+      registerHistoryPanelRefresh(childState?.consigne);
+    });
+    logHistoryDebug("editor.open.children", {
+      consigneId: consigne?.id ?? null,
+      dayKey: resolvedDayKey,
+      childCount: baseChildStates.length,
+      children: baseChildStates.slice(0, 5).map((childState) => ({
+        consigneId: childState?.consigne?.id ?? null,
+        type: childState?.consigne?.type || null,
+        initialHasValue: childState?.initialHasValue || false,
+        historyId: childState?.historyDocumentId || null,
+        responseId: childState?.responseSyncOptions?.responseId || null,
+        valueSummary: summarizeHistoryValue(childState?.value),
+      })),
+    });
+    const childMarkup = baseChildStates.length
+      ? `<section class="practice-editor__section space-y-3 border-t border-slate-200 pt-3 mt-3" data-history-children>
         <header class="space-y-1">
           <h3 class="text-base font-semibold">Sous-consignes</h3>
           <p class="text-sm text-slate-600">Complète les sous-consignes liées à cette carte.</p>
         </header>
         <div class="space-y-3">
           ${baseChildStates
-      .map((childState, index) => {
-        const child = childState.consigne || {};
-        const childTitle =
-          child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
-        const childDescription = child.description || child.details || child.helper || "";
-        const childFieldMarkup = renderConsigneValueField(
-          child,
-          childState.value,
-          childState.fieldId,
-          {
-            fieldName: `history-child-${String(child.id ?? index)}`,
-            ownerId: child?.id ?? "",
-          },
-        );
-        return `
+        .map((childState, index) => {
+          const child = childState.consigne || {};
+          const childTitle =
+            child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
+          const childDescription = child.description || child.details || child.helper || "";
+          const childFieldMarkup = renderConsigneValueField(
+            child,
+            childState.value,
+            childState.fieldId,
+            {
+              fieldName: `history-child-${String(child.id ?? index)}`,
+              ownerId: child?.id ?? "",
+            },
+          );
+          return `
                 <article class="space-y-3 rounded-xl border border-slate-200 p-3" data-history-child="${escapeHtml(childState.domId)}" data-consigne-id="${escapeHtml(
-          String(child.id ?? ""),
-        )}">
+            String(child.id ?? ""),
+          )}">
                   <div class="space-y-1">
                     <div class="font-medium text-slate-800">${escapeHtml(childTitle)}</div>
                     ${childDescription
-            ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(
-              childDescription,
-            )}</p>`
-            : ""
-          }
+              ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(
+                childDescription,
+              )}</p>`
+              : ""
+            }
                   </div>
                   <div class="space-y-2">
                     ${childFieldMarkup}
                   </div>
                 </article>`;
-      })
-      .join("")}
+        })
+        .join("")}
         </div>
       </section>`
-    : "";
-  const labelForAttr = consigne.type === "checklist" ? "" : ` for="${escapeHtml(fieldId)}"`;
-  const editorHtml = `
+      : "";
+    const labelForAttr = consigne.type === "checklist" ? "" : ` for="${escapeHtml(fieldId)}"`;
+    const editorHtml = `
     <div class="space-y-5">
       <header class="space-y-1">
         <p class="text-sm text-[var(--muted)]">${escapeHtml(dateLabel)}${relative ? ` <span class="text-xs">(${escapeHtml(relative)})</span>` : ""
-    }</p>
+      }</p>
         <h2 class="text-lg font-semibold">Modifier la réponse</h2>
         <p class="text-sm text-slate-600">${escapeHtml(safeConsigneLabel(consigne))}</p>
       </header>
@@ -10789,277 +10754,391 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
       </form>
     </div>
   `;
-  let overlay = null;
-  let modalContent = null;
-  let cleanup = null;
-  let submitBtn = null;
-  let clearBtn = null;
-  let cancelBtn = null;
-  let form = null;
-  let requestClose = null;
-  const restoreFocus = () => {
-    if (trigger && typeof trigger.focus === "function") {
-      try { trigger.focus({ preventScroll: true }); } catch (_) { trigger.focus(); }
-    }
-  };
-  if (renderInPanel && historyPanel) {
-    const previousOverlay = historyPanel.querySelector('.history-panel__edit-overlay');
-    if (previousOverlay) {
-      previousOverlay.dispatchEvent(new Event('history-edit-request-close'));
-    }
-    overlay = document.createElement('div');
-    overlay.className = 'history-panel__edit-overlay';
-    // Force a very high z-index to ensure it sits above any panel content or other overlays
-    try { overlay.style.zIndex = '99999'; } catch (_) { }
-    overlay.innerHTML = `
+    let overlay = null;
+    let modalContent = null;
+    let cleanup = null;
+    let submitBtn = null;
+    let clearBtn = null;
+    let cancelBtn = null;
+    let form = null;
+    let requestClose = null;
+    const restoreFocus = () => {
+      if (trigger && typeof trigger.focus === "function") {
+        try { trigger.focus({ preventScroll: true }); } catch (_) { trigger.focus(); }
+      }
+    };
+    if (renderInPanel && historyPanel) {
+      const previousOverlay = historyPanel.querySelector('.history-panel__edit-overlay');
+      if (previousOverlay) {
+        previousOverlay.dispatchEvent(new Event('history-edit-request-close'));
+      }
+      overlay = document.createElement('div');
+      overlay.className = 'history-panel__edit-overlay';
+      // Force a very high z-index to ensure it sits above any panel content or other overlays
+      try { overlay.style.zIndex = '99999'; } catch (_) { }
+      overlay.innerHTML = `
       <div class="history-panel__edit-dialog" role="dialog" aria-modal="true" tabindex="-1">
         ${editorHtml}
       </div>
     `;
-    historyPanel.appendChild(overlay);
-    modalContent = overlay.querySelector('.history-panel__edit-dialog');
-    form = overlay.querySelector('form');
-    clearBtn = form?.querySelector('[data-clear]');
-    submitBtn = form?.querySelector('button[type="submit"]');
-    let handleKeyDown;
-    let overlayObserver;
-    const closeEditor = () => {
-      if (cleanup) cleanup();
-      if (overlay && overlay.isConnected) overlay.remove();
-      restoreFocus();
-    };
-    requestClose = closeEditor;
-    cleanup = () => {
-      if (handleKeyDown) {
-        document.removeEventListener('keydown', handleKeyDown, true);
-        handleKeyDown = null;
-      }
-      overlay.removeEventListener('history-edit-request-close', closeEditor);
-      if (overlayObserver) {
-        overlayObserver.disconnect();
-        overlayObserver = null;
-      }
-    };
-    handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeEditor();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown, true);
-    overlay.addEventListener('history-edit-request-close', () => {
-      closeEditor();
-    });
-    overlayObserver = new MutationObserver(() => {
-      if (!overlay.isConnected && cleanup) cleanup();
-    });
-    try { overlayObserver.observe(historyPanel, { childList: true }); } catch (_) { }
-    overlay.addEventListener('click', (event) => {
-      if (event.target === overlay) {
-        closeEditor();
-      }
-    });
-    requestAnimationFrame(() => {
-      try { modalContent?.focus({ preventScroll: true }); } catch (_) { modalContent?.focus?.(); }
-    });
-    cancelBtn = overlay.querySelector('[data-cancel]');
-    if (cancelBtn) {
-      cancelBtn.addEventListener('click', (event) => {
-        event.preventDefault();
+      historyPanel.appendChild(overlay);
+      modalContent = overlay.querySelector('.history-panel__edit-dialog');
+      form = overlay.querySelector('form');
+      clearBtn = form?.querySelector('[data-clear]');
+      submitBtn = form?.querySelector('button[type="submit"]');
+      let handleKeyDown;
+      let overlayObserver;
+      const closeEditor = () => {
+        if (cleanup) cleanup();
+        if (overlay && overlay.isConnected) overlay.remove();
+        restoreFocus();
+      };
+      requestClose = closeEditor;
+      cleanup = () => {
+        if (handleKeyDown) {
+          document.removeEventListener('keydown', handleKeyDown, true);
+          handleKeyDown = null;
+        }
+        overlay.removeEventListener('history-edit-request-close', closeEditor);
+        if (overlayObserver) {
+          overlayObserver.disconnect();
+          overlayObserver = null;
+        }
+      };
+      handleKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeEditor();
+        }
+      };
+      document.addEventListener('keydown', handleKeyDown, true);
+      overlay.addEventListener('history-edit-request-close', () => {
         closeEditor();
       });
-    }
-  } else {
-    overlay = modal(editorHtml);
-    if (!overlay) return;
-    modalContent = overlay.querySelector('[data-modal-content]');
-    if (modalContent) {
-      modalContent.setAttribute('role', 'dialog');
-      modalContent.setAttribute('aria-modal', 'true');
-      modalContent.setAttribute('aria-label', 'Modifier la réponse de bilan');
-    }
-    form = overlay.querySelector('form');
-    clearBtn = overlay.querySelector('[data-clear]');
-    submitBtn = form?.querySelector('button[type="submit"]');
-    let handleKeyDown = null;
-    cleanup = () => {
-      if (handleKeyDown) {
-        document.removeEventListener('keydown', handleKeyDown, true);
-        handleKeyDown = null;
+      overlayObserver = new MutationObserver(() => {
+        if (!overlay.isConnected && cleanup) cleanup();
+      });
+      try { overlayObserver.observe(historyPanel, { childList: true }); } catch (_) { }
+      overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) {
+          closeEditor();
+        }
+      });
+      requestAnimationFrame(() => {
+        try { modalContent?.focus({ preventScroll: true }); } catch (_) { modalContent?.focus?.(); }
+      });
+      cancelBtn = overlay.querySelector('[data-cancel]');
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', (event) => {
+          event.preventDefault();
+          closeEditor();
+        });
       }
-    };
-    const closeOverlay = () => {
-      cleanup();
-      overlay.remove();
-      restoreFocus();
-    };
-    requestClose = closeOverlay;
-    handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
+    } else {
+      overlay = modal(editorHtml);
+      if (!overlay) return;
+      modalContent = overlay.querySelector('[data-modal-content]');
+      if (modalContent) {
+        modalContent.setAttribute('role', 'dialog');
+        modalContent.setAttribute('aria-modal', 'true');
+        modalContent.setAttribute('aria-label', 'Modifier la réponse de bilan');
+      }
+      form = overlay.querySelector('form');
+      clearBtn = overlay.querySelector('[data-clear]');
+      submitBtn = form?.querySelector('button[type="submit"]');
+      let handleKeyDown = null;
+      cleanup = () => {
+        if (handleKeyDown) {
+          document.removeEventListener('keydown', handleKeyDown, true);
+          handleKeyDown = null;
+        }
+      };
+      const closeOverlay = () => {
+        cleanup();
+        overlay.remove();
+        restoreFocus();
+      };
+      requestClose = closeOverlay;
+      handleKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeOverlay();
+        }
+      };
+      document.addEventListener('keydown', handleKeyDown, true);
+      overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) {
+          closeOverlay();
+        }
+      });
+      cancelBtn = overlay.querySelector('[data-cancel]');
+      cancelBtn?.addEventListener('click', (event) => {
         event.preventDefault();
         closeOverlay();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown, true);
-    overlay.addEventListener('click', (event) => {
-      if (event.target === overlay) {
-        closeOverlay();
+      });
+    }
+    // Enhance textarea and checklist scope for both rendering modes
+    initializeChecklistScope(overlay, { dateKey: resolvedDayKey, hydrate: false });
+    overlay.querySelectorAll('textarea').forEach((textarea) => {
+      if (typeof autoGrowTextarea === 'function') {
+        autoGrowTextarea(textarea);
       }
     });
-    cancelBtn = overlay.querySelector('[data-cancel]');
-    cancelBtn?.addEventListener('click', (event) => {
-      event.preventDefault();
-      closeOverlay();
-    });
-  }
-  // Enhance textarea and checklist scope for both rendering modes
-  initializeChecklistScope(overlay, { dateKey: resolvedDayKey, hydrate: false });
-  overlay.querySelectorAll('textarea').forEach((textarea) => {
-    if (typeof autoGrowTextarea === 'function') {
-      autoGrowTextarea(textarea);
-    }
-  });
-  if (clearBtn) {
-    const hasInitialChildValue = baseChildStates.some((childState) =>
-      hasValueForConsigne(childState.consigne, childState.value),
-    );
-    // Allow clearing when an entry exists even if it has no textual content
-    const hadStoredEntry = Boolean(entry);
-    const hasInitialData = hadStoredEntry || parentInitialHasValue || hasInitialChildValue;
-    if (!hasInitialData) {
-      clearBtn.disabled = true;
-    }
-    clearBtn.addEventListener("click", async (event) => {
-      event.preventDefault();
-      if (!confirm("Effacer la réponse pour ce bilan ?")) {
-        return;
+    if (clearBtn) {
+      const hasInitialChildValue = baseChildStates.some((childState) =>
+        hasValueForConsigne(childState.consigne, childState.value),
+      );
+      // Allow clearing when an entry exists even if it has no textual content
+      const hadStoredEntry = Boolean(entry);
+      const hasInitialData = hadStoredEntry || parentInitialHasValue || hasInitialChildValue;
+      if (!hasInitialData) {
+        clearBtn.disabled = true;
       }
-      clearBtn.disabled = true;
-      if (submitBtn) submitBtn.disabled = true;
-      try {
-        const dayKeyToClear = resolvedDayKey;
-        await runWithAutoSaveSuppressed(consigne?.id, dayKeyToClear, async () => {
-          if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
+      clearBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        if (!confirm("Effacer la réponse pour ce bilan ?")) {
+          return;
+        }
+        clearBtn.disabled = true;
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+          const dayKeyToClear = resolvedDayKey;
+          await runWithAutoSaveSuppressed(consigne?.id, dayKeyToClear, async () => {
+            if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
+              try {
+                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
+              } catch (_) { }
+            }
+            try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) { }
+            try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
+            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
+            // If this history entry originates from a bilan summary, also delete the underlying summary answer
             try {
-              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
+              const scope = entry?.summaryScope || entry?.periodScope || "";
+              const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
+              const answerKey = entry?.summaryKey || "";
+              if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
+              }
+            } catch (err) {
+              console.error("bilan.history.editor.clear.summaryDelete", err);
+            }
+            const status = dotColor(consigne.type, "", consigne) || "na";
+            updateConsigneHistoryTimeline(row, status, {
+              consigne,
+              value: "",
+              dayKey: resolvedDayKey,
+              historyId: historyDocumentId,
+              responseId: responseSyncOptions?.responseId || "",
+              isBilan: true,
+              keepPlaceholder: true,
+              remove: true,
+            });
+            if (row instanceof HTMLElement) {
+              setConsigneRowValue(row, consigne, "");
+            }
+            triggerConsigneRowUpdateHighlight(row);
+            try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, ""); } catch (_) { }
+            for (const childState of baseChildStates) {
+              const childConsigneId = childState?.consigne?.id;
+              if (!childConsigneId) {
+                continue;
+              }
+              await runWithAutoSaveSuppressed(childConsigneId, dayKeyToClear, async () => {
+                if (ctx?.db && ctx?.user?.uid && dayKeyToClear) {
+                  try {
+                    await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
+                  } catch (_) { }
+                }
+                try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) { }
+                try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) { }
+                await Schema.deleteHistoryEntry(
+                  ctx.db,
+                  ctx.user.uid,
+                  childState.consigne.id,
+                  childState.historyDocumentId,
+                  childState.responseSyncOptions,
+                );
+                // Also delete child summary answers if present
+                try {
+                  const cEntry = childState.entry || null;
+                  const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
+                  const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
+                  const cAnswerKey = cEntry?.summaryKey || "";
+                  if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+                    await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
+                  }
+                } catch (err) {
+                  console.error("bilan.history.editor.child.clear.summaryDelete", err);
+                }
+                const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
+                if (childState.row) {
+                  setConsigneRowValue(childState.row, childState.consigne, "");
+                  updateConsigneHistoryTimeline(childState.row, childStatus, {
+                    consigne: childState.consigne,
+                    value: "",
+                    dayKey: resolvedDayKey,
+                    historyId: childState.historyDocumentId,
+                    responseId: childState.responseSyncOptions?.responseId || "",
+                    iterationLabel,
+                    keepPlaceholder: true,
+                    remove: true,
+                  });
+                  triggerConsigneRowUpdateHighlight(childState.row);
+                }
+                // Fully clear the daily UI and autosave footprint for the child as well
+                try { applyDailyPrefillUpdate(childState.consigne.id, resolvedDayKey, ""); } catch (_) { }
+              });
+            }
+            try {
+              const escapeConsigneId =
+                typeof CSS !== "undefined" && typeof CSS.escape === "function"
+                  ? CSS.escape(String(consigne.id ?? ""))
+                  : String(consigne.id ?? "").replace(/"/g, '\\"');
+              const escapeDayKey =
+                typeof CSS !== "undefined" && typeof CSS.escape === "function"
+                  ? CSS.escape(String(dayKeyToClear ?? ""))
+                  : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
+              const dailyRow = document.querySelector(
+                `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
+              );
+              if (dailyRow) {
+                setConsigneRowValue(dailyRow, consigne, "");
+                clearConsigneSummaryMetadata(dailyRow);
+              }
+            } catch (_) { }
+          });
+          showToast("Réponses effacées pour ce bilan.");
+          // If we are inside the history panel, remove the corresponding list item immediately
+          if (renderInPanel && historyPanel) {
+            try {
+              const li = trigger && trigger.closest('[data-history-entry]');
+              if (li && li.parentElement) {
+                li.parentElement.removeChild(li);
+                const listEl = historyPanel.querySelector('.history-panel__list');
+                const badge = historyPanel.querySelector('.history-panel__badge');
+                const count = listEl ? listEl.querySelectorAll('[data-history-entry]').length : 0;
+                if (badge) badge.textContent = count === 0 ? 'Aucune entrée' : (count === 1 ? '1 entrée' : `${count} entrées`);
+                if (listEl && count === 0) {
+                  listEl.innerHTML = '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>';
+                }
+              }
             } catch (_) { }
           }
-          try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) { }
-          try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-          // If this history entry originates from a bilan summary, also delete the underlying summary answer
+          if (typeof options.onChange === 'function') {
+            try { options.onChange(); } catch (e) { }
+          }
+          if (typeof requestClose === 'function') requestClose();
+          flushHistoryPanelRefresh();
           try {
-            const scope = entry?.summaryScope || entry?.periodScope || "";
-            const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
-            const answerKey = entry?.summaryKey || "";
-            if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
-              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
-            }
-          } catch (err) {
-            console.error("bilan.history.editor.clear.summaryDelete", err);
-          }
-          const status = dotColor(consigne.type, "", consigne) || "na";
-          updateConsigneHistoryTimeline(row, status, {
-            consigne,
-            value: "",
-            dayKey: resolvedDayKey,
-            historyId: historyDocumentId,
-            responseId: responseSyncOptions?.responseId || "",
-            isBilan: true,
-            keepPlaceholder: true,
-            remove: true,
-          });
-          if (row instanceof HTMLElement) {
-            setConsigneRowValue(row, consigne, "");
-          }
-          triggerConsigneRowUpdateHighlight(row);
-          try { applyDailyPrefillUpdate(consigne.id, dayKeyToClear, ""); } catch (_) { }
-          for (const childState of baseChildStates) {
-            const childConsigneId = childState?.consigne?.id;
-            if (!childConsigneId) {
-              continue;
-            }
-            await runWithAutoSaveSuppressed(childConsigneId, dayKeyToClear, async () => {
-              if (ctx?.db && ctx?.user?.uid && dayKeyToClear) {
-                try {
-                  await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
-                } catch (_) { }
-              }
-              try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) { }
-              try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) { }
-              await Schema.deleteHistoryEntry(
-                ctx.db,
-                ctx.user.uid,
-                childState.consigne.id,
-                childState.historyDocumentId,
-                childState.responseSyncOptions,
-              );
-              // Also delete child summary answers if present
-              try {
-                const cEntry = childState.entry || null;
-                const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
-                const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
-                const cAnswerKey = cEntry?.summaryKey || "";
-                if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
-                  await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
-                }
-              } catch (err) {
-                console.error("bilan.history.editor.child.clear.summaryDelete", err);
-              }
-              const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
-              if (childState.row) {
-                setConsigneRowValue(childState.row, childState.consigne, "");
-                updateConsigneHistoryTimeline(childState.row, childStatus, {
-                  consigne: childState.consigne,
-                  value: "",
-                  dayKey: resolvedDayKey,
-                  historyId: childState.historyDocumentId,
-                  responseId: childState.responseSyncOptions?.responseId || "",
-                  iterationLabel,
-                  keepPlaceholder: true,
-                  remove: true,
-                });
-                triggerConsigneRowUpdateHighlight(childState.row);
-              }
-              // Fully clear the daily UI and autosave footprint for the child as well
-              try { applyDailyPrefillUpdate(childState.consigne.id, resolvedDayKey, ""); } catch (_) { }
-            });
-          }
-          try {
-            const escapeConsigneId =
-              typeof CSS !== "undefined" && typeof CSS.escape === "function"
-                ? CSS.escape(String(consigne.id ?? ""))
-                : String(consigne.id ?? "").replace(/"/g, '\\"');
-            const escapeDayKey =
-              typeof CSS !== "undefined" && typeof CSS.escape === "function"
-                ? CSS.escape(String(dayKeyToClear ?? ""))
-                : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
-            const dailyRow = document.querySelector(
-              `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
-            );
-            if (dailyRow) {
-              setConsigneRowValue(dailyRow, consigne, "");
-              clearConsigneSummaryMetadata(dailyRow);
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+              window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
             }
           } catch (_) { }
-        });
-        showToast("Réponses effacées pour ce bilan.");
-        // If we are inside the history panel, remove the corresponding list item immediately
-        if (renderInPanel && historyPanel) {
-          try {
-            const li = trigger && trigger.closest('[data-history-entry]');
-            if (li && li.parentElement) {
-              li.parentElement.removeChild(li);
-              const listEl = historyPanel.querySelector('.history-panel__list');
-              const badge = historyPanel.querySelector('.history-panel__badge');
-              const count = listEl ? listEl.querySelectorAll('[data-history-entry]').length : 0;
-              if (badge) badge.textContent = count === 0 ? 'Aucune entrée' : (count === 1 ? '1 entrée' : `${count} entrées`);
-              if (listEl && count === 0) {
-                listEl.innerHTML = '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>';
-              }
-            }
-          } catch (_) { }
+        } catch (error) {
+          console.error("bilan.history.editor.clear", error);
+          clearBtn.disabled = false;
+          if (submitBtn) submitBtn.disabled = false;
         }
+      });
+    }
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!submitBtn || submitBtn.disabled) {
+        return;
+      }
+      logHistoryDebug("editor.submit.start", {
+        consigneId: consigne?.id ?? null,
+        dayKey: resolvedDayKey,
+        historyId: historyDocumentId,
+        responseId: responseSyncOptions?.responseId || null,
+      });
+      submitBtn.disabled = true;
+      if (clearBtn) clearBtn.disabled = true;
+      try {
+        const rawValue = readConsigneValueFromForm(consigne, form);
+        const parentHasValue = hasValueForConsigne(consigne, rawValue);
+        const childResults = baseChildStates.map((childState) => {
+          const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
+          const childValue = childNode
+            ? readConsigneValueFromForm(childState.consigne, childNode)
+            : "";
+          const hasValue = hasValueForConsigne(childState.consigne, childValue);
+          return {
+            state: childState,
+            value: childValue,
+            hasValue,
+          };
+        });
+        await Schema.saveHistoryEntry(
+          ctx.db,
+          ctx.user.uid,
+          consigne.id,
+          historyDocumentId,
+          { value: parentHasValue ? rawValue : "" },
+          responseSyncOptions,
+        );
+        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) { }
+        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
+        const parentStatus = dotColor(
+          consigne.type,
+          parentHasValue ? rawValue : "",
+          consigne,
+        ) || "na";
+        const resolvedSummaryScope =
+          (typeof entry?.summaryScope === "string" && entry.summaryScope.trim()) ||
+          (typeof entry?.summary_scope === "string" && entry.summary_scope.trim()) ||
+          (typeof details?.summaryScope === "string" && details.summaryScope.trim()) ||
+          (typeof details?.summary_scope === "string" && details.summary_scope.trim()) ||
+          "";
+        updateConsigneHistoryTimeline(row, parentStatus, {
+          consigne,
+          value: parentHasValue ? rawValue : "",
+          dayKey: resolvedDayKey,
+          isBilan: true,
+          summaryScope: resolvedSummaryScope,
+          historyId: historyDocumentId,
+          responseId: resolvedResponseId,
+        });
+        if (row instanceof HTMLElement) {
+          setConsigneRowValue(row, consigne, parentHasValue ? rawValue : "");
+        }
+        triggerConsigneRowUpdateHighlight(row);
+        for (const { state, value, hasValue } of childResults) {
+          const childConsigneId = state?.consigne?.id;
+          if (!childConsigneId) {
+            continue;
+          }
+          await Schema.saveHistoryEntry(
+            ctx.db,
+            ctx.user.uid,
+            childConsigneId,
+            state.historyDocumentId,
+            { value: hasValue ? value : "" },
+            state.responseSyncOptions,
+          );
+          try { removeRecentResponsesForDay(childConsigneId, resolvedDayKey); } catch (e) { }
+          try { clearRecentResponsesForConsigne(childConsigneId); } catch (e) { }
+          const childStatus = dotColor(
+            state.consigne.type,
+            hasValue ? value : "",
+            state.consigne,
+          ) || "na";
+          if (state.row) {
+            setConsigneRowValue(state.row, state.consigne, hasValue ? value : "");
+            updateConsigneHistoryTimeline(state.row, childStatus, {
+              consigne: state.consigne,
+              value: hasValue ? value : "",
+              dayKey: resolvedDayKey,
+              iterationLabel,
+              historyId: state.historyDocumentId,
+              responseId: state.responseSyncOptions?.responseId || "",
+            });
+            triggerConsigneRowUpdateHighlight(state.row);
+          }
+          try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, hasValue ? value : ""); } catch (_) { }
+        }
+        showToast("Réponses enregistrées.");
         if (typeof options.onChange === 'function') {
           try { options.onChange(); } catch (e) { }
         }
@@ -11071,631 +11150,517 @@ async function openBilanHistoryEditor(row, consigne, ctx, options = {}) {
           }
         } catch (_) { }
       } catch (error) {
-        console.error("bilan.history.editor.clear", error);
-        clearBtn.disabled = false;
-        if (submitBtn) submitBtn.disabled = false;
+        console.error("bilan.history.editor.save", error);
+        submitBtn.disabled = false;
+        if (clearBtn) clearBtn.disabled = false;
       }
     });
   }
-  form?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (!submitBtn || submitBtn.disabled) {
+
+  async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) {
+    const dayKey = typeof options.dayKey === "string" ? options.dayKey.trim() : "";
+    const details = options.details && typeof options.details === "object" ? options.details : null;
+    const trigger = options.trigger instanceof HTMLElement ? options.trigger : null;
+    const source = typeof options.source === "string" ? options.source.trim() : "";
+    if (!dayKey) {
+      showToast("Date introuvable pour cette réponse.");
       return;
     }
-    logHistoryDebug("editor.submit.start", {
+    if (!ctx?.db || !ctx?.user?.uid) {
+      showToast("Connexion requise pour modifier cette réponse.");
+      return;
+    }
+    if (!EDITABLE_HISTORY_TYPES.has(consigne?.type)) {
+      showToast("Modification non disponible pour ce type de consigne.");
+      return;
+    }
+    if (!consigne?.id) {
+      showToast("Consigne introuvable.");
+      return;
+    }
+    logHistoryDebug("editor.open.request", {
       consigneId: consigne?.id ?? null,
-      dayKey: resolvedDayKey,
-      historyId: historyDocumentId,
-      responseId: responseSyncOptions?.responseId || null,
+      consigneType: consigne?.type || null,
+      dayKey,
+      source,
+      optionHistoryId: typeof options.historyId === "string" ? options.historyId : null,
+      optionResponseId: typeof options.responseId === "string" ? options.responseId : null,
+      hasDetails: Boolean(details),
     });
-    submitBtn.disabled = true;
-    if (clearBtn) clearBtn.disabled = true;
+    const historyPanelsToRefresh = new Set();
+    const registerHistoryPanelRefresh = (candidate) => {
+      if (!candidate) {
+        return;
+      }
+      const identifier = typeof candidate === "object" ? candidate.id : candidate;
+      if (identifier == null) {
+        return;
+      }
+      historyPanelsToRefresh.add(String(identifier));
+    };
+    const flushHistoryPanelRefresh = () => {
+      historyPanelsToRefresh.forEach((identifier) => {
+        refreshOpenHistoryPanel(identifier);
+      });
+    };
+    registerHistoryPanelRefresh(consigne);
+    let historyEntries = [];
     try {
-      const rawValue = readConsigneValueFromForm(consigne, form);
-      const parentHasValue = hasValueForConsigne(consigne, rawValue);
-      const childResults = baseChildStates.map((childState) => {
-        const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
-        const childValue = childNode
-          ? readConsigneValueFromForm(childState.consigne, childNode)
-          : "";
-        const hasValue = hasValueForConsigne(childState.consigne, childValue);
-        return {
-          state: childState,
-          value: childValue,
-          hasValue,
-        };
-      });
-      await Schema.saveHistoryEntry(
-        ctx.db,
-        ctx.user.uid,
-        consigne.id,
-        historyDocumentId,
-        { value: parentHasValue ? rawValue : "" },
-        responseSyncOptions,
-      );
-      try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) { }
-      try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
-      const parentStatus = dotColor(
-        consigne.type,
-        parentHasValue ? rawValue : "",
-        consigne,
-      ) || "na";
-      const resolvedSummaryScope =
-        (typeof entry?.summaryScope === "string" && entry.summaryScope.trim()) ||
-        (typeof entry?.summary_scope === "string" && entry.summary_scope.trim()) ||
-        (typeof details?.summaryScope === "string" && details.summaryScope.trim()) ||
-        (typeof details?.summary_scope === "string" && details.summary_scope.trim()) ||
-        "";
-      updateConsigneHistoryTimeline(row, parentStatus, {
-        consigne,
-        value: parentHasValue ? rawValue : "",
-        dayKey: resolvedDayKey,
-        isBilan: true,
-        summaryScope: resolvedSummaryScope,
-        historyId: historyDocumentId,
-        responseId: resolvedResponseId,
-      });
-      if (row instanceof HTMLElement) {
-        setConsigneRowValue(row, consigne, parentHasValue ? rawValue : "");
-      }
-      triggerConsigneRowUpdateHighlight(row);
-      for (const { state, value, hasValue } of childResults) {
-        const childConsigneId = state?.consigne?.id;
-        if (!childConsigneId) {
-          continue;
-        }
-        await Schema.saveHistoryEntry(
-          ctx.db,
-          ctx.user.uid,
-          childConsigneId,
-          state.historyDocumentId,
-          { value: hasValue ? value : "" },
-          state.responseSyncOptions,
-        );
-        try { removeRecentResponsesForDay(childConsigneId, resolvedDayKey); } catch (e) { }
-        try { clearRecentResponsesForConsigne(childConsigneId); } catch (e) { }
-        const childStatus = dotColor(
-          state.consigne.type,
-          hasValue ? value : "",
-          state.consigne,
-        ) || "na";
-        if (state.row) {
-          setConsigneRowValue(state.row, state.consigne, hasValue ? value : "");
-          updateConsigneHistoryTimeline(state.row, childStatus, {
-            consigne: state.consigne,
-            value: hasValue ? value : "",
-            dayKey: resolvedDayKey,
-            iterationLabel,
-            historyId: state.historyDocumentId,
-            responseId: state.responseSyncOptions?.responseId || "",
-          });
-          triggerConsigneRowUpdateHighlight(state.row);
-        }
-        try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, hasValue ? value : ""); } catch (_) { }
-      }
-      showToast("Réponses enregistrées.");
-      if (typeof options.onChange === 'function') {
-        try { options.onChange(); } catch (e) { }
-      }
-      if (typeof requestClose === 'function') requestClose();
-      flushHistoryPanelRefresh();
+      historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+    } catch (error) {
       try {
-        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-          window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+        modesLogger?.warn?.("consigne.history.entry.load", error);
+      } catch (_) { }
+      showToast("Impossible de charger cette réponse.");
+      return;
+    }
+    logHistoryDebug("editor.open.loaded", {
+      consigneId: consigne?.id ?? null,
+      dayKey,
+      entriesCount: historyEntries.length,
+      firstEntrySample: summarizeHistoryEntry(historyEntries[0])
+        ? { ...summarizeHistoryEntry(historyEntries[0]), valueSummary: summarizeHistoryValue(historyEntries[0]?.value) }
+        : null,
+    });
+    const explicitResponseId =
+      typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
+    const explicitHistoryId =
+      typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
+    const panelEntry = options.panelEntry || null;
+    const triggerResponseId = (() => {
+      if (!(trigger instanceof HTMLElement)) {
+        return "";
+      }
+      const direct =
+        (typeof trigger.dataset?.historyResponseId === "string" && trigger.dataset.historyResponseId.trim()
+          ? trigger.dataset.historyResponseId.trim()
+          : "") ||
+        trigger.getAttribute?.("data-history-response-id") ||
+        "";
+      if (direct && direct.trim()) {
+        return direct.trim();
+      }
+      const container = trigger.closest("[data-history-entry]");
+      if (container) {
+        const attr = container.getAttribute("data-response-id");
+        if (attr && attr.trim()) {
+          return attr.trim();
+        }
+      }
+      return "";
+    })();
+    const triggerHistoryId = (() => {
+      if (!(trigger instanceof HTMLElement)) {
+        return "";
+      }
+      const direct =
+        (typeof trigger.dataset?.historyId === "string" && trigger.dataset.historyId.trim()
+          ? trigger.dataset.historyId.trim()
+          : "") ||
+        trigger.getAttribute?.("data-history-id") ||
+        "";
+      if (direct && direct.trim()) {
+        return direct.trim();
+      }
+      const container = trigger.closest("[data-history-entry]");
+      if (container) {
+        const attr = container.getAttribute("data-history-id");
+        if (attr && attr.trim()) {
+          return attr.trim();
+        }
+      }
+      return "";
+    })();
+    const detailResponseId = resolveHistoryResponseId(details);
+    const detailHistoryId = (() => {
+      if (!details || typeof details !== "object") {
+        return "";
+      }
+      if (typeof details.historyId === "string" && details.historyId.trim()) {
+        return details.historyId.trim();
+      }
+      if (typeof details.history_id === "string" && details.history_id.trim()) {
+        return details.history_id.trim();
+      }
+      try {
+        const computed = resolveHistoryDocumentId(details, dayKey);
+        if (typeof computed === "string" && computed.trim()) {
+          return computed.trim();
         }
       } catch (_) { }
-    } catch (error) {
-      console.error("bilan.history.editor.save", error);
-      submitBtn.disabled = false;
-      if (clearBtn) clearBtn.disabled = false;
+      return "";
+    })();
+    const normalizeChecklistValueForEditor = (raw) => {
+      if (raw == null) {
+        return null;
+      }
+      try {
+        const fallback = raw && typeof raw === "object" ? raw : null;
+        const normalized = buildChecklistValue(consigne, raw, fallback);
+        if (!normalized || (Array.isArray(normalized.items) && normalized.items.length === 0 && !normalized.skipped)) {
+          return normalized || null;
+        }
+        return normalized;
+      } catch (error) {
+        logChecklistEvent("warn", "[checklist-history] normalize", { error: String(error) });
+        return null;
+      }
+    };
+    const timelineNormalized =
+      consigne.type === "checklist" ? normalizeChecklistValueForEditor(details?.rawValue ?? details?.value ?? null) : null;
+    const expectedSummary =
+      consigne.type === "checklist"
+        ? options.expectedSummary || (timelineNormalized ? summarizeChecklistValue(timelineNormalized) : null)
+        : null;
+    const timelineSummary =
+      consigne.type === "checklist" && timelineNormalized ? summarizeChecklistValue(timelineNormalized) : null;
+    if (consigne.type === "checklist") {
+      logChecklistHistoryInspection(consigne, {
+        label: "entry-editor:history-load",
+        entries: historyEntries,
+        focusDayKey: dayKey,
+      });
     }
-  });
-}
-
-async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) {
-  const dayKey = typeof options.dayKey === "string" ? options.dayKey.trim() : "";
-  const details = options.details && typeof options.details === "object" ? options.details : null;
-  const trigger = options.trigger instanceof HTMLElement ? options.trigger : null;
-  const source = typeof options.source === "string" ? options.source.trim() : "";
-  if (!dayKey) {
-    showToast("Date introuvable pour cette réponse.");
-    return;
-  }
-  if (!ctx?.db || !ctx?.user?.uid) {
-    showToast("Connexion requise pour modifier cette réponse.");
-    return;
-  }
-  if (!EDITABLE_HISTORY_TYPES.has(consigne?.type)) {
-    showToast("Modification non disponible pour ce type de consigne.");
-    return;
-  }
-  if (!consigne?.id) {
-    showToast("Consigne introuvable.");
-    return;
-  }
-  logHistoryDebug("editor.open.request", {
-    consigneId: consigne?.id ?? null,
-    consigneType: consigne?.type || null,
-    dayKey,
-    source,
-    optionHistoryId: typeof options.historyId === "string" ? options.historyId : null,
-    optionResponseId: typeof options.responseId === "string" ? options.responseId : null,
-    hasDetails: Boolean(details),
-  });
-  const historyPanelsToRefresh = new Set();
-  const registerHistoryPanelRefresh = (candidate) => {
-    if (!candidate) {
-      return;
-    }
-    const identifier = typeof candidate === "object" ? candidate.id : candidate;
-    if (identifier == null) {
-      return;
-    }
-    historyPanelsToRefresh.add(String(identifier));
-  };
-  const flushHistoryPanelRefresh = () => {
-    historyPanelsToRefresh.forEach((identifier) => {
-      refreshOpenHistoryPanel(identifier);
+    const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey, {
+      responseId: explicitResponseId || triggerResponseId || detailResponseId || "",
+      historyId: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
+      debug: consigne.type === "checklist" ? "entry-editor" : "",
+      expectedSummary,
     });
-  };
-  registerHistoryPanelRefresh(consigne);
-  let historyEntries = [];
-  try {
-    historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
-  } catch (error) {
-    try {
-      modesLogger?.warn?.("consigne.history.entry.load", error);
-    } catch (_) { }
-    showToast("Impossible de charger cette réponse.");
-    return;
-  }
-  logHistoryDebug("editor.open.loaded", {
-    consigneId: consigne?.id ?? null,
-    dayKey,
-    entriesCount: historyEntries.length,
-    firstEntrySample: summarizeHistoryEntry(historyEntries[0])
-      ? { ...summarizeHistoryEntry(historyEntries[0]), valueSummary: summarizeHistoryValue(historyEntries[0]?.value) }
-      : null,
-  });
-  const explicitResponseId =
-    typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
-  const explicitHistoryId =
-    typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
-  const panelEntry = options.panelEntry || null;
-  const triggerResponseId = (() => {
-    if (!(trigger instanceof HTMLElement)) {
-      return "";
-    }
-    const direct =
-      (typeof trigger.dataset?.historyResponseId === "string" && trigger.dataset.historyResponseId.trim()
-        ? trigger.dataset.historyResponseId.trim()
-        : "") ||
-      trigger.getAttribute?.("data-history-response-id") ||
-      "";
-    if (direct && direct.trim()) {
-      return direct.trim();
-    }
-    const container = trigger.closest("[data-history-entry]");
-    if (container) {
-      const attr = container.getAttribute("data-response-id");
-      if (attr && attr.trim()) {
-        return attr.trim();
+    const entry = match?.entry || null;
+    const keyInfo = match?.keyInfo || null;
+    const matchInfo = match
+      ? {
+        type: match.matchType || "",
+        historyId: match.historyId || "",
+        responseId: match.responseId || "",
+        candidateDayKey: match.keyInfo?.dayKey || "",
+        weight: match.weight ?? null,
+        summaryDiff: Array.isArray(match.summaryDiff) ? match.summaryDiff : [],
       }
-    }
-    return "";
-  })();
-  const triggerHistoryId = (() => {
-    if (!(trigger instanceof HTMLElement)) {
-      return "";
-    }
-    const direct =
-      (typeof trigger.dataset?.historyId === "string" && trigger.dataset.historyId.trim()
-        ? trigger.dataset.historyId.trim()
-        : "") ||
-      trigger.getAttribute?.("data-history-id") ||
-      "";
-    if (direct && direct.trim()) {
-      return direct.trim();
-    }
-    const container = trigger.closest("[data-history-entry]");
-    if (container) {
-      const attr = container.getAttribute("data-history-id");
-      if (attr && attr.trim()) {
-        return attr.trim();
-      }
-    }
-    return "";
-  })();
-  const detailResponseId = resolveHistoryResponseId(details);
-  const detailHistoryId = (() => {
-    if (!details || typeof details !== "object") {
-      return "";
-    }
-    if (typeof details.historyId === "string" && details.historyId.trim()) {
-      return details.historyId.trim();
-    }
-    if (typeof details.history_id === "string" && details.history_id.trim()) {
-      return details.history_id.trim();
-    }
-    try {
-      const computed = resolveHistoryDocumentId(details, dayKey);
-      if (typeof computed === "string" && computed.trim()) {
-        return computed.trim();
-      }
-    } catch (_) { }
-    return "";
-  })();
-  const normalizeChecklistValueForEditor = (raw) => {
-    if (raw == null) {
-      return null;
-    }
-    try {
-      const fallback = raw && typeof raw === "object" ? raw : null;
-      const normalized = buildChecklistValue(consigne, raw, fallback);
-      if (!normalized || (Array.isArray(normalized.items) && normalized.items.length === 0 && !normalized.skipped)) {
-        return normalized || null;
-      }
-      return normalized;
-    } catch (error) {
-      logChecklistEvent("warn", "[checklist-history] normalize", { error: String(error) });
-      return null;
-    }
-  };
-  const timelineNormalized =
-    consigne.type === "checklist" ? normalizeChecklistValueForEditor(details?.rawValue ?? details?.value ?? null) : null;
-  const expectedSummary =
-    consigne.type === "checklist"
-      ? options.expectedSummary || (timelineNormalized ? summarizeChecklistValue(timelineNormalized) : null)
       : null;
-  const timelineSummary =
-    consigne.type === "checklist" && timelineNormalized ? summarizeChecklistValue(timelineNormalized) : null;
-  if (consigne.type === "checklist") {
-    logChecklistHistoryInspection(consigne, {
-      label: "entry-editor:history-load",
-      entries: historyEntries,
-      focusDayKey: dayKey,
-    });
-  }
-  const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey, {
-    responseId: explicitResponseId || triggerResponseId || detailResponseId || "",
-    historyId: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
-    debug: consigne.type === "checklist" ? "entry-editor" : "",
-    expectedSummary,
-  });
-  const entry = match?.entry || null;
-  const keyInfo = match?.keyInfo || null;
-  const matchInfo = match
-    ? {
-      type: match.matchType || "",
-      historyId: match.historyId || "",
-      responseId: match.responseId || "",
-      candidateDayKey: match.keyInfo?.dayKey || "",
-      weight: match.weight ?? null,
-      summaryDiff: Array.isArray(match.summaryDiff) ? match.summaryDiff : [],
-    }
-    : null;
-  const resolvedDayKey = keyInfo?.dayKey || dayKey;
-  logHistoryDebug("editor.open.match", {
-    consigneId: consigne?.id ?? null,
-    requestedDayKey: dayKey,
-    resolvedDayKey,
-    matchType: match?.matchType || null,
-    weight: match?.weight ?? null,
-    historyId: match?.historyId || null,
-    responseId: match?.responseId || null,
-    keyInfo: keyInfo
-      ? {
-        dayKey: keyInfo?.dayKey || null,
-        iterationNumber: keyInfo?.iterationNumber ?? null,
-        iterationLabel: keyInfo?.iterationLabel || null,
-      }
-      : null,
-    hasEntry: Boolean(entry),
-    entrySummary: entry
-      ? {
-        ...summarizeHistoryEntry(entry),
-        valueSummary: summarizeHistoryValue(entry?.value),
-      }
-      : null,
-    detailsSummary: details
-      ? {
-        valueSummary: summarizeHistoryValue(details?.rawValue ?? details?.value ?? null),
-        note: typeof details?.note === "string" ? details.note.slice(0, 160) : null,
-      }
-      : null,
-  });
-  if (consigne.type === "checklist" && !entry) {
-    logChecklistEvent("error", "[checklist-history] entry-editor:missing-entry", {
-      consigneId: consigne.id ?? null,
-      dayKey,
+    const resolvedDayKey = keyInfo?.dayKey || dayKey;
+    logHistoryDebug("editor.open.match", {
+      consigneId: consigne?.id ?? null,
+      requestedDayKey: dayKey,
       resolvedDayKey,
-      responseTarget: explicitResponseId || triggerResponseId || detailResponseId || "",
-      historyTarget: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
-      availableEntries: historyEntries.length,
-    });
-  }
-  const historyDocumentId = resolveHistoryDocumentId(entry, resolvedDayKey);
-  const entryValue = entry?.value !== undefined ? entry.value : details?.rawValue ?? "";
-  const createdAtSource =
-    entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? details?.timestamp ?? null;
-  const createdAt = asDate(createdAtSource);
-  const dateCandidate =
-    (keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime()) ? keyInfo.date : null) ||
-    (details?.date instanceof Date && !Number.isNaN(details.date.getTime()) ? details.date : null) ||
-    (modesParseDayKeyToDate(resolvedDayKey) ?? null) ||
-    createdAt ||
-    null;
-  const baseDateLabel =
-    dateCandidate instanceof Date && !Number.isNaN(dateCandidate.getTime())
-      ? formatHistoryDayFullLabel(dateCandidate) || resolvedDayKey
-      : resolvedDayKey;
-  const iterationNumber = Number.isFinite(details?.iterationNumber)
-    ? details.iterationNumber
-    : Number.isFinite(keyInfo?.iterationNumber)
-      ? keyInfo.iterationNumber
-      : null;
-  const rawIterationLabel = (() => {
-    if (typeof details?.iterationLabel === "string" && details.iterationLabel.trim()) {
-      return details.iterationLabel.trim();
-    }
-    if (typeof keyInfo?.iterationLabel === "string" && keyInfo.iterationLabel.trim()) {
-      return keyInfo.iterationLabel.trim();
-    }
-    return "";
-  })();
-  const iterationLabel = sanitizeIterationLabel(rawIterationLabel, iterationNumber);
-  const primaryLabel = iterationLabel || baseDateLabel;
-  const secondaryLabel =
-    iterationLabel && baseDateLabel && iterationLabel !== baseDateLabel ? baseDateLabel : "";
-  const relative = computeRelativeHistoryLabel(dateCandidate);
-  const fieldId = `history-edit-${consigne?.id || "consigne"}-${Date.now().toString(36)}`;
-  let displayValue = entryValue;
-  let entrySummary = consigne.type === "checklist" ? null : null;
-  if (consigne.type === "checklist") {
-    const entryNormalized = normalizeChecklistValueForEditor(entryValue);
-    if (entryNormalized) {
-      displayValue = { ...entryNormalized };
-    } else if (timelineNormalized) {
-      displayValue = { ...timelineNormalized };
-      if (!entry) {
-        logChecklistEvent("warn", "[checklist-history] using timeline value (no entry)", {
-          consigneId: consigne.id ?? null,
-          dayKey: resolvedDayKey,
-        });
-      } else {
-        logChecklistEvent("warn", "[checklist-history] overriding entry value with timeline summary", {
-          consigneId: consigne.id ?? null,
-          dayKey: resolvedDayKey,
-        });
-      }
-    }
-    entrySummary = summarizeChecklistValue(displayValue);
-    if (matchInfo && Array.isArray(matchInfo.summaryDiff) && matchInfo.summaryDiff.length === 0) {
-      const diffs = diffChecklistSummaries(
-        expectedSummary || (timelineNormalized ? summarizeChecklistValue(timelineNormalized) : null),
-        entrySummary,
-      );
-      if (Array.isArray(diffs) && diffs.length) {
-        matchInfo.summaryDiff = diffs;
-      }
-    }
-  }
-  if (consigne.type === "checklist" && displayValue && typeof displayValue === "object") {
-    displayValue = { ...displayValue, __historyDateKey: resolvedDayKey };
-  }
-  const valueField = renderConsigneValueField(consigne, displayValue, fieldId, {
-    fieldName: "history-value",
-    ownerId: consigne?.id ?? "",
-  });
-  logHistoryDebug("editor.open.render", {
-    consigneId: consigne?.id ?? null,
-    dayKey: resolvedDayKey,
-    fieldId,
-    displayValueSummary: summarizeHistoryValue(displayValue),
-    matchSummary: matchInfo
-      ? {
-        type: matchInfo.type || null,
-        historyId: matchInfo.historyId || null,
-        responseId: matchInfo.responseId || null,
-        candidateDayKey: matchInfo.candidateDayKey || null,
-        weight: matchInfo.weight ?? null,
-        summaryDiff: Array.isArray(matchInfo.summaryDiff) ? matchInfo.summaryDiff.slice(0, 5) : [],
-      }
-      : null,
-  });
-  const autosaveKey = ["history-entry-edit", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
-    .map((part) => String(part || ""))
-    .join(":");
-  const entryResponseId = resolveHistoryResponseId(entry);
-  const resolvedResponseId =
-    explicitResponseId || triggerResponseId || detailResponseId || entryResponseId || "";
-  const responseSyncOptions = {
-    responseId: resolvedResponseId,
-    responseMode: resolveHistoryMode(entry) || source,
-    responseType: typeof entry?.type === "string" && entry.type.trim() ? entry.type.trim() : consigne?.type,
-    responseDayKey: resolvedDayKey,
-    responseCreatedAt:
-      createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
-        ? createdAt.toISOString()
-        : typeof createdAtSource === "string"
-          ? createdAtSource
-          : "",
-  };
-  if (consigne.type === "checklist") {
-    const panelEntry = options.panelEntry || null;
-    const panelNormalized =
-      panelEntry && panelEntry.value != null ? normalizeChecklistValueForEditor(panelEntry.value) : null;
-    const panelSummary = panelNormalized ? summarizeChecklistValue(panelNormalized) : null;
-    logChecklistHistoryInspection(consigne, {
-      label: "entry-editor:resolution",
-      focusDayKey: resolvedDayKey,
-      timelineDetails: {
-        summary: timelineSummary,
-        responseId: explicitResponseId || triggerResponseId || detailResponseId || "",
-        historyId: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
-        rawValue: timelineNormalized,
-      },
-      entrySummary: {
-        summary: entrySummary,
-        responseId: resolvedResponseId,
-        historyId: historyDocumentId,
-        rawValue: displayValue,
-      },
-      panelSummary: panelSummary
+      matchType: match?.matchType || null,
+      weight: match?.weight ?? null,
+      historyId: match?.historyId || null,
+      responseId: match?.responseId || null,
+      keyInfo: keyInfo
         ? {
-          summary: panelSummary,
-          responseId:
-            (typeof panelEntry?.responseId === "string" && panelEntry.responseId.trim()) ||
-            (typeof panelEntry?.response_id === "string" && panelEntry.response_id.trim()) ||
-            (typeof panelEntry?.id === "string" && panelEntry.id.trim()) ||
-            "",
-          historyId:
-            (typeof panelEntry?.historyId === "string" && panelEntry.historyId.trim()) ||
-            (typeof panelEntry?.history_id === "string" && panelEntry.history_id.trim()) ||
-            "",
-          rawValue: panelNormalized,
+          dayKey: keyInfo?.dayKey || null,
+          iterationNumber: keyInfo?.iterationNumber ?? null,
+          iterationLabel: keyInfo?.iterationLabel || null,
         }
         : null,
-      matchInfo,
-      entries: historyEntries,
-      maxEntries: 20,
+      hasEntry: Boolean(entry),
+      entrySummary: entry
+        ? {
+          ...summarizeHistoryEntry(entry),
+          valueSummary: summarizeHistoryValue(entry?.value),
+        }
+        : null,
+      detailsSummary: details
+        ? {
+          valueSummary: summarizeHistoryValue(details?.rawValue ?? details?.value ?? null),
+          note: typeof details?.note === "string" ? details.note.slice(0, 160) : null,
+        }
+        : null,
     });
-  }
-  let childCandidates = [];
-  if (ctx?.db && ctx?.user?.uid && consigne?.id) {
-    try {
-      childCandidates = await Schema.listChildConsignes(ctx.db, ctx.user.uid, consigne.id);
-    } catch (error) {
-      try {
-        modesLogger?.warn?.("consigne.history.entry.children.load", {
-          consigneId: consigne.id,
-          error,
-        });
-      } catch (_) { }
-      childCandidates = [];
+    if (consigne.type === "checklist" && !entry) {
+      logChecklistEvent("error", "[checklist-history] entry-editor:missing-entry", {
+        consigneId: consigne.id ?? null,
+        dayKey,
+        resolvedDayKey,
+        responseTarget: explicitResponseId || triggerResponseId || detailResponseId || "",
+        historyTarget: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
+        availableEntries: historyEntries.length,
+      });
     }
-  }
-  const parentInitialHasValue = hasValueForConsigne(consigne, displayValue);
-  const baseChildStates = await Promise.all(
-    childCandidates.map(async (child) => {
-      let childEntries = [];
-      try {
-        childEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, child.id);
-      } catch (error) {
-        try {
-          modesLogger?.warn?.("consigne.history.entry.child.load", { childId: child.id, error });
-        } catch (_) { }
-        childEntries = [];
+    const historyDocumentId = resolveHistoryDocumentId(entry, resolvedDayKey);
+    const entryValue = entry?.value !== undefined ? entry.value : details?.rawValue ?? "";
+    const createdAtSource =
+      entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? details?.timestamp ?? null;
+    const createdAt = asDate(createdAtSource);
+    const dateCandidate =
+      (keyInfo?.date instanceof Date && !Number.isNaN(keyInfo.date.getTime()) ? keyInfo.date : null) ||
+      (details?.date instanceof Date && !Number.isNaN(details.date.getTime()) ? details.date : null) ||
+      (modesParseDayKeyToDate(resolvedDayKey) ?? null) ||
+      createdAt ||
+      null;
+    const baseDateLabel =
+      dateCandidate instanceof Date && !Number.isNaN(dateCandidate.getTime())
+        ? formatHistoryDayFullLabel(dateCandidate) || resolvedDayKey
+        : resolvedDayKey;
+    const iterationNumber = Number.isFinite(details?.iterationNumber)
+      ? details.iterationNumber
+      : Number.isFinite(keyInfo?.iterationNumber)
+        ? keyInfo.iterationNumber
+        : null;
+    const rawIterationLabel = (() => {
+      if (typeof details?.iterationLabel === "string" && details.iterationLabel.trim()) {
+        return details.iterationLabel.trim();
       }
-      const childMatch = findHistoryEntryForDayKey(childEntries, child, resolvedDayKey);
-      const childEntry = childMatch?.entry || null;
-      const childRawValue = childEntry?.value !== undefined ? childEntry.value : "";
-      let childValue = childRawValue;
-      if (child.type === "checklist") {
-        try {
-          const fallbackValue =
-            childRawValue && typeof childRawValue === "object" ? childRawValue : null;
-          const normalizedChild = buildChecklistValue(child, childRawValue, fallbackValue);
-          childValue = normalizedChild ? { ...normalizedChild, __historyDateKey: resolvedDayKey } : null;
-        } catch (error) {
-          childValue = null;
+      if (typeof keyInfo?.iterationLabel === "string" && keyInfo.iterationLabel.trim()) {
+        return keyInfo.iterationLabel.trim();
+      }
+      return "";
+    })();
+    const iterationLabel = sanitizeIterationLabel(rawIterationLabel, iterationNumber);
+    const primaryLabel = iterationLabel || baseDateLabel;
+    const secondaryLabel =
+      iterationLabel && baseDateLabel && iterationLabel !== baseDateLabel ? baseDateLabel : "";
+    const relative = computeRelativeHistoryLabel(dateCandidate);
+    const fieldId = `history-edit-${consigne?.id || "consigne"}-${Date.now().toString(36)}`;
+    let displayValue = entryValue;
+    let entrySummary = consigne.type === "checklist" ? null : null;
+    if (consigne.type === "checklist") {
+      const entryNormalized = normalizeChecklistValueForEditor(entryValue);
+      if (entryNormalized) {
+        displayValue = { ...entryNormalized };
+      } else if (timelineNormalized) {
+        displayValue = { ...timelineNormalized };
+        if (!entry) {
+          logChecklistEvent("warn", "[checklist-history] using timeline value (no entry)", {
+            consigneId: consigne.id ?? null,
+            dayKey: resolvedDayKey,
+          });
+        } else {
+          logChecklistEvent("warn", "[checklist-history] overriding entry value with timeline summary", {
+            consigneId: consigne.id ?? null,
+            dayKey: resolvedDayKey,
+          });
         }
       }
-      const childCreatedAtSource =
-        childEntry?.createdAt ?? childEntry?.updatedAt ?? childEntry?.recordedAt ?? null;
-      const childCreatedAt = asDate(childCreatedAtSource);
-      const childHistoryDocumentId = resolveHistoryDocumentId(childEntry, resolvedDayKey);
-      const childResponseId = resolveHistoryResponseId(childEntry);
-      const childResponseSyncOptions = {
-        responseId: childResponseId,
-        responseMode: resolveHistoryMode(childEntry) || source,
-        responseType:
-          typeof childEntry?.type === "string" && childEntry.type.trim()
-            ? childEntry.type.trim()
-            : child.type,
-        responseDayKey: resolvedDayKey,
-        responseCreatedAt:
-          childCreatedAt instanceof Date && !Number.isNaN(childCreatedAt.getTime())
-            ? childCreatedAt.toISOString()
-            : typeof childCreatedAtSource === "string"
-              ? childCreatedAtSource
-              : "",
-      };
-      const selectorValue = String(child.id ?? "").replace(/"/g, '\\"');
-      const inRow =
-        row && row.matches?.(`[data-consigne-id="${selectorValue}"]`)
-          ? row
-          : row?.querySelector?.(`[data-consigne-id="${selectorValue}"]`) ||
-          document.querySelector(`[data-consigne-id="${selectorValue}"]`);
-      const domId = `history-child-${String(child.id ?? "child")}-${Math.random().toString(36).slice(2, 8)}`;
-      const fieldBase = `${domId}-${Date.now().toString(36)}`;
-      const childInitialHasValue = hasValueForConsigne(child, childValue);
-      return {
-        consigne: child,
-        entry: childEntry,
-        value: childValue,
-        domId,
-        fieldId: `${fieldBase}-value`,
-        row: inRow instanceof HTMLElement ? inRow : null,
-        responseSyncOptions: childResponseSyncOptions,
-        historyDocumentId: childHistoryDocumentId,
-        initialHasValue: childInitialHasValue,
-      };
-    }),
-  );
-  baseChildStates.forEach((childState) => {
-    registerHistoryPanelRefresh(childState?.consigne);
-  });
-  const childMarkup = baseChildStates.length
-    ? `<section class="practice-editor__section space-y-3 border-t border-slate-200 pt-3 mt-3" data-history-children>
+      entrySummary = summarizeChecklistValue(displayValue);
+      if (matchInfo && Array.isArray(matchInfo.summaryDiff) && matchInfo.summaryDiff.length === 0) {
+        const diffs = diffChecklistSummaries(
+          expectedSummary || (timelineNormalized ? summarizeChecklistValue(timelineNormalized) : null),
+          entrySummary,
+        );
+        if (Array.isArray(diffs) && diffs.length) {
+          matchInfo.summaryDiff = diffs;
+        }
+      }
+    }
+    if (consigne.type === "checklist" && displayValue && typeof displayValue === "object") {
+      displayValue = { ...displayValue, __historyDateKey: resolvedDayKey };
+    }
+    const valueField = renderConsigneValueField(consigne, displayValue, fieldId, {
+      fieldName: "history-value",
+      ownerId: consigne?.id ?? "",
+    });
+    logHistoryDebug("editor.open.render", {
+      consigneId: consigne?.id ?? null,
+      dayKey: resolvedDayKey,
+      fieldId,
+      displayValueSummary: summarizeHistoryValue(displayValue),
+      matchSummary: matchInfo
+        ? {
+          type: matchInfo.type || null,
+          historyId: matchInfo.historyId || null,
+          responseId: matchInfo.responseId || null,
+          candidateDayKey: matchInfo.candidateDayKey || null,
+          weight: matchInfo.weight ?? null,
+          summaryDiff: Array.isArray(matchInfo.summaryDiff) ? matchInfo.summaryDiff.slice(0, 5) : [],
+        }
+        : null,
+    });
+    const autosaveKey = ["history-entry-edit", ctx.user?.uid || "anon", consigne?.id || "consigne", resolvedDayKey]
+      .map((part) => String(part || ""))
+      .join(":");
+    const entryResponseId = resolveHistoryResponseId(entry);
+    const resolvedResponseId =
+      explicitResponseId || triggerResponseId || detailResponseId || entryResponseId || "";
+    const responseSyncOptions = {
+      responseId: resolvedResponseId,
+      responseMode: resolveHistoryMode(entry) || source,
+      responseType: typeof entry?.type === "string" && entry.type.trim() ? entry.type.trim() : consigne?.type,
+      responseDayKey: resolvedDayKey,
+      responseCreatedAt:
+        createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
+          ? createdAt.toISOString()
+          : typeof createdAtSource === "string"
+            ? createdAtSource
+            : "",
+    };
+    if (consigne.type === "checklist") {
+      const panelEntry = options.panelEntry || null;
+      const panelNormalized =
+        panelEntry && panelEntry.value != null ? normalizeChecklistValueForEditor(panelEntry.value) : null;
+      const panelSummary = panelNormalized ? summarizeChecklistValue(panelNormalized) : null;
+      logChecklistHistoryInspection(consigne, {
+        label: "entry-editor:resolution",
+        focusDayKey: resolvedDayKey,
+        timelineDetails: {
+          summary: timelineSummary,
+          responseId: explicitResponseId || triggerResponseId || detailResponseId || "",
+          historyId: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
+          rawValue: timelineNormalized,
+        },
+        entrySummary: {
+          summary: entrySummary,
+          responseId: resolvedResponseId,
+          historyId: historyDocumentId,
+          rawValue: displayValue,
+        },
+        panelSummary: panelSummary
+          ? {
+            summary: panelSummary,
+            responseId:
+              (typeof panelEntry?.responseId === "string" && panelEntry.responseId.trim()) ||
+              (typeof panelEntry?.response_id === "string" && panelEntry.response_id.trim()) ||
+              (typeof panelEntry?.id === "string" && panelEntry.id.trim()) ||
+              "",
+            historyId:
+              (typeof panelEntry?.historyId === "string" && panelEntry.historyId.trim()) ||
+              (typeof panelEntry?.history_id === "string" && panelEntry.history_id.trim()) ||
+              "",
+            rawValue: panelNormalized,
+          }
+          : null,
+        matchInfo,
+        entries: historyEntries,
+        maxEntries: 20,
+      });
+    }
+    let childCandidates = [];
+    if (ctx?.db && ctx?.user?.uid && consigne?.id) {
+      try {
+        childCandidates = await Schema.listChildConsignes(ctx.db, ctx.user.uid, consigne.id);
+      } catch (error) {
+        try {
+          modesLogger?.warn?.("consigne.history.entry.children.load", {
+            consigneId: consigne.id,
+            error,
+          });
+        } catch (_) { }
+        childCandidates = [];
+      }
+    }
+    const parentInitialHasValue = hasValueForConsigne(consigne, displayValue);
+    const baseChildStates = await Promise.all(
+      childCandidates.map(async (child) => {
+        let childEntries = [];
+        try {
+          childEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, child.id);
+        } catch (error) {
+          try {
+            modesLogger?.warn?.("consigne.history.entry.child.load", { childId: child.id, error });
+          } catch (_) { }
+          childEntries = [];
+        }
+        const childMatch = findHistoryEntryForDayKey(childEntries, child, resolvedDayKey);
+        const childEntry = childMatch?.entry || null;
+        const childRawValue = childEntry?.value !== undefined ? childEntry.value : "";
+        let childValue = childRawValue;
+        if (child.type === "checklist") {
+          try {
+            const fallbackValue =
+              childRawValue && typeof childRawValue === "object" ? childRawValue : null;
+            const normalizedChild = buildChecklistValue(child, childRawValue, fallbackValue);
+            childValue = normalizedChild ? { ...normalizedChild, __historyDateKey: resolvedDayKey } : null;
+          } catch (error) {
+            childValue = null;
+          }
+        }
+        const childCreatedAtSource =
+          childEntry?.createdAt ?? childEntry?.updatedAt ?? childEntry?.recordedAt ?? null;
+        const childCreatedAt = asDate(childCreatedAtSource);
+        const childHistoryDocumentId = resolveHistoryDocumentId(childEntry, resolvedDayKey);
+        const childResponseId = resolveHistoryResponseId(childEntry);
+        const childResponseSyncOptions = {
+          responseId: childResponseId,
+          responseMode: resolveHistoryMode(childEntry) || source,
+          responseType:
+            typeof childEntry?.type === "string" && childEntry.type.trim()
+              ? childEntry.type.trim()
+              : child.type,
+          responseDayKey: resolvedDayKey,
+          responseCreatedAt:
+            childCreatedAt instanceof Date && !Number.isNaN(childCreatedAt.getTime())
+              ? childCreatedAt.toISOString()
+              : typeof childCreatedAtSource === "string"
+                ? childCreatedAtSource
+                : "",
+        };
+        const selectorValue = String(child.id ?? "").replace(/"/g, '\\"');
+        const inRow =
+          row && row.matches?.(`[data-consigne-id="${selectorValue}"]`)
+            ? row
+            : row?.querySelector?.(`[data-consigne-id="${selectorValue}"]`) ||
+            document.querySelector(`[data-consigne-id="${selectorValue}"]`);
+        const domId = `history-child-${String(child.id ?? "child")}-${Math.random().toString(36).slice(2, 8)}`;
+        const fieldBase = `${domId}-${Date.now().toString(36)}`;
+        const childInitialHasValue = hasValueForConsigne(child, childValue);
+        return {
+          consigne: child,
+          entry: childEntry,
+          value: childValue,
+          domId,
+          fieldId: `${fieldBase}-value`,
+          row: inRow instanceof HTMLElement ? inRow : null,
+          responseSyncOptions: childResponseSyncOptions,
+          historyDocumentId: childHistoryDocumentId,
+          initialHasValue: childInitialHasValue,
+        };
+      }),
+    );
+    baseChildStates.forEach((childState) => {
+      registerHistoryPanelRefresh(childState?.consigne);
+    });
+    const childMarkup = baseChildStates.length
+      ? `<section class="practice-editor__section space-y-3 border-t border-slate-200 pt-3 mt-3" data-history-children>
         <header class="space-y-1">
           <h3 class="text-base font-semibold">Sous-consignes</h3>
           <p class="text-sm text-slate-600">Complète les sous-consignes liées à cette carte.</p>
         </header>
         <div class="space-y-3">
           ${baseChildStates
-      .map((childState, index) => {
-        const child = childState.consigne || {};
-        const childTitle =
-          child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
-        const childDescription = child.description || child.details || child.helper || "";
-        const childFieldMarkup = renderConsigneValueField(
-          child,
-          childState.value,
-          childState.fieldId,
-          {
-            fieldName: `history-child-${String(child.id ?? index)}`,
-            ownerId: child?.id ?? "",
-          },
-        );
-        return `
+        .map((childState, index) => {
+          const child = childState.consigne || {};
+          const childTitle =
+            child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
+          const childDescription = child.description || child.details || child.helper || "";
+          const childFieldMarkup = renderConsigneValueField(
+            child,
+            childState.value,
+            childState.fieldId,
+            {
+              fieldName: `history-child-${String(child.id ?? index)}`,
+              ownerId: child?.id ?? "",
+            },
+          );
+          return `
                 <article class="space-y-3 rounded-xl border border-slate-200 p-3" data-history-child="${escapeHtml(childState.domId)}" data-consigne-id="${escapeHtml(
-          String(child.id ?? ""),
-        )}">
+            String(child.id ?? ""),
+          )}">
                   <div class="space-y-1">
                     <div class="font-medium text-slate-800">${escapeHtml(childTitle)}</div>
                     ${childDescription
-            ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(
-              childDescription,
-            )}</p>`
-            : ""
-          }
+              ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(
+                childDescription,
+              )}</p>`
+              : ""
+            }
                   </div>
                   <div class="space-y-2">
                     ${childFieldMarkup}
                   </div>
                 </article>`;
-      })
-      .join("")}
+        })
+        .join("")}
         </div>
       </section>`
-    : "";
-  const labelForAttr2 = consigne.type === "checklist" ? "" : ` for="${escapeHtml(fieldId)}"`;
-  const editorHtml = `
+      : "";
+    const labelForAttr2 = consigne.type === "checklist" ? "" : ` for="${escapeHtml(fieldId)}"`;
+    const editorHtml = `
     <div class="space-y-5">
       <header class="space-y-1">
         ${primaryLabel ? `<p class="text-sm text-[var(--muted)]">${escapeHtml(primaryLabel)}${relative ? ` <span class="text-xs">(${escapeHtml(relative)})</span>` : ""
-      }</p>` : ""}
+        }</p>` : ""}
         ${secondaryLabel ? `<p class="text-xs text-slate-500">${escapeHtml(secondaryLabel)}</p>` : ""}
         <h2 class="text-lg font-semibold">Modifier la réponse</h2>
         <p class="text-sm text-slate-600">${escapeHtml(safeConsigneLabel(consigne))}</p>
@@ -11714,251 +11679,497 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
       </form>
     </div>
   `;
-  const overlay = modal(editorHtml);
-  if (!overlay) {
-    return;
-  }
-  initializeChecklistScope(overlay, { dateKey: resolvedDayKey, hydrate: false });
-  if (consigne.type === "checklist") {
-    requestAnimationFrame(() => {
-      try {
-        const domRoot = overlay.querySelector("[data-checklist-root]");
-        if (!domRoot) {
-          return;
+    const overlay = modal(editorHtml);
+    if (!overlay) {
+      return;
+    }
+    initializeChecklistScope(overlay, { dateKey: resolvedDayKey, hydrate: false });
+    if (consigne.type === "checklist") {
+      requestAnimationFrame(() => {
+        try {
+          const domRoot = overlay.querySelector("[data-checklist-root]");
+          if (!domRoot) {
+            return;
+          }
+          const domState = readChecklistDomState(domRoot);
+          const domValue = buildChecklistValue(consigne, domState || []);
+          const domSummary = summarizeChecklistValue(domValue);
+          const hiddenInput = domRoot.querySelector("[data-checklist-state]");
+          logChecklistHistoryInspection(consigne, {
+            label: "entry-editor:dom",
+            focusDayKey: resolvedDayKey,
+            domSummary: {
+              summary: domSummary,
+              rawValue: domValue,
+            },
+            domAttrs: {
+              rootHistoryDate: domRoot.dataset?.checklistHistoryDate || domRoot.getAttribute?.("data-checklist-history-date") || "",
+              hiddenHistoryDate:
+                (hiddenInput?.dataset?.checklistHistoryDate || hiddenInput?.getAttribute?.("data-checklist-history-date") || ""),
+            },
+            timelineDetails: {
+              summary: timelineSummary,
+              responseId: explicitResponseId || triggerResponseId || detailResponseId || "",
+              historyId: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
+              rawValue: timelineNormalized,
+            },
+            entrySummary: {
+              summary: entrySummary,
+              responseId: resolvedResponseId,
+              historyId: historyDocumentId,
+              rawValue: displayValue,
+            },
+            matchInfo,
+          });
+        } catch (error) {
+          logChecklistEvent("warn", "[checklist-history] dom-summary failed", { error: String(error) });
         }
-        const domState = readChecklistDomState(domRoot);
-        const domValue = buildChecklistValue(consigne, domState || []);
-        const domSummary = summarizeChecklistValue(domValue);
-        const hiddenInput = domRoot.querySelector("[data-checklist-state]");
-        logChecklistHistoryInspection(consigne, {
-          label: "entry-editor:dom",
-          focusDayKey: resolvedDayKey,
-          domSummary: {
-            summary: domSummary,
-            rawValue: domValue,
-          },
-          domAttrs: {
-            rootHistoryDate: domRoot.dataset?.checklistHistoryDate || domRoot.getAttribute?.("data-checklist-history-date") || "",
-            hiddenHistoryDate:
-              (hiddenInput?.dataset?.checklistHistoryDate || hiddenInput?.getAttribute?.("data-checklist-history-date") || ""),
-          },
-          timelineDetails: {
-            summary: timelineSummary,
-            responseId: explicitResponseId || triggerResponseId || detailResponseId || "",
-            historyId: explicitHistoryId || triggerHistoryId || detailHistoryId || "",
-            rawValue: timelineNormalized,
-          },
-          entrySummary: {
-            summary: entrySummary,
-            responseId: resolvedResponseId,
-            historyId: historyDocumentId,
-            rawValue: displayValue,
-          },
-          matchInfo,
-        });
-      } catch (error) {
-        logChecklistEvent("warn", "[checklist-history] dom-summary failed", { error: String(error) });
+      });
+    }
+    overlay.querySelectorAll("textarea").forEach((textarea) => {
+      if (typeof autoGrowTextarea === "function") {
+        autoGrowTextarea(textarea);
       }
     });
-  }
-  overlay.querySelectorAll("textarea").forEach((textarea) => {
-    if (typeof autoGrowTextarea === "function") {
-      autoGrowTextarea(textarea);
+    const modalContent = overlay.querySelector("[data-modal-content]");
+    if (modalContent) {
+      modalContent.setAttribute("role", "dialog");
+      modalContent.setAttribute("aria-modal", "true");
+      modalContent.setAttribute("aria-label", "Modifier la réponse");
     }
-  });
-  const modalContent = overlay.querySelector("[data-modal-content]");
-  if (modalContent) {
-    modalContent.setAttribute("role", "dialog");
-    modalContent.setAttribute("aria-modal", "true");
-    modalContent.setAttribute("aria-label", "Modifier la réponse");
-  }
-  const form = overlay.querySelector("form");
-  const cancelBtn = overlay.querySelector("[data-cancel]");
-  const clearBtn = overlay.querySelector("[data-clear]");
-  const submitBtn = form?.querySelector('button[type="submit"]');
-  const restoreFocus = () => {
-    if (trigger && typeof trigger.focus === "function") {
-      try {
-        trigger.focus({ preventScroll: true });
-      } catch (_) {
-        trigger.focus();
+    const form = overlay.querySelector("form");
+    const cancelBtn = overlay.querySelector("[data-cancel]");
+    const clearBtn = overlay.querySelector("[data-clear]");
+    const submitBtn = form?.querySelector('button[type="submit"]');
+    const restoreFocus = () => {
+      if (trigger && typeof trigger.focus === "function") {
+        try {
+          trigger.focus({ preventScroll: true });
+        } catch (_) {
+          trigger.focus();
+        }
       }
-    }
-  };
-  let handleKeyDown = null;
-  const cleanup = () => {
-    if (handleKeyDown) {
-      document.removeEventListener("keydown", handleKeyDown, true);
-      handleKeyDown = null;
-    }
-  };
-  const closeOverlay = () => {
-    cleanup();
-    overlay.remove();
-    restoreFocus();
-  };
-  handleKeyDown = (event) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeOverlay();
-    }
-  };
-  document.addEventListener("keydown", handleKeyDown, true);
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) {
-      closeOverlay();
-    }
-  });
-  cancelBtn?.addEventListener("click", (event) => {
-    event.preventDefault();
-    closeOverlay();
-  });
-  if (clearBtn) {
-    const hasInitialChildValue = baseChildStates.some((childState) =>
-      hasValueForConsigne(childState.consigne, childState.value),
-    );
-    // Allow clearing when a bilan entry exists even if it has no textual content
-    const hadStoredEntry = Boolean(entry);
-    const hasInitialData = hadStoredEntry || parentInitialHasValue || hasInitialChildValue;
-    if (!hasInitialData) {
-      clearBtn.disabled = true;
-    }
-    logHistoryDebug("editor.buttons.state", {
-      consigneId: consigne?.id ?? null,
-      dayKey: resolvedDayKey,
-      hasInitialData,
-      parentInitialHasValue,
-      hadStoredEntry,
-      hasInitialChildValue,
+    };
+    let handleKeyDown = null;
+    const cleanup = () => {
+      if (handleKeyDown) {
+        document.removeEventListener("keydown", handleKeyDown, true);
+        handleKeyDown = null;
+      }
+    };
+    const closeOverlay = () => {
+      cleanup();
+      overlay.remove();
+      restoreFocus();
+    };
+    handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeOverlay();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) {
+        closeOverlay();
+      }
     });
-    clearBtn.addEventListener("click", async (event) => {
+    cancelBtn?.addEventListener("click", (event) => {
       event.preventDefault();
-      if (!confirm("Effacer la réponse pour cette date ?")) {
-        return;
+      closeOverlay();
+    });
+    if (clearBtn) {
+      const hasInitialChildValue = baseChildStates.some((childState) =>
+        hasValueForConsigne(childState.consigne, childState.value),
+      );
+      // Allow clearing when a bilan entry exists even if it has no textual content
+      const hadStoredEntry = Boolean(entry);
+      const hasInitialData = hadStoredEntry || parentInitialHasValue || hasInitialChildValue;
+      if (!hasInitialData) {
+        clearBtn.disabled = true;
       }
-      logHistoryDebug("editor.clear.confirmed", {
+      logHistoryDebug("editor.buttons.state", {
         consigneId: consigne?.id ?? null,
         dayKey: resolvedDayKey,
-        historyId: historyDocumentId,
-        responseId: responseSyncOptions?.responseId || null,
+        hasInitialData,
+        parentInitialHasValue,
+        hadStoredEntry,
+        hasInitialChildValue,
       });
-      clearBtn.disabled = true;
-      if (submitBtn) submitBtn.disabled = true;
-      try {
-        const dayKeyToClear = resolvedDayKey || dayKey;
-        await runWithAutoSaveSuppressed(consigne?.id, dayKeyToClear, async () => {
-          if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
-            logHistoryDebug("editor.clear.deleteAllResponses", {
+      clearBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        if (!confirm("Effacer la réponse pour cette date ?")) {
+          return;
+        }
+        logHistoryDebug("editor.clear.confirmed", {
+          consigneId: consigne?.id ?? null,
+          dayKey: resolvedDayKey,
+          historyId: historyDocumentId,
+          responseId: responseSyncOptions?.responseId || null,
+        });
+        clearBtn.disabled = true;
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+          const dayKeyToClear = resolvedDayKey || dayKey;
+          await runWithAutoSaveSuppressed(consigne?.id, dayKeyToClear, async () => {
+            if (ctx?.db && ctx?.user?.uid && consigne?.id && dayKeyToClear) {
+              logHistoryDebug("editor.clear.deleteAllResponses", {
+                consigneId: consigne?.id ?? null,
+                dayKey: dayKeyToClear,
+              });
+              try {
+                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
+              } catch (error) {
+                logHistoryDebug("editor.clear.deleteAllResponses.error", {
+                  consigneId: consigne?.id ?? null,
+                  dayKey: dayKeyToClear,
+                  error: String(error?.message || error),
+                }, "error");
+              }
+            }
+            try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) { }
+            try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
+            logHistoryDebug("editor.clear.deleteHistoryEntry", {
               consigneId: consigne?.id ?? null,
               dayKey: dayKeyToClear,
+              historyId: historyDocumentId,
+              responseId: responseSyncOptions?.responseId || null,
             });
+            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
+            // If this entry is a bilan-backed summary, delete the summary answer to avoid reappearance
             try {
-              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKeyToClear);
-            } catch (error) {
-              logHistoryDebug("editor.clear.deleteAllResponses.error", {
-                consigneId: consigne?.id ?? null,
-                dayKey: dayKeyToClear,
-                error: String(error?.message || error),
-              }, "error");
-            }
-          }
-          try { removeRecentResponsesForDay(consigne.id, dayKeyToClear); } catch (_) { }
-          try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
-          logHistoryDebug("editor.clear.deleteHistoryEntry", {
-            consigneId: consigne?.id ?? null,
-            dayKey: dayKeyToClear,
-            historyId: historyDocumentId,
-            responseId: responseSyncOptions?.responseId || null,
-          });
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-          // If this entry is a bilan-backed summary, delete the summary answer to avoid reappearance
-          try {
-            const scope = entry?.summaryScope || entry?.periodScope || "";
-            const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
-            const answerKey = entry?.summaryKey || "";
-            if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
-              logHistoryDebug("editor.clear.deleteSummary", {
-                consigneId: consigne?.id ?? null,
-                dayKey: dayKeyToClear,
-                scope,
-                periodKey,
-                answerKey,
-              });
-              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
-            }
-          } catch (err) {
-            console.error("consigne.history.editor.clear.summaryDelete", err);
-          }
-          const status = dotColor(consigne.type, "", consigne) || "na";
-          updateConsigneHistoryTimeline(row, status, {
-            consigne,
-            value: "",
-            dayKey: resolvedDayKey,
-            historyId: historyDocumentId,
-            responseId: responseSyncOptions?.responseId || "",
-            iterationLabel,
-            keepPlaceholder: true,
-            remove: true,
-          });
-          logHistoryDebug("editor.clear.timeline-parent", {
-            consigneId: consigne?.id ?? null,
-            dayKey: resolvedDayKey,
-            status,
-            historyId: historyDocumentId,
-            responseId: responseSyncOptions?.responseId || null,
-          });
-          triggerConsigneRowUpdateHighlight(row);
-          try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) { }
-          for (const childState of baseChildStates) {
-            const childConsigneId = childState?.consigne?.id;
-            if (!childConsigneId) {
-              continue;
-            }
-            await runWithAutoSaveSuppressed(childConsigneId, dayKeyToClear, async () => {
-              if (ctx?.db && ctx?.user?.uid && dayKeyToClear) {
-                logHistoryDebug("editor.clear.child.deleteAllResponses", {
-                  parentConsigneId: consigne?.id ?? null,
-                  childConsigneId,
+              const scope = entry?.summaryScope || entry?.periodScope || "";
+              const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
+              const answerKey = entry?.summaryKey || "";
+              if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+                logHistoryDebug("editor.clear.deleteSummary", {
+                  consigneId: consigne?.id ?? null,
                   dayKey: dayKeyToClear,
+                  scope,
+                  periodKey,
+                  answerKey,
                 });
-                try {
-                  await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
-                } catch (error) {
-                  logHistoryDebug("editor.clear.child.deleteAllResponses.error", {
+                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
+              }
+            } catch (err) {
+              console.error("consigne.history.editor.clear.summaryDelete", err);
+            }
+            const status = dotColor(consigne.type, "", consigne) || "na";
+            updateConsigneHistoryTimeline(row, status, {
+              consigne,
+              value: "",
+              dayKey: resolvedDayKey,
+              historyId: historyDocumentId,
+              responseId: responseSyncOptions?.responseId || "",
+              iterationLabel,
+              keepPlaceholder: true,
+              remove: true,
+            });
+            logHistoryDebug("editor.clear.timeline-parent", {
+              consigneId: consigne?.id ?? null,
+              dayKey: resolvedDayKey,
+              status,
+              historyId: historyDocumentId,
+              responseId: responseSyncOptions?.responseId || null,
+            });
+            triggerConsigneRowUpdateHighlight(row);
+            try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) { }
+            for (const childState of baseChildStates) {
+              const childConsigneId = childState?.consigne?.id;
+              if (!childConsigneId) {
+                continue;
+              }
+              await runWithAutoSaveSuppressed(childConsigneId, dayKeyToClear, async () => {
+                if (ctx?.db && ctx?.user?.uid && dayKeyToClear) {
+                  logHistoryDebug("editor.clear.child.deleteAllResponses", {
                     parentConsigneId: consigne?.id ?? null,
                     childConsigneId,
                     dayKey: dayKeyToClear,
-                    error: String(error?.message || error),
-                  }, "error");
+                  });
+                  try {
+                    await deleteAllResponsesForDay(ctx.db, ctx.user.uid, childConsigneId, dayKeyToClear);
+                  } catch (error) {
+                    logHistoryDebug("editor.clear.child.deleteAllResponses.error", {
+                      parentConsigneId: consigne?.id ?? null,
+                      childConsigneId,
+                      dayKey: dayKeyToClear,
+                      error: String(error?.message || error),
+                    }, "error");
+                  }
                 }
+                try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) { }
+                try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) { }
+                logHistoryDebug("editor.clear.child.deleteHistoryEntry", {
+                  parentConsigneId: consigne?.id ?? null,
+                  childConsigneId,
+                  dayKey: dayKeyToClear,
+                  historyId: childState.historyDocumentId,
+                  responseId: childState.responseSyncOptions?.responseId || null,
+                });
+                await Schema.deleteHistoryEntry(
+                  ctx.db,
+                  ctx.user.uid,
+                  childState.consigne.id,
+                  childState.historyDocumentId,
+                  childState.responseSyncOptions,
+                );
+                // Also handle child summary deletion
+                try {
+                  const cEntry = childState.entry || null;
+                  const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
+                  const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
+                  const cAnswerKey = cEntry?.summaryKey || "";
+                  if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
+                    logHistoryDebug("editor.clear.child.deleteSummary", {
+                      parentConsigneId: consigne?.id ?? null,
+                      childConsigneId,
+                      dayKey: dayKeyToClear,
+                      scope: cScope,
+                      periodKey: cPeriodKey,
+                      answerKey: cAnswerKey,
+                    });
+                    await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
+                  }
+                } catch (err) {
+                  console.error("consigne.history.child.clear.summaryDelete", err);
+                }
+                const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
+                if (childState.row) {
+                  updateConsigneHistoryTimeline(childState.row, childStatus, {
+                    consigne: childState.consigne,
+                    value: "",
+                    dayKey: resolvedDayKey,
+                    historyId: childState.historyDocumentId,
+                    responseId: childState.responseSyncOptions?.responseId || "",
+                    iterationLabel,
+                    keepPlaceholder: true,
+                    remove: true,
+                  });
+                  logHistoryDebug("editor.clear.timeline-child", {
+                    parentConsigneId: consigne?.id ?? null,
+                    childConsigneId,
+                    dayKey: resolvedDayKey,
+                    status: childStatus,
+                    historyId: childState.historyDocumentId,
+                    responseId: childState.responseSyncOptions?.responseId || null,
+                  });
+                  triggerConsigneRowUpdateHighlight(childState.row);
+                }
+              });
+            }
+            try {
+              const escapeConsigneId =
+                typeof CSS !== "undefined" && typeof CSS.escape === "function"
+                  ? CSS.escape(String(consigne.id ?? ""))
+                  : String(consigne.id ?? "").replace(/"/g, '\\"');
+              const escapeDayKey =
+                typeof CSS !== "undefined" && typeof CSS.escape === "function"
+                  ? CSS.escape(String(dayKeyToClear ?? ""))
+                  : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
+              const dailyRow = document.querySelector(
+                `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
+              );
+              if (dailyRow) {
+                setConsigneRowValue(dailyRow, consigne, "");
+                clearConsigneSummaryMetadata(dailyRow);
               }
-              try { removeRecentResponsesForDay(childState.consigne.id, dayKeyToClear); } catch (_) { }
-              try { clearRecentResponsesForConsigne(childState.consigne.id); } catch (_) { }
-              logHistoryDebug("editor.clear.child.deleteHistoryEntry", {
+            } catch (_) { }
+          });
+          showToast("Réponses effacées.");
+          closeOverlay();
+          flushHistoryPanelRefresh();
+          try {
+            if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+              window.dispatchEvent(new CustomEvent("consigne:history:refresh", { detail: { consigneId: consigne.id } }));
+            }
+          } catch (_) { }
+        } catch (error) {
+          console.error("consigne.history.editor.clear", error);
+          clearBtn.disabled = false;
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!submitBtn || submitBtn.disabled) {
+        return;
+      }
+      submitBtn.disabled = true;
+      if (clearBtn) clearBtn.disabled = true;
+      try {
+        const rawValue = readConsigneValueFromForm(consigne, form);
+        const parentHasValue = hasValueForConsigne(consigne, rawValue);
+        const childResults = baseChildStates.map((childState) => {
+          const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
+          const childValue = childNode
+            ? readConsigneValueFromForm(childState.consigne, childNode)
+            : "";
+          const hasValue = hasValueForConsigne(childState.consigne, childValue);
+          return {
+            state: childState,
+            value: childValue,
+            hasValue,
+          };
+        });
+        logHistoryDebug("editor.submit.values", {
+          consigneId: consigne?.id ?? null,
+          dayKey: resolvedDayKey,
+          parentHasValue,
+          parentValueSummary: summarizeHistoryValue(rawValue),
+          children: childResults.map(({ state, hasValue, value }) => ({
+            consigneId: state?.consigne?.id ?? null,
+            historyId: state?.historyDocumentId || null,
+            responseId: state?.responseSyncOptions?.responseId || null,
+            hasValue,
+            valueSummary: summarizeHistoryValue(value),
+          })),
+        });
+        if (!parentHasValue) {
+          await runWithAutoSaveSuppressed(consigne.id, resolvedDayKey, async () => {
+            logHistoryDebug("editor.submit.deleteHistoryEntry", {
+              consigneId: consigne?.id ?? null,
+              dayKey: resolvedDayKey,
+              historyId: historyDocumentId,
+              responseId: responseSyncOptions?.responseId || null,
+            });
+            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
+            try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) { }
+            try { clearRecentResponsesForConsigne(consigne.id); } catch (e) { }
+            if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
+              logHistoryDebug("editor.submit.deleteAllResponses", {
+                consigneId: consigne?.id ?? null,
+                dayKey: resolvedDayKey,
+              });
+              try {
+                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey);
+              } catch (error) {
+                logHistoryDebug("editor.submit.deleteAllResponses.error", {
+                  consigneId: consigne?.id ?? null,
+                  dayKey: resolvedDayKey,
+                  error: String(error?.message || error),
+                }, "error");
+              }
+            }
+            // Also delete summary answer if this entry originated from a bilan
+            try {
+              const scope = entry?.summaryScope || entry?.periodScope || "";
+              const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
+              const answerKey = entry?.summaryKey || "";
+              if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
+                logHistoryDebug("editor.submit.deleteSummary", {
+                  consigneId: consigne?.id ?? null,
+                  dayKey: resolvedDayKey,
+                  scope,
+                  periodKey,
+                  answerKey,
+                });
+                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
+              }
+            } catch (err) {
+              console.error("consigne.history.editor.save.summaryDelete", err);
+            }
+          });
+          try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) { }
+        } else {
+          logHistoryDebug("editor.submit.saveHistoryEntry", {
+            consigneId: consigne?.id ?? null,
+            dayKey: resolvedDayKey,
+            historyId: historyDocumentId,
+            responseId: responseSyncOptions?.responseId || null,
+          });
+          await Schema.saveHistoryEntry(
+            ctx.db,
+            ctx.user.uid,
+            consigne.id,
+            historyDocumentId,
+            { value: rawValue },
+            responseSyncOptions,
+          );
+          try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, rawValue); } catch (_) { }
+          try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) { }
+        }
+        const parentStatus = dotColor(
+          consigne.type,
+          parentHasValue ? rawValue : "",
+          consigne,
+        ) || "na";
+        updateConsigneHistoryTimeline(row, parentStatus, {
+          consigne,
+          value: parentHasValue ? rawValue : "",
+          dayKey: resolvedDayKey,
+          iterationLabel,
+          historyId: historyDocumentId,
+          responseId: responseSyncOptions?.responseId || "",
+          remove: parentHasValue ? false : true,
+        });
+        logHistoryDebug("editor.submit.timeline-parent", {
+          consigneId: consigne?.id ?? null,
+          dayKey: resolvedDayKey,
+          status: parentStatus,
+          hasValue: parentHasValue,
+          historyId: historyDocumentId,
+          responseId: responseSyncOptions?.responseId || null,
+          valueSummary: summarizeHistoryValue(parentHasValue ? rawValue : ""),
+        });
+        triggerConsigneRowUpdateHighlight(row);
+        for (const { state, value, hasValue } of childResults) {
+          if (!hasValue) {
+            if (!state?.consigne?.id) {
+              continue;
+            }
+            logHistoryDebug("editor.submit.child.delete", {
+              parentConsigneId: consigne?.id ?? null,
+              childConsigneId: state.consigne.id,
+              dayKey: resolvedDayKey,
+              historyId: state.historyDocumentId,
+              responseId: state.responseSyncOptions?.responseId || null,
+            });
+            await runWithAutoSaveSuppressed(state.consigne.id, resolvedDayKey, async () => {
+              logHistoryDebug("editor.submit.child.deleteHistoryEntry", {
                 parentConsigneId: consigne?.id ?? null,
-                childConsigneId,
-                dayKey: dayKeyToClear,
-                historyId: childState.historyDocumentId,
-                responseId: childState.responseSyncOptions?.responseId || null,
+                childConsigneId: state.consigne.id,
+                dayKey: resolvedDayKey,
+                historyId: state.historyDocumentId,
+                responseId: state.responseSyncOptions?.responseId || null,
               });
               await Schema.deleteHistoryEntry(
                 ctx.db,
                 ctx.user.uid,
-                childState.consigne.id,
-                childState.historyDocumentId,
-                childState.responseSyncOptions,
+                state.consigne.id,
+                state.historyDocumentId,
+                state.responseSyncOptions,
               );
-              // Also handle child summary deletion
+              try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) { }
+              try { clearRecentResponsesForConsigne(state.consigne.id); } catch (e) { }
+              if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
+                logHistoryDebug("editor.submit.child.deleteAllResponses", {
+                  parentConsigneId: consigne?.id ?? null,
+                  childConsigneId: state.consigne.id,
+                  dayKey: resolvedDayKey,
+                });
+                try {
+                  await deleteAllResponsesForDay(ctx.db, ctx.user.uid, state.consigne.id, resolvedDayKey);
+                } catch (error) {
+                  logHistoryDebug("editor.submit.child.deleteAllResponses.error", {
+                    parentConsigneId: consigne?.id ?? null,
+                    childConsigneId: state.consigne.id,
+                    dayKey: resolvedDayKey,
+                    error: String(error?.message || error),
+                  }, "error");
+                }
+              }
+              // Delete child summary answer if present
               try {
-                const cEntry = childState.entry || null;
+                const cEntry = state.entry || null;
                 const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
                 const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
                 const cAnswerKey = cEntry?.summaryKey || "";
                 if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
-                  logHistoryDebug("editor.clear.child.deleteSummary", {
+                  logHistoryDebug("editor.submit.child.deleteSummary", {
                     parentConsigneId: consigne?.id ?? null,
-                    childConsigneId,
-                    dayKey: dayKeyToClear,
+                    childConsigneId: state.consigne.id,
+                    dayKey: resolvedDayKey,
                     scope: cScope,
                     periodKey: cPeriodKey,
                     answerKey: cAnswerKey,
@@ -11966,400 +12177,288 @@ async function openConsigneHistoryEntryEditor(row, consigne, ctx, options = {}) 
                   await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
                 }
               } catch (err) {
-                console.error("consigne.history.child.clear.summaryDelete", err);
-              }
-              const childStatus = dotColor(childState.consigne.type, "", childState.consigne) || "na";
-              if (childState.row) {
-                updateConsigneHistoryTimeline(childState.row, childStatus, {
-                  consigne: childState.consigne,
-                  value: "",
-                  dayKey: resolvedDayKey,
-                  historyId: childState.historyDocumentId,
-                  responseId: childState.responseSyncOptions?.responseId || "",
-                  iterationLabel,
-                  keepPlaceholder: true,
-                  remove: true,
-                });
-                logHistoryDebug("editor.clear.timeline-child", {
-                  parentConsigneId: consigne?.id ?? null,
-                  childConsigneId,
-                  dayKey: resolvedDayKey,
-                  status: childStatus,
-                  historyId: childState.historyDocumentId,
-                  responseId: childState.responseSyncOptions?.responseId || null,
-                });
-                triggerConsigneRowUpdateHighlight(childState.row);
+                console.error("consigne.history.child.save.summaryDelete", err);
               }
             });
-          }
-          try {
-            const escapeConsigneId =
-              typeof CSS !== "undefined" && typeof CSS.escape === "function"
-                ? CSS.escape(String(consigne.id ?? ""))
-                : String(consigne.id ?? "").replace(/"/g, '\\"');
-            const escapeDayKey =
-              typeof CSS !== "undefined" && typeof CSS.escape === "function"
-                ? CSS.escape(String(dayKeyToClear ?? ""))
-                : String(dayKeyToClear ?? "").replace(/"/g, '\\"');
-            const dailyRow = document.querySelector(
-              `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`
-            );
-            if (dailyRow) {
-              setConsigneRowValue(dailyRow, consigne, "");
-              clearConsigneSummaryMetadata(dailyRow);
-            }
-          } catch (_) { }
-        });
-        showToast("Réponses effacées.");
-        closeOverlay();
-        flushHistoryPanelRefresh();
-        try {
-          if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
-            window.dispatchEvent(new CustomEvent("consigne:history:refresh", { detail: { consigneId: consigne.id } }));
-          }
-        } catch (_) { }
-      } catch (error) {
-        console.error("consigne.history.editor.clear", error);
-        clearBtn.disabled = false;
-        if (submitBtn) submitBtn.disabled = false;
-      }
-    });
-  }
-  form?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (!submitBtn || submitBtn.disabled) {
-      return;
-    }
-    submitBtn.disabled = true;
-    if (clearBtn) clearBtn.disabled = true;
-    try {
-      const rawValue = readConsigneValueFromForm(consigne, form);
-      const parentHasValue = hasValueForConsigne(consigne, rawValue);
-      const childResults = baseChildStates.map((childState) => {
-        const childNode = form.querySelector(`[data-history-child="${childState.domId}"]`);
-        const childValue = childNode
-          ? readConsigneValueFromForm(childState.consigne, childNode)
-          : "";
-        const hasValue = hasValueForConsigne(childState.consigne, childValue);
-        return {
-          state: childState,
-          value: childValue,
-          hasValue,
-        };
-      });
-      logHistoryDebug("editor.submit.values", {
-        consigneId: consigne?.id ?? null,
-        dayKey: resolvedDayKey,
-        parentHasValue,
-        parentValueSummary: summarizeHistoryValue(rawValue),
-        children: childResults.map(({ state, hasValue, value }) => ({
-          consigneId: state?.consigne?.id ?? null,
-          historyId: state?.historyDocumentId || null,
-          responseId: state?.responseSyncOptions?.responseId || null,
-          hasValue,
-          valueSummary: summarizeHistoryValue(value),
-        })),
-      });
-      if (!parentHasValue) {
-        await runWithAutoSaveSuppressed(consigne.id, resolvedDayKey, async () => {
-          logHistoryDebug("editor.submit.deleteHistoryEntry", {
-            consigneId: consigne?.id ?? null,
-            dayKey: resolvedDayKey,
-            historyId: historyDocumentId,
-            responseId: responseSyncOptions?.responseId || null,
-          });
-          await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, historyDocumentId, responseSyncOptions);
-          try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) { }
-          try { clearRecentResponsesForConsigne(consigne.id); } catch (e) { }
-          if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
-            logHistoryDebug("editor.submit.deleteAllResponses", {
-              consigneId: consigne?.id ?? null,
-              dayKey: resolvedDayKey,
-            });
-            try {
-              await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, resolvedDayKey);
-            } catch (error) {
-              logHistoryDebug("editor.submit.deleteAllResponses.error", {
-                consigneId: consigne?.id ?? null,
-                dayKey: resolvedDayKey,
-                error: String(error?.message || error),
-              }, "error");
-            }
-          }
-          // Also delete summary answer if this entry originated from a bilan
-          try {
-            const scope = entry?.summaryScope || entry?.periodScope || "";
-            const periodKey = entry?.summaryPeriod || entry?.periodKey || "";
-            const answerKey = entry?.summaryKey || "";
-            if (scope && periodKey && answerKey && Schema?.deleteSummaryAnswer) {
-              logHistoryDebug("editor.submit.deleteSummary", {
-                consigneId: consigne?.id ?? null,
-                dayKey: resolvedDayKey,
-                scope,
-                periodKey,
-                answerKey,
-              });
-              await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, scope, periodKey, answerKey);
-            }
-          } catch (err) {
-            console.error("consigne.history.editor.save.summaryDelete", err);
-          }
-        });
-        try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, ""); } catch (_) { }
-      } else {
-        logHistoryDebug("editor.submit.saveHistoryEntry", {
-          consigneId: consigne?.id ?? null,
-          dayKey: resolvedDayKey,
-          historyId: historyDocumentId,
-          responseId: responseSyncOptions?.responseId || null,
-        });
-        await Schema.saveHistoryEntry(
-          ctx.db,
-          ctx.user.uid,
-          consigne.id,
-          historyDocumentId,
-          { value: rawValue },
-          responseSyncOptions,
-        );
-        try { applyDailyPrefillUpdate(consigne.id, resolvedDayKey, rawValue); } catch (_) { }
-        try { removeRecentResponsesForDay(consigne.id, resolvedDayKey); } catch (e) { }
-      }
-      const parentStatus = dotColor(
-        consigne.type,
-        parentHasValue ? rawValue : "",
-        consigne,
-      ) || "na";
-      updateConsigneHistoryTimeline(row, parentStatus, {
-        consigne,
-        value: parentHasValue ? rawValue : "",
-        dayKey: resolvedDayKey,
-        iterationLabel,
-        historyId: historyDocumentId,
-        responseId: responseSyncOptions?.responseId || "",
-        remove: parentHasValue ? false : true,
-      });
-      logHistoryDebug("editor.submit.timeline-parent", {
-        consigneId: consigne?.id ?? null,
-        dayKey: resolvedDayKey,
-        status: parentStatus,
-        hasValue: parentHasValue,
-        historyId: historyDocumentId,
-        responseId: responseSyncOptions?.responseId || null,
-        valueSummary: summarizeHistoryValue(parentHasValue ? rawValue : ""),
-      });
-      triggerConsigneRowUpdateHighlight(row);
-      for (const { state, value, hasValue } of childResults) {
-        if (!hasValue) {
-          if (!state?.consigne?.id) {
-            continue;
-          }
-          logHistoryDebug("editor.submit.child.delete", {
-            parentConsigneId: consigne?.id ?? null,
-            childConsigneId: state.consigne.id,
-            dayKey: resolvedDayKey,
-            historyId: state.historyDocumentId,
-            responseId: state.responseSyncOptions?.responseId || null,
-          });
-          await runWithAutoSaveSuppressed(state.consigne.id, resolvedDayKey, async () => {
-            logHistoryDebug("editor.submit.child.deleteHistoryEntry", {
+          } else {
+            logHistoryDebug("editor.submit.child.save", {
               parentConsigneId: consigne?.id ?? null,
               childConsigneId: state.consigne.id,
               dayKey: resolvedDayKey,
               historyId: state.historyDocumentId,
               responseId: state.responseSyncOptions?.responseId || null,
             });
-            await Schema.deleteHistoryEntry(
+            await Schema.saveHistoryEntry(
               ctx.db,
               ctx.user.uid,
               state.consigne.id,
               state.historyDocumentId,
+              { value },
               state.responseSyncOptions,
             );
+            try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, value); } catch (_) { }
             try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) { }
-            try { clearRecentResponsesForConsigne(state.consigne.id); } catch (e) { }
-            if (ctx?.db && ctx?.user?.uid && resolvedDayKey) {
-              logHistoryDebug("editor.submit.child.deleteAllResponses", {
-                parentConsigneId: consigne?.id ?? null,
-                childConsigneId: state.consigne.id,
-                dayKey: resolvedDayKey,
-              });
-              try {
-                await deleteAllResponsesForDay(ctx.db, ctx.user.uid, state.consigne.id, resolvedDayKey);
-              } catch (error) {
-                logHistoryDebug("editor.submit.child.deleteAllResponses.error", {
-                  parentConsigneId: consigne?.id ?? null,
-                  childConsigneId: state.consigne.id,
-                  dayKey: resolvedDayKey,
-                  error: String(error?.message || error),
-                }, "error");
-              }
-            }
-            // Delete child summary answer if present
-            try {
-              const cEntry = state.entry || null;
-              const cScope = cEntry?.summaryScope || cEntry?.periodScope || "";
-              const cPeriodKey = cEntry?.summaryPeriod || cEntry?.periodKey || "";
-              const cAnswerKey = cEntry?.summaryKey || "";
-              if (cScope && cPeriodKey && cAnswerKey && Schema?.deleteSummaryAnswer) {
-                logHistoryDebug("editor.submit.child.deleteSummary", {
-                  parentConsigneId: consigne?.id ?? null,
-                  childConsigneId: state.consigne.id,
-                  dayKey: resolvedDayKey,
-                  scope: cScope,
-                  periodKey: cPeriodKey,
-                  answerKey: cAnswerKey,
-                });
-                await Schema.deleteSummaryAnswer(ctx.db, ctx.user.uid, cScope, cPeriodKey, cAnswerKey);
-              }
-            } catch (err) {
-              console.error("consigne.history.child.save.summaryDelete", err);
-            }
-          });
-        } else {
-          logHistoryDebug("editor.submit.child.save", {
-            parentConsigneId: consigne?.id ?? null,
-            childConsigneId: state.consigne.id,
-            dayKey: resolvedDayKey,
-            historyId: state.historyDocumentId,
-            responseId: state.responseSyncOptions?.responseId || null,
-          });
-          await Schema.saveHistoryEntry(
-            ctx.db,
-            ctx.user.uid,
-            state.consigne.id,
-            state.historyDocumentId,
-            { value },
-            state.responseSyncOptions,
-          );
-          try { applyDailyPrefillUpdate(state.consigne.id, resolvedDayKey, value); } catch (_) { }
-          try { removeRecentResponsesForDay(state.consigne.id, resolvedDayKey); } catch (e) { }
+          }
+          const childStatus = dotColor(
+            state.consigne.type,
+            hasValue ? value : "",
+            state.consigne,
+          ) || "na";
+          if (state.row) {
+            updateConsigneHistoryTimeline(state.row, childStatus, {
+              consigne: state.consigne,
+              value: hasValue ? value : "",
+              dayKey: resolvedDayKey,
+              iterationLabel,
+              historyId: state.historyDocumentId,
+              responseId: state.responseSyncOptions?.responseId || "",
+              remove: hasValue ? false : true,
+            });
+            logHistoryDebug("editor.submit.timeline-child", {
+              parentConsigneId: consigne?.id ?? null,
+              childConsigneId: state.consigne.id,
+              dayKey: resolvedDayKey,
+              status: childStatus,
+              hasValue,
+              historyId: state.historyDocumentId,
+              responseId: state.responseSyncOptions?.responseId || null,
+              valueSummary: summarizeHistoryValue(hasValue ? value : ""),
+            });
+            triggerConsigneRowUpdateHighlight(state.row);
+          }
         }
-        const childStatus = dotColor(
-          state.consigne.type,
-          hasValue ? value : "",
-          state.consigne,
-        ) || "na";
-        if (state.row) {
-          updateConsigneHistoryTimeline(state.row, childStatus, {
-            consigne: state.consigne,
-            value: hasValue ? value : "",
-            dayKey: resolvedDayKey,
-            iterationLabel,
-            historyId: state.historyDocumentId,
-            responseId: state.responseSyncOptions?.responseId || "",
-            remove: hasValue ? false : true,
-          });
-          logHistoryDebug("editor.submit.timeline-child", {
-            parentConsigneId: consigne?.id ?? null,
-            childConsigneId: state.consigne.id,
-            dayKey: resolvedDayKey,
-            status: childStatus,
-            hasValue,
-            historyId: state.historyDocumentId,
-            responseId: state.responseSyncOptions?.responseId || null,
-            valueSummary: summarizeHistoryValue(hasValue ? value : ""),
-          });
-          triggerConsigneRowUpdateHighlight(state.row);
-        }
+        const childCleared = childResults.some(
+          ({ state, hasValue }) => !hasValue && state.initialHasValue,
+        );
+        const allValuesCleared = !parentHasValue && !childResults.some(({ hasValue }) => hasValue);
+        const toastMessage = allValuesCleared
+          ? "Réponses effacées."
+          : childCleared || (!parentHasValue && parentInitialHasValue)
+            ? "Réponses mises à jour."
+            : "Réponses enregistrées.";
+        showToast(toastMessage);
+        closeOverlay();
+        flushHistoryPanelRefresh();
+        // Clear local recent cache and notify global listeners so "global history" views refresh
+        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
+        try {
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+          }
+        } catch (_) { }
+      } catch (error) {
+        console.error("consigne.history.editor.save", error);
+        submitBtn.disabled = false;
+        if (clearBtn) clearBtn.disabled = false;
       }
-      const childCleared = childResults.some(
-        ({ state, hasValue }) => !hasValue && state.initialHasValue,
-      );
-      const allValuesCleared = !parentHasValue && !childResults.some(({ hasValue }) => hasValue);
-      const toastMessage = allValuesCleared
-        ? "Réponses effacées."
-        : childCleared || (!parentHasValue && parentInitialHasValue)
-          ? "Réponses mises à jour."
-          : "Réponses enregistrées.";
-      showToast(toastMessage);
-      closeOverlay();
-      flushHistoryPanelRefresh();
-      // Clear local recent cache and notify global listeners so "global history" views refresh
-      try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
+    });
+  }
+
+  function renderConsigneHistoryTimeline(row, points) {
+    const container = row?.querySelector?.("[data-consigne-history]");
+    const track = row?.querySelector?.("[data-consigne-history-track]");
+    if (!container || !track) {
+      return false;
+    }
+    track.setAttribute("role", "list");
+    track.setAttribute("aria-label", "Historique des derniers jours");
+    const timelinePoints = Array.isArray(points) ? points.filter(Boolean) : [];
+    if (timelinePoints.length) {
+      while (track.firstChild) {
+        track.removeChild(track.firstChild);
+      }
+      timelinePoints.forEach((point) => {
+        const item = document.createElement("div");
+        item.className = "consigne-history__item";
+        item.setAttribute("role", "listitem");
+        applyConsigneHistoryPoint(item, point);
+        track.appendChild(item);
+      });
+      container.hidden = false;
+      track.dataset.historyMode = "day";
+      return true;
+    }
+    if (!track.children.length) {
+      container.hidden = true;
+      track.dataset.historyMode = "empty";
+      return false;
+    }
+    container.hidden = false;
+    if (!track.dataset.historyMode) {
+      track.dataset.historyMode = "day";
+    }
+    return Boolean(track.children.length);
+  }
+
+  function updateConsigneHistoryTimeline(row, status, options = {}) {
+    const state = CONSIGNE_HISTORY_ROW_STATE.get(row);
+    if (!state || !state.track) {
+      return;
+    }
+    // If explicitly asked to remove the encard for this day, do so and update container state
+    if (options && options.remove === true) {
+      const normalizedHistoryId =
+        typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
+      const normalizedResponseId =
+        typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
+      // Defensive: avoid removing freshly re-attached items during id convergence
+      // Scenario: we first created a point with fallback id=dayKey, then attach with real historyId.
+      // If a remove arrives targeting the fallback id while a real-id node exists, skip removal.
       try {
-        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-          window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+        const isDayKeyLike = /^(\d{4}-\d{2}-\d{2})$/.test(normalizedHistoryId);
+        if (isDayKeyLike && normalizedResponseId) {
+          const existingReal = state.track.querySelector(
+            `[data-history-id="${escapeTimelineSelector(normalizedResponseId)}"]`
+          );
+          if (existingReal) {
+            logChecklistEvent("info", "[checklist-history] timeline.remove.safeguardSkip", {
+              consigneId: options?.consigne?.id ?? null,
+              dayKey: options?.dayKey ?? null,
+              historyId: normalizedHistoryId,
+              responseId: normalizedResponseId,
+            });
+            scheduleConsigneHistoryNavUpdate(state);
+            return;
+          }
         }
       } catch (_) { }
-    } catch (error) {
-      console.error("consigne.history.editor.save", error);
-      submitBtn.disabled = false;
-      if (clearBtn) clearBtn.disabled = false;
-    }
-  });
-}
-
-function renderConsigneHistoryTimeline(row, points) {
-  const container = row?.querySelector?.("[data-consigne-history]");
-  const track = row?.querySelector?.("[data-consigne-history-track]");
-  if (!container || !track) {
-    return false;
-  }
-  track.setAttribute("role", "list");
-  track.setAttribute("aria-label", "Historique des derniers jours");
-  const timelinePoints = Array.isArray(points) ? points.filter(Boolean) : [];
-  if (timelinePoints.length) {
-    while (track.firstChild) {
-      track.removeChild(track.firstChild);
-    }
-    timelinePoints.forEach((point) => {
-      const item = document.createElement("div");
-      item.className = "consigne-history__item";
-      item.setAttribute("role", "listitem");
-      applyConsigneHistoryPoint(item, point);
-      track.appendChild(item);
-    });
-    container.hidden = false;
-    track.dataset.historyMode = "day";
-    return true;
-  }
-  if (!track.children.length) {
-    container.hidden = true;
-    track.dataset.historyMode = "empty";
-    return false;
-  }
-  container.hidden = false;
-  if (!track.dataset.historyMode) {
-    track.dataset.historyMode = "day";
-  }
-  return Boolean(track.children.length);
-}
-
-function updateConsigneHistoryTimeline(row, status, options = {}) {
-  const state = CONSIGNE_HISTORY_ROW_STATE.get(row);
-  if (!state || !state.track) {
-    return;
-  }
-  // If explicitly asked to remove the encard for this day, do so and update container state
-  if (options && options.remove === true) {
-    const normalizedHistoryId =
-      typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
-    const normalizedResponseId =
-      typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
-    // Defensive: avoid removing freshly re-attached items during id convergence
-    // Scenario: we first created a point with fallback id=dayKey, then attach with real historyId.
-    // If a remove arrives targeting the fallback id while a real-id node exists, skip removal.
-    try {
-      const isDayKeyLike = /^(\d{4}-\d{2}-\d{2})$/.test(normalizedHistoryId);
-      if (isDayKeyLike && normalizedResponseId) {
-        const existingReal = state.track.querySelector(
-          `[data-history-id="${escapeTimelineSelector(normalizedResponseId)}"]`
-        );
-        if (existingReal) {
-          logChecklistEvent("info", "[checklist-history] timeline.remove.safeguardSkip", {
-            consigneId: options?.consigne?.id ?? null,
-            dayKey: options?.dayKey ?? null,
-            historyId: normalizedHistoryId,
-            responseId: normalizedResponseId,
-          });
-          scheduleConsigneHistoryNavUpdate(state);
-          return;
+      const normalizedScope =
+        typeof options.summaryScope === "string" && options.summaryScope.trim() ? options.summaryScope.trim() : "";
+      const resolveDayKey = () => {
+        if (typeof options.dayKey === "string" && options.dayKey.trim()) {
+          return options.dayKey.trim();
         }
+        if (typeof state.resolveDayKey === "function") {
+          try {
+            const resolved = state.resolveDayKey();
+            if (typeof resolved === "string" && resolved.trim()) {
+              return resolved.trim();
+            }
+          } catch (_) { }
+        }
+        if (row?.dataset?.dayKey) {
+          const fromDataset = row.dataset.dayKey.trim();
+          if (fromDataset) {
+            return fromDataset;
+          }
+        }
+        if (typeof state.dayKey === "string" && state.dayKey.trim()) {
+          return state.dayKey.trim();
+        }
+        if (typeof Schema?.todayKey === "function") {
+          const today = Schema.todayKey();
+          if (typeof today === "string" && today.trim()) {
+            return today.trim();
+          }
+        }
+        return null;
+      };
+      const dayKey = resolveDayKey();
+      let item = null;
+      if (normalizedHistoryId) {
+        item = state.track.querySelector(`[data-history-id="${escapeTimelineSelector(normalizedHistoryId)}"]`);
       }
-    } catch (_) { }
-    const normalizedScope =
-      typeof options.summaryScope === "string" && options.summaryScope.trim() ? options.summaryScope.trim() : "";
-    const resolveDayKey = () => {
+      if (!item && normalizedResponseId) {
+        item = state.track.querySelector(
+          `[data-history-response-id="${escapeTimelineSelector(normalizedResponseId)}"]`,
+        );
+      }
+      if (!item && dayKey) {
+        const scopeFilter = normalizedScope ? `[data-summary-scope="${escapeTimelineSelector(normalizedScope)}"]` : "";
+        const sourceFilter = options.isBilan === true ? '[data-history-source="bilan"]' : '';
+        item = state.track.querySelector(`[data-history-day="${escapeTimelineSelector(dayKey)}"]${scopeFilter}${sourceFilter}`);
+      }
+      const removeLogPayload = {
+        consigneId: options?.consigne?.id ?? null,
+        dayKey,
+        historyId: normalizedHistoryId,
+        responseId: normalizedResponseId,
+      };
+      let keepPlaceholder = options.keepPlaceholder === true;
+      // Pour les checklists sans historique réel, n'affiche jamais de placeholder NA
+      try {
+        const isChecklist = (options?.consigne?.type || "").toLowerCase() === "checklist";
+        const noIds = !normalizedHistoryId && !normalizedResponseId;
+        if (isChecklist && noIds) {
+          keepPlaceholder = false;
+        }
+      } catch (_) { }
+      if (item) {
+        if (keepPlaceholder && dayKey) {
+          const consigne = options?.consigne || null;
+          const practiceMode =
+            typeof consigne?.mode === "string" && consigne.mode.trim().toLowerCase() === "practice";
+          const scope = normalizedScope || "";
+          const timelineDate = modesParseDayKeyToDate(dayKey);
+          const normalizedDate =
+            timelineDate instanceof Date && !Number.isNaN(timelineDate.getTime()) ? timelineDate : null;
+          const placeholderTitle = buildHistoryTimelineTitle(normalizedDate, dayKey, "na");
+          const placeholderLabels = buildHistoryTimelineLabels(normalizedDate, dayKey);
+          const placeholderPoint = {
+            dayKey,
+            date: normalizedDate,
+            status: "na",
+            title: placeholderTitle,
+            srLabel: placeholderTitle || STATUS_LABELS.na || "Sans donnée",
+            label: placeholderLabels.label,
+            weekdayLabel: placeholderLabels.weekday,
+            isPlaceholder: true,
+            isBilan: options.isBilan === true,
+            summaryScope: scope,
+            historyId: "",
+            responseId: "",
+            details: {
+              dayKey,
+              date: normalizedDate,
+              label: placeholderLabels.label || "",
+              weekdayLabel: placeholderLabels.weekday || "",
+              fullDateLabel: placeholderLabels.label || dayKey || "",
+              status: "na",
+              statusLabel: STATUS_LABELS.na || "Sans donnée",
+              valueHtml: "",
+              valueText: "",
+              note: "",
+              hasContent: false,
+              rawValue: "",
+              iterationIndex: null,
+              iterationNumber: null,
+              iterationLabel: "",
+              isPractice: practiceMode,
+              isBilan: options.isBilan === true,
+              isSummary: false,
+              summaryScope: scope,
+              historyId: "",
+              responseId: "",
+              timestamp: null,
+            },
+          };
+          applyConsigneHistoryPoint(item, placeholderPoint);
+          item.dataset.historyId = "";
+          item.dataset.historyResponseId = "";
+          logChecklistEvent("info", "[checklist-history] timeline.placeholder", {
+            ...removeLogPayload,
+            scope,
+          });
+          state.container.hidden = false;
+          state.track.dataset.historyMode = "day";
+          state.hasDayTimeline = true;
+        } else {
+          item.remove();
+          logChecklistEvent("info", "[checklist-history] timeline.remove", removeLogPayload);
+        }
+      } else {
+        logChecklistEvent("warn", "[checklist-history] timeline.remove.missing", removeLogPayload);
+      }
+      // If no more items (or placeholders), hide the container and mark as empty
+      if (!keepPlaceholder && !state.track.children.length) {
+        if (state.container) state.container.hidden = true;
+        state.track.dataset.historyMode = "empty";
+        state.hasDayTimeline = false;
+      }
+      scheduleConsigneHistoryNavUpdate(state);
+      return;
+    }
+    const resolveStateDayKey = () => {
       if (typeof options.dayKey === "string" && options.dayKey.trim()) {
         return options.dayKey.trim();
       }
@@ -12380,6 +12479,20 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       if (typeof state.dayKey === "string" && state.dayKey.trim()) {
         return state.dayKey.trim();
       }
+      // Prefer the page's selected date (URL ?d) or AppCtx before falling back to today
+      try {
+        const url = new URL(window.location.href);
+        const qd = url.searchParams.get("d");
+        if (typeof qd === "string" && qd.trim()) {
+          return qd.trim();
+        }
+      } catch (_) { }
+      if (typeof window !== "undefined" && window.AppCtx && typeof window.AppCtx.dateIso === "string") {
+        const fromCtx = window.AppCtx.dateIso.trim();
+        if (fromCtx) {
+          return fromCtx;
+        }
+      }
       if (typeof Schema?.todayKey === "function") {
         const today = Schema.todayKey();
         if (typeof today === "string" && today.trim()) {
@@ -12388,7 +12501,31 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
       }
       return null;
     };
-    const dayKey = resolveDayKey();
+    const dayKey = resolveStateDayKey();
+    if (!dayKey) {
+      return;
+    }
+    state.dayKey = dayKey;
+    if (row) {
+      if (dayKey) {
+        row.dataset.dayKey = dayKey;
+      } else {
+        delete row.dataset.dayKey;
+      }
+    }
+    logChecklistEvent("info", "[checklist-history] timeline.update", {
+      consigneId: options?.consigne?.id ?? null,
+      dayKey,
+      status,
+      remove: options?.remove === true,
+      historyId: options?.historyId || "",
+      responseId: options?.responseId || "",
+    });
+    const selector = `[data-history-day="${escapeTimelineSelector(dayKey)}"]`;
+    const normalizedHistoryId =
+      typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
+    const normalizedResponseId =
+      typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
     let item = null;
     if (normalizedHistoryId) {
       item = state.track.querySelector(`[data-history-id="${escapeTimelineSelector(normalizedHistoryId)}"]`);
@@ -12398,1954 +12535,1782 @@ function updateConsigneHistoryTimeline(row, status, options = {}) {
         `[data-history-response-id="${escapeTimelineSelector(normalizedResponseId)}"]`,
       );
     }
-    if (!item && dayKey) {
-      const scopeFilter = normalizedScope ? `[data-summary-scope="${escapeTimelineSelector(normalizedScope)}"]` : "";
-      const sourceFilter = options.isBilan === true ? '[data-history-source="bilan"]' : '';
-      item = state.track.querySelector(`[data-history-day="${escapeTimelineSelector(dayKey)}"]${scopeFilter}${sourceFilter}`);
+    const wasMissingItem = !item;
+    if (!item) {
+      item = state.track.querySelector(selector);
     }
-    const removeLogPayload = {
-      consigneId: options?.consigne?.id ?? null,
-      dayKey,
-      historyId: normalizedHistoryId,
-      responseId: normalizedResponseId,
-    };
-    let keepPlaceholder = options.keepPlaceholder === true;
-    // Pour les checklists sans historique réel, n'affiche jamais de placeholder NA
+    const pageDayDate = modesParseDayKeyToDate(dayKey);
+    const existingDetails = item?._historyDetails || null;
+    const consigne = options.consigne || null;
+    const effectiveValue = options.value !== undefined ? options.value : existingDetails?.rawValue ?? null;
+    const providedNote = typeof options.note === "string" ? options.note : null;
+    const derivedNote = providedNote || extractTextualNote(effectiveValue);
+    const practiceMode = typeof consigne?.mode === "string" && consigne.mode.trim().toLowerCase() === "practice";
+    const iterationIndex = practiceMode ? practiceIterationIndexFromKey(dayKey) : null;
+    const iterationNumber = iterationIndex != null ? iterationIndex + 1 : existingDetails?.iterationNumber ?? null;
+    let iterationLabel = typeof options.iterationLabel === "string" ? options.iterationLabel : "";
+    if (!iterationLabel && typeof existingDetails?.iterationLabel === "string") {
+      iterationLabel = existingDetails.iterationLabel;
+    }
+    iterationLabel = sanitizeIterationLabel(iterationLabel, iterationNumber);
+    const providedIsBilan = options.isBilan === true || existingDetails?.isBilan === true;
+    const providedScope =
+      (typeof options.summaryScope === "string" && options.summaryScope.trim()) ||
+      (typeof existingDetails?.summaryScope === "string" && existingDetails.summaryScope.trim()) ||
+      (typeof item?.dataset?.summaryScope === "string" && item.dataset.summaryScope.trim()) ||
+      "";
+    const optionDate = options?.date instanceof Date && !Number.isNaN(options.date.getTime()) ? options.date : null;
+    const optionTimestamp = typeof options?.timestamp === "number" && Number.isFinite(options.timestamp)
+      ? options.timestamp
+      : null;
+    const timestampAsDate = optionTimestamp !== null ? new Date(optionTimestamp) : null;
+    const existingTimestamp = Number.isFinite(existingDetails?.timestamp) ? existingDetails.timestamp : null;
+    const existingTimestampDate = existingTimestamp !== null ? new Date(existingTimestamp) : null;
+    const existingDate = existingDetails?.date instanceof Date && !Number.isNaN(existingDetails.date.getTime())
+      ? existingDetails.date
+      : null;
+    const recordDate = (() => {
+      if (optionDate) return optionDate;
+      if (timestampAsDate instanceof Date && !Number.isNaN(timestampAsDate.getTime())) {
+        return timestampAsDate;
+      }
+      if (existingDate) return existingDate;
+      if (existingTimestampDate instanceof Date && !Number.isNaN(existingTimestampDate.getTime())) {
+        return existingTimestampDate;
+      }
+      if (pageDayDate instanceof Date && !Number.isNaN(pageDayDate.getTime())) {
+        return pageDayDate;
+      }
+      return new Date();
+    })();
+    const normalizedRecordDate = recordDate instanceof Date && !Number.isNaN(recordDate.getTime())
+      ? new Date(recordDate.getTime())
+      : null;
+    const resolvedTimestamp = (() => {
+      if (optionTimestamp !== null) {
+        return optionTimestamp;
+      }
+      if (normalizedRecordDate) {
+        return normalizedRecordDate.getTime();
+      }
+      if (existingTimestamp !== null) {
+        return existingTimestamp;
+      }
+      return Date.now();
+    })();
+    const resolvedHistoryId = (() => {
+      if (normalizedHistoryId) {
+        return normalizedHistoryId;
+      }
+      const fromExisting =
+        (typeof existingDetails?.historyId === "string" && existingDetails.historyId.trim()
+          ? existingDetails.historyId.trim()
+          : "") ||
+        (typeof existingDetails?.history_id === "string" && existingDetails.history_id.trim()
+          ? existingDetails.history_id.trim()
+          : "") ||
+        (typeof item?.dataset?.historyId === "string" && item.dataset.historyId.trim()
+          ? item.dataset.historyId.trim()
+          : "");
+      return fromExisting || "";
+    })();
+    const resolvedResponseId = (() => {
+      if (normalizedResponseId) {
+        return normalizedResponseId;
+      }
+      const fromExisting =
+        (typeof existingDetails?.responseId === "string" && existingDetails.responseId.trim()
+          ? existingDetails.responseId.trim()
+          : "") ||
+        (typeof existingDetails?.response_id === "string" && existingDetails.response_id.trim()
+          ? existingDetails.response_id.trim()
+          : "") ||
+        (typeof item?.dataset?.historyResponseId === "string" && item.dataset.historyResponseId.trim()
+          ? item.dataset.historyResponseId.trim()
+          : "");
+      return fromExisting || "";
+    })();
+    // If this update targets the current row dayKey, propagate identifiers on the row
     try {
-      const isChecklist = (options?.consigne?.type || "").toLowerCase() === "checklist";
-      const noIds = !normalizedHistoryId && !normalizedResponseId;
-      if (isChecklist && noIds) {
-        keepPlaceholder = false;
-      }
-    } catch (_) { }
-    if (item) {
-      if (keepPlaceholder && dayKey) {
-        const consigne = options?.consigne || null;
-        const practiceMode =
-          typeof consigne?.mode === "string" && consigne.mode.trim().toLowerCase() === "practice";
-        const scope = normalizedScope || "";
-        const timelineDate = modesParseDayKeyToDate(dayKey);
-        const normalizedDate =
-          timelineDate instanceof Date && !Number.isNaN(timelineDate.getTime()) ? timelineDate : null;
-        const placeholderTitle = buildHistoryTimelineTitle(normalizedDate, dayKey, "na");
-        const placeholderLabels = buildHistoryTimelineLabels(normalizedDate, dayKey);
-        const placeholderPoint = {
-          dayKey,
-          date: normalizedDate,
-          status: "na",
-          title: placeholderTitle,
-          srLabel: placeholderTitle || STATUS_LABELS.na || "Sans donnée",
-          label: placeholderLabels.label,
-          weekdayLabel: placeholderLabels.weekday,
-          isPlaceholder: true,
-          isBilan: options.isBilan === true,
-          summaryScope: scope,
-          historyId: "",
-          responseId: "",
-          details: {
-            dayKey,
-            date: normalizedDate,
-            label: placeholderLabels.label || "",
-            weekdayLabel: placeholderLabels.weekday || "",
-            fullDateLabel: placeholderLabels.label || dayKey || "",
-            status: "na",
-            statusLabel: STATUS_LABELS.na || "Sans donnée",
-            valueHtml: "",
-            valueText: "",
-            note: "",
-            hasContent: false,
-            rawValue: "",
-            iterationIndex: null,
-            iterationNumber: null,
-            iterationLabel: "",
-            isPractice: practiceMode,
-            isBilan: options.isBilan === true,
-            isSummary: false,
-            summaryScope: scope,
-            historyId: "",
-            responseId: "",
-            timestamp: null,
-          },
-        };
-        applyConsigneHistoryPoint(item, placeholderPoint);
-        item.dataset.historyId = "";
-        item.dataset.historyResponseId = "";
-        logChecklistEvent("info", "[checklist-history] timeline.placeholder", {
-          ...removeLogPayload,
-          scope,
-        });
-        state.container.hidden = false;
-        state.track.dataset.historyMode = "day";
-        state.hasDayTimeline = true;
-      } else {
-        item.remove();
-        logChecklistEvent("info", "[checklist-history] timeline.remove", removeLogPayload);
-      }
-    } else {
-      logChecklistEvent("warn", "[checklist-history] timeline.remove.missing", removeLogPayload);
-    }
-    // If no more items (or placeholders), hide the container and mark as empty
-    if (!keepPlaceholder && !state.track.children.length) {
-      if (state.container) state.container.hidden = true;
-      state.track.dataset.historyMode = "empty";
-      state.hasDayTimeline = false;
-    }
-    scheduleConsigneHistoryNavUpdate(state);
-    return;
-  }
-  const resolveStateDayKey = () => {
-    if (typeof options.dayKey === "string" && options.dayKey.trim()) {
-      return options.dayKey.trim();
-    }
-    if (typeof state.resolveDayKey === "function") {
-      try {
-        const resolved = state.resolveDayKey();
-        if (typeof resolved === "string" && resolved.trim()) {
-          return resolved.trim();
+      if (row && row.dataset && row.dataset.dayKey === dayKey) {
+        row.dataset.historyId = resolvedHistoryId || "";
+        row.dataset.historyResponseId = resolvedResponseId || "";
+        if (!row.dataset.status && status) {
+          row.dataset.status = status;
         }
-      } catch (_) { }
-    }
-    if (row?.dataset?.dayKey) {
-      const fromDataset = row.dataset.dayKey.trim();
-      if (fromDataset) {
-        return fromDataset;
-      }
-    }
-    if (typeof state.dayKey === "string" && state.dayKey.trim()) {
-      return state.dayKey.trim();
-    }
-    // Prefer the page's selected date (URL ?d) or AppCtx before falling back to today
-    try {
-      const url = new URL(window.location.href);
-      const qd = url.searchParams.get("d");
-      if (typeof qd === "string" && qd.trim()) {
-        return qd.trim();
       }
     } catch (_) { }
-    if (typeof window !== "undefined" && window.AppCtx && typeof window.AppCtx.dateIso === "string") {
-      const fromCtx = window.AppCtx.dateIso.trim();
-      if (fromCtx) {
-        return fromCtx;
-      }
-    }
-    if (typeof Schema?.todayKey === "function") {
-      const today = Schema.todayKey();
-      if (typeof today === "string" && today.trim()) {
-        return today.trim();
-      }
-    }
-    return null;
-  };
-  const dayKey = resolveStateDayKey();
-  if (!dayKey) {
-    return;
-  }
-  state.dayKey = dayKey;
-  if (row) {
-    if (dayKey) {
-      row.dataset.dayKey = dayKey;
-    } else {
-      delete row.dataset.dayKey;
-    }
-  }
-  logChecklistEvent("info", "[checklist-history] timeline.update", {
-    consigneId: options?.consigne?.id ?? null,
-    dayKey,
-    status,
-    remove: options?.remove === true,
-    historyId: options?.historyId || "",
-    responseId: options?.responseId || "",
-  });
-  const selector = `[data-history-day="${escapeTimelineSelector(dayKey)}"]`;
-  const normalizedHistoryId =
-    typeof options.historyId === "string" && options.historyId.trim() ? options.historyId.trim() : "";
-  const normalizedResponseId =
-    typeof options.responseId === "string" && options.responseId.trim() ? options.responseId.trim() : "";
-  let item = null;
-  if (normalizedHistoryId) {
-    item = state.track.querySelector(`[data-history-id="${escapeTimelineSelector(normalizedHistoryId)}"]`);
-  }
-  if (!item && normalizedResponseId) {
-    item = state.track.querySelector(
-      `[data-history-response-id="${escapeTimelineSelector(normalizedResponseId)}"]`,
-    );
-  }
-  const wasMissingItem = !item;
-  if (!item) {
-    item = state.track.querySelector(selector);
-  }
-  const pageDayDate = modesParseDayKeyToDate(dayKey);
-  const existingDetails = item?._historyDetails || null;
-  const consigne = options.consigne || null;
-  const effectiveValue = options.value !== undefined ? options.value : existingDetails?.rawValue ?? null;
-  const providedNote = typeof options.note === "string" ? options.note : null;
-  const derivedNote = providedNote || extractTextualNote(effectiveValue);
-  const practiceMode = typeof consigne?.mode === "string" && consigne.mode.trim().toLowerCase() === "practice";
-  const iterationIndex = practiceMode ? practiceIterationIndexFromKey(dayKey) : null;
-  const iterationNumber = iterationIndex != null ? iterationIndex + 1 : existingDetails?.iterationNumber ?? null;
-  let iterationLabel = typeof options.iterationLabel === "string" ? options.iterationLabel : "";
-  if (!iterationLabel && typeof existingDetails?.iterationLabel === "string") {
-    iterationLabel = existingDetails.iterationLabel;
-  }
-  iterationLabel = sanitizeIterationLabel(iterationLabel, iterationNumber);
-  const providedIsBilan = options.isBilan === true || existingDetails?.isBilan === true;
-  const providedScope =
-    (typeof options.summaryScope === "string" && options.summaryScope.trim()) ||
-    (typeof existingDetails?.summaryScope === "string" && existingDetails.summaryScope.trim()) ||
-    (typeof item?.dataset?.summaryScope === "string" && item.dataset.summaryScope.trim()) ||
-    "";
-  const optionDate = options?.date instanceof Date && !Number.isNaN(options.date.getTime()) ? options.date : null;
-  const optionTimestamp = typeof options?.timestamp === "number" && Number.isFinite(options.timestamp)
-    ? options.timestamp
-    : null;
-  const timestampAsDate = optionTimestamp !== null ? new Date(optionTimestamp) : null;
-  const existingTimestamp = Number.isFinite(existingDetails?.timestamp) ? existingDetails.timestamp : null;
-  const existingTimestampDate = existingTimestamp !== null ? new Date(existingTimestamp) : null;
-  const existingDate = existingDetails?.date instanceof Date && !Number.isNaN(existingDetails.date.getTime())
-    ? existingDetails.date
-    : null;
-  const recordDate = (() => {
-    if (optionDate) return optionDate;
-    if (timestampAsDate instanceof Date && !Number.isNaN(timestampAsDate.getTime())) {
-      return timestampAsDate;
-    }
-    if (existingDate) return existingDate;
-    if (existingTimestampDate instanceof Date && !Number.isNaN(existingTimestampDate.getTime())) {
-      return existingTimestampDate;
-    }
-    if (pageDayDate instanceof Date && !Number.isNaN(pageDayDate.getTime())) {
-      return pageDayDate;
-    }
-    return new Date();
-  })();
-  const normalizedRecordDate = recordDate instanceof Date && !Number.isNaN(recordDate.getTime())
-    ? new Date(recordDate.getTime())
-    : null;
-  const resolvedTimestamp = (() => {
-    if (optionTimestamp !== null) {
-      return optionTimestamp;
-    }
-    if (normalizedRecordDate) {
-      return normalizedRecordDate.getTime();
-    }
-    if (existingTimestamp !== null) {
-      return existingTimestamp;
-    }
-    return Date.now();
-  })();
-  const resolvedHistoryId = (() => {
-    if (normalizedHistoryId) {
-      return normalizedHistoryId;
-    }
-    const fromExisting =
-      (typeof existingDetails?.historyId === "string" && existingDetails.historyId.trim()
-        ? existingDetails.historyId.trim()
-        : "") ||
-      (typeof existingDetails?.history_id === "string" && existingDetails.history_id.trim()
-        ? existingDetails.history_id.trim()
-        : "") ||
-      (typeof item?.dataset?.historyId === "string" && item.dataset.historyId.trim()
-        ? item.dataset.historyId.trim()
-        : "");
-    return fromExisting || "";
-  })();
-  const resolvedResponseId = (() => {
-    if (normalizedResponseId) {
-      return normalizedResponseId;
-    }
-    const fromExisting =
-      (typeof existingDetails?.responseId === "string" && existingDetails.responseId.trim()
-        ? existingDetails.responseId.trim()
-        : "") ||
-      (typeof existingDetails?.response_id === "string" && existingDetails.response_id.trim()
-        ? existingDetails.response_id.trim()
-        : "") ||
-      (typeof item?.dataset?.historyResponseId === "string" && item.dataset.historyResponseId.trim()
-        ? item.dataset.historyResponseId.trim()
-        : "");
-    return fromExisting || "";
-  })();
-  // If this update targets the current row dayKey, propagate identifiers on the row
-  try {
-    if (row && row.dataset && row.dataset.dayKey === dayKey) {
-      row.dataset.historyId = resolvedHistoryId || "";
-      row.dataset.historyResponseId = resolvedResponseId || "";
-      if (!row.dataset.status && status) {
-        row.dataset.status = status;
-      }
-    }
-  } catch (_) { }
-  const record = {
-    dayKey,
-    date: normalizedRecordDate,
-    status,
-    value: effectiveValue,
-    note: derivedNote || existingDetails?.note || "",
-    timestamp: resolvedTimestamp,
-    isPlaceholder: false,
-    isBilan: providedIsBilan,
-    summaryScope: providedScope,
-    iterationIndex: iterationIndex != null ? iterationIndex : existingDetails?.iterationIndex ?? null,
-    iterationNumber,
-    iterationLabel,
-    historyId: resolvedHistoryId,
-    responseId: resolvedResponseId,
-  };
-  if (!item) {
-    // Guard global: éviter de créer un point sans IDs pour tous les statuts (pas d'historique réel)
-    try {
-      const noIds = !normalizedHistoryId && !normalizedResponseId;
-      if (CONSIGNE_HISTORY_GUARDS_ENABLED && noIds) {
-        try {
-          logChecklistEvent("info", "[checklist-history] timeline.create.blocked.noIds", {
-            consigneId: consigne?.id ?? null,
-            dayKey,
-            status,
-          });
-        } catch (_) { }
-        return;
-      }
-    } catch (_) { }
-    item = document.createElement("div");
-    item.className = "consigne-history__item";
-    item.setAttribute("role", "listitem");
-    state.track.insertBefore(item, state.track.firstElementChild || null);
-    logChecklistEvent("info", "[checklist-history] timeline.create", {
-      consigneId: consigne?.id ?? null,
+    const record = {
       dayKey,
+      date: normalizedRecordDate,
       status,
-      historyId: resolvedHistoryId,
-      responseId: resolvedResponseId,
-    });
-  } else if (wasMissingItem) {
-    logChecklistEvent("info", "[checklist-history] timeline.attach", {
-      consigneId: consigne?.id ?? null,
-      dayKey,
-      status,
-      historyId: resolvedHistoryId,
-      responseId: resolvedResponseId,
-    });
-  }
-  const timelineDate = normalizedRecordDate || pageDayDate || null;
-  const fallbackTitle = buildHistoryTimelineTitle(timelineDate, dayKey, status);
-  const fallbackLabels = buildHistoryTimelineLabels(timelineDate, dayKey);
-  const point =
-    formatConsigneHistoryPoint(record, consigne) ||
-    {
-      dayKey,
-      date: timelineDate,
-      status,
-      summaryScope: providedScope,
-      title: iterationLabel
-        ? STATUS_LABELS[status]
-          ? `${iterationLabel} — ${STATUS_LABELS[status]}`
-          : iterationLabel
-        : fallbackTitle,
-      srLabel: iterationLabel || fallbackTitle,
-      label: iterationLabel || fallbackLabels.label,
-      weekdayLabel: iterationLabel ? "" : fallbackLabels.weekday,
+      value: effectiveValue,
+      note: derivedNote || existingDetails?.note || "",
+      timestamp: resolvedTimestamp,
       isPlaceholder: false,
       isBilan: providedIsBilan,
-      details: {
-        dayKey: dayKey || "",
-        date: timelineDate,
-        label: iterationLabel || fallbackLabels.label || "",
-        weekdayLabel: iterationLabel ? "" : fallbackLabels.weekday || "",
-        fullDateLabel: fallbackLabels.label || iterationLabel || dayKey || "",
-        status,
-        statusLabel: STATUS_LABELS[status] || "",
-        valueHtml: "",
-        valueText: "",
-        note: derivedNote || existingDetails?.note || "",
-        hasContent: Boolean(derivedNote || (existingDetails?.note ?? "")),
-        rawValue: record.value,
-        iterationIndex: record.iterationIndex ?? null,
-        iterationNumber: record.iterationNumber ?? null,
-        iterationLabel: iterationLabel || "",
-        isPractice: practiceMode,
-        isBilan: providedIsBilan,
-        timestamp: record.timestamp,
-        historyId: resolvedHistoryId,
-        responseId: resolvedResponseId,
-      },
+      summaryScope: providedScope,
+      iterationIndex: iterationIndex != null ? iterationIndex : existingDetails?.iterationIndex ?? null,
+      iterationNumber,
+      iterationLabel,
       historyId: resolvedHistoryId,
       responseId: resolvedResponseId,
     };
-  applyConsigneHistoryPoint(item, point);
-  state.track.dataset.historyMode = "day";
-  state.hasDayTimeline = true;
-  if (state.container) {
-    state.container.hidden = false;
-  }
-  while (state.track.children.length > state.limit) {
-    state.track.removeChild(state.track.lastElementChild);
-  }
-  logHistoryDebug("timeline.state", {
-    consigneId: options?.consigne?.id ?? null,
-    dayKey,
-    status,
-    historyId: resolvedHistoryId,
-    responseId: resolvedResponseId,
-    itemCount: state.track.children.length,
-    hasDayTimeline: state.hasDayTimeline,
-    firstItemHistoryId: state.track.firstElementChild?.dataset?.historyId || null,
-    lastItemHistoryId: state.track.lastElementChild?.dataset?.historyId || null,
-  });
-  scheduleConsigneHistoryNavUpdate(state);
-}
-
-function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
-  if (!row || !consigne) {
-    return;
-  }
-  const container = row.querySelector("[data-consigne-history]");
-  const track = row.querySelector("[data-consigne-history-track]");
-  if (!container || !track) {
-    return;
-  }
-  const previousState = CONSIGNE_HISTORY_ROW_STATE.get(row);
-  if (previousState) {
-    try {
-      previousState.resizeObserver?.disconnect?.();
-    } catch (_) { }
-    if (previousState.viewport && previousState.viewportScrollHandler) {
+    if (!item) {
+      // Guard global: éviter de créer un point sans IDs pour tous les statuts (pas d'historique réel)
       try {
-        previousState.viewport.removeEventListener("scroll", previousState.viewportScrollHandler);
-      } catch (_) { }
-    }
-  }
-  let explicitDayKey = "";
-  if (typeof options.dayKey === "string") {
-    const trimmed = options.dayKey.trim();
-    if (trimmed) {
-      explicitDayKey = trimmed;
-    }
-  }
-  if (!explicitDayKey && row?.dataset?.dayKey) {
-    const trimmedDataset = row.dataset.dayKey.trim();
-    if (trimmedDataset) {
-      explicitDayKey = trimmedDataset;
-    }
-  }
-  const resolveDayKey = typeof options.resolveDayKey === "function" ? options.resolveDayKey : null;
-  const viewport = row.querySelector("[data-consigne-history-viewport]") || container;
-  const navPrev = row.querySelector("[data-consigne-history-prev]") || null;
-  const navNext = row.querySelector("[data-consigne-history-next]") || null;
-  const state = {
-    track,
-    container,
-    viewport,
-    navPrev,
-    navNext,
-    hasDayTimeline: false,
-    limit: CONSIGNE_HISTORY_TIMELINE_DAY_COUNT,
-    dayKey: explicitDayKey,
-    resolveDayKey,
-  };
-  setupConsigneHistoryNavigation(state);
-  CONSIGNE_HISTORY_ROW_STATE.set(row, state);
-  // Ne pas afficher la timeline avec des données vides - attendre les vraies données
-  state.hasDayTimeline = false;
-  scheduleConsigneHistoryNavUpdate(state);
-  if (!ctx?.db || !ctx?.user?.uid || !consigne?.id) {
-    return;
-  }
-  const timelineFetchLimit = Math.max(CONSIGNE_HISTORY_TIMELINE_DAY_COUNT * 3, 60);
-  fetchConsigneHistoryRows(ctx, consigne.id, { limit: timelineFetchLimit })
-    .then((result) => {
-      if (!row.isConnected) {
-        return;
-      }
-      if (result.error) {
-        try {
-          modesLogger?.warn?.("consigne.history.timeline", result.error);
-        } catch (_) { }
-        scheduleConsigneHistoryNavUpdate(state);
-        return;
-      }
-      if (Array.isArray(result.missing) && result.missing.length) {
-        scheduleConsigneHistoryNavUpdate(state);
-        return;
-      }
-      const entries = Array.isArray(result.rows) ? result.rows : [];
-      const points = buildConsigneHistoryTimeline(entries, consigne);
-      state.hasDayTimeline = renderConsigneHistoryTimeline(row, points);
-      // Audit: is there a point for the current day? What status?
-      try {
-        const dayKeyForAudit = state.dayKey || row?.dataset?.dayKey || null;
-        const item = dayKeyForAudit
-          ? state.track.querySelector(`[data-history-day="${escapeTimelineSelector(dayKeyForAudit)}"]`)
-          : null;
-        const hasPoint = Boolean(item);
-        const status = item?.dataset?.status || null;
-        prefillLog("timeline.presence", {
-          consigneId: consigne.id,
-          dayKey: dayKeyForAudit,
-          hasPoint,
-          status,
-          rendered: state.hasDayTimeline,
-        });
-        // Hydrate visible row value from the history point for the current day
-        try {
-          if (hasPoint && dayKeyForAudit && item && item._historyDetails) {
-            const details = item._historyDetails;
-            const nextValue = (details && (details.rawValue !== undefined ? details.rawValue : details.value)) ?? "";
-            applyDailyPrefillUpdate(consigne.id, dayKeyForAudit, nextValue);
-          }
-        } catch (_) { }
-        // Highlight if row shows an answer but no timeline point exists for the day
-        try {
-          const rowStatus = row?.dataset?.status || null;
-          const rowHasAnswer = row?.dataset?.hasAnswer === "1";
-          if (!hasPoint && rowStatus && rowStatus !== "na") {
-            prefillAlert("timeline-mismatch", {
-              consigneId: consigne.id,
-              dayKey: dayKeyForAudit,
-              rowStatus,
-              rowHasAnswer,
-              timelineHasPoint: hasPoint,
+        const noIds = !normalizedHistoryId && !normalizedResponseId;
+        if (CONSIGNE_HISTORY_GUARDS_ENABLED && noIds) {
+          try {
+            logChecklistEvent("info", "[checklist-history] timeline.create.blocked.noIds", {
+              consigneId: consigne?.id ?? null,
+              dayKey,
+              status,
             });
-          }
-        } catch (_) { }
-      } catch (_) { }
-      scheduleConsigneHistoryNavUpdate(state);
-    })
-    .catch((error) => {
-      try {
-        modesLogger?.warn?.("consigne.history.timeline", error);
-      } catch (_) { }
-      scheduleConsigneHistoryNavUpdate(state);
-    });
-  const handleHistoryActivation = (event) => {
-    const isKeyboard = event.type === "keydown";
-    if (isKeyboard && event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") {
-      return;
-    }
-    const target = event.target.closest(".consigne-history__item");
-
-    if (!target || !state.track.contains(target)) {
-      return;
-    }
-    const rawDetails = target._historyDetails || null;
-    // Prefer internal details.dayKey (set at render) over dataset to avoid any later DOM-side overwrites
-    const historyDayKey =
-      (rawDetails && typeof rawDetails.dayKey === "string" && rawDetails.dayKey.trim()
-        ? rawDetails.dayKey.trim()
-        : "") ||
-      (typeof target.dataset.historyDay === "string" && target.dataset.historyDay.trim()
-        ? target.dataset.historyDay.trim()
-        : "");
-    const isBilanPoint = target.dataset.historySource === "bilan" || rawDetails?.isBilan === true;
-    const isSummaryPoint =
-      !isBilanPoint && (target.dataset.historySource === "summary" || rawDetails?.isSummary === true);
-    const bilanDayKey = isBilanPoint
-      ? historyDayKey ||
-      (typeof rawDetails?.dayKey === "string" && rawDetails.dayKey.trim() ? rawDetails.dayKey.trim() : "")
-      : "";
-    const responseIdCandidate =
-      typeof rawDetails?.responseId === "string" && rawDetails.responseId.trim()
-        ? rawDetails.responseId.trim()
-        : typeof target.dataset.historyResponseId === "string" && target.dataset.historyResponseId.trim()
-          ? target.dataset.historyResponseId.trim()
-          : "";
-    const historyIdCandidate =
-      typeof rawDetails?.historyId === "string" && rawDetails.historyId.trim()
-        ? rawDetails.historyId.trim()
-        : typeof target.dataset.historyId === "string" && target.dataset.historyId.trim()
-          ? target.dataset.historyId.trim()
-          : "";
-    logHistoryDebug("timeline.activation", {
-      consigneId: consigne?.id ?? null,
-      consigneType: consigne?.type || null,
-      dayKey: historyDayKey || target.dataset.historyDay || null,
-      status: target.dataset.status || rawDetails?.status || null,
-      historyId: historyIdCandidate,
-      responseId: responseIdCandidate,
-      isBilanPoint,
-      isSummaryPoint,
-      source: options.mode || null,
-      rawDetails: rawDetails
-        ? {
-          hasContent: rawDetails?.hasContent ?? null,
-          summaryScope: rawDetails?.summaryScope || null,
-          summaryPeriod: rawDetails?.summaryPeriod || null,
-          iterationLabel: rawDetails?.iterationLabel || null,
-          valueSummary: summarizeHistoryValue(rawDetails?.rawValue ?? rawDetails?.value ?? null),
+          } catch (_) { }
+          return;
         }
-        : null,
-    });
-    if (isBilanPoint && bilanDayKey) {
-      if (isKeyboard) {
-        event.preventDefault();
-      }
-      void openBilanHistoryEditor(row, consigne, ctx, {
-        dayKey: bilanDayKey,
-        details: rawDetails,
-        trigger: target,
-        responseId: responseIdCandidate,
-        historyId: historyIdCandidate,
-        expectedSummary: summarizeChecklistValue(rawDetails?.rawValue ?? rawDetails?.value ?? null),
+      } catch (_) { }
+      item = document.createElement("div");
+      item.className = "consigne-history__item";
+      item.setAttribute("role", "listitem");
+      state.track.insertBefore(item, state.track.firstElementChild || null);
+      logChecklistEvent("info", "[checklist-history] timeline.create", {
+        consigneId: consigne?.id ?? null,
+        dayKey,
+        status,
+        historyId: resolvedHistoryId,
+        responseId: resolvedResponseId,
       });
+    } else if (wasMissingItem) {
+      logChecklistEvent("info", "[checklist-history] timeline.attach", {
+        consigneId: consigne?.id ?? null,
+        dayKey,
+        status,
+        historyId: resolvedHistoryId,
+        responseId: resolvedResponseId,
+      });
+    }
+    const timelineDate = normalizedRecordDate || pageDayDate || null;
+    const fallbackTitle = buildHistoryTimelineTitle(timelineDate, dayKey, status);
+    const fallbackLabels = buildHistoryTimelineLabels(timelineDate, dayKey);
+    const point =
+      formatConsigneHistoryPoint(record, consigne) ||
+      {
+        dayKey,
+        date: timelineDate,
+        status,
+        summaryScope: providedScope,
+        title: iterationLabel
+          ? STATUS_LABELS[status]
+            ? `${iterationLabel} — ${STATUS_LABELS[status]}`
+            : iterationLabel
+          : fallbackTitle,
+        srLabel: iterationLabel || fallbackTitle,
+        label: iterationLabel || fallbackLabels.label,
+        weekdayLabel: iterationLabel ? "" : fallbackLabels.weekday,
+        isPlaceholder: false,
+        isBilan: providedIsBilan,
+        details: {
+          dayKey: dayKey || "",
+          date: timelineDate,
+          label: iterationLabel || fallbackLabels.label || "",
+          weekdayLabel: iterationLabel ? "" : fallbackLabels.weekday || "",
+          fullDateLabel: fallbackLabels.label || iterationLabel || dayKey || "",
+          status,
+          statusLabel: STATUS_LABELS[status] || "",
+          valueHtml: "",
+          valueText: "",
+          note: derivedNote || existingDetails?.note || "",
+          hasContent: Boolean(derivedNote || (existingDetails?.note ?? "")),
+          rawValue: record.value,
+          iterationIndex: record.iterationIndex ?? null,
+          iterationNumber: record.iterationNumber ?? null,
+          iterationLabel: iterationLabel || "",
+          isPractice: practiceMode,
+          isBilan: providedIsBilan,
+          timestamp: record.timestamp,
+          historyId: resolvedHistoryId,
+          responseId: resolvedResponseId,
+        },
+        historyId: resolvedHistoryId,
+        responseId: resolvedResponseId,
+      };
+    applyConsigneHistoryPoint(item, point);
+    state.track.dataset.historyMode = "day";
+    state.hasDayTimeline = true;
+    if (state.container) {
+      state.container.hidden = false;
+    }
+    while (state.track.children.length > state.limit) {
+      state.track.removeChild(state.track.lastElementChild);
+    }
+    logHistoryDebug("timeline.state", {
+      consigneId: options?.consigne?.id ?? null,
+      dayKey,
+      status,
+      historyId: resolvedHistoryId,
+      responseId: resolvedResponseId,
+      itemCount: state.track.children.length,
+      hasDayTimeline: state.hasDayTimeline,
+      firstItemHistoryId: state.track.firstElementChild?.dataset?.historyId || null,
+      lastItemHistoryId: state.track.lastElementChild?.dataset?.historyId || null,
+    });
+    scheduleConsigneHistoryNavUpdate(state);
+  }
+
+  function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
+    if (!row || !consigne) {
       return;
     }
-    if (historyDayKey) {
-      if (isKeyboard) {
-        event.preventDefault();
+    const container = row.querySelector("[data-consigne-history]");
+    const track = row.querySelector("[data-consigne-history-track]");
+    if (!container || !track) {
+      return;
+    }
+    const previousState = CONSIGNE_HISTORY_ROW_STATE.get(row);
+    if (previousState) {
+      try {
+        previousState.resizeObserver?.disconnect?.();
+      } catch (_) { }
+      if (previousState.viewport && previousState.viewportScrollHandler) {
+        try {
+          previousState.viewport.removeEventListener("scroll", previousState.viewportScrollHandler);
+        } catch (_) { }
       }
-      const historySource =
-        typeof options.mode === "string" && options.mode.trim().toLowerCase() === "practice" ? "practice" : "daily";
-      let timelineSummary = null;
-      if (consigne.type === "checklist") {
-        timelineSummary = summarizeChecklistValue(rawDetails?.rawValue ?? rawDetails?.value);
-        logChecklistHistoryInspection(consigne, {
-          label: "timeline:click",
-          focusDayKey: historyDayKey,
-          timelineDetails: {
-            summary: timelineSummary,
-            responseId: responseIdCandidate,
-            historyId: historyIdCandidate,
-            rawValue: rawDetails?.rawValue ?? rawDetails?.value ?? null,
-          },
-          entries: [],
-        });
+    }
+    let explicitDayKey = "";
+    if (typeof options.dayKey === "string") {
+      const trimmed = options.dayKey.trim();
+      if (trimmed) {
+        explicitDayKey = trimmed;
       }
-      if (isSummaryPoint) {
-        void openHistory(ctx, consigne, {
-          source: historySource,
-          focusDayKey: historyDayKey,
-          autoEdit: false,
-        });
+    }
+    if (!explicitDayKey && row?.dataset?.dayKey) {
+      const trimmedDataset = row.dataset.dayKey.trim();
+      if (trimmedDataset) {
+        explicitDayKey = trimmedDataset;
+      }
+    }
+    const resolveDayKey = typeof options.resolveDayKey === "function" ? options.resolveDayKey : null;
+    const viewport = row.querySelector("[data-consigne-history-viewport]") || container;
+    const navPrev = row.querySelector("[data-consigne-history-prev]") || null;
+    const navNext = row.querySelector("[data-consigne-history-next]") || null;
+    const state = {
+      track,
+      container,
+      viewport,
+      navPrev,
+      navNext,
+      hasDayTimeline: false,
+      limit: CONSIGNE_HISTORY_TIMELINE_DAY_COUNT,
+      dayKey: explicitDayKey,
+      resolveDayKey,
+    };
+    setupConsigneHistoryNavigation(state);
+    CONSIGNE_HISTORY_ROW_STATE.set(row, state);
+    // Ne pas afficher la timeline avec des données vides - attendre les vraies données
+    state.hasDayTimeline = false;
+    scheduleConsigneHistoryNavUpdate(state);
+    if (!ctx?.db || !ctx?.user?.uid || !consigne?.id) {
+      return;
+    }
+    const timelineFetchLimit = Math.max(CONSIGNE_HISTORY_TIMELINE_DAY_COUNT * 3, 60);
+    fetchConsigneHistoryRows(ctx, consigne.id, { limit: timelineFetchLimit })
+      .then((result) => {
+        if (!row.isConnected) {
+          return;
+        }
+        if (result.error) {
+          try {
+            modesLogger?.warn?.("consigne.history.timeline", result.error);
+          } catch (_) { }
+          scheduleConsigneHistoryNavUpdate(state);
+          return;
+        }
+        if (Array.isArray(result.missing) && result.missing.length) {
+          scheduleConsigneHistoryNavUpdate(state);
+          return;
+        }
+        const entries = Array.isArray(result.rows) ? result.rows : [];
+        const points = buildConsigneHistoryTimeline(entries, consigne);
+        state.hasDayTimeline = renderConsigneHistoryTimeline(row, points);
+        // Audit: is there a point for the current day? What status?
+        try {
+          const dayKeyForAudit = state.dayKey || row?.dataset?.dayKey || null;
+          const item = dayKeyForAudit
+            ? state.track.querySelector(`[data-history-day="${escapeTimelineSelector(dayKeyForAudit)}"]`)
+            : null;
+          const hasPoint = Boolean(item);
+          const status = item?.dataset?.status || null;
+          prefillLog("timeline.presence", {
+            consigneId: consigne.id,
+            dayKey: dayKeyForAudit,
+            hasPoint,
+            status,
+            rendered: state.hasDayTimeline,
+          });
+          // Hydrate visible row value from the history point for the current day
+          try {
+            if (hasPoint && dayKeyForAudit && item && item._historyDetails) {
+              const details = item._historyDetails;
+              const nextValue = (details && (details.rawValue !== undefined ? details.rawValue : details.value)) ?? "";
+              applyDailyPrefillUpdate(consigne.id, dayKeyForAudit, nextValue);
+            }
+          } catch (_) { }
+          // Highlight if row shows an answer but no timeline point exists for the day
+          try {
+            const rowStatus = row?.dataset?.status || null;
+            const rowHasAnswer = row?.dataset?.hasAnswer === "1";
+            if (!hasPoint && rowStatus && rowStatus !== "na") {
+              prefillAlert("timeline-mismatch", {
+                consigneId: consigne.id,
+                dayKey: dayKeyForAudit,
+                rowStatus,
+                rowHasAnswer,
+                timelineHasPoint: hasPoint,
+              });
+            }
+          } catch (_) { }
+        } catch (_) { }
+        scheduleConsigneHistoryNavUpdate(state);
+      })
+      .catch((error) => {
+        try {
+          modesLogger?.warn?.("consigne.history.timeline", error);
+        } catch (_) { }
+        scheduleConsigneHistoryNavUpdate(state);
+      });
+    const handleHistoryActivation = (event) => {
+      const isKeyboard = event.type === "keydown";
+      if (isKeyboard && event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") {
         return;
       }
-      if (EDITABLE_HISTORY_TYPES.has(consigne.type)) {
-        console.log("[DEBUG] Opening history editor for day:", historyDayKey, "consigne:", consigne.id, "type:", consigne.type);
-        void openConsigneHistoryEntryEditor(row, consigne, ctx, {
-          dayKey: historyDayKey,
+      const target = event.target.closest(".consigne-history__item");
+
+      if (!target || !state.track.contains(target)) {
+        return;
+      }
+      const rawDetails = target._historyDetails || null;
+      // Prefer internal details.dayKey (set at render) over dataset to avoid any later DOM-side overwrites
+      const historyDayKey =
+        (rawDetails && typeof rawDetails.dayKey === "string" && rawDetails.dayKey.trim()
+          ? rawDetails.dayKey.trim()
+          : "") ||
+        (typeof target.dataset.historyDay === "string" && target.dataset.historyDay.trim()
+          ? target.dataset.historyDay.trim()
+          : "");
+      const isBilanPoint = target.dataset.historySource === "bilan" || rawDetails?.isBilan === true;
+      const isSummaryPoint =
+        !isBilanPoint && (target.dataset.historySource === "summary" || rawDetails?.isSummary === true);
+      const bilanDayKey = isBilanPoint
+        ? historyDayKey ||
+        (typeof rawDetails?.dayKey === "string" && rawDetails.dayKey.trim() ? rawDetails.dayKey.trim() : "")
+        : "";
+      const responseIdCandidate =
+        typeof rawDetails?.responseId === "string" && rawDetails.responseId.trim()
+          ? rawDetails.responseId.trim()
+          : typeof target.dataset.historyResponseId === "string" && target.dataset.historyResponseId.trim()
+            ? target.dataset.historyResponseId.trim()
+            : "";
+      const historyIdCandidate =
+        typeof rawDetails?.historyId === "string" && rawDetails.historyId.trim()
+          ? rawDetails.historyId.trim()
+          : typeof target.dataset.historyId === "string" && target.dataset.historyId.trim()
+            ? target.dataset.historyId.trim()
+            : "";
+      logHistoryDebug("timeline.activation", {
+        consigneId: consigne?.id ?? null,
+        consigneType: consigne?.type || null,
+        dayKey: historyDayKey || target.dataset.historyDay || null,
+        status: target.dataset.status || rawDetails?.status || null,
+        historyId: historyIdCandidate,
+        responseId: responseIdCandidate,
+        isBilanPoint,
+        isSummaryPoint,
+        source: options.mode || null,
+        rawDetails: rawDetails
+          ? {
+            hasContent: rawDetails?.hasContent ?? null,
+            summaryScope: rawDetails?.summaryScope || null,
+            summaryPeriod: rawDetails?.summaryPeriod || null,
+            iterationLabel: rawDetails?.iterationLabel || null,
+            valueSummary: summarizeHistoryValue(rawDetails?.rawValue ?? rawDetails?.value ?? null),
+          }
+          : null,
+      });
+      if (isBilanPoint && bilanDayKey) {
+        if (isKeyboard) {
+          event.preventDefault();
+        }
+        void openBilanHistoryEditor(row, consigne, ctx, {
+          dayKey: bilanDayKey,
           details: rawDetails,
           trigger: target,
-          source: historySource,
           responseId: responseIdCandidate,
           historyId: historyIdCandidate,
-          panelEntry: row,
-          expectedSummary: timelineSummary,
+          expectedSummary: summarizeChecklistValue(rawDetails?.rawValue ?? rawDetails?.value ?? null),
         });
-      } else {
-        void openHistory(ctx, consigne, {
-          source: historySource,
-          focusDayKey: historyDayKey,
-          autoEdit: false,
-        });
-      }
-      return;
-    }
-    if (isKeyboard) {
-      event.preventDefault();
-    }
-    let details = rawDetails ? { ...rawDetails } : null;
-    if (!details) {
-      const historyDay = target.dataset.historyDay || null;
-      const parsedDate = historyDay ? modesParseDayKeyToDate(historyDay) : null;
-      const fallbackPoint = formatConsigneHistoryPoint(
-        {
-          dayKey: historyDay,
-          date: parsedDate || null,
-          status: target.dataset.status || "na",
-          value: null,
-          note: "",
-          timestamp: parsedDate instanceof Date && !Number.isNaN(parsedDate.getTime()) ? parsedDate.getTime() : Date.now(),
-          isPlaceholder: target.dataset.placeholder === "1",
-        },
-        consigne,
-      );
-      details = fallbackPoint?.details ? { ...fallbackPoint.details } : null;
-    }
-    if (!details) {
-      return;
-    }
-    openConsigneHistoryPointDialog(consigne, details);
-  };
-  state.track.addEventListener("click", handleHistoryActivation);
-  state.track.addEventListener("keydown", handleHistoryActivation);
-  row.addEventListener("consigne-status-changed", (event) => {
-    const status = event?.detail?.status;
-    if (typeof status !== "string" || !status) {
-      return;
-    }
-    // Garde général: ne pas alimenter la timeline si aucun identifiant d'historique (quel que soit le statut)
-    try {
-      const hasHistoryId = typeof row?.dataset?.historyId === "string" && row.dataset.historyId.trim().length > 0;
-      const hasResponseId = typeof row?.dataset?.historyResponseId === "string" && row.dataset.historyResponseId.trim().length > 0;
-      const hasIds = hasHistoryId || hasResponseId;
-      if (CONSIGNE_HISTORY_GUARDS_ENABLED && !hasIds) {
-        try {
-          logChecklistEvent("info", "[checklist-history] event.blocked.noIds", {
-            consigneId: consigne?.id ?? null,
-            dayKey: event?.detail?.dayKey || row?.dataset?.dayKey || null,
-            status,
-            hasHistoryId: Boolean(hasHistoryId),
-            hasResponseId: Boolean(hasResponseId),
-          });
-        } catch (_) { }
         return;
       }
-    } catch (_) { }
-    updateConsigneHistoryTimeline(row, status, {
-      consigne,
-      value: event?.detail?.value,
-      note: event?.detail?.note,
-      dayKey: event?.detail?.dayKey,
+      if (historyDayKey) {
+        if (isKeyboard) {
+          event.preventDefault();
+        }
+        const historySource =
+          typeof options.mode === "string" && options.mode.trim().toLowerCase() === "practice" ? "practice" : "daily";
+        let timelineSummary = null;
+        if (consigne.type === "checklist") {
+          timelineSummary = summarizeChecklistValue(rawDetails?.rawValue ?? rawDetails?.value);
+          logChecklistHistoryInspection(consigne, {
+            label: "timeline:click",
+            focusDayKey: historyDayKey,
+            timelineDetails: {
+              summary: timelineSummary,
+              responseId: responseIdCandidate,
+              historyId: historyIdCandidate,
+              rawValue: rawDetails?.rawValue ?? rawDetails?.value ?? null,
+            },
+            entries: [],
+          });
+        }
+        if (isSummaryPoint) {
+          void openHistory(ctx, consigne, {
+            source: historySource,
+            focusDayKey: historyDayKey,
+            autoEdit: false,
+          });
+          return;
+        }
+        if (EDITABLE_HISTORY_TYPES.has(consigne.type)) {
+          console.log("[DEBUG] Opening history editor for day:", historyDayKey, "consigne:", consigne.id, "type:", consigne.type);
+          void openConsigneHistoryEntryEditor(row, consigne, ctx, {
+            dayKey: historyDayKey,
+            details: rawDetails,
+            trigger: target,
+            source: historySource,
+            responseId: responseIdCandidate,
+            historyId: historyIdCandidate,
+            panelEntry: row,
+            expectedSummary: timelineSummary,
+          });
+        } else {
+          void openHistory(ctx, consigne, {
+            source: historySource,
+            focusDayKey: historyDayKey,
+            autoEdit: false,
+          });
+        }
+        return;
+      }
+      if (isKeyboard) {
+        event.preventDefault();
+      }
+      let details = rawDetails ? { ...rawDetails } : null;
+      if (!details) {
+        const historyDay = target.dataset.historyDay || null;
+        const parsedDate = historyDay ? modesParseDayKeyToDate(historyDay) : null;
+        const fallbackPoint = formatConsigneHistoryPoint(
+          {
+            dayKey: historyDay,
+            date: parsedDate || null,
+            status: target.dataset.status || "na",
+            value: null,
+            note: "",
+            timestamp: parsedDate instanceof Date && !Number.isNaN(parsedDate.getTime()) ? parsedDate.getTime() : Date.now(),
+            isPlaceholder: target.dataset.placeholder === "1",
+          },
+          consigne,
+        );
+        details = fallbackPoint?.details ? { ...fallbackPoint.details } : null;
+      }
+      if (!details) {
+        return;
+      }
+      openConsigneHistoryPointDialog(consigne, details);
+    };
+    state.track.addEventListener("click", handleHistoryActivation);
+    state.track.addEventListener("keydown", handleHistoryActivation);
+    row.addEventListener("consigne-status-changed", (event) => {
+      const status = event?.detail?.status;
+      if (typeof status !== "string" || !status) {
+        return;
+      }
+      // Garde général: ne pas alimenter la timeline si aucun identifiant d'historique (quel que soit le statut)
+      try {
+        const hasHistoryId = typeof row?.dataset?.historyId === "string" && row.dataset.historyId.trim().length > 0;
+        const hasResponseId = typeof row?.dataset?.historyResponseId === "string" && row.dataset.historyResponseId.trim().length > 0;
+        const hasIds = hasHistoryId || hasResponseId;
+        if (CONSIGNE_HISTORY_GUARDS_ENABLED && !hasIds) {
+          try {
+            logChecklistEvent("info", "[checklist-history] event.blocked.noIds", {
+              consigneId: consigne?.id ?? null,
+              dayKey: event?.detail?.dayKey || row?.dataset?.dayKey || null,
+              status,
+              hasHistoryId: Boolean(hasHistoryId),
+              hasResponseId: Boolean(hasResponseId),
+            });
+          } catch (_) { }
+          return;
+        }
+      } catch (_) { }
+      updateConsigneHistoryTimeline(row, status, {
+        consigne,
+        value: event?.detail?.value,
+        note: event?.detail?.note,
+        dayKey: event?.detail?.dayKey,
+      });
     });
-  });
-}
-
-const consigneRowUpdateTimers = new WeakMap();
-const CONSIGNE_ROW_UPDATE_DURATION = 900;
-
-const PREFILL_DEBUG_STATE = new WeakMap();
-const PREFILL_DEBUG_CONTEXT_STACK = [];
-const PREFILL_UNEXPECTED_LOGGED = new Set();
-
-function pushPrefillDebugContext(context) {
-  PREFILL_DEBUG_CONTEXT_STACK.push(context || null);
-}
-
-function popPrefillDebugContext() {
-  if (PREFILL_DEBUG_CONTEXT_STACK.length) {
-    PREFILL_DEBUG_CONTEXT_STACK.pop();
   }
-}
 
-function peekPrefillDebugContext() {
-  if (!PREFILL_DEBUG_CONTEXT_STACK.length) {
+  const consigneRowUpdateTimers = new WeakMap();
+  const CONSIGNE_ROW_UPDATE_DURATION = 900;
+
+  const PREFILL_DEBUG_STATE = new WeakMap();
+  const PREFILL_DEBUG_CONTEXT_STACK = [];
+  const PREFILL_UNEXPECTED_LOGGED = new Set();
+
+  function pushPrefillDebugContext(context) {
+    PREFILL_DEBUG_CONTEXT_STACK.push(context || null);
+  }
+
+  function popPrefillDebugContext() {
+    if (PREFILL_DEBUG_CONTEXT_STACK.length) {
+      PREFILL_DEBUG_CONTEXT_STACK.pop();
+    }
+  }
+
+  function peekPrefillDebugContext() {
+    if (!PREFILL_DEBUG_CONTEXT_STACK.length) {
+      return null;
+    }
+    return PREFILL_DEBUG_CONTEXT_STACK[PREFILL_DEBUG_CONTEXT_STACK.length - 1] || null;
+  }
+
+  function safeJsonSample(value, maxLength = 160) {
+    try {
+      const raw = JSON.stringify(value);
+      if (typeof raw === "string") {
+        return raw.length > maxLength ? `${raw.slice(0, maxLength)}…` : raw;
+      }
+    } catch (_) { }
+    try {
+      const str = String(value);
+      return str.length > maxLength ? `${str.slice(0, maxLength)}…` : str;
+    } catch (_) { }
     return null;
   }
-  return PREFILL_DEBUG_CONTEXT_STACK[PREFILL_DEBUG_CONTEXT_STACK.length - 1] || null;
-}
 
-function safeJsonSample(value, maxLength = 160) {
-  try {
-    const raw = JSON.stringify(value);
-    if (typeof raw === "string") {
-      return raw.length > maxLength ? `${raw.slice(0, maxLength)}…` : raw;
+  function summarizePrefillValue(value) {
+    if (value == null) {
+      return { type: value === null ? "null" : "undefined" };
     }
-  } catch (_) { }
-  try {
-    const str = String(value);
-    return str.length > maxLength ? `${str.slice(0, maxLength)}…` : str;
-  } catch (_) { }
-  return null;
-}
-
-function summarizePrefillValue(value) {
-  if (value == null) {
-    return { type: value === null ? "null" : "undefined" };
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return {
-      type: "string",
-      length: value.length,
-      preview: trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed,
-    };
-  }
-  if (Array.isArray(value)) {
-    return {
-      type: "array",
-      length: value.length,
-      preview: safeJsonSample(value),
-    };
-  }
-  if (typeof value === "object") {
-    const keys = Object.keys(value);
-    return {
-      type: "object",
-      keys,
-      preview: safeJsonSample(value),
-    };
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return { type: typeof value, value };
-  }
-  return { type: typeof value };
-}
-
-function recordPrefillDebug(row, info = {}) {
-  if (!(row instanceof HTMLElement)) {
-    return;
-  }
-  const existing = PREFILL_DEBUG_STATE.get(row) || { history: [] };
-  const entry = {
-    timestamp: info.timestamp || Date.now(),
-    consigneId: info.consigneId ?? null,
-    consigneType: info.consigneType ?? null,
-    context: info.context || null,
-    directSource: info.directSource || null,
-    valueSummary: summarizePrefillValue(info.value),
-    stack: typeof info.stack === "string" ? info.stack : "",
-  };
-  existing.last = entry;
-  existing.history.push(entry);
-  if (existing.history.length > 8) {
-    existing.history.shift();
-  }
-  PREFILL_DEBUG_STATE.set(row, existing);
-}
-
-function readPrefillDebug(row) {
-  if (!(row instanceof HTMLElement)) {
-    return null;
-  }
-  return PREFILL_DEBUG_STATE.get(row) || null;
-}
-
-function deriveStackFrame(stack) {
-  if (!stack) return "";
-  const lines = String(stack)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (!lines.length) return "";
-  const projectLine = lines.find((line) => line.includes("modes.js"));
-  return projectLine || lines[1] || lines[0] || "";
-}
-
-function maybeReportUnexpectedPrefill(consigne, row, { status, value, note, hasOwnAnswer, skipFlag }) {
-  if (!row || !consigne) {
-    return;
-  }
-  if (status === "na") {
-    return;
-  }
-  const rawDayKey = row.dataset?.dayKey || "";
-  const normalizedDayKey = normalizeHistoryDayKey(rawDayKey || "");
-  const logKey = `${consigne.id ?? "unknown"}::${normalizedDayKey || rawDayKey || "none"}::${status}`;
-  if (PREFILL_UNEXPECTED_LOGGED.has(logKey)) {
-    return;
-  }
-  const snapshot = collectConsigneTimelineSnapshot(consigne);
-  const timelineItems = Array.isArray(snapshot?.items) ? snapshot.items : [];
-  const timelineHasMatchingDay = timelineItems.some((item) => {
-    const itemKey = item?.normalizedDayKey || normalizeHistoryDayKey(item?.dayKey || "");
-    if (!itemKey && !normalizedDayKey) {
-      return false;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return {
+        type: "string",
+        length: value.length,
+        preview: trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed,
+      };
     }
-    const comparable = itemKey || item?.dayKey || "";
-    return comparable && comparable === (normalizedDayKey || rawDayKey);
-  });
-  if (timelineHasMatchingDay) {
-    return;
+    if (Array.isArray(value)) {
+      return {
+        type: "array",
+        length: value.length,
+        preview: safeJsonSample(value),
+      };
+    }
+    if (typeof value === "object") {
+      const keys = Object.keys(value);
+      return {
+        type: "object",
+        keys,
+        preview: safeJsonSample(value),
+      };
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      return { type: typeof value, value };
+    }
+    return { type: typeof value };
   }
-  const debugInfo = readPrefillDebug(row);
-  const lastEntry = debugInfo?.last || null;
-  const lastStackFrame = deriveStackFrame(lastEntry?.stack || "");
-  const payload = {
-    consigneId: consigne?.id ?? null,
-    consigneType: consigne?.type || null,
-    dayKey: rawDayKey || null,
-    normalizedDayKey: normalizedDayKey || null,
-    status,
-    skipFlag,
-    hasOwnAnswer,
-    notePreview: note || "",
-    valueSummary: summarizePrefillValue(value),
-    timelineCount: timelineItems.length,
-    timelineHasMatchingDay,
-    timelineSample: timelineItems.slice(0, 5).map((item) => ({
-      dayKey: item?.dayKey || null,
-      normalizedDayKey: item?.normalizedDayKey || null,
-      status: item?.status || null,
-      historyId: item?.historyId || null,
-      responseId: item?.responseId || null,
-    })),
-    debugContext: lastEntry?.context || null,
-    debugValueSummary: lastEntry?.valueSummary || null,
-    debugDirectSource: lastEntry?.directSource || null,
-    triggerStackFrame: lastStackFrame,
-    stackExcerpt: lastEntry?.stack ? lastEntry.stack.split("\n").slice(0, 8) : [],
-  };
-  prefillAlert("❌ unexpected daily prefill without history", payload);
-  PREFILL_UNEXPECTED_LOGGED.add(logKey);
-}
 
-function reportUnexpectedPrefillOnEditorOpen(consigne, row, currentValue) {
-  try {
-    if (!row || !consigne) return;
-    const rawDayKey = row?.dataset?.dayKey || (typeof window !== 'undefined' && window.AppCtx && window.AppCtx.dateIso) || "";
+  function recordPrefillDebug(row, info = {}) {
+    if (!(row instanceof HTMLElement)) {
+      return;
+    }
+    const existing = PREFILL_DEBUG_STATE.get(row) || { history: [] };
+    const entry = {
+      timestamp: info.timestamp || Date.now(),
+      consigneId: info.consigneId ?? null,
+      consigneType: info.consigneType ?? null,
+      context: info.context || null,
+      directSource: info.directSource || null,
+      valueSummary: summarizePrefillValue(info.value),
+      stack: typeof info.stack === "string" ? info.stack : "",
+    };
+    existing.last = entry;
+    existing.history.push(entry);
+    if (existing.history.length > 8) {
+      existing.history.shift();
+    }
+    PREFILL_DEBUG_STATE.set(row, existing);
+  }
+
+  function readPrefillDebug(row) {
+    if (!(row instanceof HTMLElement)) {
+      return null;
+    }
+    return PREFILL_DEBUG_STATE.get(row) || null;
+  }
+
+  function deriveStackFrame(stack) {
+    if (!stack) return "";
+    const lines = String(stack)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (!lines.length) return "";
+    const projectLine = lines.find((line) => line.includes("modes.js"));
+    return projectLine || lines[1] || lines[0] || "";
+  }
+
+  function maybeReportUnexpectedPrefill(consigne, row, { status, value, note, hasOwnAnswer, skipFlag }) {
+    if (!row || !consigne) {
+      return;
+    }
+    if (status === "na") {
+      return;
+    }
+    const rawDayKey = row.dataset?.dayKey || "";
     const normalizedDayKey = normalizeHistoryDayKey(rawDayKey || "");
-    const skipFlag = row?.dataset?.skipAnswered === "1";
-    const valueForStatus = skipFlag && (!(currentValue && typeof currentValue === "object" && currentValue.skipped))
-      ? { skipped: true }
-      : currentValue;
-    const status = dotColor(consigne.type, valueForStatus, consigne);
-    const hasOwnAnswer = consigne.type === "checklist"
-      ? hasChecklistResponse(consigne, row, valueForStatus)
-      : hasValueForConsigne(consigne, valueForStatus);
-    if (!hasOwnAnswer && status === "na") {
+    const logKey = `${consigne.id ?? "unknown"}::${normalizedDayKey || rawDayKey || "none"}::${status}`;
+    if (PREFILL_UNEXPECTED_LOGGED.has(logKey)) {
       return;
     }
     const snapshot = collectConsigneTimelineSnapshot(consigne);
-    const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
-    const hasMatching = normalizedDayKey
-      ? items.some((it) => (it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "")) === normalizedDayKey)
-      : items.length > 0 ? false : false;
-    // If there's no history match for this day (or no timeline items at all), flag it.
-    if (!hasMatching) {
-      const debugInfo = readPrefillDebug(row);
-      const lastEntry = debugInfo?.last || null;
-      const lastStackFrame = deriveStackFrame(lastEntry?.stack || "");
-      const payload = {
-        consigneId: consigne?.id ?? null,
-        consigneType: consigne?.type || null,
-        dayKey: rawDayKey || null,
-        normalizedDayKey: normalizedDayKey || null,
-        status,
-        skipFlag,
-        hasOwnAnswer,
-        datasetStatus: row?.dataset?.status || null,
-        valueSummary: summarizePrefillValue(currentValue),
-        timelineCount: items.length,
-        timelineSample: items.slice(0, 5).map((it) => ({ dayKey: it?.dayKey || null, normalizedDayKey: it?.normalizedDayKey || null, status: it?.status || null })),
-        debugContext: lastEntry?.context || null,
-        debugDirectSource: lastEntry?.directSource || null,
-        triggerStackFrame: deriveStackFrame(new Error('click-prefill-check').stack),
-        lastUpdateStack: lastStackFrame,
-      };
-      prefillAlert("❌ unexpected prefill on click — no history", payload);
-    }
-  } catch (error) {
-    prefillLog("prefill.debug.onClick.error", { error: String(error?.message || error) });
-  }
-}
-
-function clearConsigneRowUpdateHighlight(row) {
-  if (!row) return;
-  const timer = consigneRowUpdateTimers.get(row);
-  if (timer) {
-    clearTimeout(timer);
-    consigneRowUpdateTimers.delete(row);
-  }
-  row.classList.remove("consigne-row--updated");
-}
-
-function triggerConsigneRowUpdateHighlight(row) {
-  if (!row) return;
-  clearConsigneRowUpdateHighlight(row);
-  // Force a reflow to ensure the animation restarts if triggered rapidly.
-  void row.offsetWidth;
-  row.classList.add("consigne-row--updated");
-  const timeoutId = setTimeout(() => {
-    row.classList.remove("consigne-row--updated");
-    consigneRowUpdateTimers.delete(row);
-  }, CONSIGNE_ROW_UPDATE_DURATION);
-  consigneRowUpdateTimers.set(row, timeoutId);
-}
-
-function dispatchConsigneMutation({ mode, action, consigneId, consigne, fallback }) {
-  if (!mode) {
-    throw new Error("dispatchConsigneMutation: mode requis");
-  }
-  const detail = {
-    mode,
-    action: action || "update",
-    consigneId: consigneId ?? null,
-    consigne: consigne || null,
-  };
-  let event = null;
-  if (typeof CustomEvent === "function") {
-    event = new CustomEvent("consigne:mutated", {
-      cancelable: true,
-      detail,
+    const timelineItems = Array.isArray(snapshot?.items) ? snapshot.items : [];
+    const timelineHasMatchingDay = timelineItems.some((item) => {
+      const itemKey = item?.normalizedDayKey || normalizeHistoryDayKey(item?.dayKey || "");
+      if (!itemKey && !normalizedDayKey) {
+        return false;
+      }
+      const comparable = itemKey || item?.dayKey || "";
+      return comparable && comparable === (normalizedDayKey || rawDayKey);
     });
-  } else {
-    event = {
-      type: "consigne:mutated",
-      cancelable: true,
-      detail,
-      defaultPrevented: false,
-      preventDefault() {
-        if (this.cancelable) {
-          this.defaultPrevented = true;
-        }
-      },
-    };
-  }
-  try {
-    if (typeof document?.dispatchEvent === "function") {
-      document.dispatchEvent(event);
+    if (timelineHasMatchingDay) {
+      return;
     }
-  } catch (error) {
-    console.warn("dispatchConsigneMutation:dispatch", error);
-  }
-  if (!event.defaultPrevented && typeof fallback === "function") {
-    fallback();
-  }
-  return event;
-}
-
-function updateConsigneStatusUI(row, consigne, rawValue) {
-  if (!row || !consigne) return;
-  const skipFlag = row.dataset.skipAnswered === "1";
-  const valueForStatus = skipFlag && (!(rawValue && typeof rawValue === "object" && rawValue.skipped))
-    ? { skipped: true }
-    : rawValue;
-  let status = dotColor(consigne.type, valueForStatus, consigne);
-  // Track whether this row truly has an answer
-  let hasOwnAnswer = false;
-  try {
-    hasOwnAnswer = consigne.type === "checklist"
-      ? hasChecklistResponse(consigne, row, valueForStatus)
-      : hasValueForConsigne(consigne, valueForStatus);
-  } catch (_) {
-    hasOwnAnswer = false;
-  }
-  try {
-    prefillLog("status.compute", {
-      at: "updateConsigneStatusUI",
+    const debugInfo = readPrefillDebug(row);
+    const lastEntry = debugInfo?.last || null;
+    const lastStackFrame = deriveStackFrame(lastEntry?.stack || "");
+    const payload = {
       consigneId: consigne?.id ?? null,
-      type: consigne?.type || null,
-      dayKey: row?.dataset?.dayKey || null,
-      skipFlag,
-      valueType: valueForStatus == null ? "null" : typeof valueForStatus,
-      incomingStatus: status,
-      prevStatus: row?.dataset?.status || null,
-      hasOwnAnswer,
-    });
-  } catch (_) { }
-  try {
-    modesLogger?.debug?.("consigne.status.update", {
-      consigneId: consigne?.id ?? null,
-      skip: Boolean(skipFlag),
+      consigneType: consigne?.type || null,
+      dayKey: rawDayKey || null,
+      normalizedDayKey: normalizedDayKey || null,
       status,
-    });
-  } catch (_) { }
-  // Persist hasAnswer flag for parent propagation logic
-  if (hasOwnAnswer) {
-    row.dataset.hasAnswer = "1";
-  } else {
-    delete row.dataset.hasAnswer;
+      skipFlag,
+      hasOwnAnswer,
+      notePreview: note || "",
+      valueSummary: summarizePrefillValue(value),
+      timelineCount: timelineItems.length,
+      timelineHasMatchingDay,
+      timelineSample: timelineItems.slice(0, 5).map((item) => ({
+        dayKey: item?.dayKey || null,
+        normalizedDayKey: item?.normalizedDayKey || null,
+        status: item?.status || null,
+        historyId: item?.historyId || null,
+        responseId: item?.responseId || null,
+      })),
+      debugContext: lastEntry?.context || null,
+      debugValueSummary: lastEntry?.valueSummary || null,
+      debugDirectSource: lastEntry?.directSource || null,
+      triggerStackFrame: lastStackFrame,
+      stackExcerpt: lastEntry?.stack ? lastEntry.stack.split("\n").slice(0, 8) : [],
+    };
+    prefillAlert("❌ unexpected daily prefill without history", payload);
+    PREFILL_UNEXPECTED_LOGGED.add(logKey);
   }
-  // Do not elevate parent status based solely on child activity; keep parent 'na'
-  // until it has its own explicit answer. This avoids pre-coloring without a dot.
-  if (consigne.type === "checklist") {
-    const highlight =
-      checklistIsComplete(valueForStatus) ||
-      (valueForStatus && typeof valueForStatus === "object" && valueForStatus.skipped === true);
-    if (highlight) {
-      row.classList.add("consigne-row--validated");
+
+  function reportUnexpectedPrefillOnEditorOpen(consigne, row, currentValue) {
+    try {
+      if (!row || !consigne) return;
+      const rawDayKey = row?.dataset?.dayKey || (typeof window !== 'undefined' && window.AppCtx && window.AppCtx.dateIso) || "";
+      const normalizedDayKey = normalizeHistoryDayKey(rawDayKey || "");
+      const skipFlag = row?.dataset?.skipAnswered === "1";
+      const valueForStatus = skipFlag && (!(currentValue && typeof currentValue === "object" && currentValue.skipped))
+        ? { skipped: true }
+        : currentValue;
+      const status = dotColor(consigne.type, valueForStatus, consigne);
+      const hasOwnAnswer = consigne.type === "checklist"
+        ? hasChecklistResponse(consigne, row, valueForStatus)
+        : hasValueForConsigne(consigne, valueForStatus);
+      if (!hasOwnAnswer && status === "na") {
+        return;
+      }
+      const snapshot = collectConsigneTimelineSnapshot(consigne);
+      const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+      const hasMatching = normalizedDayKey
+        ? items.some((it) => (it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "")) === normalizedDayKey)
+        : items.length > 0 ? false : false;
+      // If there's no history match for this day (or no timeline items at all), flag it.
+      if (!hasMatching) {
+        const debugInfo = readPrefillDebug(row);
+        const lastEntry = debugInfo?.last || null;
+        const lastStackFrame = deriveStackFrame(lastEntry?.stack || "");
+        const payload = {
+          consigneId: consigne?.id ?? null,
+          consigneType: consigne?.type || null,
+          dayKey: rawDayKey || null,
+          normalizedDayKey: normalizedDayKey || null,
+          status,
+          skipFlag,
+          hasOwnAnswer,
+          datasetStatus: row?.dataset?.status || null,
+          valueSummary: summarizePrefillValue(currentValue),
+          timelineCount: items.length,
+          timelineSample: items.slice(0, 5).map((it) => ({ dayKey: it?.dayKey || null, normalizedDayKey: it?.normalizedDayKey || null, status: it?.status || null })),
+          debugContext: lastEntry?.context || null,
+          debugDirectSource: lastEntry?.directSource || null,
+          triggerStackFrame: deriveStackFrame(new Error('click-prefill-check').stack),
+          lastUpdateStack: lastStackFrame,
+        };
+        prefillAlert("❌ unexpected prefill on click — no history", payload);
+      }
+    } catch (error) {
+      prefillLog("prefill.debug.onClick.error", { error: String(error?.message || error) });
+    }
+  }
+
+  function clearConsigneRowUpdateHighlight(row) {
+    if (!row) return;
+    const timer = consigneRowUpdateTimers.get(row);
+    if (timer) {
+      clearTimeout(timer);
+      consigneRowUpdateTimers.delete(row);
+    }
+    row.classList.remove("consigne-row--updated");
+  }
+
+  function triggerConsigneRowUpdateHighlight(row) {
+    if (!row) return;
+    clearConsigneRowUpdateHighlight(row);
+    // Force a reflow to ensure the animation restarts if triggered rapidly.
+    void row.offsetWidth;
+    row.classList.add("consigne-row--updated");
+    const timeoutId = setTimeout(() => {
+      row.classList.remove("consigne-row--updated");
+      consigneRowUpdateTimers.delete(row);
+    }, CONSIGNE_ROW_UPDATE_DURATION);
+    consigneRowUpdateTimers.set(row, timeoutId);
+  }
+
+  function dispatchConsigneMutation({ mode, action, consigneId, consigne, fallback }) {
+    if (!mode) {
+      throw new Error("dispatchConsigneMutation: mode requis");
+    }
+    const detail = {
+      mode,
+      action: action || "update",
+      consigneId: consigneId ?? null,
+      consigne: consigne || null,
+    };
+    let event = null;
+    if (typeof CustomEvent === "function") {
+      event = new CustomEvent("consigne:mutated", {
+        cancelable: true,
+        detail,
+      });
+    } else {
+      event = {
+        type: "consigne:mutated",
+        cancelable: true,
+        detail,
+        defaultPrevented: false,
+        preventDefault() {
+          if (this.cancelable) {
+            this.defaultPrevented = true;
+          }
+        },
+      };
+    }
+    try {
+      if (typeof document?.dispatchEvent === "function") {
+        document.dispatchEvent(event);
+      }
+    } catch (error) {
+      console.warn("dispatchConsigneMutation:dispatch", error);
+    }
+    if (!event.defaultPrevented && typeof fallback === "function") {
+      fallback();
+    }
+    return event;
+  }
+
+  function updateConsigneStatusUI(row, consigne, rawValue) {
+    if (!row || !consigne) return;
+    const skipFlag = row.dataset.skipAnswered === "1";
+    const valueForStatus = skipFlag && (!(rawValue && typeof rawValue === "object" && rawValue.skipped))
+      ? { skipped: true }
+      : rawValue;
+    let status = dotColor(consigne.type, valueForStatus, consigne);
+    // Track whether this row truly has an answer
+    let hasOwnAnswer = false;
+    try {
+      hasOwnAnswer = consigne.type === "checklist"
+        ? hasChecklistResponse(consigne, row, valueForStatus)
+        : hasValueForConsigne(consigne, valueForStatus);
+    } catch (_) {
+      hasOwnAnswer = false;
+    }
+    try {
+      prefillLog("status.compute", {
+        at: "updateConsigneStatusUI",
+        consigneId: consigne?.id ?? null,
+        type: consigne?.type || null,
+        dayKey: row?.dataset?.dayKey || null,
+        skipFlag,
+        valueType: valueForStatus == null ? "null" : typeof valueForStatus,
+        incomingStatus: status,
+        prevStatus: row?.dataset?.status || null,
+        hasOwnAnswer,
+      });
+    } catch (_) { }
+    try {
+      modesLogger?.debug?.("consigne.status.update", {
+        consigneId: consigne?.id ?? null,
+        skip: Boolean(skipFlag),
+        status,
+      });
+    } catch (_) { }
+    // Persist hasAnswer flag for parent propagation logic
+    if (hasOwnAnswer) {
+      row.dataset.hasAnswer = "1";
+    } else {
+      delete row.dataset.hasAnswer;
+    }
+    // Do not elevate parent status based solely on child activity; keep parent 'na'
+    // until it has its own explicit answer. This avoids pre-coloring without a dot.
+    if (consigne.type === "checklist") {
+      const highlight =
+        checklistIsComplete(valueForStatus) ||
+        (valueForStatus && typeof valueForStatus === "object" && valueForStatus.skipped === true);
+      if (highlight) {
+        row.classList.add("consigne-row--validated");
+      } else {
+        row.classList.remove("consigne-row--validated");
+      }
     } else {
       row.classList.remove("consigne-row--validated");
     }
-  } else {
-    row.classList.remove("consigne-row--validated");
-  }
-  const statusHolder = row.querySelector("[data-status]");
-  const dot = row.querySelector("[data-status-dot]");
-  const mark = row.querySelector("[data-status-mark]");
-  const live = row.querySelector("[data-status-live]");
-  const tone = row.dataset.priorityTone || priorityTone(consigne.priority);
-  if (tone) {
-    row.dataset.priorityTone = tone;
+    const statusHolder = row.querySelector("[data-status]");
+    const dot = row.querySelector("[data-status-dot]");
+    const mark = row.querySelector("[data-status-mark]");
+    const live = row.querySelector("[data-status-live]");
+    const tone = row.dataset.priorityTone || priorityTone(consigne.priority);
+    if (tone) {
+      row.dataset.priorityTone = tone;
+      if (statusHolder) {
+        statusHolder.dataset.priorityTone = tone;
+      }
+      if (dot) {
+        dot.dataset.priorityTone = tone;
+      }
+    }
+    row.dataset.status = status;
     if (statusHolder) {
-      statusHolder.dataset.priorityTone = tone;
+      statusHolder.dataset.status = status;
+      statusHolder.setAttribute("data-status", status);
     }
     if (dot) {
-      dot.dataset.priorityTone = tone;
+      dot.className = `consigne-row__dot consigne-row__dot--${status}`;
+      // Masquer la pastille par défaut si aucune réponse ni historique pour le jour
+      try {
+        const hasHistoryForDay = typeof row?.dataset?.historyId === "string" && row.dataset.historyId.trim().length > 0;
+        const shouldHideDot = status === "na" && !hasOwnAnswer && !hasHistoryForDay;
+        dot.hidden = shouldHideDot ? true : false;
+      } catch (_) { }
     }
-  }
-  row.dataset.status = status;
-  if (statusHolder) {
-    statusHolder.dataset.status = status;
-    statusHolder.setAttribute("data-status", status);
-  }
-  if (dot) {
-    dot.className = `consigne-row__dot consigne-row__dot--${status}`;
-    // Masquer la pastille par défaut si aucune réponse ni historique pour le jour
-    try {
-      const hasHistoryForDay = typeof row?.dataset?.historyId === "string" && row.dataset.historyId.trim().length > 0;
-      const shouldHideDot = status === "na" && !hasOwnAnswer && !hasHistoryForDay;
-      dot.hidden = shouldHideDot ? true : false;
-    } catch (_) { }
-  }
-  if (mark) {
-    const isAnswered = status !== "na";
-    mark.classList.toggle("consigne-row__mark--checked", isAnswered);
-  }
-  let textualNote = "";
-  if (live) {
-    textualNote = extractTextualNote(valueForStatus);
-    const isNoteStatus = status === "note";
-    const baseHasValue = (() => {
-      if (skipFlag) return true;
-      if (consigne.type === "long") {
-        return richTextHasContent(valueForStatus);
-      }
-      if (consigne.type === "checklist") {
-        if (valueForStatus && typeof valueForStatus === "object" && valueForStatus.__hasAnswer) {
-          return true;
+    if (mark) {
+      const isAnswered = status !== "na";
+      mark.classList.toggle("consigne-row__mark--checked", isAnswered);
+    }
+    let textualNote = "";
+    if (live) {
+      textualNote = extractTextualNote(valueForStatus);
+      const isNoteStatus = status === "note";
+      const baseHasValue = (() => {
+        if (skipFlag) return true;
+        if (consigne.type === "long") {
+          return richTextHasContent(valueForStatus);
         }
-        return hasChecklistResponse(consigne, row, valueForStatus);
-      }
-      return !(valueForStatus === null || valueForStatus === undefined || valueForStatus === "");
-    })();
-    const hasValue = isNoteStatus ? textualNote.length > 0 || baseHasValue : baseHasValue;
-    const formattedValue = (() => {
-      if (isNoteStatus) {
-        if (textualNote) return textualNote;
-        const fallback = formatConsigneValue(consigne.type, valueForStatus, { consigne });
-        if (fallback === null || fallback === undefined || fallback === "" || fallback === "—") {
+        if (consigne.type === "checklist") {
+          if (valueForStatus && typeof valueForStatus === "object" && valueForStatus.__hasAnswer) {
+            return true;
+          }
+          return hasChecklistResponse(consigne, row, valueForStatus);
+        }
+        return !(valueForStatus === null || valueForStatus === undefined || valueForStatus === "");
+      })();
+      const hasValue = isNoteStatus ? textualNote.length > 0 || baseHasValue : baseHasValue;
+      const formattedValue = (() => {
+        if (isNoteStatus) {
+          if (textualNote) return textualNote;
+          const fallback = formatConsigneValue(consigne.type, valueForStatus, { consigne });
+          if (fallback === null || fallback === undefined || fallback === "" || fallback === "—") {
+            return skipFlag ? "Passée" : "Réponse enregistrée";
+          }
+          return fallback;
+        }
+        if (consigne.type === "info") return INFO_RESPONSE_LABEL;
+        if (!hasValue) return "Sans donnée";
+        const result = formatConsigneValue(consigne.type, valueForStatus, { consigne });
+        if (result === null || result === undefined || result === "" || result === "—") {
           return skipFlag ? "Passée" : "Réponse enregistrée";
         }
-        return fallback;
-      }
-      if (consigne.type === "info") return INFO_RESPONSE_LABEL;
-      if (!hasValue) return "Sans donnée";
-      const result = formatConsigneValue(consigne.type, valueForStatus, { consigne });
-      if (result === null || result === undefined || result === "" || result === "—") {
-        return skipFlag ? "Passée" : "Réponse enregistrée";
-      }
-      return result;
-    })();
-    const label = STATUS_LABELS[status] || "Valeur";
-    live.textContent = `${label}: ${formattedValue}`;
-  }
-  if (status === "na") {
-    clearConsigneRowUpdateHighlight(row);
-  } else {
-    triggerConsigneRowUpdateHighlight(row);
-  }
-  if (typeof CustomEvent === "function") {
-    row.dispatchEvent(new CustomEvent("consigne-status-changed", {
-      detail: {
-        status,
-        consigne,
-        value: rawValue,
-        note: textualNote,
-        dayKey: row?.dataset?.dayKey || null,
-      },
-    }));
-  }
-  try {
-    maybeReportUnexpectedPrefill(consigne, row, {
-      status,
-      value: valueForStatus,
-      note: textualNote,
-      hasOwnAnswer,
-      skipFlag,
-    });
-  } catch (error) {
-    prefillLog("prefill.debug.unexpected.log.error", { error: String(error?.message || error) });
-  }
-}
-
-function readConsigneCurrentValue(consigne, scope) {
-  if (!consigne || !scope) return "";
-  const id = consigne.id;
-  const type = consigne.type;
-  if (type === "info") return "";
-  if (type === "short") {
-    const input = scope.querySelector(`[name="short:${id}"]`);
-    return input ? input.value.trim() : "";
-  }
-  if (type === "long") {
-    const hidden = scope.querySelector(`[name="long:${id}"]`);
-    if (hidden) {
-      return normalizeRichTextValue(hidden.value || "");
+        return result;
+      })();
+      const label = STATUS_LABELS[status] || "Valeur";
+      live.textContent = `${label}: ${formattedValue}`;
     }
-    const editor = scope.querySelector(`[data-rich-text-root][data-consigne-id="${String(id ?? "")}"]`);
-    if (editor) {
-      const content = editor.querySelector("[data-rich-text-content]");
-      const html = content ? content.innerHTML : "";
-      return normalizeRichTextValue({ html });
-    }
-    return normalizeRichTextValue("");
-  }
-  if (type === "num") {
-    const range = scope.querySelector(`[name="num:${id}"]`);
-    if (!range || range.value === "" || range.value == null) return "";
-    const num = Number(range.value);
-    return Number.isFinite(num) ? num : "";
-  }
-  if (type === "montant") {
-    const input = scope.querySelector(`[name="montant:${id}"]`);
-    if (!input || input.value === "" || input.value == null) {
-      return "";
-    }
-    const amount = Number(input.value);
-    if (!Number.isFinite(amount)) {
-      return "";
-    }
-    return buildMontantValue(consigne, amount);
-  }
-  if (type === "likert5") {
-    const select = scope.querySelector(`[name="likert5:${id}"]`);
-    if (!select || select.value === "" || select.value == null) return "";
-    const num = Number(select.value);
-    return Number.isFinite(num) ? num : "";
-  }
-  if (type === "yesno") {
-    const select = scope.querySelector(`[name="yesno:${id}"]`);
-    return select ? select.value : "";
-  }
-  if (type === "likert6") {
-    const select = scope.querySelector(`[name="likert6:${id}"]`);
-    return select ? select.value : "";
-  }
-  if (type === "checklist") {
-    const hidden = scope.querySelector(`[name="checklist:${id}"]`);
-    let parsedValues = null;
-    let isDirty = false;
-    if (hidden) {
-      isDirty = hidden.dataset?.dirty === "1";
-      try {
-        const parsed = JSON.parse(hidden.value || "[]");
-        const value = buildChecklistValue(consigne, parsed);
-        const items = Array.isArray(value?.items) ? value.items : [];
-        const skipped = Array.isArray(value?.skipped) ? value.skipped : [];
-        const hasMeaningfulState =
-          items.some(Boolean) || skipped.some(Boolean) || (value && value.__hasAnswer === true);
-        if (!isDirty && !hasMeaningfulState) {
-          return null;
-        }
-        return value;
-      } catch (error) {
-        console.warn("readConsigneCurrentValue:checklist", error);
-      }
-    }
-    const container = scope.querySelector(
-      `[data-checklist-root][data-consigne-id="${String(id ?? "")}"]`
-    );
-    if (container) {
-      const domState = readChecklistDomState(container);
-      if (domState.items.length) {
-        const isDirty = container.dataset && container.dataset.checklistDirty === "1";
-        const hasMeaningfulState =
-          domState.items.some((checked, index) => checked && !domState.skipped[index]) ||
-          domState.skipped.some(Boolean);
-        if (!isDirty && !hasMeaningfulState) {
-          return null;
-        }
-        return buildChecklistValue(consigne, domState);
-      }
-    }
-    return buildChecklistValue(consigne, []);
-  }
-  const input = scope.querySelector(`[name$=":${id}"]`);
-  return input ? input.value : "";
-}
-
-function enhanceRangeMeters(scope) {
-  if (!scope) return;
-  const sliders = scope.querySelectorAll('input[type="range"][name^="num:"]');
-  sliders.forEach((slider) => {
-    const meter = scope.querySelector(`[data-meter="${slider.name}"]`);
-    if (!meter) return;
-    const sync = () => {
-      meter.textContent = slider.value;
-    };
-    slider.addEventListener("input", sync);
-    slider.addEventListener("change", sync);
-    sync();
-  });
-}
-
-function initializeChecklistScope(scope, { consigneId = null, dateKey = null, hydrate = true } = {}) {
-  if (!scope) return;
-
-  const collectRoots = (target) => {
-    const roots = [];
-    if (!target) return roots;
-    if (target instanceof Element) {
-      if (target.matches("[data-checklist-root]")) {
-        roots.push(target);
-      }
-      roots.push(...target.querySelectorAll("[data-checklist-root]"));
-    } else if (typeof target.querySelectorAll === "function") {
-      roots.push(...target.querySelectorAll("[data-checklist-root]"));
-    }
-    return roots;
-  };
-
-  const roots = collectRoots(scope);
-  if (!roots.length) return;
-
-  const resolveConsigneId = (root) => {
-    if (consigneId != null) return String(consigneId ?? "");
-    const attr = root.getAttribute("data-consigne-id");
-    if (attr && String(attr).trim()) return attr;
-    if (root.dataset?.consigneId && String(root.dataset.consigneId).trim()) {
-      return root.dataset.consigneId;
-    }
-    const owner = root.closest("[data-consigne-id]");
-    if (owner) {
-      const ownerAttr = owner.getAttribute("data-consigne-id");
-      if (ownerAttr && String(ownerAttr).trim()) return ownerAttr;
-      if (owner.dataset?.consigneId && String(owner.dataset.consigneId).trim()) {
-        return owner.dataset.consigneId;
-      }
-      if (owner.dataset?.id && String(owner.dataset.id).trim()) {
-        return owner.dataset.id;
-      }
-    }
-    return "";
-  };
-
-  roots.forEach((root) => {
-    const resolvedId = resolveConsigneId(root);
-    if (resolvedId && !root.getAttribute("data-consigne-id")) {
-      root.setAttribute("data-consigne-id", resolvedId);
-    }
-    const hidden = root.querySelector("[data-checklist-state]");
-    if (hidden && resolvedId) {
-      const fieldName = `consigne:${resolvedId}:checklist`;
-      hidden.setAttribute("data-autosave-field", fieldName);
-      if (hidden.dataset) {
-        hidden.dataset.autosaveField = fieldName;
-      }
-    }
-
-    const editor = root.querySelector("[contenteditable]");
-    if (editor) {
-      const setupFn =
-        window.setupChecklistEditor || window.setupCheckboxListBehavior || window.setupCheckboxLikeBullets;
-      if (typeof setupFn === "function" && !editor.__cbInstalled) {
-        try {
-          setupFn(editor);
-        } catch (error) {
-          modesLogger?.warn?.("checklist:setup", error);
-        }
-      }
-      const enterExit = window.installChecklistEnterExit;
-      if (typeof enterExit === "function") {
-        try {
-          enterExit(editor);
-        } catch (error) {
-          modesLogger?.warn?.("checklist:enter-exit", error);
-        }
-      }
-    }
-
-    const checklistHydrateFn = window.hydrateChecklist;
-    if (hydrate && typeof checklistHydrateFn === "function") {
-      try {
-        const attrValue =
-          typeof root.getAttribute === "function" ? root.getAttribute("data-checklist-history-date") : "";
-        const datasetValue =
-          root.dataset && typeof root.dataset.checklistHistoryDate === "string"
-            ? root.dataset.checklistHistoryDate.trim()
-            : "";
-        // Derive the page dayKey from the URL hash if not explicitly present on the root
-        let pageDateKey = "";
-        try {
-          const hash = typeof window.location?.hash === "string" ? window.location.hash : "";
-          const qp = new URLSearchParams((hash.split("?")[1] || ""));
-          const d = (qp.get("d") || "").trim();
-          pageDateKey = d || "";
-        } catch (_) { }
-        if (!pageDateKey) {
-          const ctxKey = (typeof window !== "undefined" && window.AppCtx?.dateIso) ? String(window.AppCtx.dateIso) : "";
-          pageDateKey = ctxKey || (typeof Schema?.todayKey === "function" ? Schema.todayKey() : "");
-        }
-        const providedDateKey =
-          datasetValue ||
-          (typeof attrValue === "string" && attrValue.trim() ? attrValue.trim() : "") ||
-          (typeof pageDateKey === "string" && pageDateKey.trim() ? pageDateKey.trim() : "");
-        if (providedDateKey) {
-          if (root.dataset) {
-            root.dataset.checklistHistoryDate = providedDateKey;
-          } else {
-            root.setAttribute("data-checklist-history-date", providedDateKey);
-          }
-          if (hidden) {
-            try {
-              if (hidden.dataset) {
-                hidden.dataset.checklistHistoryDate = providedDateKey;
-              } else {
-                hidden.setAttribute("data-checklist-history-date", providedDateKey);
-              }
-            } catch (_) { }
-          }
-        }
-        const hydrateOptions = {
-          container: root,
-          consigneId: resolvedId,
-          itemKeyAttr: "data-key",
-        };
-        if (providedDateKey) {
-          hydrateOptions.dateKey = providedDateKey;
-        }
-        Promise.resolve(checklistHydrateFn(hydrateOptions)).catch((error) => {
-          modesLogger?.warn?.("checklist:hydrate", error);
-        });
-      } catch (error) {
-        modesLogger?.warn?.("checklist:hydrate", error);
-      }
-    }
-  });
-}
-
-function findConsigneInputFields(row, consigne) {
-  if (!row || !consigne) return [];
-  const holder = row.querySelector("[data-consigne-input-holder]");
-  if (!holder) return [];
-  return Array.from(holder.querySelectorAll(`[name$=":${consigne.id}"]`));
-}
-
-function parseConsigneSkipValue(input) {
-  if (input === true) return true;
-  if (input === false || input == null) return false;
-  if (typeof input === "number") {
-    if (!Number.isFinite(input)) return false;
-    return input !== 0;
-  }
-  if (typeof input === "string") {
-    const normalized = input.trim().toLowerCase();
-    if (!normalized) return false;
-    return ["1", "true", "yes", "y", "on", "skip", "passed"].includes(normalized);
-  }
-  return false;
-}
-
-function applyConsigneSkipState(row, consigne, shouldSkip, { updateUI = true } = {}) {
-  if (!row || !consigne) return;
-  try {
-    modesLogger?.info?.("consigne.skip.apply", {
-      consigneId: consigne?.id ?? null,
-      shouldSkip: Boolean(shouldSkip),
-    });
-  } catch (_) { }
-  if (shouldSkip) {
-    row.dataset.skipAnswered = "1";
-    clearConsigneSummaryMetadata(row);
-  } else {
-    delete row.dataset.skipAnswered;
-  }
-  if (!updateUI) {
-    return;
-  }
-  const valueForStatus = shouldSkip ? { skipped: true } : readConsigneCurrentValue(consigne, row);
-  updateConsigneStatusUI(row, consigne, valueForStatus);
-}
-
-function ensureConsigneSkipField(row, consigne) {
-  if (!row || !consigne) return null;
-  const holder = row.querySelector("[data-consigne-input-holder]");
-  if (!holder) return null;
-  let input = holder.querySelector("[data-consigne-skip-input]");
-  if (!input) {
-    input = document.createElement("input");
-    input.type = "hidden";
-    input.setAttribute("data-consigne-skip-input", "");
-    const id = consigne?.id;
-    if (id != null) {
-      const stringId = String(id);
-      input.name = `skip:${stringId}`;
-      input.setAttribute("data-autosave-field", `consigne:${stringId}:skip`);
-      try {
-        modesLogger?.debug?.("consigne.skip.ensure-field", {
-          consigneId: stringId,
-          name: input.name,
-          autosaveField: input.getAttribute("data-autosave-field"),
-        });
-      } catch (_) { }
+    if (status === "na") {
+      clearConsigneRowUpdateHighlight(row);
     } else {
-      input.name = "skip";
+      triggerConsigneRowUpdateHighlight(row);
     }
-    holder.appendChild(input);
-  }
-  if (!input.dataset.skipHandlerAttached) {
-    const sync = () => {
-      const shouldSkip = parseConsigneSkipValue(input.value);
-      try {
-        modesLogger?.debug?.("consigne.skip.sync", {
-          consigneId: consigne?.id ?? null,
-          raw: input.value,
-          parsed: shouldSkip,
-        });
-      } catch (_) { }
-      applyConsigneSkipState(row, consigne, shouldSkip, { updateUI: true });
-      // Déclenche la persistance applicative (autosave schemas)
-      try {
-        const normalizedValue = shouldSkip ? { skipped: true } : readConsigneCurrentValue(consigne, row);
-        if (typeof handleValueChange === "function") {
-          handleValueChange(consigne, row, normalizedValue);
-        }
-      } catch (e) {
-        modesLogger?.warn?.("consigne.skip.sync.persist", e);
-      }
-    };
-    input.addEventListener("input", sync);
-    input.addEventListener("change", sync);
-    input.dataset.skipHandlerAttached = "1";
-  }
-  return input;
-}
-
-function setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents = true, updateUI = true } = {}) {
-  if (!row || !consigne) return;
-  const input = ensureConsigneSkipField(row, consigne);
-  applyConsigneSkipState(row, consigne, shouldSkip, { updateUI });
-  if (!input) return;
-  const nextValue = shouldSkip ? "1" : "";
-  try {
-    modesLogger?.info?.("consigne.skip.set", {
-      consigneId: consigne?.id ?? null,
-      nextValue,
-      emitInputEvents: Boolean(emitInputEvents),
-      updateUI: Boolean(updateUI),
-    });
-  } catch (_) { }
-  if (input.value === nextValue) return;
-  input.value = nextValue;
-  if (emitInputEvents) {
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-}
-
-function normalizeConsigneValueForPersistence(consigne, row, value) {
-  if (!consigne || !row) {
-    return value;
-  }
-  if (row.dataset && row.dataset.skipAnswered === "1") {
-    if (value && typeof value === "object" && value.skipped === true) {
-      try {
-        modesLogger?.debug?.("consigne.skip.normalize", {
-          consigneId: consigne?.id ?? null,
-          alreadySkipped: true,
-        });
-      } catch (_) { }
-      return value;
+    if (typeof CustomEvent === "function") {
+      row.dispatchEvent(new CustomEvent("consigne-status-changed", {
+        detail: {
+          status,
+          consigne,
+          value: rawValue,
+          note: textualNote,
+          dayKey: row?.dataset?.dayKey || null,
+        },
+      }));
     }
     try {
-      modesLogger?.info?.("consigne.skip.normalize", {
+      maybeReportUnexpectedPrefill(consigne, row, {
+        status,
+        value: valueForStatus,
+        note: textualNote,
+        hasOwnAnswer,
+        skipFlag,
+      });
+    } catch (error) {
+      prefillLog("prefill.debug.unexpected.log.error", { error: String(error?.message || error) });
+    }
+  }
+
+  function readConsigneCurrentValue(consigne, scope) {
+    if (!consigne || !scope) return "";
+    const id = consigne.id;
+    const type = consigne.type;
+    if (type === "info") return "";
+    if (type === "short") {
+      const input = scope.querySelector(`[name="short:${id}"]`);
+      return input ? input.value.trim() : "";
+    }
+    if (type === "long") {
+      const hidden = scope.querySelector(`[name="long:${id}"]`);
+      if (hidden) {
+        return normalizeRichTextValue(hidden.value || "");
+      }
+      const editor = scope.querySelector(`[data-rich-text-root][data-consigne-id="${String(id ?? "")}"]`);
+      if (editor) {
+        const content = editor.querySelector("[data-rich-text-content]");
+        const html = content ? content.innerHTML : "";
+        return normalizeRichTextValue({ html });
+      }
+      return normalizeRichTextValue("");
+    }
+    if (type === "num") {
+      const range = scope.querySelector(`[name="num:${id}"]`);
+      if (!range || range.value === "" || range.value == null) return "";
+      const num = Number(range.value);
+      return Number.isFinite(num) ? num : "";
+    }
+    if (type === "montant") {
+      const input = scope.querySelector(`[name="montant:${id}"]`);
+      if (!input || input.value === "" || input.value == null) {
+        return "";
+      }
+      const amount = Number(input.value);
+      if (!Number.isFinite(amount)) {
+        return "";
+      }
+      return buildMontantValue(consigne, amount);
+    }
+    if (type === "likert5") {
+      const select = scope.querySelector(`[name="likert5:${id}"]`);
+      if (!select || select.value === "" || select.value == null) return "";
+      const num = Number(select.value);
+      return Number.isFinite(num) ? num : "";
+    }
+    if (type === "yesno") {
+      const select = scope.querySelector(`[name="yesno:${id}"]`);
+      return select ? select.value : "";
+    }
+    if (type === "likert6") {
+      const select = scope.querySelector(`[name="likert6:${id}"]`);
+      return select ? select.value : "";
+    }
+    if (type === "checklist") {
+      const hidden = scope.querySelector(`[name="checklist:${id}"]`);
+      let parsedValues = null;
+      let isDirty = false;
+      if (hidden) {
+        isDirty = hidden.dataset?.dirty === "1";
+        try {
+          const parsed = JSON.parse(hidden.value || "[]");
+          const value = buildChecklistValue(consigne, parsed);
+          const items = Array.isArray(value?.items) ? value.items : [];
+          const skipped = Array.isArray(value?.skipped) ? value.skipped : [];
+          const hasMeaningfulState =
+            items.some(Boolean) || skipped.some(Boolean) || (value && value.__hasAnswer === true);
+          if (!isDirty && !hasMeaningfulState) {
+            return null;
+          }
+          return value;
+        } catch (error) {
+          console.warn("readConsigneCurrentValue:checklist", error);
+        }
+      }
+      const container = scope.querySelector(
+        `[data-checklist-root][data-consigne-id="${String(id ?? "")}"]`
+      );
+      if (container) {
+        const domState = readChecklistDomState(container);
+        if (domState.items.length) {
+          const isDirty = container.dataset && container.dataset.checklistDirty === "1";
+          const hasMeaningfulState =
+            domState.items.some((checked, index) => checked && !domState.skipped[index]) ||
+            domState.skipped.some(Boolean);
+          if (!isDirty && !hasMeaningfulState) {
+            return null;
+          }
+          return buildChecklistValue(consigne, domState);
+        }
+      }
+      return buildChecklistValue(consigne, []);
+    }
+    const input = scope.querySelector(`[name$=":${id}"]`);
+    return input ? input.value : "";
+  }
+
+  function enhanceRangeMeters(scope) {
+    if (!scope) return;
+    const sliders = scope.querySelectorAll('input[type="range"][name^="num:"]');
+    sliders.forEach((slider) => {
+      const meter = scope.querySelector(`[data-meter="${slider.name}"]`);
+      if (!meter) return;
+      const sync = () => {
+        meter.textContent = slider.value;
+      };
+      slider.addEventListener("input", sync);
+      slider.addEventListener("change", sync);
+      sync();
+    });
+  }
+
+  function initializeChecklistScope(scope, { consigneId = null, dateKey = null, hydrate = true } = {}) {
+    if (!scope) return;
+
+    const collectRoots = (target) => {
+      const roots = [];
+      if (!target) return roots;
+      if (target instanceof Element) {
+        if (target.matches("[data-checklist-root]")) {
+          roots.push(target);
+        }
+        roots.push(...target.querySelectorAll("[data-checklist-root]"));
+      } else if (typeof target.querySelectorAll === "function") {
+        roots.push(...target.querySelectorAll("[data-checklist-root]"));
+      }
+      return roots;
+    };
+
+    const roots = collectRoots(scope);
+    if (!roots.length) return;
+
+    const resolveConsigneId = (root) => {
+      if (consigneId != null) return String(consigneId ?? "");
+      const attr = root.getAttribute("data-consigne-id");
+      if (attr && String(attr).trim()) return attr;
+      if (root.dataset?.consigneId && String(root.dataset.consigneId).trim()) {
+        return root.dataset.consigneId;
+      }
+      const owner = root.closest("[data-consigne-id]");
+      if (owner) {
+        const ownerAttr = owner.getAttribute("data-consigne-id");
+        if (ownerAttr && String(ownerAttr).trim()) return ownerAttr;
+        if (owner.dataset?.consigneId && String(owner.dataset.consigneId).trim()) {
+          return owner.dataset.consigneId;
+        }
+        if (owner.dataset?.id && String(owner.dataset.id).trim()) {
+          return owner.dataset.id;
+        }
+      }
+      return "";
+    };
+
+    roots.forEach((root) => {
+      const resolvedId = resolveConsigneId(root);
+      if (resolvedId && !root.getAttribute("data-consigne-id")) {
+        root.setAttribute("data-consigne-id", resolvedId);
+      }
+      const hidden = root.querySelector("[data-checklist-state]");
+      if (hidden && resolvedId) {
+        const fieldName = `consigne:${resolvedId}:checklist`;
+        hidden.setAttribute("data-autosave-field", fieldName);
+        if (hidden.dataset) {
+          hidden.dataset.autosaveField = fieldName;
+        }
+      }
+
+      const editor = root.querySelector("[contenteditable]");
+      if (editor) {
+        const setupFn =
+          window.setupChecklistEditor || window.setupCheckboxListBehavior || window.setupCheckboxLikeBullets;
+        if (typeof setupFn === "function" && !editor.__cbInstalled) {
+          try {
+            setupFn(editor);
+          } catch (error) {
+            modesLogger?.warn?.("checklist:setup", error);
+          }
+        }
+        const enterExit = window.installChecklistEnterExit;
+        if (typeof enterExit === "function") {
+          try {
+            enterExit(editor);
+          } catch (error) {
+            modesLogger?.warn?.("checklist:enter-exit", error);
+          }
+        }
+      }
+
+      const checklistHydrateFn = window.hydrateChecklist;
+      if (hydrate && typeof checklistHydrateFn === "function") {
+        try {
+          const attrValue =
+            typeof root.getAttribute === "function" ? root.getAttribute("data-checklist-history-date") : "";
+          const datasetValue =
+            root.dataset && typeof root.dataset.checklistHistoryDate === "string"
+              ? root.dataset.checklistHistoryDate.trim()
+              : "";
+          // Derive the page dayKey from the URL hash if not explicitly present on the root
+          let pageDateKey = "";
+          try {
+            const hash = typeof window.location?.hash === "string" ? window.location.hash : "";
+            const qp = new URLSearchParams((hash.split("?")[1] || ""));
+            const d = (qp.get("d") || "").trim();
+            pageDateKey = d || "";
+          } catch (_) { }
+          if (!pageDateKey) {
+            const ctxKey = (typeof window !== "undefined" && window.AppCtx?.dateIso) ? String(window.AppCtx.dateIso) : "";
+            pageDateKey = ctxKey || (typeof Schema?.todayKey === "function" ? Schema.todayKey() : "");
+          }
+          const providedDateKey =
+            datasetValue ||
+            (typeof attrValue === "string" && attrValue.trim() ? attrValue.trim() : "") ||
+            (typeof pageDateKey === "string" && pageDateKey.trim() ? pageDateKey.trim() : "");
+          if (providedDateKey) {
+            if (root.dataset) {
+              root.dataset.checklistHistoryDate = providedDateKey;
+            } else {
+              root.setAttribute("data-checklist-history-date", providedDateKey);
+            }
+            if (hidden) {
+              try {
+                if (hidden.dataset) {
+                  hidden.dataset.checklistHistoryDate = providedDateKey;
+                } else {
+                  hidden.setAttribute("data-checklist-history-date", providedDateKey);
+                }
+              } catch (_) { }
+            }
+          }
+          const hydrateOptions = {
+            container: root,
+            consigneId: resolvedId,
+            itemKeyAttr: "data-key",
+          };
+          if (providedDateKey) {
+            hydrateOptions.dateKey = providedDateKey;
+          }
+          Promise.resolve(checklistHydrateFn(hydrateOptions)).catch((error) => {
+            modesLogger?.warn?.("checklist:hydrate", error);
+          });
+        } catch (error) {
+          modesLogger?.warn?.("checklist:hydrate", error);
+        }
+      }
+    });
+  }
+
+  function findConsigneInputFields(row, consigne) {
+    if (!row || !consigne) return [];
+    const holder = row.querySelector("[data-consigne-input-holder]");
+    if (!holder) return [];
+    return Array.from(holder.querySelectorAll(`[name$=":${consigne.id}"]`));
+  }
+
+  function parseConsigneSkipValue(input) {
+    if (input === true) return true;
+    if (input === false || input == null) return false;
+    if (typeof input === "number") {
+      if (!Number.isFinite(input)) return false;
+      return input !== 0;
+    }
+    if (typeof input === "string") {
+      const normalized = input.trim().toLowerCase();
+      if (!normalized) return false;
+      return ["1", "true", "yes", "y", "on", "skip", "passed"].includes(normalized);
+    }
+    return false;
+  }
+
+  function applyConsigneSkipState(row, consigne, shouldSkip, { updateUI = true } = {}) {
+    if (!row || !consigne) return;
+    try {
+      modesLogger?.info?.("consigne.skip.apply", {
         consigneId: consigne?.id ?? null,
-        forceSkipped: true,
+        shouldSkip: Boolean(shouldSkip),
       });
     } catch (_) { }
-    return { skipped: true };
+    if (shouldSkip) {
+      row.dataset.skipAnswered = "1";
+      clearConsigneSummaryMetadata(row);
+    } else {
+      delete row.dataset.skipAnswered;
+    }
+    if (!updateUI) {
+      return;
+    }
+    const valueForStatus = shouldSkip ? { skipped: true } : readConsigneCurrentValue(consigne, row);
+    updateConsigneStatusUI(row, consigne, valueForStatus);
   }
-  if (consigne?.type === "montant") {
-    if (value === null || value === undefined || value === "") {
+
+  function ensureConsigneSkipField(row, consigne) {
+    if (!row || !consigne) return null;
+    const holder = row.querySelector("[data-consigne-input-holder]");
+    if (!holder) return null;
+    let input = holder.querySelector("[data-consigne-skip-input]");
+    if (!input) {
+      input = document.createElement("input");
+      input.type = "hidden";
+      input.setAttribute("data-consigne-skip-input", "");
+      const id = consigne?.id;
+      if (id != null) {
+        const stringId = String(id);
+        input.name = `skip:${stringId}`;
+        input.setAttribute("data-autosave-field", `consigne:${stringId}:skip`);
+        try {
+          modesLogger?.debug?.("consigne.skip.ensure-field", {
+            consigneId: stringId,
+            name: input.name,
+            autosaveField: input.getAttribute("data-autosave-field"),
+          });
+        } catch (_) { }
+      } else {
+        input.name = "skip";
+      }
+      holder.appendChild(input);
+    }
+    if (!input.dataset.skipHandlerAttached) {
+      const sync = () => {
+        const shouldSkip = parseConsigneSkipValue(input.value);
+        try {
+          modesLogger?.debug?.("consigne.skip.sync", {
+            consigneId: consigne?.id ?? null,
+            raw: input.value,
+            parsed: shouldSkip,
+          });
+        } catch (_) { }
+        applyConsigneSkipState(row, consigne, shouldSkip, { updateUI: true });
+        // Déclenche la persistance applicative (autosave schemas)
+        try {
+          const normalizedValue = shouldSkip ? { skipped: true } : readConsigneCurrentValue(consigne, row);
+          if (typeof handleValueChange === "function") {
+            handleValueChange(consigne, row, normalizedValue);
+          }
+        } catch (e) {
+          modesLogger?.warn?.("consigne.skip.sync.persist", e);
+        }
+      };
+      input.addEventListener("input", sync);
+      input.addEventListener("change", sync);
+      input.dataset.skipHandlerAttached = "1";
+    }
+    return input;
+  }
+
+  function setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents = true, updateUI = true } = {}) {
+    if (!row || !consigne) return;
+    const input = ensureConsigneSkipField(row, consigne);
+    applyConsigneSkipState(row, consigne, shouldSkip, { updateUI });
+    if (!input) return;
+    const nextValue = shouldSkip ? "1" : "";
+    try {
+      modesLogger?.info?.("consigne.skip.set", {
+        consigneId: consigne?.id ?? null,
+        nextValue,
+        emitInputEvents: Boolean(emitInputEvents),
+        updateUI: Boolean(updateUI),
+      });
+    } catch (_) { }
+    if (input.value === nextValue) return;
+    input.value = nextValue;
+    if (emitInputEvents) {
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+
+  function normalizeConsigneValueForPersistence(consigne, row, value) {
+    if (!consigne || !row) {
       return value;
     }
-    return normalizeMontantValue(value, consigne);
-  }
-  return value;
-}
-
-function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
-  const row = document.createElement("div");
-  row.className = "consigne-row consigne-row--child consigne-row--virtual";
-  row.dataset.id = consigne?.id || "";
-  if (consigne?.id != null) {
-    const stringId = String(consigne.id);
-    row.dataset.consigneId = stringId;
-    row.setAttribute("data-consigne-id", stringId);
-  } else {
-    delete row.dataset.consigneId;
-    row.removeAttribute("data-consigne-id");
-  }
-  const tone = priorityTone(consigne?.priority);
-  if (tone) {
-    row.dataset.priorityTone = tone;
-  }
-  row.hidden = true;
-  row.style.display = "none";
-  row.setAttribute("aria-hidden", "true");
-  const holder = document.createElement("div");
-  holder.hidden = true;
-  holder.setAttribute("data-consigne-input-holder", "");
-  holder.innerHTML = inputForType(consigne, initialValue);
-  row.appendChild(holder);
-  enhanceRangeMeters(row);
-  initializeChecklistScope(row, { consigneId: consigne?.id ?? null });
-  ensureConsigneSkipField(row, consigne);
-  // Applique l’état Passer dès le rendu si la valeur précédente l’indique
-  try {
-    const wasSkipped = !!(initialValue && typeof initialValue === "object" && initialValue.skipped === true);
-    if (wasSkipped) {
-      setConsigneSkipState(row, consigne, true, { emitInputEvents: false, updateUI: true });
-    }
-  } catch (_) { }
-  return row;
-}
-
-function setConsigneRowValue(row, consigne, value) {
-  const skipWasActive = row?.dataset?.skipAnswered === "1";
-  const currentDebugContext = peekPrefillDebugContext();
-  try {
-    recordPrefillDebug(row, {
-      timestamp: Date.now(),
-      consigneId: consigne?.id ?? null,
-      consigneType: consigne?.type || null,
-      value,
-      context: currentDebugContext,
-      directSource: currentDebugContext?.source || null,
-      stack: new Error("prefill-update-trace").stack,
-    });
-  } catch (_) { }
-  const maintainOrClearSkip = (hasAnswer) => {
-    if (skipWasActive && !hasAnswer) {
-      applyConsigneSkipState(row, consigne, true, { updateUI: true });
-      return;
-    }
-    setConsigneSkipState(row, consigne, false, { updateUI: false });
-  };
-  const skipLikeValue = value && typeof value === "object" && value.skipped === true;
-  ensureConsigneSkipField(row, consigne);
-  if (skipLikeValue) {
-    setConsigneSkipState(row, consigne, true, { updateUI: true });
-    return;
-  }
-  if (consigne?.type === "long") {
-    const editor = row?.querySelector(
-      `[data-rich-text-root][data-consigne-id="${String(consigne.id ?? "")}"]`
-    );
-    const hidden = row?.querySelector(`[name="long:${consigne.id}"]`);
-    const normalized = normalizeRichTextValue(value);
-    if (editor) {
-      const content = editor.querySelector("[data-rich-text-content]");
-      if (content) {
-        const structured = ensureRichTextStructure(normalized.html) || "";
-        content.innerHTML = structured.trim() ? structured : "<p><br></p>";
-        if (richTextHasContent(normalized)) {
-          content.removeAttribute("data-rich-text-empty");
-        } else {
-          content.setAttribute("data-rich-text-empty", "1");
-        }
-      }
-    }
-    if (hidden) {
-      hidden.value = JSON.stringify(normalized);
-      hidden.dispatchEvent(new Event("input", { bubbles: true }));
-      hidden.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-    updateConsigneStatusUI(row, consigne, normalized);
-    const hasContent = richTextHasContent(normalized);
-    maintainOrClearSkip(hasContent);
-    return;
-  }
-  if (consigne?.type === "checklist") {
-    const container = row?.querySelector(
-      `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
-    );
-    if (!container) {
-      updateConsigneStatusUI(row, consigne, value);
-      return;
-    }
-    const normalizedValue =
-      value === null || value === undefined
-        ? null
-        : buildChecklistValue(consigne, value, value && typeof value === "object" ? value : null);
-    if (normalizedValue) {
-      applyChecklistDomState(container, normalizedValue);
-    } else {
-      applyChecklistDomState(container, { items: [], skipped: [] });
-      const inputs = Array.from(container.querySelectorAll("[data-checklist-input]"));
-      inputs.forEach((input) => {
-        input.checked = false;
-        if (input.dataset) {
-          delete input.dataset.checklistSkip;
-        }
-        const host = input.closest("[data-checklist-item]");
-        if (host) {
-          host.classList.remove("checklist-item--skipped");
-          host.removeAttribute("data-checklist-skipped");
-          host.setAttribute("data-validated", "false");
-        }
-      });
-    }
-    const hidden = container.querySelector(`[name="checklist:${String(consigne.id ?? "")}"]`);
-    const domState = readChecklistDomState(container);
-    const valueForStatus = normalizedValue || { items: domState.items, skipped: domState.skipped };
-    const hasChecklistAnswer = hasChecklistResponse(consigne, row, valueForStatus);
-    if (hidden) {
-      if (hasChecklistAnswer) {
-        const payload = {
-          items: domState.items,
-          skipped: domState.skipped,
-        };
+    if (row.dataset && row.dataset.skipAnswered === "1") {
+      if (value && typeof value === "object" && value.skipped === true) {
         try {
-          hidden.value = JSON.stringify(payload);
-        } catch (error) {
-          hidden.value = JSON.stringify({ items: domState.items });
-        }
-        if (hidden.dataset) {
-          hidden.dataset.dirty = "1";
-        }
-      } else {
-        hidden.value = "";
-        if (hidden.dataset) {
-          delete hidden.dataset.dirty;
-          delete hidden.dataset.checklistHistoryDate;
-          delete hidden.dataset.checklistHydrationLocalDirty;
-        }
-        hidden.removeAttribute("data-checklist-history-date");
-        hidden.removeAttribute("data-checklist-dirty");
-        hidden.removeAttribute("data-checklist-dirty-at");
+          modesLogger?.debug?.("consigne.skip.normalize", {
+            consigneId: consigne?.id ?? null,
+            alreadySkipped: true,
+          });
+        } catch (_) { }
+        return value;
       }
-      hidden.dispatchEvent(new Event("input", { bubbles: true }));
-      hidden.dispatchEvent(new Event("change", { bubbles: true }));
+      try {
+        modesLogger?.info?.("consigne.skip.normalize", {
+          consigneId: consigne?.id ?? null,
+          forceSkipped: true,
+        });
+      } catch (_) { }
+      return { skipped: true };
     }
-    if (container.dataset) {
-      if (hasChecklistAnswer) {
-        container.dataset.checklistDirty = "1";
-      } else {
-        delete container.dataset.checklistDirty;
-        delete container.dataset.checklistDirtyAt;
-        delete container.dataset.checklistHydrationLocalDirty;
+    if (consigne?.type === "montant") {
+      if (value === null || value === undefined || value === "") {
+        return value;
       }
+      return normalizeMontantValue(value, consigne);
     }
-    if (!hasChecklistAnswer) {
-      container.removeAttribute("data-checklist-dirty");
-      container.removeAttribute("data-checklist-dirty-at");
-      container.removeAttribute("data-checklist-hydration-local-dirty");
-    }
-    if (!hasChecklistAnswer && row?.dataset) {
-      delete row.dataset.checklistHydrationLocalDirty;
-      delete row.dataset.checklistDirty;
-    }
-    updateConsigneStatusUI(row, consigne, hasChecklistAnswer ? valueForStatus : "");
-    maintainOrClearSkip(hasChecklistAnswer);
-    return;
+    return value;
   }
-  if (consigne?.type === "montant") {
-    const normalized = normalizeMontantValue(value, consigne);
-    const fields = findConsigneInputFields(row, consigne);
-    const amountField = fields.find(
-      (field) => typeof field?.name === "string" && field.name.startsWith(`montant:`)
-    );
-    if (amountField) {
-      const nextValue = Number.isFinite(normalized.amount) ? String(normalized.amount) : "";
-      amountField.value = nextValue;
-      amountField.dispatchEvent(new Event("input", { bubbles: true }));
-      amountField.dispatchEvent(new Event("change", { bubbles: true }));
-      const afterValue = readConsigneCurrentValue(consigne, row);
-      const hasAnswer = hasValueForConsigne(consigne, afterValue);
-      maintainOrClearSkip(hasAnswer);
-    } else {
-      updateConsigneStatusUI(row, consigne, normalized);
-      const hasAnswer = Number.isFinite(normalized.amount);
-      maintainOrClearSkip(hasAnswer);
-    }
-    return;
-  }
-  const fields = findConsigneInputFields(row, consigne);
-  if (!fields.length) {
-    updateConsigneStatusUI(row, consigne, value);
-    const hasAnswer = hasValueForConsigne(consigne, value);
-    maintainOrClearSkip(hasAnswer);
-    return;
-  }
-  const normalizedValue = value === null || value === undefined ? "" : value;
-  fields.forEach((field) => {
-    let stringValue = normalizedValue;
-    if (field.type === "range") {
-      const defaultValue = field.getAttribute("data-default-value") || field.defaultValue || field.min || "";
-      stringValue = normalizedValue === "" ? defaultValue : normalizedValue;
-    }
-    if (field.tagName === "SELECT" || field.tagName === "TEXTAREA" || field.tagName === "INPUT") {
-      field.value = stringValue === "" ? "" : String(stringValue);
-    } else {
-      field.value = stringValue === "" ? "" : String(stringValue);
-    }
-    if (field.type === "range") {
-      const meter = row.querySelector(`[data-meter="${field.name}"]`);
-      if (meter) meter.textContent = field.value;
-    }
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-    field.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  const afterValue = readConsigneCurrentValue(consigne, row);
-  const hasAnswer = hasValueForConsigne(consigne, afterValue);
-  maintainOrClearSkip(hasAnswer);
-}
 
-function attachConsigneEditor(row, consigne, options = {}) {
-  if (!row || !consigne) return;
-  const trigger = options.trigger || row.querySelector("[data-consigne-open]");
-  if (!trigger) return;
-  const variant = options.variant === "drawer" ? "drawer" : "modal";
-  const childConsignes = Array.isArray(options.childConsignes)
-    ? options.childConsignes.filter((item) => item && item.consigne)
-    : [];
-  const summaryControlsEnabled = options.summaryControlsEnabled === true;
-  const rawDelayOptions = options.delayOptions && typeof options.delayOptions === "object"
-    ? options.delayOptions
-    : null;
-  const delayConfig = (() => {
-    if (!rawDelayOptions) return null;
-    const applyDelayFn = typeof rawDelayOptions.applyDelay === "function"
-      ? rawDelayOptions.applyDelay
-      : null;
-    if (!applyDelayFn) return null;
-    const rawAmounts = Array.isArray(rawDelayOptions.amounts) ? rawDelayOptions.amounts : [];
-    const numericAmounts = rawAmounts
-      .map((value) => Number(value))
-      .filter((value) => Number.isFinite(value) && value > 0);
-    const uniqueAmounts = Array.from(new Set(numericAmounts)).sort((a, b) => a - b);
-    const allowArchive = rawDelayOptions.allowArchive === true && typeof rawDelayOptions.onArchive === "function";
-    if (!uniqueAmounts.length && !allowArchive) return null;
-    const label = typeof rawDelayOptions.label === "string" && rawDelayOptions.label.trim()
-      ? rawDelayOptions.label.trim()
-      : "Ajouter un délai";
-    const placeholder = typeof rawDelayOptions.placeholder === "string" && rawDelayOptions.placeholder.trim()
-      ? rawDelayOptions.placeholder.trim()
-      : "Aucun délai";
-    const helper = typeof rawDelayOptions.helper === "string" && rawDelayOptions.helper.trim()
-      ? rawDelayOptions.helper.trim()
-      : "";
-    const disabledHint = typeof rawDelayOptions.disabledHint === "string" && rawDelayOptions.disabledHint.trim()
-      ? rawDelayOptions.disabledHint.trim()
-      : "Active la répétition espacée pour décaler.";
-    const getSrEnabled = typeof rawDelayOptions.getSrEnabled === "function"
-      ? rawDelayOptions.getSrEnabled
-      : () => true;
-    const idBase = `${consigne?.id ?? "consigne"}-${Date.now()}`;
-    const archiveLabel = typeof rawDelayOptions.archiveLabel === "string" && rawDelayOptions.archiveLabel.trim()
-      ? rawDelayOptions.archiveLabel.trim()
-      : "Archiver la consigne";
-    const archiveValue = allowArchive
-      ? String(rawDelayOptions.archiveValue || CONSIGNE_ARCHIVE_DELAY_VALUE)
-      : "";
-    return {
-      selectId: `consigne-delay-${idBase}`,
-      amounts: uniqueAmounts,
-      label,
-      placeholder,
-      helper,
-      disabledHint,
-      applyDelay: applyDelayFn,
-      getSrEnabled,
-      allowArchive,
-      archiveLabel,
-      archiveValue,
-      onArchive: typeof rawDelayOptions.onArchive === "function" ? rawDelayOptions.onArchive : null,
-    };
-  })();
-  const summaryToggleLabel =
-    typeof options.summaryToggleLabel === "string" && options.summaryToggleLabel.trim()
-      ? options.summaryToggleLabel.trim()
-      : "Réponse de bilan";
-  const summaryDefaultLabel =
-    typeof options.summaryDefaultLabel === "string" && options.summaryDefaultLabel.trim()
-      ? options.summaryDefaultLabel.trim()
-      : summaryToggleLabel;
-  const validateButtonLabel = (() => {
-    if (typeof options.validateButtonLabel === "string" && options.validateButtonLabel.trim()) {
-      return options.validateButtonLabel.trim();
-    }
-    if (typeof options.validateLabel === "string" && options.validateLabel.trim()) {
-      return options.validateLabel.trim();
-    }
-    return "Valider";
-  })();
-  childConsignes.forEach((child) => {
-    child.srEnabled = child?.srEnabled !== false;
-  });
-  const TEXT_MODAL_TYPES = new Set(["long", "short", "notes", "texte", "long_text", "short_text"]);
-  const CENTER_MODAL_TYPES = new Set(["likert6", "likert5", "yesno", "num", "montant", "checklist", "info", "likert", "oui_non", "scale_0_10", "choix", "multiple"]);
-  const pickPhoneModalClass = (item) => {
-    const type = item?.type;
-    if (TEXT_MODAL_TYPES.has(type)) return "phone-top";
-    if (CENTER_MODAL_TYPES.has(type)) return "phone-center";
-    return "phone-center";
-  };
-  const updateParentChildAnsweredFlag = () => {
-    if (!row) return false;
-    if (!childConsignes.length) {
-      delete row.dataset.childAnswered;
-      return false;
-    }
-    const hasChildAnswered = childConsignes.some((childState) => {
-      const childRow = childState?.row;
-      if (!(childRow instanceof HTMLElement)) return false;
-      // Only consider a child answered if it actually has an answer, not just a non-na visual
-      return childRow.dataset?.hasAnswer === "1";
-    });
-    if (hasChildAnswered) {
-      row.dataset.childAnswered = "1";
+  function createHiddenConsigneRow(consigne, { initialValue = null } = {}) {
+    const row = document.createElement("div");
+    row.className = "consigne-row consigne-row--child consigne-row--virtual";
+    row.dataset.id = consigne?.id || "";
+    if (consigne?.id != null) {
+      const stringId = String(consigne.id);
+      row.dataset.consigneId = stringId;
+      row.setAttribute("data-consigne-id", stringId);
     } else {
-      delete row.dataset.childAnswered;
+      delete row.dataset.consigneId;
+      row.removeAttribute("data-consigne-id");
     }
-    return hasChildAnswered;
-  };
-  const syncParentAnswered = () => {
-    if (!row) return false;
-    const before = row.dataset.childAnswered === "1";
-    const after = updateParentChildAnsweredFlag();
-    if (before !== after) {
-      const currentValue = readConsigneCurrentValue(consigne, row);
-      updateConsigneStatusUI(row, consigne, currentValue);
+    const tone = priorityTone(consigne?.priority);
+    if (tone) {
+      row.dataset.priorityTone = tone;
     }
-    return after;
-  };
-  syncParentAnswered();
-  if (childConsignes.length && row) {
-    childConsignes.forEach((childState) => {
-      if (childState?.row instanceof HTMLElement) {
-        childState.row.addEventListener("consigne-status-changed", () => {
-          syncParentAnswered();
+    row.hidden = true;
+    row.style.display = "none";
+    row.setAttribute("aria-hidden", "true");
+    const holder = document.createElement("div");
+    holder.hidden = true;
+    holder.setAttribute("data-consigne-input-holder", "");
+    holder.innerHTML = inputForType(consigne, initialValue);
+    row.appendChild(holder);
+    enhanceRangeMeters(row);
+    initializeChecklistScope(row, { consigneId: consigne?.id ?? null });
+    ensureConsigneSkipField(row, consigne);
+    // Applique l’état Passer dès le rendu si la valeur précédente l’indique
+    try {
+      const wasSkipped = !!(initialValue && typeof initialValue === "object" && initialValue.skipped === true);
+      if (wasSkipped) {
+        setConsigneSkipState(row, consigne, true, { emitInputEvents: false, updateUI: true });
+      }
+    } catch (_) { }
+    return row;
+  }
+
+  function setConsigneRowValue(row, consigne, value) {
+    const skipWasActive = row?.dataset?.skipAnswered === "1";
+    const currentDebugContext = peekPrefillDebugContext();
+    try {
+      recordPrefillDebug(row, {
+        timestamp: Date.now(),
+        consigneId: consigne?.id ?? null,
+        consigneType: consigne?.type || null,
+        value,
+        context: currentDebugContext,
+        directSource: currentDebugContext?.source || null,
+        stack: new Error("prefill-update-trace").stack,
+      });
+    } catch (_) { }
+    const maintainOrClearSkip = (hasAnswer) => {
+      if (skipWasActive && !hasAnswer) {
+        applyConsigneSkipState(row, consigne, true, { updateUI: true });
+        return;
+      }
+      setConsigneSkipState(row, consigne, false, { updateUI: false });
+    };
+    const skipLikeValue = value && typeof value === "object" && value.skipped === true;
+    ensureConsigneSkipField(row, consigne);
+    if (skipLikeValue) {
+      setConsigneSkipState(row, consigne, true, { updateUI: true });
+      return;
+    }
+    if (consigne?.type === "long") {
+      const editor = row?.querySelector(
+        `[data-rich-text-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+      );
+      const hidden = row?.querySelector(`[name="long:${consigne.id}"]`);
+      const normalized = normalizeRichTextValue(value);
+      if (editor) {
+        const content = editor.querySelector("[data-rich-text-content]");
+        if (content) {
+          const structured = ensureRichTextStructure(normalized.html) || "";
+          content.innerHTML = structured.trim() ? structured : "<p><br></p>";
+          if (richTextHasContent(normalized)) {
+            content.removeAttribute("data-rich-text-empty");
+          } else {
+            content.setAttribute("data-rich-text-empty", "1");
+          }
+        }
+      }
+      if (hidden) {
+        hidden.value = JSON.stringify(normalized);
+        hidden.dispatchEvent(new Event("input", { bubbles: true }));
+        hidden.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      updateConsigneStatusUI(row, consigne, normalized);
+      const hasContent = richTextHasContent(normalized);
+      maintainOrClearSkip(hasContent);
+      return;
+    }
+    if (consigne?.type === "checklist") {
+      const container = row?.querySelector(
+        `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+      );
+      if (!container) {
+        updateConsigneStatusUI(row, consigne, value);
+        return;
+      }
+      const normalizedValue =
+        value === null || value === undefined
+          ? null
+          : buildChecklistValue(consigne, value, value && typeof value === "object" ? value : null);
+      if (normalizedValue) {
+        applyChecklistDomState(container, normalizedValue);
+      } else {
+        applyChecklistDomState(container, { items: [], skipped: [] });
+        const inputs = Array.from(container.querySelectorAll("[data-checklist-input]"));
+        inputs.forEach((input) => {
+          input.checked = false;
+          if (input.dataset) {
+            delete input.dataset.checklistSkip;
+          }
+          const host = input.closest("[data-checklist-item]");
+          if (host) {
+            host.classList.remove("checklist-item--skipped");
+            host.removeAttribute("data-checklist-skipped");
+            host.setAttribute("data-validated", "false");
+          }
         });
       }
-    });
-    const rafSync = typeof requestAnimationFrame === "function"
-      ? requestAnimationFrame
-      : (cb) => setTimeout(cb, 16);
-    rafSync(() => {
-      syncParentAnswered();
-    });
-  } else if (row) {
-    delete row.dataset.childAnswered;
-  }
-  enhanceRangeMeters(row.querySelector("[data-consigne-input-holder]"));
-  const openEditor = () => {
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (trigger && typeof trigger.setAttribute === "function") {
-      trigger.setAttribute("aria-expanded", "true");
+      const hidden = container.querySelector(`[name="checklist:${String(consigne.id ?? "")}"]`);
+      const domState = readChecklistDomState(container);
+      const valueForStatus = normalizedValue || { items: domState.items, skipped: domState.skipped };
+      const hasChecklistAnswer = hasChecklistResponse(consigne, row, valueForStatus);
+      if (hidden) {
+        if (hasChecklistAnswer) {
+          const payload = {
+            items: domState.items,
+            skipped: domState.skipped,
+          };
+          try {
+            hidden.value = JSON.stringify(payload);
+          } catch (error) {
+            hidden.value = JSON.stringify({ items: domState.items });
+          }
+          if (hidden.dataset) {
+            hidden.dataset.dirty = "1";
+          }
+        } else {
+          hidden.value = "";
+          if (hidden.dataset) {
+            delete hidden.dataset.dirty;
+            delete hidden.dataset.checklistHistoryDate;
+            delete hidden.dataset.checklistHydrationLocalDirty;
+          }
+          hidden.removeAttribute("data-checklist-history-date");
+          hidden.removeAttribute("data-checklist-dirty");
+          hidden.removeAttribute("data-checklist-dirty-at");
+        }
+        hidden.dispatchEvent(new Event("input", { bubbles: true }));
+        hidden.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (container.dataset) {
+        if (hasChecklistAnswer) {
+          container.dataset.checklistDirty = "1";
+        } else {
+          delete container.dataset.checklistDirty;
+          delete container.dataset.checklistDirtyAt;
+          delete container.dataset.checklistHydrationLocalDirty;
+        }
+      }
+      if (!hasChecklistAnswer) {
+        container.removeAttribute("data-checklist-dirty");
+        container.removeAttribute("data-checklist-dirty-at");
+        container.removeAttribute("data-checklist-hydration-local-dirty");
+      }
+      if (!hasChecklistAnswer && row?.dataset) {
+        delete row.dataset.checklistHydrationLocalDirty;
+        delete row.dataset.checklistDirty;
+      }
+      updateConsigneStatusUI(row, consigne, hasChecklistAnswer ? valueForStatus : "");
+      maintainOrClearSkip(hasChecklistAnswer);
+      return;
     }
-    const currentValue = readConsigneCurrentValue(consigne, row);
-    try { reportUnexpectedPrefillOnEditorOpen(consigne, row, currentValue); } catch (_) { }
-    const title = consigne.text || consigne.titre || consigne.name || consigne.id;
-    const description = consigne.description || consigne.details || consigne.helper || "";
-    const requiresValidation = consigne.type !== "info" || childConsignes.length > 0;
-    const renderChildEditor = (childState, index) => {
-      const child = childState.consigne || {};
-      const childTitle = child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
-      const childDescription = child.description || child.details || child.helper || "";
-      const childValue = readConsigneCurrentValue(child, childState.row || row);
-      const baseMenuItemClass =
-        "child-menu__item flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 focus:bg-slate-100 focus:outline-none";
-      const dangerMenuItemClass = `${baseMenuItemClass} text-red-600 hover:bg-red-50 focus:bg-red-50`;
-      const actionButtons = [];
-      if (typeof childState.onHistory === "function") {
-        actionButtons.push(
-          `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="history">Historique</button>`
-        );
+    if (consigne?.type === "montant") {
+      const normalized = normalizeMontantValue(value, consigne);
+      const fields = findConsigneInputFields(row, consigne);
+      const amountField = fields.find(
+        (field) => typeof field?.name === "string" && field.name.startsWith(`montant:`)
+      );
+      if (amountField) {
+        const nextValue = Number.isFinite(normalized.amount) ? String(normalized.amount) : "";
+        amountField.value = nextValue;
+        amountField.dispatchEvent(new Event("input", { bubbles: true }));
+        amountField.dispatchEvent(new Event("change", { bubbles: true }));
+        const afterValue = readConsigneCurrentValue(consigne, row);
+        const hasAnswer = hasValueForConsigne(consigne, afterValue);
+        maintainOrClearSkip(hasAnswer);
+      } else {
+        updateConsigneStatusUI(row, consigne, normalized);
+        const hasAnswer = Number.isFinite(normalized.amount);
+        maintainOrClearSkip(hasAnswer);
       }
-      if (typeof childState.onEdit === "function") {
-        actionButtons.push(
-          `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="edit">Modifier</button>`
-        );
+      return;
+    }
+    const fields = findConsigneInputFields(row, consigne);
+    if (!fields.length) {
+      updateConsigneStatusUI(row, consigne, value);
+      const hasAnswer = hasValueForConsigne(consigne, value);
+      maintainOrClearSkip(hasAnswer);
+      return;
+    }
+    const normalizedValue = value === null || value === undefined ? "" : value;
+    fields.forEach((field) => {
+      let stringValue = normalizedValue;
+      if (field.type === "range") {
+        const defaultValue = field.getAttribute("data-default-value") || field.defaultValue || field.min || "";
+        stringValue = normalizedValue === "" ? defaultValue : normalizedValue;
       }
-      if (typeof childState.onToggleSr === "function") {
-        const srLabel = childState.srEnabled ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
-        actionButtons.push(
-          `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="sr-toggle" data-enabled="${childState.srEnabled ? "1" : "0"}">${srLabel}</button>`
-        );
+      if (field.tagName === "SELECT" || field.tagName === "TEXTAREA" || field.tagName === "INPUT") {
+        field.value = stringValue === "" ? "" : String(stringValue);
+      } else {
+        field.value = stringValue === "" ? "" : String(stringValue);
       }
-      if (typeof childState.onArchive === "function") {
-        actionButtons.push(
-          `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="archive">Archiver</button>`
-        );
+      if (field.type === "range") {
+        const meter = row.querySelector(`[data-meter="${field.name}"]`);
+        if (meter) meter.textContent = field.value;
       }
-      if (typeof childState.onDelete === "function") {
-        actionButtons.push(
-          `<button type="button" class="${dangerMenuItemClass}" role="menuitem" data-child-action="delete">Supprimer</button>`
-        );
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const afterValue = readConsigneCurrentValue(consigne, row);
+    const hasAnswer = hasValueForConsigne(consigne, afterValue);
+    maintainOrClearSkip(hasAnswer);
+  }
+
+  function attachConsigneEditor(row, consigne, options = {}) {
+    if (!row || !consigne) return;
+    const trigger = options.trigger || row.querySelector("[data-consigne-open]");
+    if (!trigger) return;
+    const variant = options.variant === "drawer" ? "drawer" : "modal";
+    const childConsignes = Array.isArray(options.childConsignes)
+      ? options.childConsignes.filter((item) => item && item.consigne)
+      : [];
+    const summaryControlsEnabled = options.summaryControlsEnabled === true;
+    const rawDelayOptions = options.delayOptions && typeof options.delayOptions === "object"
+      ? options.delayOptions
+      : null;
+    const delayConfig = (() => {
+      if (!rawDelayOptions) return null;
+      const applyDelayFn = typeof rawDelayOptions.applyDelay === "function"
+        ? rawDelayOptions.applyDelay
+        : null;
+      if (!applyDelayFn) return null;
+      const rawAmounts = Array.isArray(rawDelayOptions.amounts) ? rawDelayOptions.amounts : [];
+      const numericAmounts = rawAmounts
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const uniqueAmounts = Array.from(new Set(numericAmounts)).sort((a, b) => a - b);
+      const allowArchive = rawDelayOptions.allowArchive === true && typeof rawDelayOptions.onArchive === "function";
+      if (!uniqueAmounts.length && !allowArchive) return null;
+      const label = typeof rawDelayOptions.label === "string" && rawDelayOptions.label.trim()
+        ? rawDelayOptions.label.trim()
+        : "Ajouter un délai";
+      const placeholder = typeof rawDelayOptions.placeholder === "string" && rawDelayOptions.placeholder.trim()
+        ? rawDelayOptions.placeholder.trim()
+        : "Aucun délai";
+      const helper = typeof rawDelayOptions.helper === "string" && rawDelayOptions.helper.trim()
+        ? rawDelayOptions.helper.trim()
+        : "";
+      const disabledHint = typeof rawDelayOptions.disabledHint === "string" && rawDelayOptions.disabledHint.trim()
+        ? rawDelayOptions.disabledHint.trim()
+        : "Active la répétition espacée pour décaler.";
+      const getSrEnabled = typeof rawDelayOptions.getSrEnabled === "function"
+        ? rawDelayOptions.getSrEnabled
+        : () => true;
+      const idBase = `${consigne?.id ?? "consigne"}-${Date.now()}`;
+      const archiveLabel = typeof rawDelayOptions.archiveLabel === "string" && rawDelayOptions.archiveLabel.trim()
+        ? rawDelayOptions.archiveLabel.trim()
+        : "Archiver la consigne";
+      const archiveValue = allowArchive
+        ? String(rawDelayOptions.archiveValue || CONSIGNE_ARCHIVE_DELAY_VALUE)
+        : "";
+      return {
+        selectId: `consigne-delay-${idBase}`,
+        amounts: uniqueAmounts,
+        label,
+        placeholder,
+        helper,
+        disabledHint,
+        applyDelay: applyDelayFn,
+        getSrEnabled,
+        allowArchive,
+        archiveLabel,
+        archiveValue,
+        onArchive: typeof rawDelayOptions.onArchive === "function" ? rawDelayOptions.onArchive : null,
+      };
+    })();
+    const summaryToggleLabel =
+      typeof options.summaryToggleLabel === "string" && options.summaryToggleLabel.trim()
+        ? options.summaryToggleLabel.trim()
+        : "Réponse de bilan";
+    const summaryDefaultLabel =
+      typeof options.summaryDefaultLabel === "string" && options.summaryDefaultLabel.trim()
+        ? options.summaryDefaultLabel.trim()
+        : summaryToggleLabel;
+    const validateButtonLabel = (() => {
+      if (typeof options.validateButtonLabel === "string" && options.validateButtonLabel.trim()) {
+        return options.validateButtonLabel.trim();
       }
-      const actionsHtml = actionButtons.length
-        ? `<div class="relative" data-child-menu-root>
+      if (typeof options.validateLabel === "string" && options.validateLabel.trim()) {
+        return options.validateLabel.trim();
+      }
+      return "Valider";
+    })();
+    childConsignes.forEach((child) => {
+      child.srEnabled = child?.srEnabled !== false;
+    });
+    const TEXT_MODAL_TYPES = new Set(["long", "short", "notes", "texte", "long_text", "short_text"]);
+    const CENTER_MODAL_TYPES = new Set(["likert6", "likert5", "yesno", "num", "montant", "checklist", "info", "likert", "oui_non", "scale_0_10", "choix", "multiple"]);
+    const pickPhoneModalClass = (item) => {
+      const type = item?.type;
+      if (TEXT_MODAL_TYPES.has(type)) return "phone-top";
+      if (CENTER_MODAL_TYPES.has(type)) return "phone-center";
+      return "phone-center";
+    };
+    const updateParentChildAnsweredFlag = () => {
+      if (!row) return false;
+      if (!childConsignes.length) {
+        delete row.dataset.childAnswered;
+        return false;
+      }
+      const hasChildAnswered = childConsignes.some((childState) => {
+        const childRow = childState?.row;
+        if (!(childRow instanceof HTMLElement)) return false;
+        // Only consider a child answered if it actually has an answer, not just a non-na visual
+        return childRow.dataset?.hasAnswer === "1";
+      });
+      if (hasChildAnswered) {
+        row.dataset.childAnswered = "1";
+      } else {
+        delete row.dataset.childAnswered;
+      }
+      return hasChildAnswered;
+    };
+    const syncParentAnswered = () => {
+      if (!row) return false;
+      const before = row.dataset.childAnswered === "1";
+      const after = updateParentChildAnsweredFlag();
+      if (before !== after) {
+        const currentValue = readConsigneCurrentValue(consigne, row);
+        updateConsigneStatusUI(row, consigne, currentValue);
+      }
+      return after;
+    };
+    syncParentAnswered();
+    if (childConsignes.length && row) {
+      childConsignes.forEach((childState) => {
+        if (childState?.row instanceof HTMLElement) {
+          childState.row.addEventListener("consigne-status-changed", () => {
+            syncParentAnswered();
+          });
+        }
+      });
+      const rafSync = typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame
+        : (cb) => setTimeout(cb, 16);
+      rafSync(() => {
+        syncParentAnswered();
+      });
+    } else if (row) {
+      delete row.dataset.childAnswered;
+    }
+    enhanceRangeMeters(row.querySelector("[data-consigne-input-holder]"));
+    const openEditor = () => {
+      const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      if (trigger && typeof trigger.setAttribute === "function") {
+        trigger.setAttribute("aria-expanded", "true");
+      }
+      const currentValue = readConsigneCurrentValue(consigne, row);
+      try { reportUnexpectedPrefillOnEditorOpen(consigne, row, currentValue); } catch (_) { }
+      const title = consigne.text || consigne.titre || consigne.name || consigne.id;
+      const description = consigne.description || consigne.details || consigne.helper || "";
+      const requiresValidation = consigne.type !== "info" || childConsignes.length > 0;
+      const renderChildEditor = (childState, index) => {
+        const child = childState.consigne || {};
+        const childTitle = child.text || child.titre || child.name || `Sous-consigne ${index + 1}`;
+        const childDescription = child.description || child.details || child.helper || "";
+        const childValue = readConsigneCurrentValue(child, childState.row || row);
+        const baseMenuItemClass =
+          "child-menu__item flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 focus:bg-slate-100 focus:outline-none";
+        const dangerMenuItemClass = `${baseMenuItemClass} text-red-600 hover:bg-red-50 focus:bg-red-50`;
+        const actionButtons = [];
+        if (typeof childState.onHistory === "function") {
+          actionButtons.push(
+            `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="history">Historique</button>`
+          );
+        }
+        if (typeof childState.onEdit === "function") {
+          actionButtons.push(
+            `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="edit">Modifier</button>`
+          );
+        }
+        if (typeof childState.onToggleSr === "function") {
+          const srLabel = childState.srEnabled ? "Désactiver la répétition espacée" : "Activer la répétition espacée";
+          actionButtons.push(
+            `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="sr-toggle" data-enabled="${childState.srEnabled ? "1" : "0"}">${srLabel}</button>`
+          );
+        }
+        if (typeof childState.onArchive === "function") {
+          actionButtons.push(
+            `<button type="button" class="${baseMenuItemClass}" role="menuitem" data-child-action="archive">Archiver</button>`
+          );
+        }
+        if (typeof childState.onDelete === "function") {
+          actionButtons.push(
+            `<button type="button" class="${dangerMenuItemClass}" role="menuitem" data-child-action="delete">Supprimer</button>`
+          );
+        }
+        const actionsHtml = actionButtons.length
+          ? `<div class="relative" data-child-menu-root>
             <button type="button" class="btn btn-ghost btn-sm" data-child-menu-toggle aria-haspopup="true" aria-expanded="false">
               <span aria-hidden="true">⋯</span>
               <span class="sr-only">Actions supplémentaires</span>
@@ -14354,8 +14319,8 @@ function attachConsigneEditor(row, consigne, options = {}) {
               ${actionButtons.map((btn) => `<div role="none">${btn}</div>`).join("")}
             </div>
           </div>`
-        : "";
-      return `
+          : "";
+        return `
         <article class="space-y-3 rounded-xl border border-slate-200 p-3" data-child-consigne="${escapeHtml(child.id)}">
           <div class="flex flex-wrap items-start justify-between gap-2">
             <div class="space-y-1">
@@ -14368,9 +14333,9 @@ function attachConsigneEditor(row, consigne, options = {}) {
             ${inputForType(child, childValue)}
           </div>
         </article>`;
-    };
-    const childMarkup = childConsignes.length
-      ? `<section class="practice-editor__section space-y-3 border-t border-slate-200 pt-3 mt-3" data-consigne-editor-children>
+      };
+      const childMarkup = childConsignes.length
+        ? `<section class="practice-editor__section space-y-3 border-t border-slate-200 pt-3 mt-3" data-consigne-editor-children>
           <header class="space-y-1">
             <h3 class="text-base font-semibold">Sous-consignes</h3>
             <p class="text-sm text-slate-600">Complète les sous-consignes liées à cette carte.</p>
@@ -14379,43 +14344,43 @@ function attachConsigneEditor(row, consigne, options = {}) {
             ${childConsignes.map((child, index) => renderChildEditor(child, index)).join("")}
           </div>
         </section>`
-      : "";
-    const summaryMenuItems = [
-      { scope: "weekly", label: "Bilan hebdomadaire" },
-      { scope: "adhoc", label: "Bilan ponctuel" },
-      { scope: "monthly", label: "Bilan mensuel" },
-      { scope: "yearly", label: "Bilan annuel" },
-    ];
-    const summaryMenuMarkup = summaryMenuItems
-      .map(
-        (item) =>
-          `<button type="button" class="practice-editor__summary-menu-item" role="menuitem" data-summary-option="${item.scope}">${item.label}</button>`
-      )
-      .join("") +
-      `<div class="practice-editor__summary-menu-divider" role="separator"></div>
+        : "";
+      const summaryMenuItems = [
+        { scope: "weekly", label: "Bilan hebdomadaire" },
+        { scope: "adhoc", label: "Bilan ponctuel" },
+        { scope: "monthly", label: "Bilan mensuel" },
+        { scope: "yearly", label: "Bilan annuel" },
+      ];
+      const summaryMenuMarkup = summaryMenuItems
+        .map(
+          (item) =>
+            `<button type="button" class="practice-editor__summary-menu-item" role="menuitem" data-summary-option="${item.scope}">${item.label}</button>`
+        )
+        .join("") +
+        `<div class="practice-editor__summary-menu-divider" role="separator"></div>
         <button type="button" class="practice-editor__summary-menu-item practice-editor__summary-menu-item--clear" role="menuitem" data-summary-option="clear">Réponse standard</button>`;
-    const delayTitleAttr = delayConfig?.helper ? ` title="${escapeHtml(delayConfig.helper)}"` : "";
-    const delayControlMarkup = delayConfig
-      ? `<div class="practice-editor__delay practice-editor__delay--inline" data-consigne-editor-delay-root${delayTitleAttr}>
+      const delayTitleAttr = delayConfig?.helper ? ` title="${escapeHtml(delayConfig.helper)}"` : "";
+      const delayControlMarkup = delayConfig
+        ? `<div class="practice-editor__delay practice-editor__delay--inline" data-consigne-editor-delay-root${delayTitleAttr}>
           <label for="${escapeHtml(delayConfig.selectId)}" class="practice-editor__delay-label">${escapeHtml(delayConfig.label)}</label>
           <select id="${escapeHtml(delayConfig.selectId)}" class="practice-editor__delay-select" data-consigne-editor-delay>
             <option value="">${escapeHtml(delayConfig.placeholder)}</option>
             ${delayConfig.amounts
-        .map((amount) => `<option value="${amount}">${amount} itération${amount > 1 ? "s" : ""}</option>`)
-        .join("")}
+          .map((amount) => `<option value="${amount}">${amount} itération${amount > 1 ? "s" : ""}</option>`)
+          .join("")}
             ${delayConfig.allowArchive
-        ? `<optgroup label="Actions">
+          ? `<optgroup label="Actions">
                   <option value="${escapeHtml(delayConfig.archiveValue)}" data-consigne-editor-archive-option>🗄️ ${escapeHtml(delayConfig.archiveLabel)}</option>
                 </optgroup>`
-        : ""}
+          : ""}
           </select>
           ${delayConfig.helper ? `<span class="practice-editor__delay-note">${escapeHtml(delayConfig.helper)}</span>` : ""}
           <span class="practice-editor__delay-helper" data-consigne-editor-delay-helper hidden>${escapeHtml(delayConfig.disabledHint)}</span>
         </div>`
-      : "";
-    const summaryControlMarkup =
-      requiresValidation && summaryControlsEnabled
-        ? `<div class="practice-editor__summary" data-consigne-editor-summary-root>
+        : "";
+      const summaryControlMarkup =
+        requiresValidation && summaryControlsEnabled
+          ? `<div class="practice-editor__summary" data-consigne-editor-summary-root>
           <button type="button" class="btn btn-ghost practice-editor__summary-toggle" data-consigne-editor-summary-toggle aria-haspopup="true" aria-expanded="false">
             <span aria-hidden="true">📝</span>
             <span data-consigne-editor-summary-label>${escapeHtml(summaryToggleLabel)}</span>
@@ -14424,25 +14389,25 @@ function attachConsigneEditor(row, consigne, options = {}) {
             ${summaryMenuMarkup}
           </div>
         </div>`
+          : "";
+      const primaryButtons = requiresValidation
+        ? [
+          delayControlMarkup,
+          '<button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>',
+          '<button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>',
+          `<button type="button" class="btn btn-primary" data-consigne-editor-validate>${escapeHtml(validateButtonLabel)}</button>`,
+        ].filter(Boolean)
+        : ['<button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>'];
+      const primaryActionsMarkup = `<div class="practice-editor__actions-buttons">${primaryButtons.join("\n          ")}</div>`;
+      const sideControls = [summaryControlMarkup].filter(Boolean);
+      const sideControlsMarkup = sideControls.length
+        ? `<div class="practice-editor__actions-controls">${sideControls.join("")}</div>`
         : "";
-    const primaryButtons = requiresValidation
-      ? [
-        delayControlMarkup,
-        '<button type="button" class="btn btn-ghost" data-consigne-editor-cancel>Annuler</button>',
-        '<button type="button" class="btn btn-ghost" data-consigne-editor-skip>Passer →</button>',
-        `<button type="button" class="btn btn-primary" data-consigne-editor-validate>${escapeHtml(validateButtonLabel)}</button>`,
-      ].filter(Boolean)
-      : ['<button type="button" class="btn" data-consigne-editor-cancel>Fermer</button>'];
-    const primaryActionsMarkup = `<div class="practice-editor__actions-buttons">${primaryButtons.join("\n          ")}</div>`;
-    const sideControls = [summaryControlMarkup].filter(Boolean);
-    const sideControlsMarkup = sideControls.length
-      ? `<div class="practice-editor__actions-controls">${sideControls.join("")}</div>`
-      : "";
-    const actionsMarkup = `<footer class="practice-editor__actions">
+      const actionsMarkup = `<footer class="practice-editor__actions">
         ${sideControlsMarkup}
         ${primaryActionsMarkup}
       </footer>`;
-    const markup = `
+      const markup = `
       <div class="practice-editor">
         <header class="practice-editor__header">
           <h2 class="text-lg font-semibold">${escapeHtml(title)}</h2>
@@ -14455,778 +14420,725 @@ function attachConsigneEditor(row, consigne, options = {}) {
         ${actionsMarkup}
       </div>
     `;
-    const overlay = (variant === "drawer" ? drawer : modal)(markup);
-    if (variant !== "drawer" && overlay instanceof HTMLElement) {
-      overlay.classList.remove("phone-top", "phone-center");
-      const relevantItems = [consigne, ...childConsignes.map((child) => child.consigne).filter(Boolean)];
-      const preferTop = relevantItems.some((item) => pickPhoneModalClass(item) === "phone-top");
-      overlay.classList.add(preferTop ? "phone-top" : "phone-center");
-    }
-    initializeChecklistScope(overlay, {});
-    overlay.querySelectorAll("textarea").forEach((textarea) => {
-      autoGrowTextarea(textarea);
-    });
-    let delayRoot = null;
-    let delaySelect = null;
-    let delayHelper = null;
-    const updateDelayAvailability = () => {
-      if (!delayConfig || !delayRoot || !delaySelect) {
-        return;
+      const overlay = (variant === "drawer" ? drawer : modal)(markup);
+      if (variant !== "drawer" && overlay instanceof HTMLElement) {
+        overlay.classList.remove("phone-top", "phone-center");
+        const relevantItems = [consigne, ...childConsignes.map((child) => child.consigne).filter(Boolean)];
+        const preferTop = relevantItems.some((item) => pickPhoneModalClass(item) === "phone-top");
+        overlay.classList.add(preferTop ? "phone-top" : "phone-center");
       }
-      let srEnabled = true;
-      try {
-        srEnabled = delayConfig.getSrEnabled ? !!delayConfig.getSrEnabled(consigne, row) : true;
-      } catch (error) {
-        try {
-          modesLogger?.debug?.("consigne.delay.sr-state", error);
-        } catch (_) { }
-        srEnabled = true;
-      }
-      if (srEnabled) {
-        delaySelect.disabled = false;
-        delayRoot.removeAttribute("aria-disabled");
-        if (delayHelper) {
-          delayHelper.hidden = true;
-        }
-      } else {
-        delaySelect.value = "";
-        delaySelect.disabled = true;
-        delayRoot.setAttribute("aria-disabled", "true");
-        if (delayHelper) {
-          delayHelper.hidden = false;
-        }
-      }
-    };
-    const uniqueIdBase = `${Date.now()}-${Math.round(Math.random() * 10000)}`;
-    const dialogNode = variant === "drawer" ? overlay.querySelector("aside") : overlay.firstElementChild;
-    if (dialogNode) {
-      dialogNode.setAttribute("role", "dialog");
-      dialogNode.setAttribute("aria-modal", "true");
-      const heading = dialogNode.querySelector("h2");
-      if (heading && !heading.id) {
-        heading.id = `consigne-editor-title-${uniqueIdBase}`;
-      }
-      if (heading && heading.id) {
-        dialogNode.setAttribute("aria-labelledby", heading.id);
-        dialogNode.removeAttribute("aria-label");
-      } else {
-        dialogNode.setAttribute("aria-label", String(title || ""));
-      }
-      const descriptionEl = dialogNode.querySelector("[data-consigne-editor-description]");
-      if (descriptionEl && !descriptionEl.id) {
-        descriptionEl.id = `consigne-editor-desc-${uniqueIdBase}`;
-      }
-      if (descriptionEl && descriptionEl.id) {
-        dialogNode.setAttribute("aria-describedby", descriptionEl.id);
-      } else {
-        dialogNode.removeAttribute("aria-describedby");
-      }
-    }
-    const body = overlay.querySelector("[data-consigne-editor-body]");
-    enhanceRangeMeters(body);
-    const focusTarget = body?.querySelector("input, select, textarea");
-    if (focusTarget) {
-      try {
-        focusTarget.focus({ preventScroll: true });
-      } catch (err) {
-        focusTarget.focus();
-      }
-    }
-    const childMenuCleanups = [];
-    let isClosed = false;
-    const closeOverlay = () => {
-      if (isClosed) return;
-      isClosed = true;
-      while (childMenuCleanups.length) {
-        const cleanup = childMenuCleanups.pop();
-        try {
-          cleanup?.();
-        } catch (err) {
-          console.error(err);
-        }
-      }
-      document.removeEventListener("keydown", onKeyDown, true);
-      overlay.remove();
-      if (trigger && typeof trigger.setAttribute === "function") {
-        trigger.setAttribute("aria-expanded", "false");
-      }
-      if (trigger && typeof trigger.focus === "function" && document.contains(trigger)) {
-        try {
-          trigger.focus({ preventScroll: true });
-        } catch (err) {
-          trigger.focus();
-        }
-      } else if (previouslyFocused && typeof previouslyFocused.focus === "function") {
-        previouslyFocused.focus();
-      }
-      if (typeof options.onClose === "function") {
-        options.onClose();
-      }
-    };
-    const escapeAttrValue = (value) => String(value ?? "").replace(/"/g, '\\"');
-    childConsignes.forEach((childState) => {
-      const childId = childState?.consigne?.id;
-      if (childId == null) return;
-      const node = overlay.querySelector(`[data-child-consigne="${escapeAttrValue(childId)}"]`);
-      if (!node) return;
-      node.querySelectorAll("textarea").forEach((textarea) => {
+      initializeChecklistScope(overlay, {});
+      overlay.querySelectorAll("textarea").forEach((textarea) => {
         autoGrowTextarea(textarea);
       });
-      const menuRoot = node.querySelector("[data-child-menu-root]");
-      const menuToggle = menuRoot?.querySelector("[data-child-menu-toggle]");
-      const menu = menuRoot?.querySelector("[data-child-menu]");
-      let menuOpen = false;
-      const onMenuDocumentClick = (event) => {
-        if (!menuRoot || !menu) return;
-        if (!menuRoot.contains(event.target)) {
-          closeMenu();
+      let delayRoot = null;
+      let delaySelect = null;
+      let delayHelper = null;
+      const updateDelayAvailability = () => {
+        if (!delayConfig || !delayRoot || !delaySelect) {
+          return;
         }
-      };
-      const onMenuDocumentKeydown = (event) => {
-        if (event.key === "Escape" && menuOpen) {
-          event.preventDefault();
-          event.stopPropagation();
-          closeMenu();
-        }
-      };
-      const closeMenu = ({ focus } = {}) => {
-        if (!menuRoot || !menuToggle || !menu) return;
-        if (!menuOpen) return;
-        menuOpen = false;
-        menu.classList.add("hidden");
-        menuRoot.classList.remove("is-open");
-        menuToggle.setAttribute("aria-expanded", "false");
-        document.removeEventListener("click", onMenuDocumentClick);
-        document.removeEventListener("keydown", onMenuDocumentKeydown, true);
-        const active = document.activeElement;
-        const shouldFocus =
-          focus !== undefined
-            ? focus
-            : (menu.contains(active) || active === menuToggle);
-        if (shouldFocus && typeof menuToggle.focus === "function") {
+        let srEnabled = true;
+        try {
+          srEnabled = delayConfig.getSrEnabled ? !!delayConfig.getSrEnabled(consigne, row) : true;
+        } catch (error) {
           try {
-            menuToggle.focus({ preventScroll: true });
-          } catch (err) {
-            menuToggle.focus();
+            modesLogger?.debug?.("consigne.delay.sr-state", error);
+          } catch (_) { }
+          srEnabled = true;
+        }
+        if (srEnabled) {
+          delaySelect.disabled = false;
+          delayRoot.removeAttribute("aria-disabled");
+          if (delayHelper) {
+            delayHelper.hidden = true;
+          }
+        } else {
+          delaySelect.value = "";
+          delaySelect.disabled = true;
+          delayRoot.setAttribute("aria-disabled", "true");
+          if (delayHelper) {
+            delayHelper.hidden = false;
           }
         }
       };
-      const openMenu = () => {
-        if (!menuRoot || !menuToggle || !menu) return;
-        if (menuOpen) return;
-        menuOpen = true;
-        menu.classList.remove("hidden");
-        menuRoot.classList.add("is-open");
-        menuToggle.setAttribute("aria-expanded", "true");
-        setTimeout(() => {
-          document.addEventListener("click", onMenuDocumentClick);
-        }, 0);
-        document.addEventListener("keydown", onMenuDocumentKeydown, true);
-        const firstItem = menu.querySelector("[data-child-action]");
-        if (firstItem instanceof HTMLElement) {
-          try {
-            firstItem.focus({ preventScroll: true });
-          } catch (err) {
-            firstItem.focus();
-          }
+      const uniqueIdBase = `${Date.now()}-${Math.round(Math.random() * 10000)}`;
+      const dialogNode = variant === "drawer" ? overlay.querySelector("aside") : overlay.firstElementChild;
+      if (dialogNode) {
+        dialogNode.setAttribute("role", "dialog");
+        dialogNode.setAttribute("aria-modal", "true");
+        const heading = dialogNode.querySelector("h2");
+        if (heading && !heading.id) {
+          heading.id = `consigne-editor-title-${uniqueIdBase}`;
         }
-      };
-      if (menuRoot && menuToggle && menu) {
-        menuToggle.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (menuOpen) {
-            closeMenu({ focus: true });
-          } else {
-            openMenu();
-          }
-        });
-        menuToggle.addEventListener("keydown", (event) => {
-          if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            if (!menuOpen) {
-              openMenu();
-            }
-          } else if (event.key === "Escape" && menuOpen) {
-            event.preventDefault();
-            closeMenu({ focus: true });
-          }
-        });
-        menu.addEventListener("click", (event) => {
-          event.stopPropagation();
-        });
-        menu.addEventListener("keydown", (event) => {
-          if (event.key === "Escape" && menuOpen) {
-            event.preventDefault();
-            event.stopPropagation();
-            closeMenu({ focus: true });
-          }
-        });
-        childMenuCleanups.push(() => closeMenu({ focus: false }));
+        if (heading && heading.id) {
+          dialogNode.setAttribute("aria-labelledby", heading.id);
+          dialogNode.removeAttribute("aria-label");
+        } else {
+          dialogNode.setAttribute("aria-label", String(title || ""));
+        }
+        const descriptionEl = dialogNode.querySelector("[data-consigne-editor-description]");
+        if (descriptionEl && !descriptionEl.id) {
+          descriptionEl.id = `consigne-editor-desc-${uniqueIdBase}`;
+        }
+        if (descriptionEl && descriptionEl.id) {
+          dialogNode.setAttribute("aria-describedby", descriptionEl.id);
+        } else {
+          dialogNode.removeAttribute("aria-describedby");
+        }
       }
-      const callHandler = (handler, event) => {
-        if (typeof handler === "function") {
+      const body = overlay.querySelector("[data-consigne-editor-body]");
+      enhanceRangeMeters(body);
+      const focusTarget = body?.querySelector("input, select, textarea");
+      if (focusTarget) {
+        try {
+          focusTarget.focus({ preventScroll: true });
+        } catch (err) {
+          focusTarget.focus();
+        }
+      }
+      const childMenuCleanups = [];
+      let isClosed = false;
+      const closeOverlay = () => {
+        if (isClosed) return;
+        isClosed = true;
+        while (childMenuCleanups.length) {
+          const cleanup = childMenuCleanups.pop();
           try {
-            handler({ event, close: closeOverlay, consigne: childState.consigne, row: childState.row });
+            cleanup?.();
           } catch (err) {
             console.error(err);
           }
         }
-      };
-      const historyBtn = node.querySelector('[data-child-action="history"]');
-      if (historyBtn) {
-        if (typeof childState.onHistory === "function") {
-          historyBtn.addEventListener("click", (event) => {
-            event.preventDefault();
-            closeMenu({ focus: false });
-            callHandler(childState.onHistory, event);
-          });
-        } else {
-          historyBtn.disabled = true;
-          historyBtn.setAttribute("aria-disabled", "true");
+        document.removeEventListener("keydown", onKeyDown, true);
+        overlay.remove();
+        if (trigger && typeof trigger.setAttribute === "function") {
+          trigger.setAttribute("aria-expanded", "false");
         }
-      }
-      const editBtn = node.querySelector('[data-child-action="edit"]');
-      if (editBtn) {
-        if (typeof childState.onEdit === "function") {
-          editBtn.addEventListener("click", (event) => {
-            event.preventDefault();
-            closeMenu({ focus: false });
-            callHandler(childState.onEdit, event);
-          });
-        } else {
-          editBtn.disabled = true;
-          editBtn.setAttribute("aria-disabled", "true");
-        }
-      }
-      const srBtn = node.querySelector('[data-child-action="sr-toggle"]');
-      if (srBtn) {
-        if (typeof childState.onToggleSr === "function") {
-          const updateSrButton = (enabled) => {
-            const nextEnabled = Boolean(enabled);
-            const label = nextEnabled
-              ? "Désactiver la répétition espacée"
-              : "Activer la répétition espacée";
-            srBtn.dataset.enabled = nextEnabled ? "1" : "0";
-            srBtn.textContent = label;
-          };
-          updateSrButton(childState.srEnabled);
-          srBtn.addEventListener("click", async (event) => {
-            event.preventDefault();
-            closeMenu({ focus: false });
-            const current = Boolean(childState.srEnabled);
-            srBtn.disabled = true;
-            try {
-              const result = await childState.onToggleSr(!current, {
-                event,
-                close: closeOverlay,
-                update: updateSrButton,
-              });
-              const finalState = typeof result === "boolean" ? result : !current;
-              childState.srEnabled = finalState;
-              updateSrButton(finalState);
-            } catch (err) {
-              console.error(err);
-              updateSrButton(current);
-            } finally {
-              if (overlay.isConnected) {
-                srBtn.disabled = false;
-              }
-            }
-          });
-        } else {
-          srBtn.disabled = true;
-          srBtn.setAttribute("aria-disabled", "true");
-        }
-      }
-      const archiveBtn = node.querySelector('[data-child-action="archive"]');
-      if (archiveBtn) {
-        if (typeof childState.onArchive === "function") {
-          archiveBtn.addEventListener("click", async (event) => {
-            event.preventDefault();
-            closeMenu({ focus: false });
-            archiveBtn.disabled = true;
-            try {
-              const result = await childState.onArchive({ event, close: closeOverlay, consigne: childState.consigne, row: childState.row });
-              if (result === false && overlay.isConnected) {
-                archiveBtn.disabled = false;
-              }
-            } catch (err) {
-              console.error(err);
-              if (overlay.isConnected) {
-                archiveBtn.disabled = false;
-              }
-            }
-          });
-        } else {
-          archiveBtn.disabled = true;
-          archiveBtn.setAttribute("aria-disabled", "true");
-        }
-      }
-      const deleteBtn = node.querySelector('[data-child-action="delete"]');
-      if (deleteBtn) {
-        if (typeof childState.onDelete === "function") {
-          deleteBtn.addEventListener("click", async (event) => {
-            event.preventDefault();
-            closeMenu({ focus: false });
-            deleteBtn.disabled = true;
-            try {
-              const result = await childState.onDelete({ event, close: closeOverlay, consigne: childState.consigne, row: childState.row });
-              if (result === false && overlay.isConnected) {
-                deleteBtn.disabled = false;
-              }
-            } catch (err) {
-              console.error(err);
-              if (overlay.isConnected) {
-                deleteBtn.disabled = false;
-              }
-            }
-          });
-        } else {
-          deleteBtn.disabled = true;
-          deleteBtn.setAttribute("aria-disabled", "true");
-        }
-      }
-    });
-    const summaryRoot = overlay.querySelector("[data-consigne-editor-summary-root]");
-    const summaryToggle = summaryRoot?.querySelector("[data-consigne-editor-summary-toggle]");
-    const summaryMenu = summaryRoot?.querySelector("[data-consigne-editor-summary-menu]");
-    const summaryLabelEl = summaryRoot?.querySelector("[data-consigne-editor-summary-label]");
-    if (delayConfig) {
-      delayRoot = overlay.querySelector("[data-consigne-editor-delay-root]");
-      delaySelect = overlay.querySelector("[data-consigne-editor-delay]");
-      delayHelper = overlay.querySelector("[data-consigne-editor-delay-helper]");
-      updateDelayAvailability();
-      if (
-        delayConfig.allowArchive &&
-        delayConfig.archiveValue &&
-        delaySelect &&
-        typeof delayConfig.onArchive === "function"
-      ) {
-        const archiveValue = delayConfig.archiveValue;
-        delaySelect.addEventListener("change", async (event) => {
-          if (!delaySelect) return;
-          if (delaySelect.value !== archiveValue) {
-            return;
-          }
-          event.preventDefault();
-          const revertSelection = () => {
-            if (!overlay.isConnected || !delaySelect) return;
-            delaySelect.value = "";
-            delaySelect.disabled = false;
-            updateDelayAvailability();
-          };
-          if (delaySelect.disabled) {
-            revertSelection();
-            return;
-          }
-          delaySelect.disabled = true;
+        if (trigger && typeof trigger.focus === "function" && document.contains(trigger)) {
           try {
-            const result = await delayConfig.onArchive({ consigne, row, close: closeOverlay });
-            if (result === false) {
+            trigger.focus({ preventScroll: true });
+          } catch (err) {
+            trigger.focus();
+          }
+        } else if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+          previouslyFocused.focus();
+        }
+        if (typeof options.onClose === "function") {
+          options.onClose();
+        }
+      };
+      const escapeAttrValue = (value) => String(value ?? "").replace(/"/g, '\\"');
+      childConsignes.forEach((childState) => {
+        const childId = childState?.consigne?.id;
+        if (childId == null) return;
+        const node = overlay.querySelector(`[data-child-consigne="${escapeAttrValue(childId)}"]`);
+        if (!node) return;
+        node.querySelectorAll("textarea").forEach((textarea) => {
+          autoGrowTextarea(textarea);
+        });
+        const menuRoot = node.querySelector("[data-child-menu-root]");
+        const menuToggle = menuRoot?.querySelector("[data-child-menu-toggle]");
+        const menu = menuRoot?.querySelector("[data-child-menu]");
+        let menuOpen = false;
+        const onMenuDocumentClick = (event) => {
+          if (!menuRoot || !menu) return;
+          if (!menuRoot.contains(event.target)) {
+            closeMenu();
+          }
+        };
+        const onMenuDocumentKeydown = (event) => {
+          if (event.key === "Escape" && menuOpen) {
+            event.preventDefault();
+            event.stopPropagation();
+            closeMenu();
+          }
+        };
+        const closeMenu = ({ focus } = {}) => {
+          if (!menuRoot || !menuToggle || !menu) return;
+          if (!menuOpen) return;
+          menuOpen = false;
+          menu.classList.add("hidden");
+          menuRoot.classList.remove("is-open");
+          menuToggle.setAttribute("aria-expanded", "false");
+          document.removeEventListener("click", onMenuDocumentClick);
+          document.removeEventListener("keydown", onMenuDocumentKeydown, true);
+          const active = document.activeElement;
+          const shouldFocus =
+            focus !== undefined
+              ? focus
+              : (menu.contains(active) || active === menuToggle);
+          if (shouldFocus && typeof menuToggle.focus === "function") {
+            try {
+              menuToggle.focus({ preventScroll: true });
+            } catch (err) {
+              menuToggle.focus();
+            }
+          }
+        };
+        const openMenu = () => {
+          if (!menuRoot || !menuToggle || !menu) return;
+          if (menuOpen) return;
+          menuOpen = true;
+          menu.classList.remove("hidden");
+          menuRoot.classList.add("is-open");
+          menuToggle.setAttribute("aria-expanded", "true");
+          setTimeout(() => {
+            document.addEventListener("click", onMenuDocumentClick);
+          }, 0);
+          document.addEventListener("keydown", onMenuDocumentKeydown, true);
+          const firstItem = menu.querySelector("[data-child-action]");
+          if (firstItem instanceof HTMLElement) {
+            try {
+              firstItem.focus({ preventScroll: true });
+            } catch (err) {
+              firstItem.focus();
+            }
+          }
+        };
+        if (menuRoot && menuToggle && menu) {
+          menuToggle.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (menuOpen) {
+              closeMenu({ focus: true });
+            } else {
+              openMenu();
+            }
+          });
+          menuToggle.addEventListener("keydown", (event) => {
+            if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              if (!menuOpen) {
+                openMenu();
+              }
+            } else if (event.key === "Escape" && menuOpen) {
+              event.preventDefault();
+              closeMenu({ focus: true });
+            }
+          });
+          menu.addEventListener("click", (event) => {
+            event.stopPropagation();
+          });
+          menu.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && menuOpen) {
+              event.preventDefault();
+              event.stopPropagation();
+              closeMenu({ focus: true });
+            }
+          });
+          childMenuCleanups.push(() => closeMenu({ focus: false }));
+        }
+        const callHandler = (handler, event) => {
+          if (typeof handler === "function") {
+            try {
+              handler({ event, close: closeOverlay, consigne: childState.consigne, row: childState.row });
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        };
+        const historyBtn = node.querySelector('[data-child-action="history"]');
+        if (historyBtn) {
+          if (typeof childState.onHistory === "function") {
+            historyBtn.addEventListener("click", (event) => {
+              event.preventDefault();
+              closeMenu({ focus: false });
+              callHandler(childState.onHistory, event);
+            });
+          } else {
+            historyBtn.disabled = true;
+            historyBtn.setAttribute("aria-disabled", "true");
+          }
+        }
+        const editBtn = node.querySelector('[data-child-action="edit"]');
+        if (editBtn) {
+          if (typeof childState.onEdit === "function") {
+            editBtn.addEventListener("click", (event) => {
+              event.preventDefault();
+              closeMenu({ focus: false });
+              callHandler(childState.onEdit, event);
+            });
+          } else {
+            editBtn.disabled = true;
+            editBtn.setAttribute("aria-disabled", "true");
+          }
+        }
+        const srBtn = node.querySelector('[data-child-action="sr-toggle"]');
+        if (srBtn) {
+          if (typeof childState.onToggleSr === "function") {
+            const updateSrButton = (enabled) => {
+              const nextEnabled = Boolean(enabled);
+              const label = nextEnabled
+                ? "Désactiver la répétition espacée"
+                : "Activer la répétition espacée";
+              srBtn.dataset.enabled = nextEnabled ? "1" : "0";
+              srBtn.textContent = label;
+            };
+            updateSrButton(childState.srEnabled);
+            srBtn.addEventListener("click", async (event) => {
+              event.preventDefault();
+              closeMenu({ focus: false });
+              const current = Boolean(childState.srEnabled);
+              srBtn.disabled = true;
+              try {
+                const result = await childState.onToggleSr(!current, {
+                  event,
+                  close: closeOverlay,
+                  update: updateSrButton,
+                });
+                const finalState = typeof result === "boolean" ? result : !current;
+                childState.srEnabled = finalState;
+                updateSrButton(finalState);
+              } catch (err) {
+                console.error(err);
+                updateSrButton(current);
+              } finally {
+                if (overlay.isConnected) {
+                  srBtn.disabled = false;
+                }
+              }
+            });
+          } else {
+            srBtn.disabled = true;
+            srBtn.setAttribute("aria-disabled", "true");
+          }
+        }
+        const archiveBtn = node.querySelector('[data-child-action="archive"]');
+        if (archiveBtn) {
+          if (typeof childState.onArchive === "function") {
+            archiveBtn.addEventListener("click", async (event) => {
+              event.preventDefault();
+              closeMenu({ focus: false });
+              archiveBtn.disabled = true;
+              try {
+                const result = await childState.onArchive({ event, close: closeOverlay, consigne: childState.consigne, row: childState.row });
+                if (result === false && overlay.isConnected) {
+                  archiveBtn.disabled = false;
+                }
+              } catch (err) {
+                console.error(err);
+                if (overlay.isConnected) {
+                  archiveBtn.disabled = false;
+                }
+              }
+            });
+          } else {
+            archiveBtn.disabled = true;
+            archiveBtn.setAttribute("aria-disabled", "true");
+          }
+        }
+        const deleteBtn = node.querySelector('[data-child-action="delete"]');
+        if (deleteBtn) {
+          if (typeof childState.onDelete === "function") {
+            deleteBtn.addEventListener("click", async (event) => {
+              event.preventDefault();
+              closeMenu({ focus: false });
+              deleteBtn.disabled = true;
+              try {
+                const result = await childState.onDelete({ event, close: closeOverlay, consigne: childState.consigne, row: childState.row });
+                if (result === false && overlay.isConnected) {
+                  deleteBtn.disabled = false;
+                }
+              } catch (err) {
+                console.error(err);
+                if (overlay.isConnected) {
+                  deleteBtn.disabled = false;
+                }
+              }
+            });
+          } else {
+            deleteBtn.disabled = true;
+            deleteBtn.setAttribute("aria-disabled", "true");
+          }
+        }
+      });
+      const summaryRoot = overlay.querySelector("[data-consigne-editor-summary-root]");
+      const summaryToggle = summaryRoot?.querySelector("[data-consigne-editor-summary-toggle]");
+      const summaryMenu = summaryRoot?.querySelector("[data-consigne-editor-summary-menu]");
+      const summaryLabelEl = summaryRoot?.querySelector("[data-consigne-editor-summary-label]");
+      if (delayConfig) {
+        delayRoot = overlay.querySelector("[data-consigne-editor-delay-root]");
+        delaySelect = overlay.querySelector("[data-consigne-editor-delay]");
+        delayHelper = overlay.querySelector("[data-consigne-editor-delay-helper]");
+        updateDelayAvailability();
+        if (
+          delayConfig.allowArchive &&
+          delayConfig.archiveValue &&
+          delaySelect &&
+          typeof delayConfig.onArchive === "function"
+        ) {
+          const archiveValue = delayConfig.archiveValue;
+          delaySelect.addEventListener("change", async (event) => {
+            if (!delaySelect) return;
+            if (delaySelect.value !== archiveValue) {
+              return;
+            }
+            event.preventDefault();
+            const revertSelection = () => {
+              if (!overlay.isConnected || !delaySelect) return;
+              delaySelect.value = "";
+              delaySelect.disabled = false;
+              updateDelayAvailability();
+            };
+            if (delaySelect.disabled) {
               revertSelection();
               return;
             }
-          } catch (error) {
+            delaySelect.disabled = true;
             try {
-              modesLogger?.warn?.("consigne.delay.archive", error);
-            } catch (_) { }
-            revertSelection();
-            return;
+              const result = await delayConfig.onArchive({ consigne, row, close: closeOverlay });
+              if (result === false) {
+                revertSelection();
+                return;
+              }
+            } catch (error) {
+              try {
+                modesLogger?.warn?.("consigne.delay.archive", error);
+              } catch (_) { }
+              revertSelection();
+              return;
+            }
+            if (overlay.isConnected) {
+              delaySelect.value = "";
+              delaySelect.disabled = false;
+              updateDelayAvailability();
+              closeOverlay();
+            }
+          });
+        }
+      }
+      const defaultSummaryLabel = summaryDefaultLabel;
+      const updateSummaryControlState = () => {
+        if (!summaryRoot || !summaryLabelEl) return;
+        const metadata = readConsigneSummaryMetadata(row);
+        if (metadata && metadata.summaryScope) {
+          summaryRoot.dataset.summarySelected = "1";
+          const label = metadata.summaryLabel || metadata.label || metadata.summaryScope;
+          summaryLabelEl.textContent = label || defaultSummaryLabel;
+        } else {
+          delete summaryRoot.dataset.summarySelected;
+          summaryLabelEl.textContent = defaultSummaryLabel;
+        }
+      };
+      updateSummaryControlState();
+      const readSelectedDelayAmount = () => {
+        if (!delayConfig || !delaySelect || delaySelect.disabled) {
+          return 0;
+        }
+        if (
+          delayConfig.allowArchive &&
+          delayConfig.archiveValue &&
+          delaySelect.value === delayConfig.archiveValue
+        ) {
+          return 0;
+        }
+        const raw = Number(delaySelect.value);
+        if (!Number.isFinite(raw) || raw <= 0) {
+          return 0;
+        }
+        return Math.round(raw);
+      };
+      const commitResponse = ({ summary = null, close = true, requireValueForSummary = false } = {}) => {
+        if (consigne.type === "checklist") {
+          const selectorId = String(consigne.id ?? "");
+          const container = overlay.querySelector(
+            `[data-checklist-root][data-consigne-id="${selectorId}"]`
+          );
+          if (container) {
+            container.dataset.checklistDirty = "1";
           }
-          if (overlay.isConnected) {
-            delaySelect.value = "";
-            delaySelect.disabled = false;
-            updateDelayAvailability();
-            closeOverlay();
+          const hidden =
+            overlay.querySelector(`[name="checklist:${consigne.id}"]`) ||
+            overlay.querySelector(`[name="checklist:${selectorId}"]`);
+          if (hidden) {
+            hidden.dataset.dirty = "1";
+          }
+        }
+        const newValue = readConsigneCurrentValue(consigne, overlay);
+        if (summary && requireValueForSummary && !hasValueForConsigne(consigne, newValue)) {
+          if (typeof showToast === "function") {
+            showToast("Ajoute une réponse avant de créer un bilan.");
+          }
+          if (focusTarget && typeof focusTarget.focus === "function") {
+            try {
+              focusTarget.focus({ preventScroll: true });
+            } catch (err) {
+              focusTarget.focus();
+            }
+          }
+          return false;
+        }
+        const childValueEntries = [];
+        const childAnswerItems = [];
+        childConsignes.forEach((childState) => {
+          const childValue = readConsigneCurrentValue(childState.consigne, overlay);
+          if (childState.row) {
+            setConsigneRowValue(childState.row, childState.consigne, childValue);
+          }
+          childValueEntries.push([childState.consigne?.id, childValue]);
+          if (childState.consigne && childState.consigne.id != null) {
+            childAnswerItems.push({
+              consigne: childState.consigne,
+              row: childState.row || null,
+              value: childValue,
+            });
           }
         });
-      }
-    }
-    const defaultSummaryLabel = summaryDefaultLabel;
-    const updateSummaryControlState = () => {
-      if (!summaryRoot || !summaryLabelEl) return;
-      const metadata = readConsigneSummaryMetadata(row);
-      if (metadata && metadata.summaryScope) {
-        summaryRoot.dataset.summarySelected = "1";
-        const label = metadata.summaryLabel || metadata.label || metadata.summaryScope;
-        summaryLabelEl.textContent = label || defaultSummaryLabel;
-      } else {
-        delete summaryRoot.dataset.summarySelected;
-        summaryLabelEl.textContent = defaultSummaryLabel;
-      }
-    };
-    updateSummaryControlState();
-    const readSelectedDelayAmount = () => {
-      if (!delayConfig || !delaySelect || delaySelect.disabled) {
-        return 0;
-      }
-      if (
-        delayConfig.allowArchive &&
-        delayConfig.archiveValue &&
-        delaySelect.value === delayConfig.archiveValue
-      ) {
-        return 0;
-      }
-      const raw = Number(delaySelect.value);
-      if (!Number.isFinite(raw) || raw <= 0) {
-        return 0;
-      }
-      return Math.round(raw);
-    };
-    const commitResponse = ({ summary = null, close = true, requireValueForSummary = false } = {}) => {
-      if (consigne.type === "checklist") {
-        const selectorId = String(consigne.id ?? "");
-        const container = overlay.querySelector(
-          `[data-checklist-root][data-consigne-id="${selectorId}"]`
-        );
-        if (container) {
-          container.dataset.checklistDirty = "1";
+        updateParentChildAnsweredFlag();
+        setConsigneRowValue(row, consigne, newValue);
+        syncParentAnswered();
+        if (summary) {
+          setConsigneSummaryMetadata(row, summary);
+        } else {
+          clearConsigneSummaryMetadata(row);
         }
-        const hidden =
-          overlay.querySelector(`[name="checklist:${consigne.id}"]`) ||
-          overlay.querySelector(`[name="checklist:${selectorId}"]`);
-        if (hidden) {
-          hidden.dataset.dirty = "1";
+        updateSummaryControlState();
+        const childValueMap = new Map(childValueEntries.filter(([id]) => id != null));
+        if (typeof options.onSubmit === "function") {
+          options.onSubmit(newValue, { childValues: childValueMap, summary });
         }
-      }
-      const newValue = readConsigneCurrentValue(consigne, overlay);
-      if (summary && requireValueForSummary && !hasValueForConsigne(consigne, newValue)) {
-        if (typeof showToast === "function") {
-          showToast("Ajoute une réponse avant de créer un bilan.");
+        const selectedDelayAmount = readSelectedDelayAmount();
+        if (close) {
+          closeOverlay();
         }
-        if (focusTarget && typeof focusTarget.focus === "function") {
-          try {
-            focusTarget.focus({ preventScroll: true });
-          } catch (err) {
-            focusTarget.focus();
+        if (selectedDelayAmount > 0 && delayConfig?.applyDelay) {
+          if (delaySelect) {
+            delaySelect.value = "";
           }
+          Promise.resolve()
+            .then(() =>
+              delayConfig.applyDelay(selectedDelayAmount, {
+                consigne,
+                row,
+                value: newValue,
+                summary,
+                childValues: childValueMap,
+                childAnswers: childAnswerItems,
+              })
+            )
+            .catch((error) => {
+              try {
+                modesLogger?.warn?.("consigne.delay.apply", error);
+              } catch (_) { }
+            });
         }
-        return false;
-      }
-      const childValueEntries = [];
-      const childAnswerItems = [];
-      childConsignes.forEach((childState) => {
-        const childValue = readConsigneCurrentValue(childState.consigne, overlay);
-        if (childState.row) {
-          setConsigneRowValue(childState.row, childState.consigne, childValue);
-        }
-        childValueEntries.push([childState.consigne?.id, childValue]);
-        if (childState.consigne && childState.consigne.id != null) {
-          childAnswerItems.push({
-            consigne: childState.consigne,
-            row: childState.row || null,
-            value: childValue,
-          });
-        }
-      });
-      updateParentChildAnsweredFlag();
-      setConsigneRowValue(row, consigne, newValue);
-      syncParentAnswered();
-      if (summary) {
-        setConsigneSummaryMetadata(row, summary);
-      } else {
-        clearConsigneSummaryMetadata(row);
-      }
-      updateSummaryControlState();
-      const childValueMap = new Map(childValueEntries.filter(([id]) => id != null));
-      if (typeof options.onSubmit === "function") {
-        options.onSubmit(newValue, { childValues: childValueMap, summary });
-      }
-      const selectedDelayAmount = readSelectedDelayAmount();
-      if (close) {
-        closeOverlay();
-      }
-      if (selectedDelayAmount > 0 && delayConfig?.applyDelay) {
-        if (delaySelect) {
-          delaySelect.value = "";
-        }
-        Promise.resolve()
-          .then(() =>
-            delayConfig.applyDelay(selectedDelayAmount, {
-              consigne,
-              row,
-              value: newValue,
-              summary,
-              childValues: childValueMap,
-              childAnswers: childAnswerItems,
-            })
-          )
-          .catch((error) => {
-            try {
-              modesLogger?.warn?.("consigne.delay.apply", error);
-            } catch (_) { }
-          });
-      }
-      return true;
-    };
-    let summaryMenuOpen = false;
-    const onSummaryDocumentClick = (event) => {
-      if (!summaryRoot) return;
-      if (summaryRoot.contains(event.target)) return;
-      closeSummaryMenu();
-    };
-    const onSummaryDocumentKeydown = (event) => {
-      if (event.key === "Escape" || event.key === "Esc") {
-        event.preventDefault();
-        event.stopPropagation();
-        closeSummaryMenu({ focusToggle: true });
-      }
-    };
-    const closeSummaryMenu = ({ focusToggle = false } = {}) => {
-      if (!summaryMenuOpen) return;
-      summaryMenuOpen = false;
-      if (summaryMenu) {
-        summaryMenu.hidden = true;
-      }
-      if (summaryRoot) {
-        delete summaryRoot.dataset.summaryMenuOpen;
-      }
-      if (summaryToggle) {
-        summaryToggle.setAttribute("aria-expanded", "false");
-      }
-      document.removeEventListener("click", onSummaryDocumentClick, true);
-      document.removeEventListener("keydown", onSummaryDocumentKeydown, true);
-      if (focusToggle && summaryToggle && typeof summaryToggle.focus === "function") {
-        try {
-          summaryToggle.focus({ preventScroll: true });
-        } catch (err) {
-          summaryToggle.focus();
-        }
-      }
-    };
-    const openSummaryMenu = () => {
-      if (!summaryRoot || !summaryMenu || !summaryToggle || summaryMenuOpen) return;
-      summaryMenu.hidden = false;
-      summaryRoot.dataset.summaryMenuOpen = "1";
-      summaryToggle.setAttribute("aria-expanded", "true");
-      summaryMenuOpen = true;
-      document.addEventListener("click", onSummaryDocumentClick, true);
-      document.addEventListener("keydown", onSummaryDocumentKeydown, true);
-    };
-    const toggleSummaryMenu = () => {
-      if (summaryMenuOpen) {
+        return true;
+      };
+      let summaryMenuOpen = false;
+      const onSummaryDocumentClick = (event) => {
+        if (!summaryRoot) return;
+        if (summaryRoot.contains(event.target)) return;
         closeSummaryMenu();
-      } else {
-        openSummaryMenu();
-      }
-    };
-    if (summaryToggle && summaryMenu) {
-      summaryToggle.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleSummaryMenu();
-      });
-      summaryToggle.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" || event.key === "Esc") {
-          event.preventDefault();
-          closeSummaryMenu({ focusToggle: true });
-        }
-      });
-      summaryMenu.addEventListener("keydown", (event) => {
+      };
+      const onSummaryDocumentKeydown = (event) => {
         if (event.key === "Escape" || event.key === "Esc") {
           event.preventDefault();
           event.stopPropagation();
           closeSummaryMenu({ focusToggle: true });
         }
-      });
-      summaryMenu.addEventListener("click", (event) => {
-        const target = event.target?.closest("[data-summary-option]");
-        if (!target) return;
-        event.preventDefault();
-        const choice = target.getAttribute("data-summary-option");
-        if (!choice) return;
-        if (choice === "clear") {
+      };
+      const closeSummaryMenu = ({ focusToggle = false } = {}) => {
+        if (!summaryMenuOpen) return;
+        summaryMenuOpen = false;
+        if (summaryMenu) {
+          summaryMenu.hidden = true;
+        }
+        if (summaryRoot) {
+          delete summaryRoot.dataset.summaryMenuOpen;
+        }
+        if (summaryToggle) {
+          summaryToggle.setAttribute("aria-expanded", "false");
+        }
+        document.removeEventListener("click", onSummaryDocumentClick, true);
+        document.removeEventListener("keydown", onSummaryDocumentKeydown, true);
+        if (focusToggle && summaryToggle && typeof summaryToggle.focus === "function") {
+          try {
+            summaryToggle.focus({ preventScroll: true });
+          } catch (err) {
+            summaryToggle.focus();
+          }
+        }
+      };
+      const openSummaryMenu = () => {
+        if (!summaryRoot || !summaryMenu || !summaryToggle || summaryMenuOpen) return;
+        summaryMenu.hidden = false;
+        summaryRoot.dataset.summaryMenuOpen = "1";
+        summaryToggle.setAttribute("aria-expanded", "true");
+        summaryMenuOpen = true;
+        document.addEventListener("click", onSummaryDocumentClick, true);
+        document.addEventListener("keydown", onSummaryDocumentKeydown, true);
+      };
+      const toggleSummaryMenu = () => {
+        if (summaryMenuOpen) {
           closeSummaryMenu();
-          commitResponse({ summary: null, close: true, requireValueForSummary: false });
-          return;
+        } else {
+          openSummaryMenu();
         }
-        const metadata = buildSummaryMetadataForScope(choice, { date: new Date() });
-        if (!metadata) {
+      };
+      if (summaryToggle && summaryMenu) {
+        summaryToggle.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleSummaryMenu();
+        });
+        summaryToggle.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" || event.key === "Esc") {
+            event.preventDefault();
+            closeSummaryMenu({ focusToggle: true });
+          }
+        });
+        summaryMenu.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" || event.key === "Esc") {
+            event.preventDefault();
+            event.stopPropagation();
+            closeSummaryMenu({ focusToggle: true });
+          }
+        });
+        summaryMenu.addEventListener("click", (event) => {
+          const target = event.target?.closest("[data-summary-option]");
+          if (!target) return;
+          event.preventDefault();
+          const choice = target.getAttribute("data-summary-option");
+          if (!choice) return;
+          if (choice === "clear") {
+            closeSummaryMenu();
+            commitResponse({ summary: null, close: true, requireValueForSummary: false });
+            return;
+          }
+          const metadata = buildSummaryMetadataForScope(choice, { date: new Date() });
+          if (!metadata) {
+            closeSummaryMenu();
+            return;
+          }
+          const success = commitResponse({ summary: metadata, close: true, requireValueForSummary: true });
+          if (!success) {
+            return;
+          }
           closeSummaryMenu();
-          return;
-        }
-        const success = commitResponse({ summary: metadata, close: true, requireValueForSummary: true });
-        if (!success) {
-          return;
-        }
-        closeSummaryMenu();
-        if (typeof showToast === "function") {
-          const toastLabel = metadata.summaryLabel || metadata.label || "Bilan";
-          showToast(`${toastLabel} enregistré.`);
-        }
-      });
-      childMenuCleanups.push(() => closeSummaryMenu());
-    }
-    const background = variant === "drawer" ? overlay.firstElementChild : overlay;
-    if (background) {
-      background.addEventListener("click", (event) => {
-        const isDrawerBg = variant === "drawer" && event.target === background;
-        const isModalBg = variant !== "drawer" && event.target === overlay;
-        if (isDrawerBg || isModalBg) {
+          if (typeof showToast === "function") {
+            const toastLabel = metadata.summaryLabel || metadata.label || "Bilan";
+            showToast(`${toastLabel} enregistré.`);
+          }
+        });
+        childMenuCleanups.push(() => closeSummaryMenu());
+      }
+      const background = variant === "drawer" ? overlay.firstElementChild : overlay;
+      if (background) {
+        background.addEventListener("click", (event) => {
+          const isDrawerBg = variant === "drawer" && event.target === background;
+          const isModalBg = variant !== "drawer" && event.target === overlay;
+          if (isDrawerBg || isModalBg) {
+            event.preventDefault();
+            closeOverlay();
+          }
+        });
+      }
+      const onKeyDown = (event) => {
+        if (event.key === "Escape") {
           event.preventDefault();
           closeOverlay();
         }
-      });
-    }
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeOverlay();
+      };
+      document.addEventListener("keydown", onKeyDown, true);
+      const cancelBtn = overlay.querySelector("[data-consigne-editor-cancel]");
+      if (cancelBtn) {
+        cancelBtn.addEventListener("click", (event) => {
+          event.preventDefault();
+          closeOverlay();
+        });
       }
-    };
-    document.addEventListener("keydown", onKeyDown, true);
-    const cancelBtn = overlay.querySelector("[data-consigne-editor-cancel]");
-    if (cancelBtn) {
-      cancelBtn.addEventListener("click", (event) => {
-        event.preventDefault();
-        closeOverlay();
-      });
-    }
-    const skipBtn = overlay.querySelector("[data-consigne-editor-skip]");
-    if (skipBtn) {
-      skipBtn.addEventListener("click", (event) => {
-        event.preventDefault();
-        // Assure la présence du champ caché et met à jour l'UI immédiatement
-        try {
-          modesLogger?.group?.("ui.consigne.skip.click", { consigneId: consigne?.id ?? null });
-        } catch (_) { }
-        try {
-          const targetRow = (row && row.isConnected) ? row : overlay.ownerDocument?.querySelector?.(`[data-consigne-id="${String(consigne?.id ?? "")}" ]`);
-          const r = targetRow || row;
-          if (r) {
-            ensureConsigneSkipField(r, consigne);
-            setConsigneSkipState(r, consigne, true);
-            // Sécurise l’UI si un écouteur manquerait
-            applyConsigneSkipState(r, consigne, true, { updateUI: true });
-            // Déclenche une persistance applicative immédiate
-            try {
-              if (typeof handleValueChange === 'function') {
-                handleValueChange(consigne, r, { skipped: true });
-              }
-              if (typeof runAutoSave === 'function' && consigne?.id != null) {
-                runAutoSave(consigne.id);
-              }
-            } catch (e) {
-              modesLogger?.warn?.('consigne.skip.click.persist', e);
-            }
-            // Déclenche une persistance éventuelle pour les checklists imbriquées dans la consigne
-            const root = r.querySelector?.('[data-checklist-root]');
-            const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
-            if (root && typeof persistFn === 'function') {
-              const ctxUid = window.AppCtx?.user?.uid || null;
-              const ctxDb = window.AppCtx?.db || null;
+      const skipBtn = overlay.querySelector("[data-consigne-editor-skip]");
+      if (skipBtn) {
+        skipBtn.addEventListener("click", (event) => {
+          event.preventDefault();
+          // Assure la présence du champ caché et met à jour l'UI immédiatement
+          try {
+            modesLogger?.group?.("ui.consigne.skip.click", { consigneId: consigne?.id ?? null });
+          } catch (_) { }
+          try {
+            const targetRow = (row && row.isConnected) ? row : overlay.ownerDocument?.querySelector?.(`[data-consigne-id="${String(consigne?.id ?? "")}" ]`);
+            const r = targetRow || row;
+            if (r) {
+              ensureConsigneSkipField(r, consigne);
+              setConsigneSkipState(r, consigne, true);
+              // Sécurise l’UI si un écouteur manquerait
+              applyConsigneSkipState(r, consigne, true, { updateUI: true });
+              // Déclenche une persistance applicative immédiate
               try {
-                modesLogger?.info?.('consigne.skip.persist.attempt', {
+                if (typeof handleValueChange === 'function') {
+                  handleValueChange(consigne, r, { skipped: true });
+                }
+                if (typeof runAutoSave === 'function' && consigne?.id != null) {
+                  runAutoSave(consigne.id);
+                }
+              } catch (e) {
+                modesLogger?.warn?.('consigne.skip.click.persist', e);
+              }
+              // Déclenche une persistance éventuelle pour les checklists imbriquées dans la consigne
+              const root = r.querySelector?.('[data-checklist-root]');
+              const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
+              if (root && typeof persistFn === 'function') {
+                const ctxUid = window.AppCtx?.user?.uid || null;
+                const ctxDb = window.AppCtx?.db || null;
+                try {
+                  modesLogger?.info?.('consigne.skip.persist.attempt', {
+                    consigneId: consigne?.id ?? null,
+                    hasChecklistRoot: Boolean(root),
+                  });
+                } catch (_) { }
+                Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
+                  console.warn('[consigne] persist:skip', e);
+                });
+              }
+              // Persistance daily "responses" désactivée: ne pas appeler Schema.saveResponses('daily')
+              try {
+                modesLogger?.info?.('consigne.skip.persist.disabled', { consigneId: consigne?.id ?? null });
+              } catch (_) { }
+              try {
+                modesLogger?.info?.('consigne.skip.ui', {
                   consigneId: consigne?.id ?? null,
-                  hasChecklistRoot: Boolean(root),
+                  status: r?.dataset?.status || null,
+                  skipFlag: r?.dataset?.skipAnswered || null,
                 });
               } catch (_) { }
-              Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
-                console.warn('[consigne] persist:skip', e);
-              });
             }
-            // Persistance daily "responses" désactivée: ne pas appeler Schema.saveResponses('daily')
-            try {
-              modesLogger?.info?.('consigne.skip.persist.disabled', { consigneId: consigne?.id ?? null });
-            } catch (_) { }
-            try {
-              modesLogger?.info?.('consigne.skip.ui', {
-                consigneId: consigne?.id ?? null,
-                status: r?.dataset?.status || null,
-                skipFlag: r?.dataset?.skipAnswered || null,
-              });
-            } catch (_) { }
+          } catch (err) {
+            console.warn('[consigne] skip:handler', err);
           }
-        } catch (err) {
-          console.warn('[consigne] skip:handler', err);
-        }
-        updateParentChildAnsweredFlag();
-        syncParentAnswered();
-        updateSummaryControlState();
-        if (typeof options.onSkip === "function") {
-          options.onSkip({ event, close: closeOverlay, consigne, row });
-        }
-        closeOverlay();
-        try { modesLogger?.groupEnd?.(); } catch (_) { }
-      });
+          updateParentChildAnsweredFlag();
+          syncParentAnswered();
+          updateSummaryControlState();
+          if (typeof options.onSkip === "function") {
+            options.onSkip({ event, close: closeOverlay, consigne, row });
+          }
+          closeOverlay();
+          try { modesLogger?.groupEnd?.(); } catch (_) { }
+        });
+      }
+      const validateBtn = overlay.querySelector("[data-consigne-editor-validate]");
+      if (validateBtn) {
+        validateBtn.addEventListener("click", (event) => {
+          event.preventDefault();
+          commitResponse({ summary: null, close: true });
+        });
+      }
+    };
+    trigger.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openEditor();
+    });
+    if (trigger && typeof trigger.setAttribute === "function") {
+      trigger.setAttribute("aria-expanded", "false");
     }
-    const validateBtn = overlay.querySelector("[data-consigne-editor-validate]");
-    if (validateBtn) {
-      validateBtn.addEventListener("click", (event) => {
-        event.preventDefault();
-        commitResponse({ summary: null, close: true });
-      });
-    }
-  };
-  trigger.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    openEditor();
-  });
-  if (trigger && typeof trigger.setAttribute === "function") {
-    trigger.setAttribute("aria-expanded", "false");
   }
-}
 
-function hasChecklistResponse(consigne, row, value) {
-  if (value && typeof value === "object" && value.__hasAnswer === true) {
-    return true;
-  }
-  // Si la checklist a des items considérés (même 0% cochés), considérer qu'il y a une réponse
-  try {
-    const stats = deriveChecklistStats(value);
-    if (stats && Number.isFinite(stats.total) && stats.total > 0) {
+  function hasChecklistResponse(consigne, row, value) {
+    if (value && typeof value === "object" && value.__hasAnswer === true) {
       return true;
     }
-  } catch (_) { }
-  if (checklistHasSelection(value)) {
-    return true;
-  }
-  const skippedStates = readChecklistSkipped(value);
-  if (skippedStates.some(Boolean)) {
-    return true;
-  }
-  if (row instanceof HTMLElement) {
-    const container = row.querySelector(
-      `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
-    );
-    if (container) {
-      const domState = readChecklistDomState(container);
-      const hasSelected = domState.items.some((checked, index) => checked && !domState.skipped[index]);
-      if (hasSelected || domState.skipped.some(Boolean)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-function hasValueForConsigne(consigne, value) {
-  value = normalizeHistoryValueForEditor(consigne?.type, value);
-  if (value && typeof value === "object" && value.skipped === true) {
-    return false;
-  }
-  const type = consigne?.type;
-  if (type === "yesno") {
-    // Only explicit selections count as answers
-    return value === "yes" || value === "no";
-  }
-  if (type === "likert6") {
-    // Treat the placeholder option as no answer
-    if (value === "no_answer" || value === "") return false;
-    const allowed = new Set(["yes", "rather_yes", "medium", "rather_no", "no"]);
-    return allowed.has(String(value));
-  }
-  if (type === "long") {
-    return richTextHasContent(value);
-  }
-  if (type === "short") {
-    return typeof value === "string" && value.trim().length > 0;
-  }
-  if (type === "checklist") {
-    // Réponse présente si au moins un item est considéré (même 0% cochés),
-    // ou si sélection/skip comme auparavant
+    // Si la checklist a des items considérés (même 0% cochés), considérer qu'il y a une réponse
     try {
       const stats = deriveChecklistStats(value);
       if (stats && Number.isFinite(stats.total) && stats.total > 0) {
@@ -15236,493 +15148,546 @@ function hasValueForConsigne(consigne, value) {
     if (checklistHasSelection(value)) {
       return true;
     }
-    return readChecklistSkipped(value).some(Boolean);
+    const skippedStates = readChecklistSkipped(value);
+    if (skippedStates.some(Boolean)) {
+      return true;
+    }
+    if (row instanceof HTMLElement) {
+      const container = row.querySelector(
+        `[data-checklist-root][data-consigne-id="${String(consigne.id ?? "")}"]`
+      );
+      if (container) {
+        const domState = readChecklistDomState(container);
+        const hasSelected = domState.items.some((checked, index) => checked && !domState.skipped[index]);
+        if (hasSelected || domState.skipped.some(Boolean)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
-  if (type === "num") {
-    if (value === null || value === undefined || value === "") return false;
-    const num = Number(value);
-    return Number.isFinite(num);
-  }
-  if (type === "montant") {
-    if (value === null || value === undefined || value === "") {
+
+  function hasValueForConsigne(consigne, value) {
+    value = normalizeHistoryValueForEditor(consigne?.type, value);
+    if (value && typeof value === "object" && value.skipped === true) {
       return false;
     }
-    const normalized = normalizeMontantValue(value, consigne);
-    return Number.isFinite(normalized.amount);
-  }
-  return !(value === null || value === undefined || value === "");
-}
-
-function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
-  if (!row || !consigne) return;
-  const syncSkipStateFromValue = (value) => {
-    if (!row || !consigne) return;
-    const skipInValue = Boolean(value && typeof value === "object" && value.skipped === true);
-    const skipActive = row?.dataset?.skipAnswered === "1";
-    const hasAnswer = consigne.type === "checklist"
-      ? hasChecklistResponse(consigne, row, value)
-      : hasValueForConsigne(consigne, value);
-    const shouldSkip = (skipInValue || skipActive) && !hasAnswer;
-    if (shouldSkip !== skipActive) {
-      setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents: false, updateUI: false });
+    const type = consigne?.type;
+    if (type === "yesno") {
+      // Only explicit selections count as answers
+      return value === "yes" || value === "no";
     }
-  };
-  const mapValueForStatus = (value) => {
-    syncSkipStateFromValue(value);
-    if (row?.dataset?.skipAnswered === "1") {
-      if (hasValueForConsigne(consigne, value)) {
-        delete row.dataset.skipAnswered;
-        return value;
+    if (type === "likert6") {
+      // Treat the placeholder option as no answer
+      if (value === "no_answer" || value === "") return false;
+      const allowed = new Set(["yes", "rather_yes", "medium", "rather_no", "no"]);
+      return allowed.has(String(value));
+    }
+    if (type === "long") {
+      return richTextHasContent(value);
+    }
+    if (type === "short") {
+      return typeof value === "string" && value.trim().length > 0;
+    }
+    if (type === "checklist") {
+      // Réponse présente si au moins un item est considéré (même 0% cochés),
+      // ou si sélection/skip comme auparavant
+      try {
+        const stats = deriveChecklistStats(value);
+        if (stats && Number.isFinite(stats.total) && stats.total > 0) {
+          return true;
+        }
+      } catch (_) { }
+      if (checklistHasSelection(value)) {
+        return true;
       }
-      return { skipped: true };
+      return readChecklistSkipped(value).some(Boolean);
     }
-    if (consigne.type === "checklist" && value && typeof value === "object") {
-      const hasAnswer = hasChecklistResponse(consigne, row, value);
-      return { ...value, __hasAnswer: hasAnswer };
+    if (type === "num") {
+      if (value === null || value === undefined || value === "") return false;
+      const num = Number(value);
+      return Number.isFinite(num);
     }
-    return value;
-  };
-  const emit = (value) => {
-    const statusValue = mapValueForStatus(value);
-    if (onChange) onChange(value);
-    updateConsigneStatusUI(row, consigne, statusValue);
-  };
-  const read = () => readConsigneCurrentValue(consigne, row);
-  if (initialValue !== undefined) {
-    emit(initialValue);
-  } else {
-    emit(read());
+    if (type === "montant") {
+      if (value === null || value === undefined || value === "") {
+        return false;
+      }
+      const normalized = normalizeMontantValue(value, consigne);
+      return Number.isFinite(normalized.amount);
+    }
+    return !(value === null || value === undefined || value === "");
   }
-  const raf = typeof requestAnimationFrame === "function"
-    ? requestAnimationFrame
-    : (cb) => setTimeout(cb, 16);
-  const fields = Array.from(row.querySelectorAll(`[name$=":${consigne.id}"]`));
-  if (fields.length) {
-    const handler = () => emit(read());
-    fields.forEach((field) => {
-      field.addEventListener("input", handler);
-      field.addEventListener("change", handler);
-    });
-    raf(() => emit(read()));
-  } else {
-    raf(() => emit(read()));
-  }
-}
 
-function formatHistoryChartValue(type, value) {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return "";
+  function bindConsigneRowValue(row, consigne, { onChange, initialValue } = {}) {
+    if (!row || !consigne) return;
+    const syncSkipStateFromValue = (value) => {
+      if (!row || !consigne) return;
+      const skipInValue = Boolean(value && typeof value === "object" && value.skipped === true);
+      const skipActive = row?.dataset?.skipAnswered === "1";
+      const hasAnswer = consigne.type === "checklist"
+        ? hasChecklistResponse(consigne, row, value)
+        : hasValueForConsigne(consigne, value);
+      const shouldSkip = (skipInValue || skipActive) && !hasAnswer;
+      if (shouldSkip !== skipActive) {
+        setConsigneSkipState(row, consigne, shouldSkip, { emitInputEvents: false, updateUI: false });
+      }
+    };
+    const mapValueForStatus = (value) => {
+      syncSkipStateFromValue(value);
+      if (row?.dataset?.skipAnswered === "1") {
+        if (hasValueForConsigne(consigne, value)) {
+          delete row.dataset.skipAnswered;
+          return value;
+        }
+        return { skipped: true };
+      }
+      if (consigne.type === "checklist" && value && typeof value === "object") {
+        const hasAnswer = hasChecklistResponse(consigne, row, value);
+        return { ...value, __hasAnswer: hasAnswer };
+      }
+      return value;
+    };
+    const emit = (value) => {
+      const statusValue = mapValueForStatus(value);
+      if (onChange) onChange(value);
+      updateConsigneStatusUI(row, consigne, statusValue);
+    };
+    const read = () => readConsigneCurrentValue(consigne, row);
+    if (initialValue !== undefined) {
+      emit(initialValue);
+    } else {
+      emit(read());
+    }
+    const raf = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (cb) => setTimeout(cb, 16);
+    const fields = Array.from(row.querySelectorAll(`[name$=":${consigne.id}"]`));
+    if (fields.length) {
+      const handler = () => emit(read());
+      fields.forEach((field) => {
+        field.addEventListener("input", handler);
+        field.addEventListener("change", handler);
+      });
+      raf(() => emit(read()));
+    } else {
+      raf(() => emit(read()));
+    }
   }
-  if (type === "checklist") {
-    const pct = Math.round(Number(value) * 100);
-    return `${pct}%`;
+
+  function formatHistoryChartValue(type, value) {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return "";
+    }
+    if (type === "checklist") {
+      const pct = Math.round(Number(value) * 100);
+      return `${pct}%`;
+    }
+    if (type === "yesno") {
+      return value >= 0.5 ? "Oui" : "Non";
+    }
+    if (type === "likert6") {
+      const index = Math.round(Number(value));
+      const key = LIKERT6_ORDER[index] || "";
+      return LIKERT6_LABELS[key] || key || String(index);
+    }
+    if (type === "likert5") {
+      return String(Math.round(Number(value) * 100) / 100);
+    }
+    if (type === "num") {
+      const rounded = Math.round(Number(value) * 100) / 100;
+      return String(rounded);
+    }
+    if (type === "montant") {
+      const rounded = Math.round(Number(value) * 100) / 100;
+      return String(rounded);
+    }
+    return String(value);
   }
-  if (type === "yesno") {
-    return value >= 0.5 ? "Oui" : "Non";
-  }
-  if (type === "likert6") {
-    const index = Math.round(Number(value));
-    const key = LIKERT6_ORDER[index] || "";
-    return LIKERT6_LABELS[key] || key || String(index);
-  }
-  if (type === "likert5") {
-    return String(Math.round(Number(value) * 100) / 100);
-  }
-  if (type === "num") {
-    const rounded = Math.round(Number(value) * 100) / 100;
-    return String(rounded);
-  }
-  if (type === "montant") {
-    const rounded = Math.round(Number(value) * 100) / 100;
-    return String(rounded);
-  }
-  return String(value);
-}
 
 
-function renderHistoryChart(data, { type, mode } = {}) {
-  const dataset = Array.isArray(data)
-    ? { points: data }
-    : data && typeof data === "object"
-      ? data
-      : { points: [] };
-  const rawPoints = Array.isArray(dataset.points) ? dataset.points : [];
-  const supportsChart = !(type === "long" || type === "short" || type === "info");
-  if (!supportsChart) {
-    return `
+  function renderHistoryChart(data, { type, mode } = {}) {
+    const dataset = Array.isArray(data)
+      ? { points: data }
+      : data && typeof data === "object"
+        ? data
+        : { points: [] };
+    const rawPoints = Array.isArray(dataset.points) ? dataset.points : [];
+    const supportsChart = !(type === "long" || type === "short" || type === "info");
+    if (!supportsChart) {
+      return `
       <div class="history-panel__chart history-panel__chart--simple history-panel__chart--empty">
         <p class="history-panel__chart-empty-text">Ce type de consigne ne génère pas de graphique.</p>
       </div>
     `;
-  }
+    }
 
-  const sanitizedPoints = Array.isArray(rawPoints)
-    ? rawPoints
-      .filter(
-        (entry) =>
-          entry &&
-          entry.date instanceof Date &&
-          !Number.isNaN(entry.date.getTime()) &&
-          entry.value !== null &&
-          entry.value !== undefined &&
-          Number.isFinite(Number(entry.value))
-      )
-      .map((entry) => {
-        const rawScope =
-          typeof entry.summaryScope === "string"
-            ? entry.summaryScope
-            : typeof entry.summary_scope === "string"
-              ? entry.summary_scope
-              : "";
-        const normalizedScope = rawScope.trim().toLowerCase();
-        const recordedAtValue =
-          entry.recordedAt instanceof Date && !Number.isNaN(entry.recordedAt.getTime())
-            ? new Date(entry.recordedAt.getTime())
-            : null;
-        const recordedAtFromString =
-          !recordedAtValue && typeof entry.recordedAt === "string"
-            ? new Date(entry.recordedAt)
-            : null;
-        const recordedAt =
-          recordedAtValue && recordedAtValue instanceof Date && !Number.isNaN(recordedAtValue.getTime())
-            ? recordedAtValue
-            : recordedAtFromString && !Number.isNaN(recordedAtFromString.getTime())
-              ? recordedAtFromString
+    const sanitizedPoints = Array.isArray(rawPoints)
+      ? rawPoints
+        .filter(
+          (entry) =>
+            entry &&
+            entry.date instanceof Date &&
+            !Number.isNaN(entry.date.getTime()) &&
+            entry.value !== null &&
+            entry.value !== undefined &&
+            Number.isFinite(Number(entry.value))
+        )
+        .map((entry) => {
+          const rawScope =
+            typeof entry.summaryScope === "string"
+              ? entry.summaryScope
+              : typeof entry.summary_scope === "string"
+                ? entry.summary_scope
+                : "";
+          const normalizedScope = rawScope.trim().toLowerCase();
+          const recordedAtValue =
+            entry.recordedAt instanceof Date && !Number.isNaN(entry.recordedAt.getTime())
+              ? new Date(entry.recordedAt.getTime())
               : null;
-        const dayKeyValue =
-          typeof entry.dayKey === "string"
-            ? entry.dayKey
-            : typeof entry.day_key === "string"
-              ? entry.day_key
-              : "";
-        let summaryScope = "";
-        if (normalizedScope.includes("mensu") || normalizedScope.includes("month")) {
-          summaryScope = "monthly";
-        } else if (
-          normalizedScope.includes("hebdo") ||
-          normalizedScope.includes("week") ||
-          /\bhebdomadaire\b/.test(normalizedScope)
-        ) {
-          summaryScope = "weekly";
-        } else if (
-          normalizedScope.includes("annuel") ||
-          normalizedScope.includes("annuelle") ||
-          normalizedScope.includes("annual") ||
-          normalizedScope.includes("yearly")
-        ) {
-          summaryScope = "yearly";
-        } else if (
-          normalizedScope.includes("ponct") ||
-          normalizedScope.includes("adhoc") ||
-          normalizedScope.includes("ad-hoc")
-        ) {
-          summaryScope = "adhoc";
-        }
-        const hasBilanFlag = Boolean(entry.isBilan) || normalizedScope.includes("bilan");
-        const hasSummaryFlag =
-          Boolean(entry.isSummary) ||
-          Boolean(summaryScope) ||
-          hasBilanFlag ||
-          normalizedScope.includes("summary") ||
-          normalizedScope.includes("yearly") ||
-          normalizedScope.includes("annuel") ||
-          normalizedScope.includes("ponct");
-        return {
-          date: new Date(entry.date),
-          value: Number(entry.value),
-          progress:
-            entry.progress !== undefined && entry.progress !== null && Number.isFinite(Number(entry.progress))
-              ? Number(entry.progress)
-              : null,
-          isSummary: hasSummaryFlag,
-          summaryScope,
-          isBilan: hasBilanFlag,
-          recordedAt: recordedAt ? new Date(recordedAt.getTime()) : null,
-          dayKey: dayKeyValue,
-        };
-      })
-    : [];
+          const recordedAtFromString =
+            !recordedAtValue && typeof entry.recordedAt === "string"
+              ? new Date(entry.recordedAt)
+              : null;
+          const recordedAt =
+            recordedAtValue && recordedAtValue instanceof Date && !Number.isNaN(recordedAtValue.getTime())
+              ? recordedAtValue
+              : recordedAtFromString && !Number.isNaN(recordedAtFromString.getTime())
+                ? recordedAtFromString
+                : null;
+          const dayKeyValue =
+            typeof entry.dayKey === "string"
+              ? entry.dayKey
+              : typeof entry.day_key === "string"
+                ? entry.day_key
+                : "";
+          let summaryScope = "";
+          if (normalizedScope.includes("mensu") || normalizedScope.includes("month")) {
+            summaryScope = "monthly";
+          } else if (
+            normalizedScope.includes("hebdo") ||
+            normalizedScope.includes("week") ||
+            /\bhebdomadaire\b/.test(normalizedScope)
+          ) {
+            summaryScope = "weekly";
+          } else if (
+            normalizedScope.includes("annuel") ||
+            normalizedScope.includes("annuelle") ||
+            normalizedScope.includes("annual") ||
+            normalizedScope.includes("yearly")
+          ) {
+            summaryScope = "yearly";
+          } else if (
+            normalizedScope.includes("ponct") ||
+            normalizedScope.includes("adhoc") ||
+            normalizedScope.includes("ad-hoc")
+          ) {
+            summaryScope = "adhoc";
+          }
+          const hasBilanFlag = Boolean(entry.isBilan) || normalizedScope.includes("bilan");
+          const hasSummaryFlag =
+            Boolean(entry.isSummary) ||
+            Boolean(summaryScope) ||
+            hasBilanFlag ||
+            normalizedScope.includes("summary") ||
+            normalizedScope.includes("yearly") ||
+            normalizedScope.includes("annuel") ||
+            normalizedScope.includes("ponct");
+          return {
+            date: new Date(entry.date),
+            value: Number(entry.value),
+            progress:
+              entry.progress !== undefined && entry.progress !== null && Number.isFinite(Number(entry.progress))
+                ? Number(entry.progress)
+                : null,
+            isSummary: hasSummaryFlag,
+            summaryScope,
+            isBilan: hasBilanFlag,
+            recordedAt: recordedAt ? new Date(recordedAt.getTime()) : null,
+            dayKey: dayKeyValue,
+          };
+        })
+      : [];
 
-  const sorted = sanitizedPoints.slice().sort((a, b) => a.date - b.date);
-  if (!sorted.length) {
-    return `
+    const sorted = sanitizedPoints.slice().sort((a, b) => a.date - b.date);
+    if (!sorted.length) {
+      return `
       <div class="history-panel__chart history-panel__chart--simple history-panel__chart--empty">
         <p class="history-panel__chart-empty-text">Aucune donnée enregistrée pour le moment.</p>
       </div>
     `;
-  }
-
-  const values = sorted.map((entry) => {
-    if (type === "montant" && Number.isFinite(entry.progress)) {
-      return entry.progress;
     }
-    return entry.value;
-  });
-  const chartValues = sorted.map((entry) => entry.value);
-  let min = Math.min(...chartValues);
-  let max = Math.max(...chartValues);
-  if (!Number.isFinite(min) || !Number.isFinite(max)) {
-    min = 0;
-    max = 1;
-  }
-  if (type === "yesno") {
-    min = Math.min(0, min);
-    max = Math.max(1, max);
-  }
-  if (type === "likert6") {
-    min = 0;
-    max = LIKERT6_ORDER.length - 1;
-  }
-  const hasVariance = Math.abs(max - min) > Number.EPSILON;
-  let yPadding;
-  if (type === "likert6") {
-    yPadding = hasVariance ? 0 : 0.5;
-  } else if (type === "yesno") {
-    yPadding = 0;
-  } else {
-    yPadding = hasVariance ? 0 : 1;
-  }
-  if (!Number.isFinite(yPadding) || yPadding < 0) {
-    yPadding = 0;
-  }
-  let yMin = min - yPadding;
-  let yMax = max + yPadding;
-  if (type === "yesno") {
-    yMin = 0;
-    yMax = 1;
-  }
-  if (type === "likert6") {
-    yMin = hasVariance ? min : min - yPadding;
-    yMax = hasVariance ? max : max + yPadding;
-  }
-  if (!Number.isFinite(yMin)) {
-    yMin = hasVariance ? min : min - 1;
-  }
-  if (!Number.isFinite(yMax)) {
-    yMax = hasVariance ? max : max + 1;
-  }
-  if (yMax <= yMin) {
-    yMax = yMin + 1;
-  }
-  const yRange = yMax - yMin || 1;
 
-  const averageStatus = historyStatusFromAverage(type, values) || "na";
-  const colorPalette = resolveHistoryStatusColors(averageStatus);
+    const values = sorted.map((entry) => {
+      if (type === "montant" && Number.isFinite(entry.progress)) {
+        return entry.progress;
+      }
+      return entry.value;
+    });
+    const chartValues = sorted.map((entry) => entry.value);
+    let min = Math.min(...chartValues);
+    let max = Math.max(...chartValues);
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      min = 0;
+      max = 1;
+    }
+    if (type === "yesno") {
+      min = Math.min(0, min);
+      max = Math.max(1, max);
+    }
+    if (type === "likert6") {
+      min = 0;
+      max = LIKERT6_ORDER.length - 1;
+    }
+    const hasVariance = Math.abs(max - min) > Number.EPSILON;
+    let yPadding;
+    if (type === "likert6") {
+      yPadding = hasVariance ? 0 : 0.5;
+    } else if (type === "yesno") {
+      yPadding = 0;
+    } else {
+      yPadding = hasVariance ? 0 : 1;
+    }
+    if (!Number.isFinite(yPadding) || yPadding < 0) {
+      yPadding = 0;
+    }
+    let yMin = min - yPadding;
+    let yMax = max + yPadding;
+    if (type === "yesno") {
+      yMin = 0;
+      yMax = 1;
+    }
+    if (type === "likert6") {
+      yMin = hasVariance ? min : min - yPadding;
+      yMax = hasVariance ? max : max + yPadding;
+    }
+    if (!Number.isFinite(yMin)) {
+      yMin = hasVariance ? min : min - 1;
+    }
+    if (!Number.isFinite(yMax)) {
+      yMax = hasVariance ? max : max + 1;
+    }
+    if (yMax <= yMin) {
+      yMax = yMin + 1;
+    }
+    const yRange = yMax - yMin || 1;
 
-  const chartWidth = 960;
-  const chartHeight = 320;
-  const paddingTop = 24;
-  const paddingRight = 56;
-  const paddingBottom = 60;
-  const paddingLeft = 64;
-  const innerWidth = chartWidth - paddingLeft - paddingRight;
-  const innerHeight = chartHeight - paddingTop - paddingBottom;
+    const averageStatus = historyStatusFromAverage(type, values) || "na";
+    const colorPalette = resolveHistoryStatusColors(averageStatus);
 
-  const axisFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
-  const tooltipFormatter = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" });
-  const timeFormatter = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  const iterationFormatter = new Intl.NumberFormat("fr-FR");
+    const chartWidth = 960;
+    const chartHeight = 320;
+    const paddingTop = 24;
+    const paddingRight = 56;
+    const paddingBottom = 60;
+    const paddingLeft = 64;
+    const innerWidth = chartWidth - paddingLeft - paddingRight;
+    const innerHeight = chartHeight - paddingTop - paddingBottom;
 
-  const coords = sorted.map((entry, index) => {
-    const ratio = sorted.length === 1 ? 0.5 : index / Math.max(sorted.length - 1, 1);
-    const x = paddingLeft + ratio * innerWidth;
-    const normalized = Number.isFinite(entry.value) ? (entry.value - yMin) / yRange : 0.5;
-    const clamped = Number.isFinite(normalized) ? Math.min(Math.max(normalized, 0), 1) : 0.5;
-    const y = paddingTop + (1 - clamped) * innerHeight;
-    const axisRaw = entry.dayKey || axisFormatter.format(entry.date);
-    const axisLabel = axisRaw ? axisRaw.charAt(0).toUpperCase() + axisRaw.slice(1) : axisRaw;
-    const tooltipDate = tooltipFormatter.format(entry.date);
-    const timeLabel = entry.recordedAt ? timeFormatter.format(entry.recordedAt) : "";
-    const summaryLabel =
-      entry.summaryScope === "monthly"
-        ? "Bilan mensuel"
-        : entry.summaryScope === "weekly"
-          ? "Bilan hebdomadaire"
-          : entry.summaryScope === "yearly"
-            ? "Bilan annuel"
-            : entry.isBilan
-              ? "Bilan"
-              : entry.isSummary
-                ? "Synthèse"
-                : "";
-    const tooltipMeta = [tooltipDate, timeLabel, summaryLabel]
-      .map((part) => part && part.trim())
-      .filter(Boolean)
-      .join(" · ");
-    return {
-      x,
-      y,
-      value: entry.value,
-      axisLabel,
-      tooltipMeta,
-      tooltipDate,
-      timeLabel,
-      iteration: index + 1,
-      isBilan: Boolean(entry.isBilan),
-    };
-  });
+    const axisFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+    const tooltipFormatter = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" });
+    const timeFormatter = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    const iterationFormatter = new Intl.NumberFormat("fr-FR");
 
-  const linePath = coords
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
-    .join(" ");
-  const baselineY = paddingTop + innerHeight;
-  let areaPath = "";
-  if (coords.length === 1) {
-    const point = coords[0];
-    const x = point.x.toFixed(2);
-    const y = point.y.toFixed(2);
-    const base = baselineY.toFixed(2);
-    areaPath = `M${x},${base} L${x},${y} L${(point.x + 0.1).toFixed(2)},${y} L${(point.x + 0.1).toFixed(2)},${base} Z`;
-  } else if (coords.length > 1) {
-    const firstX = coords[0].x.toFixed(2);
-    const lastX = coords[coords.length - 1].x.toFixed(2);
-    const segments = coords
-      .map((point) => `L${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+    const coords = sorted.map((entry, index) => {
+      const ratio = sorted.length === 1 ? 0.5 : index / Math.max(sorted.length - 1, 1);
+      const x = paddingLeft + ratio * innerWidth;
+      const normalized = Number.isFinite(entry.value) ? (entry.value - yMin) / yRange : 0.5;
+      const clamped = Number.isFinite(normalized) ? Math.min(Math.max(normalized, 0), 1) : 0.5;
+      const y = paddingTop + (1 - clamped) * innerHeight;
+      const axisRaw = entry.dayKey || axisFormatter.format(entry.date);
+      const axisLabel = axisRaw ? axisRaw.charAt(0).toUpperCase() + axisRaw.slice(1) : axisRaw;
+      const tooltipDate = tooltipFormatter.format(entry.date);
+      const timeLabel = entry.recordedAt ? timeFormatter.format(entry.recordedAt) : "";
+      const summaryLabel =
+        entry.summaryScope === "monthly"
+          ? "Bilan mensuel"
+          : entry.summaryScope === "weekly"
+            ? "Bilan hebdomadaire"
+            : entry.summaryScope === "yearly"
+              ? "Bilan annuel"
+              : entry.isBilan
+                ? "Bilan"
+                : entry.isSummary
+                  ? "Synthèse"
+                  : "";
+      const tooltipMeta = [tooltipDate, timeLabel, summaryLabel]
+        .map((part) => part && part.trim())
+        .filter(Boolean)
+        .join(" · ");
+      return {
+        x,
+        y,
+        value: entry.value,
+        axisLabel,
+        tooltipMeta,
+        tooltipDate,
+        timeLabel,
+        iteration: index + 1,
+        isBilan: Boolean(entry.isBilan),
+      };
+    });
+
+    const linePath = coords
+      .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
       .join(" ");
-    areaPath = `M${firstX},${baselineY.toFixed(2)} ${segments} L${lastX},${baselineY.toFixed(2)} Z`;
-  }
-
-  const yTicksCount = 4;
-  const yTicks = Array.from({ length: yTicksCount + 1 }, (_, idx) => {
-    const ratio = idx / yTicksCount;
-    const value = yMax - ratio * (yMax - yMin);
-    const label = formatHistoryChartValue(type, value);
-    const y = paddingTop + ratio * innerHeight;
-    return { y, label };
-  });
-
-  const approxCharWidth = 7.5;
-  const minLabelWidth = 52;
-  const labelPadding = 10;
-  const labelEntries = coords
-    .map((point, index) => {
-      const label = point.axisLabel;
-      if (!label) return null;
-      const estimatedWidth = Math.max(minLabelWidth, label.length * approxCharWidth);
-      return { index, point, label, width: estimatedWidth };
-    })
-    .filter(Boolean);
-
-  const visibleLabelEntries = [];
-  for (const entry of labelEntries) {
-    if (!visibleLabelEntries.length) {
-      visibleLabelEntries.push(entry);
-      continue;
+    const baselineY = paddingTop + innerHeight;
+    let areaPath = "";
+    if (coords.length === 1) {
+      const point = coords[0];
+      const x = point.x.toFixed(2);
+      const y = point.y.toFixed(2);
+      const base = baselineY.toFixed(2);
+      areaPath = `M${x},${base} L${x},${y} L${(point.x + 0.1).toFixed(2)},${y} L${(point.x + 0.1).toFixed(2)},${base} Z`;
+    } else if (coords.length > 1) {
+      const firstX = coords[0].x.toFixed(2);
+      const lastX = coords[coords.length - 1].x.toFixed(2);
+      const segments = coords
+        .map((point) => `L${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+        .join(" ");
+      areaPath = `M${firstX},${baselineY.toFixed(2)} ${segments} L${lastX},${baselineY.toFixed(2)} Z`;
     }
-    const previous = visibleLabelEntries[visibleLabelEntries.length - 1];
-    const minGap = (previous.width + entry.width) / 2 + labelPadding;
-    if (entry.point.x - previous.point.x >= minGap) {
-      visibleLabelEntries.push(entry);
-    }
-  }
 
-  const lastEntry = labelEntries[labelEntries.length - 1];
-  if (lastEntry && !visibleLabelEntries.some((entry) => entry.index === lastEntry.index)) {
-    let inserted = false;
-    for (let i = visibleLabelEntries.length - 1; i >= 0; i -= 1) {
-      const candidate = visibleLabelEntries[i];
-      const minGap = (candidate.width + lastEntry.width) / 2 + labelPadding;
-      if (lastEntry.point.x - candidate.point.x >= minGap) {
-        visibleLabelEntries.splice(i + 1, visibleLabelEntries.length - i - 1, lastEntry);
-        inserted = true;
-        break;
+    const yTicksCount = 4;
+    const yTicks = Array.from({ length: yTicksCount + 1 }, (_, idx) => {
+      const ratio = idx / yTicksCount;
+      const value = yMax - ratio * (yMax - yMin);
+      const label = formatHistoryChartValue(type, value);
+      const y = paddingTop + ratio * innerHeight;
+      return { y, label };
+    });
+
+    const approxCharWidth = 7.5;
+    const minLabelWidth = 52;
+    const labelPadding = 10;
+    const labelEntries = coords
+      .map((point, index) => {
+        const label = point.axisLabel;
+        if (!label) return null;
+        const estimatedWidth = Math.max(minLabelWidth, label.length * approxCharWidth);
+        return { index, point, label, width: estimatedWidth };
+      })
+      .filter(Boolean);
+
+    const visibleLabelEntries = [];
+    for (const entry of labelEntries) {
+      if (!visibleLabelEntries.length) {
+        visibleLabelEntries.push(entry);
+        continue;
+      }
+      const previous = visibleLabelEntries[visibleLabelEntries.length - 1];
+      const minGap = (previous.width + entry.width) / 2 + labelPadding;
+      if (entry.point.x - previous.point.x >= minGap) {
+        visibleLabelEntries.push(entry);
       }
     }
-    if (!inserted) {
-      const firstEntry = visibleLabelEntries[0] || labelEntries[0];
-      if (firstEntry) {
-        const minGapEnds = (firstEntry.width + lastEntry.width) / 2 + labelPadding;
-        if (lastEntry.point.x - firstEntry.point.x >= minGapEnds) {
-          visibleLabelEntries.length = 0;
-          visibleLabelEntries.push(firstEntry, lastEntry);
+
+    const lastEntry = labelEntries[labelEntries.length - 1];
+    if (lastEntry && !visibleLabelEntries.some((entry) => entry.index === lastEntry.index)) {
+      let inserted = false;
+      for (let i = visibleLabelEntries.length - 1; i >= 0; i -= 1) {
+        const candidate = visibleLabelEntries[i];
+        const minGap = (candidate.width + lastEntry.width) / 2 + labelPadding;
+        if (lastEntry.point.x - candidate.point.x >= minGap) {
+          visibleLabelEntries.splice(i + 1, visibleLabelEntries.length - i - 1, lastEntry);
+          inserted = true;
+          break;
+        }
+      }
+      if (!inserted) {
+        const firstEntry = visibleLabelEntries[0] || labelEntries[0];
+        if (firstEntry) {
+          const minGapEnds = (firstEntry.width + lastEntry.width) / 2 + labelPadding;
+          if (lastEntry.point.x - firstEntry.point.x >= minGapEnds) {
+            visibleLabelEntries.length = 0;
+            visibleLabelEntries.push(firstEntry, lastEntry);
+          } else {
+            visibleLabelEntries.length = 0;
+            visibleLabelEntries.push(lastEntry);
+          }
         } else {
-          visibleLabelEntries.length = 0;
           visibleLabelEntries.push(lastEntry);
         }
-      } else {
-        visibleLabelEntries.push(lastEntry);
       }
     }
-  }
 
-  const visibleLabelIndices = new Set(visibleLabelEntries.map((entry) => entry.index));
+    const visibleLabelIndices = new Set(visibleLabelEntries.map((entry) => entry.index));
 
-  const xAxisLabels = coords
-    .map((point, index) => {
-      const label = point.axisLabel;
-      if (!label || !visibleLabelIndices.has(index)) return "";
-      return `<text class="history-chart__axis-label history-chart__axis-label--x" x="${point.x.toFixed(2)}" y="${(chartHeight - paddingBottom + 32).toFixed(2)}">${escapeHtml(
-        label
-      )}</text>`;
-    })
-    .join("");
+    const xAxisLabels = coords
+      .map((point, index) => {
+        const label = point.axisLabel;
+        if (!label || !visibleLabelIndices.has(index)) return "";
+        return `<text class="history-chart__axis-label history-chart__axis-label--x" x="${point.x.toFixed(2)}" y="${(chartHeight - paddingBottom + 32).toFixed(2)}">${escapeHtml(
+          label
+        )}</text>`;
+      })
+      .join("");
 
-  const yAxisLabels = yTicks
-    .map(
-      (tick) => `
+    const yAxisLabels = yTicks
+      .map(
+        (tick) => `
         <text class="history-chart__axis-label history-chart__axis-label--y" x="${(paddingLeft - 16).toFixed(2)}" y="${(tick.y + 4).toFixed(2)}">${escapeHtml(
-        tick.label
-      )}</text>
+          tick.label
+        )}</text>
       `
-    )
-    .join("");
+      )
+      .join("");
 
-  const horizontalLines = yTicks
-    .map(
-      (tick) => `
+    const horizontalLines = yTicks
+      .map(
+        (tick) => `
         <line class="history-chart__grid-line" x1="${paddingLeft.toFixed(2)}" x2="${(chartWidth - paddingRight).toFixed(
-        2
-      )}" y1="${tick.y.toFixed(2)}" y2="${tick.y.toFixed(2)}"></line>
+          2
+        )}" y1="${tick.y.toFixed(2)}" y2="${tick.y.toFixed(2)}"></line>
       `
-    )
-    .join("");
+      )
+      .join("");
 
-  const pointsMarkup = coords
-    .map((point) => {
-      const valueLabel = formatHistoryChartValue(type, point.value);
-      const iterationLabel = iterationFormatter.format(point.iteration);
-      const metaParts = [point.tooltipMeta, `Réponse ${iterationLabel}`].filter(Boolean);
-      const tooltipMeta = metaParts.join(" · ");
-      const ariaParts = [valueLabel, tooltipMeta].filter(Boolean);
-      const ariaLabel = ariaParts.join(" — ");
-      const metaAttr = tooltipMeta ? ` data-meta="${escapeHtml(tooltipMeta)}"` : "";
-      const scopeColor = (() => {
-        const s = typeof point.summaryScope === 'string' ? point.summaryScope : '';
-        if (s === 'monthly') return '#6d28d9';
-        if (s === 'yearly') return '#5b21b6';
-        // weekly and default
-        return '#7c3aed';
-      })();
-      const pointColor = point.isBilan ? scopeColor : colorPalette.circle;
-      const pointClasses = ["history-chart__point"];
-      if (point.isBilan) {
-        pointClasses.push("history-chart__point--bilan");
-      }
-      const pointStyle = ` style="--history-point-color:${escapeHtml(pointColor)}"`;
-      return `
+    const pointsMarkup = coords
+      .map((point) => {
+        const valueLabel = formatHistoryChartValue(type, point.value);
+        const iterationLabel = iterationFormatter.format(point.iteration);
+        const metaParts = [point.tooltipMeta, `Réponse ${iterationLabel}`].filter(Boolean);
+        const tooltipMeta = metaParts.join(" · ");
+        const ariaParts = [valueLabel, tooltipMeta].filter(Boolean);
+        const ariaLabel = ariaParts.join(" — ");
+        const metaAttr = tooltipMeta ? ` data-meta="${escapeHtml(tooltipMeta)}"` : "";
+        const scopeColor = (() => {
+          const s = typeof point.summaryScope === 'string' ? point.summaryScope : '';
+          if (s === 'monthly') return '#6d28d9';
+          if (s === 'yearly') return '#5b21b6';
+          // weekly and default
+          return '#7c3aed';
+        })();
+        const pointColor = point.isBilan ? scopeColor : colorPalette.circle;
+        const pointClasses = ["history-chart__point"];
+        if (point.isBilan) {
+          pointClasses.push("history-chart__point--bilan");
+        }
+        const pointStyle = ` style="--history-point-color:${escapeHtml(pointColor)}"`;
+        return `
         <g class="${pointClasses.join(" ")}" data-history-point data-value="${escapeHtml(valueLabel)}"${metaAttr}${pointStyle} transform="translate(${point.x.toFixed(
-        2
-      )}, ${point.y.toFixed(2)})" tabindex="0" aria-label="${escapeHtml(ariaLabel)}">
+          2
+        )}, ${point.y.toFixed(2)})" tabindex="0" aria-label="${escapeHtml(ariaLabel)}">
           <circle class="history-chart__point-hit" r="14"></circle>
           <circle class="history-chart__point-node" r="6"></circle>
         </g>
       `;
-    })
-    .join("");
+      })
+      .join("");
 
-  const plural = sorted.length > 1 ? "s" : "";
-  const responseCountLabel = `${sorted.length || 0} réponse${plural}`;
+    const plural = sorted.length > 1 ? "s" : "";
+    const responseCountLabel = `${sorted.length || 0} réponse${plural}`;
 
-  const gradientId = `historyChartSimple-${Math.random().toString(36).slice(2, 10)}`;
-  const chartLabel = `Évolution des réponses enregistrées (${responseCountLabel})`;
+    const gradientId = `historyChartSimple-${Math.random().toString(36).slice(2, 10)}`;
+    const chartLabel = `Évolution des réponses enregistrées (${responseCountLabel})`;
 
-  return `
+    return `
     <div class="history-panel__chart history-panel__chart--simple" data-average-status="${escapeHtml(averageStatus)}">
       <div class="history-panel__chart-scroll">
         <figure class="history-chart">
           <svg class="history-chart__svg" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="${escapeHtml(
-    chartLabel
-  )}" focusable="false">
+      chartLabel
+    )}" focusable="false">
           <defs>
             <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stop-color="${escapeHtml(colorPalette.gradientTop)}"></stop>
@@ -15730,1641 +15695,1641 @@ function renderHistoryChart(data, { type, mode } = {}) {
             </linearGradient>
           </defs>
           <rect class="history-chart__surface" x="${paddingLeft.toFixed(2)}" y="${paddingTop.toFixed(2)}" width="${innerWidth.toFixed(
-    2
-  )}" height="${innerHeight.toFixed(2)}" rx="18"></rect>
+      2
+    )}" height="${innerHeight.toFixed(2)}" rx="18"></rect>
           ${horizontalLines}
           <line class="history-chart__axis-line" x1="${paddingLeft.toFixed(2)}" y1="${baselineY.toFixed(2)}" x2="${(chartWidth -
-      paddingRight
-    ).toFixed(2)}" y2="${baselineY.toFixed(2)}"></line>
+        paddingRight
+      ).toFixed(2)}" y2="${baselineY.toFixed(2)}"></line>
           <line class="history-chart__axis-line" x1="${paddingLeft.toFixed(2)}" y1="${paddingTop.toFixed(2)}" x2="${paddingLeft.toFixed(
-      2
-    )}" y2="${baselineY.toFixed(2)}"></line>
+        2
+      )}" y2="${baselineY.toFixed(2)}"></line>
           ${yAxisLabels}
           ${xAxisLabels}
           ${areaPath
-      ? `<path class="history-chart__area" d="${areaPath}" fill="url(#${gradientId})"></path>`
-      : ""
-    }
+        ? `<path class="history-chart__area" d="${areaPath}" fill="url(#${gradientId})"></path>`
+        : ""
+      }
           ${linePath
-      ? `<path class="history-chart__line" d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}"></path>`
-      : ""
-    }
+        ? `<path class="history-chart__line" d="${linePath}" fill="none" stroke="${escapeHtml(colorPalette.line)}"></path>`
+        : ""
+      }
           ${pointsMarkup}
         </svg>
         </figure>
       </div>
     </div>
   `;
-}
+  }
 
 
 
-function enhanceHistoryChart(container) {
-  if (!container) return;
-  const chartRoot = container.querySelector('.history-panel__chart');
-  if (!chartRoot) return;
-  const scrollContainer = chartRoot.querySelector('.history-panel__chart-scroll') || chartRoot;
-  const points = Array.from(chartRoot.querySelectorAll('[data-history-point]'));
-  if (!points.length) return;
+  function enhanceHistoryChart(container) {
+    if (!container) return;
+    const chartRoot = container.querySelector('.history-panel__chart');
+    if (!chartRoot) return;
+    const scrollContainer = chartRoot.querySelector('.history-panel__chart-scroll') || chartRoot;
+    const points = Array.from(chartRoot.querySelectorAll('[data-history-point]'));
+    if (!points.length) return;
 
-  const tooltipClass = 'history-chart__tooltip';
-  let tooltip = chartRoot._historyTooltip;
-  if (!(tooltip instanceof HTMLElement) || !tooltip.classList.contains(tooltipClass)) {
-    tooltip = document.createElement('div');
-    tooltip.className = tooltipClass;
-    tooltip.innerHTML = `
+    const tooltipClass = 'history-chart__tooltip';
+    let tooltip = chartRoot._historyTooltip;
+    if (!(tooltip instanceof HTMLElement) || !tooltip.classList.contains(tooltipClass)) {
+      tooltip = document.createElement('div');
+      tooltip.className = tooltipClass;
+      tooltip.innerHTML = `
       <div class="history-chart__tooltip-value"></div>
       <div class="history-chart__tooltip-meta"></div>
     `;
-    tooltip.hidden = true;
-    document.body.appendChild(tooltip);
-    chartRoot._historyTooltip = tooltip;
-  }
-
-  const valueEl = tooltip.querySelector('.history-chart__tooltip-value');
-  const metaEl = tooltip.querySelector('.history-chart__tooltip-meta');
-
-  const clearActive = () => {
-    points.forEach((pt) => pt.classList.remove('is-active'));
-  };
-
-  const hideTooltip = () => {
-    clearActive();
-    tooltip.classList.remove('is-visible');
-    tooltip.classList.remove('history-chart__tooltip--below');
-    tooltip.hidden = true;
-    tooltip.style.left = '';
-    tooltip.style.top = '';
-  };
-
-  const showTooltip = (point) => {
-    if (!point) return;
-    clearActive();
-    point.classList.add('is-active');
-    if (valueEl) valueEl.textContent = point.getAttribute('data-value') || '';
-    if (metaEl) {
-      const metaText = point.getAttribute('data-meta') || '';
-      metaEl.textContent = metaText;
-      metaEl.hidden = !metaText;
+      tooltip.hidden = true;
+      document.body.appendChild(tooltip);
+      chartRoot._historyTooltip = tooltip;
     }
 
-    const node = point.querySelector('.history-chart__point-node') || point;
-    const nodeRect = node.getBoundingClientRect();
-    const gap = 18;
-    const visibleGap = 10;
-    tooltip.style.setProperty('--history-tooltip-gap', `${gap}px`);
-    tooltip.style.setProperty('--history-tooltip-visible-gap', `${visibleGap}px`);
-    tooltip.hidden = false;
-    tooltip.classList.remove('history-chart__tooltip--below');
-    tooltip.classList.add('is-visible');
+    const valueEl = tooltip.querySelector('.history-chart__tooltip-value');
+    const metaEl = tooltip.querySelector('.history-chart__tooltip-meta');
 
-    const tooltipHeight = tooltip.offsetHeight || 0;
-    const shouldFlip = nodeRect.top - gap - tooltipHeight < 12;
-    if (shouldFlip) {
-      tooltip.classList.add('history-chart__tooltip--below');
+    const clearActive = () => {
+      points.forEach((pt) => pt.classList.remove('is-active'));
+    };
+
+    const hideTooltip = () => {
+      clearActive();
+      tooltip.classList.remove('is-visible');
+      tooltip.classList.remove('history-chart__tooltip--below');
+      tooltip.hidden = true;
+      tooltip.style.left = '';
+      tooltip.style.top = '';
+    };
+
+    const showTooltip = (point) => {
+      if (!point) return;
+      clearActive();
+      point.classList.add('is-active');
+      if (valueEl) valueEl.textContent = point.getAttribute('data-value') || '';
+      if (metaEl) {
+        const metaText = point.getAttribute('data-meta') || '';
+        metaEl.textContent = metaText;
+        metaEl.hidden = !metaText;
+      }
+
+      const node = point.querySelector('.history-chart__point-node') || point;
+      const nodeRect = node.getBoundingClientRect();
+      const gap = 18;
+      const visibleGap = 10;
+      tooltip.style.setProperty('--history-tooltip-gap', `${gap}px`);
+      tooltip.style.setProperty('--history-tooltip-visible-gap', `${visibleGap}px`);
+      tooltip.hidden = false;
+      tooltip.classList.remove('history-chart__tooltip--below');
+      tooltip.classList.add('is-visible');
+
+      const tooltipHeight = tooltip.offsetHeight || 0;
+      const shouldFlip = nodeRect.top - gap - tooltipHeight < 12;
+      if (shouldFlip) {
+        tooltip.classList.add('history-chart__tooltip--below');
+      }
+
+      const top = shouldFlip ? nodeRect.bottom : nodeRect.top;
+      const left = nodeRect.left + nodeRect.width / 2;
+
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    };
+
+    points.forEach((point) => {
+      point.addEventListener('pointerenter', () => showTooltip(point));
+      point.addEventListener('pointermove', () => showTooltip(point));
+      point.addEventListener('pointerleave', hideTooltip);
+      point.addEventListener('focus', () => showTooltip(point));
+      point.addEventListener('blur', hideTooltip);
+    });
+
+    chartRoot.addEventListener('pointerleave', hideTooltip);
+    chartRoot.addEventListener('pointercancel', hideTooltip);
+    if (scrollContainer && scrollContainer !== chartRoot) {
+      scrollContainer.addEventListener('scroll', hideTooltip, { passive: true });
     }
-
-    const top = shouldFlip ? nodeRect.bottom : nodeRect.top;
-    const left = nodeRect.left + nodeRect.width / 2;
-
-    tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${top}px`;
-  };
-
-  points.forEach((point) => {
-    point.addEventListener('pointerenter', () => showTooltip(point));
-    point.addEventListener('pointermove', () => showTooltip(point));
-    point.addEventListener('pointerleave', hideTooltip);
-    point.addEventListener('focus', () => showTooltip(point));
-    point.addEventListener('blur', hideTooltip);
-  });
-
-  chartRoot.addEventListener('pointerleave', hideTooltip);
-  chartRoot.addEventListener('pointercancel', hideTooltip);
-  if (scrollContainer && scrollContainer !== chartRoot) {
-    scrollContainer.addEventListener('scroll', hideTooltip, { passive: true });
   }
-}
 
 
-function getRecentResponsesStore() {
-  if (typeof window === "undefined") {
+  function getRecentResponsesStore() {
+    if (typeof window === "undefined") {
+      return null;
+    }
+    const existing = window.__hpRecentResponses;
+    if (existing instanceof Map) {
+      return existing;
+    }
+    if (existing && typeof existing === "object") {
+      const map = new Map();
+      try {
+        Object.entries(existing).forEach(([key, value]) => {
+          if (!key) return;
+          if (Array.isArray(value)) {
+            map.set(key, value.slice());
+          }
+        });
+      } catch (error) {
+        console.warn("recentResponsesStore:normalize", error);
+      }
+      window.__hpRecentResponses = map;
+      return map;
+    }
     return null;
   }
-  const existing = window.__hpRecentResponses;
-  if (existing instanceof Map) {
-    return existing;
-  }
-  if (existing && typeof existing === "object") {
-    const map = new Map();
+
+  function clearRecentResponsesForConsigne(consigneId) {
+    if (!consigneId) return;
+    const store = getRecentResponsesStore();
+    if (!store) return;
     try {
-      Object.entries(existing).forEach(([key, value]) => {
-        if (!key) return;
-        if (Array.isArray(value)) {
-          map.set(key, value.slice());
-        }
-      });
+      store.delete(consigneId);
     } catch (error) {
-      console.warn("recentResponsesStore:normalize", error);
+      console.warn("recentResponsesStore:clear", error);
     }
-    window.__hpRecentResponses = map;
-    return map;
   }
-  return null;
-}
 
-function clearRecentResponsesForConsigne(consigneId) {
-  if (!consigneId) return;
-  const store = getRecentResponsesStore();
-  if (!store) return;
-  try {
-    store.delete(consigneId);
-  } catch (error) {
-    console.warn("recentResponsesStore:clear", error);
-  }
-}
-
-function removeRecentResponsesForDay(consigneId, dayKey) {
-  if (!consigneId || !dayKey) return;
-  const store = getRecentResponsesStore();
-  if (!store) return;
-  try {
-    const list = store.get(consigneId) || [];
-    if (!Array.isArray(list) || !list.length) return;
-    const normalizedTarget = normalizeHistoryDayKey(dayKey);
-    const filtered = list.filter((entry) => {
-      const entryKey = normalizeHistoryDayKey(entry?.dayKey);
-      if (!normalizedTarget) {
-        return Boolean(entryKey);
+  function removeRecentResponsesForDay(consigneId, dayKey) {
+    if (!consigneId || !dayKey) return;
+    const store = getRecentResponsesStore();
+    if (!store) return;
+    try {
+      const list = store.get(consigneId) || [];
+      if (!Array.isArray(list) || !list.length) return;
+      const normalizedTarget = normalizeHistoryDayKey(dayKey);
+      const filtered = list.filter((entry) => {
+        const entryKey = normalizeHistoryDayKey(entry?.dayKey);
+        if (!normalizedTarget) {
+          return Boolean(entryKey);
+        }
+        return entryKey !== normalizedTarget;
+      });
+      if (filtered.length) {
+        store.set(consigneId, filtered);
+      } else {
+        store.delete(consigneId);
       }
-      return entryKey !== normalizedTarget;
+    } catch (error) {
+      console.warn("recentResponsesStore:removeDay", error);
+    }
+  }
+
+  async function deleteAllResponsesForDay(db, uid, consigneId, dayKey) {
+    // Écritures daily "responses" désactivées: ne rien faire
+    return;
+    if (!db || !uid || !consigneId || !dayKey) return;
+    const { collection, where, query, getDocs, deleteDoc } = modesFirestore || {};
+    if (typeof collection !== 'function' || typeof query !== 'function' || typeof where !== 'function' || typeof getDocs !== 'function') {
+      return;
+    }
+    try {
+      const keysToDelete = new Set();
+      if (typeof dayKey === 'string' && dayKey.trim()) {
+        keysToDelete.add(dayKey.trim());
+      }
+      const canonical = canonicalDayKeyFromValue(dayKey);
+      if (canonical?.dayKey) {
+        keysToDelete.add(canonical.dayKey.trim());
+      }
+      for (const key of keysToDelete) {
+        if (!key) {
+          continue;
+        }
+        const qy = query(
+          collection(db, 'u', uid, 'responses'),
+          where('consigneId', '==', consigneId),
+          where('dayKey', '==', key)
+        );
+        const snap = await getDocs(qy);
+        const tasks = (snap?.docs || []).map((docSnap) => {
+          try {
+            return deleteDoc(docSnap.ref);
+          } catch (error) {
+            console.warn('history.deleteAllResponsesForDay:delete', error);
+            return null;
+          }
+        });
+        if (tasks.length) {
+          await Promise.all(tasks);
+        }
+      }
+    } catch (error) {
+      console.warn('history.deleteAllResponsesForDay', error);
+    }
+  }
+
+  const MILLIS_EPOCH_THRESHOLD = Date.UTC(2000, 0, 1);
+
+  function normalizeDateInstance(date) {
+    if (!(date instanceof Date)) {
+      return null;
+    }
+    const time = date.getTime();
+    if (!Number.isFinite(time) || time <= 0 || time < MILLIS_EPOCH_THRESHOLD) {
+      return null;
+    }
+    return new Date(time);
+  }
+
+  function fallbackAsDate(value) {
+    if (!value) {
+      return null;
+    }
+    if (value instanceof Date) {
+      return normalizeDateInstance(value);
+    }
+    if (typeof value.toDate === "function") {
+      try {
+        const viaToDate = value.toDate();
+        const normalized = normalizeDateInstance(viaToDate);
+        if (normalized) {
+          return normalized;
+        }
+      } catch (error) {
+        modesLogger?.debug?.("ui.history.asDate.toDate", error);
+      }
+    }
+    if (typeof value.toMillis === "function") {
+      try {
+        const millis = value.toMillis();
+        if (Number.isFinite(millis)) {
+          return fallbackAsDate(millis);
+        }
+      } catch (error) {
+        modesLogger?.debug?.("ui.history.asDate.toMillis", error);
+      }
+    }
+    if (typeof value === "object") {
+      const seconds =
+        typeof value.seconds === "number"
+          ? value.seconds
+          : typeof value._seconds === "number"
+            ? value._seconds
+            : null;
+      if (seconds && Number.isFinite(seconds)) {
+        const nanosRaw =
+          typeof value.nanoseconds === "number"
+            ? value.nanoseconds
+            : typeof value._nanoseconds === "number"
+              ? value._nanoseconds
+              : 0;
+        const nanos = Number.isFinite(nanosRaw) ? nanosRaw : 0;
+        const millis = seconds * 1000 + Math.floor(nanos / 1e6);
+        if (millis > 0) {
+          return fallbackAsDate(millis);
+        }
+      }
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const normalized = value < 1e12 ? value * 1000 : value;
+      if (!Number.isFinite(normalized) || normalized <= 0) {
+        return null;
+      }
+      const date = new Date(normalized);
+      return normalizeDateInstance(date);
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return null;
+      }
+      const numeric = Number(trimmed);
+      if (Number.isFinite(numeric)) {
+        return fallbackAsDate(numeric);
+      }
+      // Handle UTC dateIso by extracting the date part to avoid timezone conversion
+      if (trimmed.includes('T') && trimmed.includes('Z')) {
+        const dateString = trimmed.split('T')[0]; // Extract YYYY-MM-DD part
+        const parsed = new Date(dateString);
+        return normalizeDateInstance(parsed);
+      } else {
+        const parsed = new Date(trimmed);
+        return normalizeDateInstance(parsed);
+      }
+    }
+    return null;
+  }
+
+  function asDate(value) {
+    const util = window?.DateUtils?.asDate;
+    if (typeof util === "function") {
+      try {
+        const resolved = util(value);
+        if (resolved instanceof Date && !Number.isNaN(resolved.getTime())) {
+          return new Date(resolved.getTime());
+        }
+        if (resolved == null) {
+          return null;
+        }
+        if (typeof resolved === "number" && Number.isFinite(resolved)) {
+          const viaNumber = new Date(resolved);
+          return Number.isNaN(viaNumber.getTime()) ? null : viaNumber;
+        }
+        if (typeof resolved === "string") {
+          const viaString = new Date(resolved);
+          return Number.isNaN(viaString.getTime()) ? null : viaString;
+        }
+      } catch (error) {
+        modesLogger?.debug?.("ui.history.asDate.external", error);
+      }
+    }
+    return fallbackAsDate(value);
+  }
+
+  function firstValidDate(candidates) {
+    if (!Array.isArray(candidates)) {
+      return null;
+    }
+    for (const candidate of candidates) {
+      const date = asDate(candidate);
+      if (date instanceof Date && !Number.isNaN(date.getTime())) {
+        return date;
+      }
+    }
+    return null;
+  }
+
+  function parseHistoryDateInput(value) {
+    if (!value) {
+      return null;
+    }
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return null;
+      }
+      const fromDayKey = modesParseDayKeyToDate(trimmed);
+      if (fromDayKey instanceof Date && !Number.isNaN(fromDayKey.getTime())) {
+        return fromDayKey;
+      }
+      const numeric = Number(trimmed);
+      if (Number.isFinite(numeric)) {
+        const fromNumber = asDate(numeric);
+        if (fromNumber instanceof Date && !Number.isNaN(fromNumber.getTime())) {
+          return fromNumber;
+        }
+      }
+      if (!/\d{4}/.test(trimmed)) {
+        return null;
+      }
+      const parsed = new Date(trimmed);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+    const normalized = asDate(value);
+    return normalized instanceof Date && !Number.isNaN(normalized.getTime()) ? normalized : null;
+  }
+
+  function resolveHistoryEntryDate(row) {
+    if (!row || typeof row !== "object") {
+      return null;
+    }
+    const candidates = [
+      row.pageDate,
+      row.page_date,
+      row.pageDateIso,
+      row.page_date_iso,
+      row.pageDateISO,
+      row.dayKey,
+      row.day_key,
+      row.date,
+      row.createdAt,
+      row.created_at,
+      row.recordedAt,
+      row.recorded_at,
+      row.updatedAt,
+      row.updated_at,
+    ];
+    return firstValidDate(candidates.map((candidate) => parseHistoryDateInput(candidate) || candidate));
+  }
+
+  function resolveHistorySortTime(row) {
+    if (!row || typeof row !== "object") {
+      return null;
+    }
+    const primary = resolveHistoryEntryDate(row);
+    if (primary instanceof Date && !Number.isNaN(primary.getTime())) {
+      return primary.getTime();
+    }
+    const fallback = firstValidDate([
+      row?.createdAt,
+      row?.created_at,
+      row?.recordedAt,
+      row?.recorded_at,
+      row?.updatedAt,
+      row?.updated_at,
+    ]);
+    if (fallback instanceof Date && !Number.isNaN(fallback.getTime())) {
+      return fallback.getTime();
+    }
+    return null;
+  }
+
+  function compareHistoryRowsDesc(a, b) {
+    const aTime = resolveHistorySortTime(a);
+    const bTime = resolveHistorySortTime(b);
+    const aValid = Number.isFinite(aTime);
+    const bValid = Number.isFinite(bTime);
+    if (aValid && bValid && aTime !== bTime) {
+      return bTime - aTime;
+    }
+    if (aValid && !bValid) {
+      return -1;
+    }
+    if (!aValid && bValid) {
+      return 1;
+    }
+    if (aValid && bValid) {
+      return 0;
+    }
+    const aId = historyRowIdentity(a);
+    const bId = historyRowIdentity(b);
+    if (aId || bId) {
+      return String(bId || "").localeCompare(String(aId || ""));
+    }
+    return 0;
+  }
+
+  function historyRowIdentity(row) {
+    if (!row || typeof row !== "object") {
+      return "";
+    }
+    if (row.id) {
+      return `id:${row.id}`;
+    }
+    const resolvedDate = resolveHistoryEntryDate(row);
+    const rawDate = resolvedDate || null;
+    let iso = "";
+    if (rawDate instanceof Date && !Number.isNaN(rawDate.getTime())) {
+      iso = rawDate.toISOString();
+    }
+    let valueKey = "";
+    try {
+      valueKey = JSON.stringify(row.value ?? null);
+    } catch (error) {
+      valueKey = String(row.value ?? "");
+    }
+    return `created:${iso}::value:${valueKey}`;
+  }
+
+  function mergeRowsWithRecent(rows, consigneId) {
+    const remoteRows = Array.isArray(rows) ? rows.slice() : [];
+    const store = getRecentResponsesStore();
+    if (!store || !consigneId) {
+      return remoteRows;
+    }
+    const local = store.get(consigneId) || [];
+    if (!Array.isArray(local) || !local.length) {
+      return remoteRows;
+    }
+    const remoteIds = new Set(remoteRows.map((row) => historyRowIdentity(row)).filter(Boolean));
+    const existingIds = new Set(remoteIds);
+    const merged = remoteRows.slice();
+    const pending = [];
+    local.forEach((entry) => {
+      const identity = historyRowIdentity(entry);
+      if (!identity) {
+        return;
+      }
+      if (existingIds.has(identity)) {
+        return;
+      }
+      merged.push(entry);
+      existingIds.add(identity);
+      pending.push(entry);
     });
-    if (filtered.length) {
-      store.set(consigneId, filtered);
+    if (pending.length) {
+      pending.sort(compareHistoryRowsDesc);
+      store.set(consigneId, pending.slice(0, 10));
     } else {
       store.delete(consigneId);
     }
-  } catch (error) {
-    console.warn("recentResponsesStore:removeDay", error);
+    merged.sort(compareHistoryRowsDesc);
+    return merged;
   }
-}
 
-async function deleteAllResponsesForDay(db, uid, consigneId, dayKey) {
-  // Écritures daily "responses" désactivées: ne rien faire
-  return;
-  if (!db || !uid || !consigneId || !dayKey) return;
-  const { collection, where, query, getDocs, deleteDoc } = modesFirestore || {};
-  if (typeof collection !== 'function' || typeof query !== 'function' || typeof where !== 'function' || typeof getDocs !== 'function') {
-    return;
-  }
-  try {
-    const keysToDelete = new Set();
-    if (typeof dayKey === 'string' && dayKey.trim()) {
-      keysToDelete.add(dayKey.trim());
+  async function fetchConsigneHistoryRows(ctx, consigneId, options = {}) {
+    const result = { rows: [], size: 0, missing: null, error: null };
+    if (!ctx || !ctx.db || !ctx.user?.uid || !consigneId) {
+      return result;
     }
-    const canonical = canonicalDayKeyFromValue(dayKey);
-    if (canonical?.dayKey) {
-      keysToDelete.add(canonical.dayKey.trim());
+    const { collection, where, orderBy, limit, query, getDocs } = modesFirestore || {};
+    const requiredFns = ["collection", "where", "orderBy", "limit", "query", "getDocs"];
+    const missingFns = requiredFns.filter((fn) => typeof modesFirestore?.[fn] !== "function");
+    if (missingFns.length) {
+      result.missing = missingFns;
+      return result;
     }
-    for (const key of keysToDelete) {
-      if (!key) {
-        continue;
-      }
-      const qy = query(
-        collection(db, 'u', uid, 'responses'),
-        where('consigneId', '==', consigneId),
-        where('dayKey', '==', key)
+    const fetchLimitRaw = Number.isFinite(options.limit) && options.limit > 0 ? Math.floor(options.limit) : HISTORY_PANEL_FETCH_LIMIT;
+    const fetchLimit = Math.max(1, Math.min(fetchLimitRaw, 500));
+    let snap = null;
+    try {
+      snap = await getDocs(
+        query(
+          collection(ctx.db, "u", ctx.user.uid, "responses"),
+          where("consigneId", "==", consigneId),
+          orderBy("createdAt", "desc"),
+          limit(fetchLimit),
+        ),
       );
-      const snap = await getDocs(qy);
-      const tasks = (snap?.docs || []).map((docSnap) => {
-        try {
-          return deleteDoc(docSnap.ref);
-        } catch (error) {
-          console.warn('history.deleteAllResponsesForDay:delete', error);
-          return null;
-        }
-      });
-      if (tasks.length) {
-        await Promise.all(tasks);
-      }
-    }
-  } catch (error) {
-    console.warn('history.deleteAllResponsesForDay', error);
-  }
-}
-
-const MILLIS_EPOCH_THRESHOLD = Date.UTC(2000, 0, 1);
-
-function normalizeDateInstance(date) {
-  if (!(date instanceof Date)) {
-    return null;
-  }
-  const time = date.getTime();
-  if (!Number.isFinite(time) || time <= 0 || time < MILLIS_EPOCH_THRESHOLD) {
-    return null;
-  }
-  return new Date(time);
-}
-
-function fallbackAsDate(value) {
-  if (!value) {
-    return null;
-  }
-  if (value instanceof Date) {
-    return normalizeDateInstance(value);
-  }
-  if (typeof value.toDate === "function") {
-    try {
-      const viaToDate = value.toDate();
-      const normalized = normalizeDateInstance(viaToDate);
-      if (normalized) {
-        return normalized;
-      }
     } catch (error) {
-      modesLogger?.debug?.("ui.history.asDate.toDate", error);
+      result.error = error;
+      return result;
     }
-  }
-  if (typeof value.toMillis === "function") {
-    try {
-      const millis = value.toMillis();
-      if (Number.isFinite(millis)) {
-        return fallbackAsDate(millis);
-      }
-    } catch (error) {
-      modesLogger?.debug?.("ui.history.asDate.toMillis", error);
-    }
-  }
-  if (typeof value === "object") {
-    const seconds =
-      typeof value.seconds === "number"
-        ? value.seconds
-        : typeof value._seconds === "number"
-          ? value._seconds
-          : null;
-    if (seconds && Number.isFinite(seconds)) {
-      const nanosRaw =
-        typeof value.nanoseconds === "number"
-          ? value.nanoseconds
-          : typeof value._nanoseconds === "number"
-            ? value._nanoseconds
-            : 0;
-      const nanos = Number.isFinite(nanosRaw) ? nanosRaw : 0;
-      const millis = seconds * 1000 + Math.floor(nanos / 1e6);
-      if (millis > 0) {
-        return fallbackAsDate(millis);
-      }
-    }
-  }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    const normalized = value < 1e12 ? value * 1000 : value;
-    if (!Number.isFinite(normalized) || normalized <= 0) {
-      return null;
-    }
-    const date = new Date(normalized);
-    return normalizeDateInstance(date);
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-    const numeric = Number(trimmed);
-    if (Number.isFinite(numeric)) {
-      return fallbackAsDate(numeric);
-    }
-    // Handle UTC dateIso by extracting the date part to avoid timezone conversion
-    if (trimmed.includes('T') && trimmed.includes('Z')) {
-      const dateString = trimmed.split('T')[0]; // Extract YYYY-MM-DD part
-      const parsed = new Date(dateString);
-      return normalizeDateInstance(parsed);
-    } else {
-      const parsed = new Date(trimmed);
-      return normalizeDateInstance(parsed);
-    }
-  }
-  return null;
-}
-
-function asDate(value) {
-  const util = window?.DateUtils?.asDate;
-  if (typeof util === "function") {
-    try {
-      const resolved = util(value);
-      if (resolved instanceof Date && !Number.isNaN(resolved.getTime())) {
-        return new Date(resolved.getTime());
-      }
-      if (resolved == null) {
-        return null;
-      }
-      if (typeof resolved === "number" && Number.isFinite(resolved)) {
-        const viaNumber = new Date(resolved);
-        return Number.isNaN(viaNumber.getTime()) ? null : viaNumber;
-      }
-      if (typeof resolved === "string") {
-        const viaString = new Date(resolved);
-        return Number.isNaN(viaString.getTime()) ? null : viaString;
-      }
-    } catch (error) {
-      modesLogger?.debug?.("ui.history.asDate.external", error);
-    }
-  }
-  return fallbackAsDate(value);
-}
-
-function firstValidDate(candidates) {
-  if (!Array.isArray(candidates)) {
-    return null;
-  }
-  for (const candidate of candidates) {
-    const date = asDate(candidate);
-    if (date instanceof Date && !Number.isNaN(date.getTime())) {
-      return date;
-    }
-  }
-  return null;
-}
-
-function parseHistoryDateInput(value) {
-  if (!value) {
-    return null;
-  }
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-    const fromDayKey = modesParseDayKeyToDate(trimmed);
-    if (fromDayKey instanceof Date && !Number.isNaN(fromDayKey.getTime())) {
-      return fromDayKey;
-    }
-    const numeric = Number(trimmed);
-    if (Number.isFinite(numeric)) {
-      const fromNumber = asDate(numeric);
-      if (fromNumber instanceof Date && !Number.isNaN(fromNumber.getTime())) {
-        return fromNumber;
-      }
-    }
-    if (!/\d{4}/.test(trimmed)) {
-      return null;
-    }
-    const parsed = new Date(trimmed);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-  const normalized = asDate(value);
-  return normalized instanceof Date && !Number.isNaN(normalized.getTime()) ? normalized : null;
-}
-
-function resolveHistoryEntryDate(row) {
-  if (!row || typeof row !== "object") {
-    return null;
-  }
-  const candidates = [
-    row.pageDate,
-    row.page_date,
-    row.pageDateIso,
-    row.page_date_iso,
-    row.pageDateISO,
-    row.dayKey,
-    row.day_key,
-    row.date,
-    row.createdAt,
-    row.created_at,
-    row.recordedAt,
-    row.recorded_at,
-    row.updatedAt,
-    row.updated_at,
-  ];
-  return firstValidDate(candidates.map((candidate) => parseHistoryDateInput(candidate) || candidate));
-}
-
-function resolveHistorySortTime(row) {
-  if (!row || typeof row !== "object") {
-    return null;
-  }
-  const primary = resolveHistoryEntryDate(row);
-  if (primary instanceof Date && !Number.isNaN(primary.getTime())) {
-    return primary.getTime();
-  }
-  const fallback = firstValidDate([
-    row?.createdAt,
-    row?.created_at,
-    row?.recordedAt,
-    row?.recorded_at,
-    row?.updatedAt,
-    row?.updated_at,
-  ]);
-  if (fallback instanceof Date && !Number.isNaN(fallback.getTime())) {
-    return fallback.getTime();
-  }
-  return null;
-}
-
-function compareHistoryRowsDesc(a, b) {
-  const aTime = resolveHistorySortTime(a);
-  const bTime = resolveHistorySortTime(b);
-  const aValid = Number.isFinite(aTime);
-  const bValid = Number.isFinite(bTime);
-  if (aValid && bValid && aTime !== bTime) {
-    return bTime - aTime;
-  }
-  if (aValid && !bValid) {
-    return -1;
-  }
-  if (!aValid && bValid) {
-    return 1;
-  }
-  if (aValid && bValid) {
-    return 0;
-  }
-  const aId = historyRowIdentity(a);
-  const bId = historyRowIdentity(b);
-  if (aId || bId) {
-    return String(bId || "").localeCompare(String(aId || ""));
-  }
-  return 0;
-}
-
-function historyRowIdentity(row) {
-  if (!row || typeof row !== "object") {
-    return "";
-  }
-  if (row.id) {
-    return `id:${row.id}`;
-  }
-  const resolvedDate = resolveHistoryEntryDate(row);
-  const rawDate = resolvedDate || null;
-  let iso = "";
-  if (rawDate instanceof Date && !Number.isNaN(rawDate.getTime())) {
-    iso = rawDate.toISOString();
-  }
-  let valueKey = "";
-  try {
-    valueKey = JSON.stringify(row.value ?? null);
-  } catch (error) {
-    valueKey = String(row.value ?? "");
-  }
-  return `created:${iso}::value:${valueKey}`;
-}
-
-function mergeRowsWithRecent(rows, consigneId) {
-  const remoteRows = Array.isArray(rows) ? rows.slice() : [];
-  const store = getRecentResponsesStore();
-  if (!store || !consigneId) {
-    return remoteRows;
-  }
-  const local = store.get(consigneId) || [];
-  if (!Array.isArray(local) || !local.length) {
-    return remoteRows;
-  }
-  const remoteIds = new Set(remoteRows.map((row) => historyRowIdentity(row)).filter(Boolean));
-  const existingIds = new Set(remoteIds);
-  const merged = remoteRows.slice();
-  const pending = [];
-  local.forEach((entry) => {
-    const identity = historyRowIdentity(entry);
-    if (!identity) {
-      return;
-    }
-    if (existingIds.has(identity)) {
-      return;
-    }
-    merged.push(entry);
-    existingIds.add(identity);
-    pending.push(entry);
-  });
-  if (pending.length) {
-    pending.sort(compareHistoryRowsDesc);
-    store.set(consigneId, pending.slice(0, 10));
-  } else {
-    store.delete(consigneId);
-  }
-  merged.sort(compareHistoryRowsDesc);
-  return merged;
-}
-
-async function fetchConsigneHistoryRows(ctx, consigneId, options = {}) {
-  const result = { rows: [], size: 0, missing: null, error: null };
-  if (!ctx || !ctx.db || !ctx.user?.uid || !consigneId) {
-    return result;
-  }
-  const { collection, where, orderBy, limit, query, getDocs } = modesFirestore || {};
-  const requiredFns = ["collection", "where", "orderBy", "limit", "query", "getDocs"];
-  const missingFns = requiredFns.filter((fn) => typeof modesFirestore?.[fn] !== "function");
-  if (missingFns.length) {
-    result.missing = missingFns;
-    return result;
-  }
-  const fetchLimitRaw = Number.isFinite(options.limit) && options.limit > 0 ? Math.floor(options.limit) : HISTORY_PANEL_FETCH_LIMIT;
-  const fetchLimit = Math.max(1, Math.min(fetchLimitRaw, 500));
-  let snap = null;
-  try {
-    snap = await getDocs(
-      query(
-        collection(ctx.db, "u", ctx.user.uid, "responses"),
-        where("consigneId", "==", consigneId),
-        orderBy("createdAt", "desc"),
-        limit(fetchLimit),
-      ),
-    );
-  } catch (error) {
-    result.error = error;
-    return result;
-  }
-  const docs = Array.isArray(snap?.docs) ? snap.docs : [];
-  result.size = typeof snap?.size === "number" ? snap.size : docs.length;
-  let rows = docs.map((docSnap) => {
-    const data = docSnap.data() || {};
-    return {
-      id: docSnap.id,
-      responseId: docSnap.id,
-      ...data,
-    };
-  });
-  rows = mergeRowsWithRecent(rows, consigneId);
-  if (options.filterDailyDuplicates !== false) {
-    const seenDailyDayKeys = new Set();
-    rows = rows.filter((row) => {
-      const modeKey = normalizeHistoryMode(row);
-      if (!DAILY_HISTORY_MODE_KEYS.has(modeKey)) {
-        return true;
-      }
-      const createdAtSource = row?.createdAt ?? row?.updatedAt ?? null;
-      const createdAt = parseHistoryResponseDate(createdAtSource);
-      const primaryDate = resolveHistoryEntryDate(row) || createdAt;
-      const resolvedDayKey = resolveHistoryResponseDayKey(row, primaryDate);
-      if (!resolvedDayKey) {
-        return true;
-      }
-      const normalizedKey = normalizeHistoryDayKey(resolvedDayKey);
-      if (!normalizedKey) {
-        return true;
-      }
-      if (seenDailyDayKeys.has(normalizedKey)) {
-        return false;
-      }
-      seenDailyDayKeys.add(normalizedKey);
-      return true;
-    });
-  }
-  result.rows = rows;
-  return result;
-}
-
-function collectConsigneTimelineSnapshot(consigne) {
-  if (!consigne || consigne.id == null || typeof document === "undefined") {
-    return null;
-  }
-  const consigneId = String(consigne.id);
-  // Prefer the standard selector first, but also support bilan rows which carry data-id
-  const selector = `[data-consigne-id="${escapeTimelineSelector(consigneId)}"]`;
-  let row = document.querySelector(selector);
-  if (!(row instanceof HTMLElement)) {
-    // Bilan page rows use data-id instead of data-consigne-id
-    const altSelector = `[data-id="${escapeTimelineSelector(consigneId)}"]`;
-    const candidate = document.querySelector(altSelector);
-    if (candidate instanceof HTMLElement) {
-      row = candidate;
-    }
-  }
-  if (!(row instanceof HTMLElement)) {
-    return null;
-  }
-  const state = CONSIGNE_HISTORY_ROW_STATE.get(row) || null;
-  // Prefer the tracked timeline from state, but fall back to querying the DOM directly
-  const track = state?.track || row.querySelector?.("[data-consigne-history-track]") || null;
-  if (!track) {
-    return { row, items: [] };
-  }
-  const nodes = Array.from(track.querySelectorAll(".consigne-history__item"));
-  const items = nodes.map((item, index) => {
-    const details = item._historyDetails && typeof item._historyDetails === "object" ? item._historyDetails : {};
-    const rawDayKey =
-      (typeof details.dayKey === "string" && details.dayKey.trim()) ||
-      (typeof item.dataset.historyDay === "string" && item.dataset.historyDay.trim()) ||
-      "";
-    const normalizedDayKey = normalizeHistoryDayKey(rawDayKey);
-    const status = item.dataset.status || details.status || "";
-    const historyId =
-      (typeof details.historyId === "string" && details.historyId.trim()) ||
-      (typeof item.dataset.historyId === "string" && item.dataset.historyId.trim()) ||
-      "";
-    const responseId =
-      (typeof details.responseId === "string" && details.responseId.trim()) ||
-      (typeof item.dataset.historyResponseId === "string" && item.dataset.historyResponseId.trim()) ||
-      "";
-    return {
-      index,
-      dayKey: rawDayKey,
-      normalizedDayKey,
-      status,
-      historyId,
-      responseId,
-      details,
-    };
-  });
-  return { row, items };
-}
-
-function findOpenHistoryPanelRoot(consigneId) {
-  if (consigneId == null || typeof document === "undefined") {
-    return null;
-  }
-  const selector = `[data-history-panel-consigne="${escapeTimelineSelector(String(consigneId))}"]`;
-  const panel = document.querySelector(selector);
-  return panel instanceof HTMLElement ? panel : null;
-}
-
-function refreshOpenHistoryPanel(consigneId) {
-  const panelRoot = findOpenHistoryPanelRoot(consigneId);
-  if (!panelRoot) {
-    return false;
-  }
-  const reopen = panelRoot.__historyReopen;
-  if (typeof reopen === "function") {
-    try {
-      reopen();
-      return true;
-    } catch (error) {
-      try {
-        console.warn("history.panel.refresh", { consigneId, error });
-      } catch (_) { }
-    }
-  }
-  return false;
-}
-
-// Ensure any global "consigne:history:refresh" event triggers a panel refresh
-if (typeof window !== "undefined" && !window.__hpHistoryRefreshBound) {
-  try {
-    window.__hpHistoryRefreshBound = true;
-    window.addEventListener(
-      "consigne:history:refresh",
-      (event) => {
-        const targetId = event?.detail?.consigneId ?? event?.detail?.id ?? null;
-        if (targetId == null) return;
-        try {
-          refreshOpenHistoryPanel(String(targetId));
-        } catch (_) { }
-      },
-      { passive: true },
-    );
-  } catch (_) { }
-}
-
-function refreshConsigneTimelineWithRows(consigne, rows) {
-  if (!consigne || consigne.id == null) {
-    return;
-  }
-  const snapshot = collectConsigneTimelineSnapshot(consigne);
-  if (!snapshot || !(snapshot.row instanceof HTMLElement)) {
-    return;
-  }
-  const points = buildConsigneHistoryTimeline(rows, consigne);
-  try {
-    // Cache for later comparison/logging when DOM snapshot isn't available yet
-    CONSIGNE_HISTORY_LAST_POINTS.set(String(consigne.id), Array.isArray(points) ? points.slice() : []);
-  } catch (_) { }
-  const state = CONSIGNE_HISTORY_ROW_STATE.get(snapshot.row) || null;
-  const rendered = renderConsigneHistoryTimeline(snapshot.row, points);
-  if (state) {
-    state.hasDayTimeline = Boolean(points.length);
-    state.track = snapshot.row.querySelector("[data-consigne-history-track]") || state.track;
-    scheduleConsigneHistoryNavUpdate(state);
-  }
-  if (!rendered && state) {
-    state.track.dataset.historyMode = "empty";
-  }
-}
-
-function summarizeChecklistValue(value) {
-  try {
-    const stats = deriveChecklistStats(value);
-    if (!stats) {
-      return null;
-    }
-    const checkedCount =
-      stats.checkedCount ?? stats.checked ?? (Array.isArray(stats.checkedIds) ? stats.checkedIds.length : null);
-    const skippedCount = stats.skippedCount ?? stats.skipped ?? null;
-    const total = stats.total ?? null;
-    const percentage = stats.percentage ?? null;
-    const empty =
-      typeof stats.isEmpty === "boolean"
-        ? stats.isEmpty
-        : checkedCount != null
-          ? checkedCount === 0
-          : false;
-    return {
-      total,
-      checked: checkedCount,
-      skipped: skippedCount,
-      percentage,
-      empty,
-    };
-  } catch (_) {
-    return null;
-  }
-}
-
-function diffChecklistSummaries(summaryA, summaryB) {
-  const keys = ["checked", "total", "skipped", "percentage", "empty"];
-  if (!summaryA && !summaryB) {
-    return [];
-  }
-  if (!summaryA || !summaryB) {
-    return [
-      {
-        field: "summary",
-        left: summaryA ?? null,
-        right: summaryB ?? null,
-        kind: "missing",
-      },
-    ];
-  }
-  const normalizeNumber = (value) => {
-    if (value === null || value === undefined) return null;
-    const num = Number(value);
-    if (!Number.isFinite(num)) return null;
-    return Math.round(num * 1000) / 1000;
-  };
-  const differences = [];
-  keys.forEach((key) => {
-    const left = summaryA[key];
-    const right = summaryB[key];
-    if (typeof left === "number" || typeof right === "number") {
-      const normLeft = normalizeNumber(left);
-      const normRight = normalizeNumber(right);
-      if (normLeft !== normRight) {
-        differences.push({ field: key, left: normLeft, right: normRight });
-      }
-      return;
-    }
-    if (left !== right) {
-      differences.push({ field: key, left, right });
-    }
-  });
-  return differences;
-}
-
-function logChecklistHistoryInspection(consigne, payload = {}) {
-  if (!consigne || consigne.type !== "checklist") {
-    return;
-  }
-  try {
-    const label = `[checklist-history] ${payload.label || "inspection"} (#${consigne.id ?? "?"})`;
-    console.log(label);
-    if (payload.focusDayKey || payload.timelineDetails || payload.entrySummary || payload.panelSummary || payload.matchInfo) {
-      logChecklistEvent("info", "[checklist-history] focus", {
-        dayKey: payload.focusDayKey || "",
-        timeline: payload.timelineDetails || null,
-        entry: payload.entrySummary || null,
-        panel: payload.panelSummary || null,
-        match: payload.matchInfo || null,
-        dom: payload.domSummary || null,
-      });
-    }
-    if (payload.matchInfo && payload.matchInfo.type && payload.matchInfo.type !== "history") {
-      logChecklistEvent("warn", `[checklist-history] attention: correspondance basée sur ${payload.matchInfo.type} (${payload.matchInfo.weight ?? "?"})`, {
-        consigneId: consigne.id ?? null,
-        dayKey: payload.focusDayKey || "",
-        match: payload.matchInfo,
-      });
-    }
-    const summaryMap = {
-      timeline: payload.timelineDetails?.summary || null,
-      entry: payload.entrySummary?.summary || null,
-      panel: payload.panelSummary?.summary || null,
-      dom: payload.domSummary?.summary || null,
-    };
-    const summaryEntries = Object.entries(summaryMap).filter(([, summary]) => summary != null);
-    if (summaryEntries.length) {
-      logChecklistEvent("info", "[checklist-history] summary-compare", {
-        timeline: summaryMap.timeline || null,
-        entry: summaryMap.entry || null,
-        panel: summaryMap.panel || null,
-        dom: summaryMap.dom || null,
-      });
-      const keys = Object.keys(summaryMap);
-      keys.forEach((baseName, index) => {
-        const baseSummary = summaryMap[baseName];
-        if (!baseSummary) {
-          return;
-        }
-        for (let i = index + 1; i < keys.length; i += 1) {
-          const compareName = keys[i];
-          const compareSummary = summaryMap[compareName];
-          if (!compareSummary) {
-            continue;
-          }
-          const diffs = diffChecklistSummaries(baseSummary, compareSummary);
-          if (diffs.length) {
-            const severity =
-              baseName === "timeline" || compareName === "timeline"
-                ? "error"
-                : "warn";
-            logChecklistEvent(severity, `[checklist-history] mismatch ${baseName} vs ${compareName} (#${consigne.id ?? "?"})`, {
-              dayKey: payload.focusDayKey || "",
-              differences: diffs,
-              [baseName]: baseSummary,
-              [compareName]: compareSummary,
-            });
-          }
-        }
-      });
-    }
-    if (Array.isArray(payload.entries)) {
-      const rows = payload.entries.slice(0, payload.maxEntries ?? 40).map((entry, index) => {
-        const keyInfo = resolveHistoryTimelineKey(entry, consigne);
-        // Normalize the value exactly like the timeline does to ensure status/metrics alignment
-        const displayValue = resolveHistoryTimelineValue(entry, consigne);
-        const summary = summarizeChecklistValue(displayValue);
-        const historyId =
-          (typeof entry?.historyId === "string" && entry.historyId.trim()) ||
-          (typeof entry?.history_id === "string" && entry.history_id.trim()) ||
-          "";
-        const responseId =
-          (typeof entry?.responseId === "string" && entry.responseId.trim()) ||
-          (typeof entry?.response_id === "string" && entry.response_id.trim()) ||
-          (typeof entry?.id === "string" && entry.id.trim()) ||
-          "";
-        return {
-          index,
-          dayKey: keyInfo?.dayKey || "",
-          normalizedDayKey: normalizeHistoryDayKey(keyInfo?.dayKey),
-          status: dotColor(consigne.type, displayValue, consigne) || "na",
-          historyId,
-          responseId,
-          checked: summary?.checked ?? null,
-          total: summary?.total ?? null,
-          skipped: summary?.skipped ?? null,
-          percentage: summary?.percentage ?? null,
-          empty: summary?.empty ?? null,
-        };
-      });
-      rows.forEach((row) => {
-        logChecklistEvent("info", "[checklist-history] history-entry", row);
-      });
-      if (payload.entries.length > rows.length) {
-        logChecklistEvent("info", "[checklist-history] history-entry:truncated", {
-          count: payload.entries.length,
-          displayed: rows.length,
-        });
-      }
-    }
-  } catch (error) {
-    logChecklistEvent("warn", "[checklist-history] inspection failed", { error: String(error) });
-  }
-}
-
-function logConsigneHistoryComparison(consigne, panelMetas, context = {}) {
-  if (!consigne || !Array.isArray(panelMetas)) {
-    return;
-  }
-  try {
-    const timelineSnapshot = collectConsigneTimelineSnapshot(consigne);
-    let timelineItems = Array.isArray(timelineSnapshot?.items) ? timelineSnapshot.items : null;
-    // If DOM snapshot is empty (e.g., bilan row not yet hydrated), fall back to the last rendered points cache
-    if (timelineItems && timelineItems.length === 0) {
-      try {
-        const cachedPoints = CONSIGNE_HISTORY_LAST_POINTS.get(String(consigne.id)) || [];
-        if (Array.isArray(cachedPoints) && cachedPoints.length) {
-          timelineItems = cachedPoints.map((pt, index) => ({
-            index,
-            dayKey: pt?.dayKey || "",
-            normalizedDayKey: normalizeHistoryDayKey(pt?.dayKey || ""),
-            status: pt?.status || "",
-            responseId: pt?.responseId || "",
-            historyId: pt?.historyId || "",
-          }));
-        }
-      } catch (_) { }
-    }
-    const timelineEntries = timelineItems
-      ? timelineItems.map((item) => ({
-        index: item.index,
-        dayKey: item.dayKey,
-        normalizedDayKey: item.normalizedDayKey,
-        status: item.status || "",
-        responseId: item.responseId || "",
-        historyId: item.historyId || "",
-      }))
-      : null;
-    const panelEntries = panelMetas.map((meta) => ({
-      index: meta.index,
-      dayKey: meta.dayKey || "",
-      normalizedDayKey: meta.normalizedDayKey || "",
-      status: meta.status || "",
-      responseId: meta.responseId || "",
-      historyId: meta.historyId || "",
-    }));
-
-    const buildKey = (entry) => {
-      if (!entry || typeof entry !== "object") {
-        return "";
-      }
-      const historyKey = typeof entry.historyId === "string" && entry.historyId.trim()
-        ? `history:${entry.historyId.trim()}`
-        : "";
-      if (historyKey) {
-        return historyKey;
-      }
-      const responseKey = typeof entry.responseId === "string" && entry.responseId.trim()
-        ? `response:${entry.responseId.trim()}`
-        : "";
-      if (responseKey) {
-        return responseKey;
-      }
-      const normalizedDayKey = typeof entry.normalizedDayKey === "string" && entry.normalizedDayKey.trim()
-        ? entry.normalizedDayKey.trim()
-        : "";
-      const indexPart = Number.isFinite(entry.index) ? String(entry.index) : "";
-      const dayKey = typeof entry.dayKey === "string" && entry.dayKey.trim() ? entry.dayKey.trim() : "";
-      if (normalizedDayKey || dayKey) {
-        return `day:${normalizedDayKey || dayKey}:${indexPart}`;
-      }
-      return `idx:${indexPart}`;
-    };
-
-    const timelineMap = new Map();
-    if (timelineEntries) {
-      timelineEntries.forEach((entry) => {
-        const key = buildKey(entry);
-        timelineMap.set(key, entry);
-      });
-    }
-    const panelMap = new Map();
-    panelEntries.forEach((entry) => {
-      const key = buildKey(entry);
-      panelMap.set(key, entry);
-    });
-
-    const missingInTimeline = [];
-    panelMap.forEach((entry, key) => {
-      if (!timelineMap.has(key)) {
-        missingInTimeline.push(entry);
-      }
-    });
-    const missingInPanel = [];
-    timelineMap.forEach((entry, key) => {
-      if (!panelMap.has(key)) {
-        missingInPanel.push(entry);
-      }
-    });
-    const statusMismatches = [];
-    const idMismatches = [];
-    panelMap.forEach((entry, key) => {
-      if (!timelineMap.has(key)) {
-        return;
-      }
-      const timelineEntry = timelineMap.get(key);
-      if ((entry.status || "na") !== (timelineEntry.status || "na")) {
-        statusMismatches.push({
-          key,
-          panel: entry.status || "",
-          timeline: timelineEntry.status || "",
-        });
-      }
-      const panelResponse = entry.responseId || "";
-      const timelineResponse = timelineEntry.responseId || "";
-      if (panelResponse !== timelineResponse) {
-        idMismatches.push({
-          key,
-          panel: panelResponse || "(aucun)",
-          timeline: timelineResponse || "(aucun)",
-        });
-      }
-    });
-
-    const hasTimeline = Boolean(timelineSnapshot && timelineEntries);
-    const hasDifferences =
-      !hasTimeline ||
-      missingInTimeline.length > 0 ||
-      missingInPanel.length > 0 ||
-      statusMismatches.length > 0 ||
-      idMismatches.length > 0;
-
-    const label = `[history-sync] ${safeConsigneLabel(consigne)} (#${consigne.id ?? "?"})`;
-    const groupMethod = hasDifferences ? console.group : console.groupCollapsed;
-    if (typeof groupMethod !== "function") {
-      if (hasDifferences) {
-        console.warn(label, "différences détectées", {
-          missingInTimeline,
-          missingInPanel,
-          statusMismatches,
-          idMismatches,
-          hasTimeline,
-          context,
-        });
-      } else {
-        console.info(`${label}: OK`, { count: panelEntries.length, context });
-      }
-      return;
-    }
-
-    groupMethod.call(console, label);
-    console.info("contexte", context);
-    if (!hasTimeline) {
-      console.warn("Pastilles non disponibles pour comparaison (row introuvable ou timeline vide).");
-    } else {
-      console.table?.(timelineEntries);
-    }
-    console.table?.(panelEntries);
-    if (missingInTimeline.length) {
-      console.warn("Présent dans l’historique (panel) mais absent des pastilles :", missingInTimeline);
-    }
-    if (missingInPanel.length) {
-      console.warn("Présent dans les pastilles mais absent du panneau :", missingInPanel);
-    }
-    if (statusMismatches.length) {
-      console.warn("Statuts divergents :", statusMismatches);
-    }
-    if (idMismatches.length) {
-      console.warn("responseId divergents :", idMismatches);
-    }
-    if (!hasDifferences) {
-      console.info(`Aucune divergence détectée (${panelEntries.length} entrées synchronisées).`);
-    }
-    console.groupEnd();
-  } catch (error) {
-    console.warn("[history-sync] comparaison impossible", error);
-  }
-}
-
-const EDITABLE_HISTORY_TYPES = new Set([
-  "short",
-  "long",
-  "num",
-  "montant",
-  "likert5",
-  "likert6",
-  "yesno",
-  "checklist",
-]);
-
-async function openHistory(ctx, consigne, options = {}) {
-  options = { ...options };
-  const focusDayKeyOption =
-    typeof options.focusDayKey === "string" && options.focusDayKey.trim() ? options.focusDayKey.trim() : "";
-  const autoEdit = options.autoEdit === true;
-  options.autoEdit = false;
-  const consigneId = consigne?.id || "";
-  const consigneType = consigne?.type || "";
-  modesLogger.group("ui.history.open", { consigneId, type: consigneType });
-
-  if (!consigneId) {
-    modesLogger.warn("ui.history.consigne.missing", { consigne });
-    showToast("Historique indisponible : consigne introuvable.");
-    modesLogger.groupEnd();
-    return null;
-  }
-
-  const uid = ctx?.user?.uid;
-  if (!uid) {
-    modesLogger.warn("ui.history.user.missing", { hasCtx: Boolean(ctx) });
-    showToast("Historique indisponible : utilisateur non identifié.");
-    modesLogger.groupEnd();
-    return null;
-  }
-
-  const safeConsigneLabel = (item) =>
-    (item?.text || item?.titre || "Sans titre").toString();
-
-  let parentConsigneForDropdown = null;
-  let childConsignesForDropdown = [];
-  if (consigne.parentId) {
-    const parentId = consigne.parentId;
-    try {
-      const parentRef = modesFirestore.doc(ctx.db, "u", uid, "consignes", parentId);
-      const parentSnap = await modesFirestore.getDoc(parentRef);
-      if (Schema.snapshotExists?.(parentSnap)) {
-        parentConsigneForDropdown = { id: parentSnap.id, ...(parentSnap.data() || {}) };
-      }
-    } catch (error) {
-      modesLogger.warn("ui.history.parent.load", { error, parentId });
-    }
-    if (parentConsigneForDropdown) {
-      try {
-        childConsignesForDropdown = await Schema.listChildConsignes(ctx.db, uid, parentConsigneForDropdown.id);
-      } catch (error) {
-        modesLogger.warn("ui.history.children.load", { error, parentId });
-      }
-    }
-  } else if (consigne.id) {
-    try {
-      childConsignesForDropdown = await Schema.listChildConsignes(ctx.db, uid, consigne.id);
-    } catch (error) {
-      modesLogger.warn("ui.history.children.load", { error, parentId: consigne.id });
-    }
-  }
-
-  const dropdownConsignes = [];
-  const seenConsigneIds = new Set();
-  const pushConsigneCandidate = (item) => {
-    const id = String(item?.id ?? "");
-    if (!id || seenConsigneIds.has(id)) return;
-    dropdownConsignes.push(item);
-    seenConsigneIds.add(id);
-  };
-
-  if (parentConsigneForDropdown) {
-    pushConsigneCandidate(parentConsigneForDropdown);
-  }
-  if (!consigne.parentId) {
-    pushConsigneCandidate(consigne);
-  }
-  childConsignesForDropdown.forEach((child) => {
-    pushConsigneCandidate(child);
-  });
-  if (consigne.parentId) {
-    const currentId = String(consigne.id ?? "");
-    if (!seenConsigneIds.has(currentId)) {
-      pushConsigneCandidate(consigne);
-    } else {
-      const index = dropdownConsignes.findIndex((item) => String(item?.id ?? "") === currentId);
-      if (index >= 0) {
-        dropdownConsignes[index] = consigne;
-      }
-    }
-  }
-
-  const dropdownConsigneMap = new Map(dropdownConsignes.map((item) => [String(item?.id ?? ""), item]));
-  const hasDropdownSelection = dropdownConsignes.length > 1;
-
-  const historyFetch = await fetchConsigneHistoryRows(ctx, consigneId, { limit: HISTORY_PANEL_FETCH_LIMIT });
-  if (!ctx?.db || (Array.isArray(historyFetch.missing) && historyFetch.missing.length)) {
-    modesLogger.warn("ui.history.firestore.missing", {
-      hasDb: Boolean(ctx?.db),
-      missing: historyFetch.missing || [],
-    });
-    showToast("Historique indisponible : connexion aux données manquante.");
-    modesLogger.groupEnd();
-    return null;
-  }
-  if (historyFetch.error) {
-    modesLogger.warn("ui.history.firestore.error", historyFetch.error);
-    showToast("Impossible de charger l’historique pour le moment.");
-    modesLogger.groupEnd();
-    return null;
-  }
-
-  const size = historyFetch.size;
-  modesLogger.info("ui.history.rows", size);
-  let rows = Array.isArray(historyFetch.rows) ? historyFetch.rows.slice() : [];
-
-  const dateTimeFormatter = new Intl.DateTimeFormat("fr-FR", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const dayDisplayFormatter = new Intl.DateTimeFormat("fr-FR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-  });
-  const capitalizeLabel = (value) => (typeof value === "string" && value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value);
-  const formatDisplayDate = (date, { preferDayView = false } = {}) => {
-    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-      return "";
-    }
-    const formatter = preferDayView ? dayDisplayFormatter : dateTimeFormatter;
-    const raw = formatter.format(date);
-    return capitalizeLabel(raw);
-  };
-  const priorityToneValue = priorityTone(consigne.priority);
-
-  function relativeLabel(date) {
-    if (!date || Number.isNaN(date.getTime())) return "";
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const base = new Date(date.getTime());
-    base.setHours(0, 0, 0, 0);
-    const diffDays = Math.round((today.getTime() - base.getTime()) / 86400000);
-    if (diffDays === 0) return "Aujourd’hui";
-    if (diffDays === 1) return "Hier";
-    if (diffDays > 1 && diffDays < 7) return `Il y a ${diffDays} j`;
-    if (diffDays < 0) {
-      const future = Math.abs(diffDays);
-      if (future === 1) return "Demain";
-      if (future < 7) return `Dans ${future} j`;
-    }
-    return "";
-  }
-
-  function firstNonEmptyString(...values) {
-    for (const value of values) {
-      if (typeof value === "string") {
-        const trimmed = value.trim();
-        if (trimmed) {
-          return trimmed;
-        }
-      }
-    }
-    return "";
-  }
-
-  const chartPoints = [];
-  const HISTORY_RANGE_PRESETS = {
-    iterations: [
-      { value: "last5", label: "5 dernières itérations" },
-      { value: "last10", label: "10 dernières itérations" },
-      { value: "last20", label: "20 dernières itérations" },
-      { value: "last50", label: "50 dernières itérations" },
-    ],
-    periods: [
-      { value: "7d", label: "Hebdomadaire" },
-      { value: "30d", label: "Mensuel" },
-      { value: "365d", label: "Annuel" },
-      { value: "bilan", label: "Bilans" },
-      { value: "all", label: "Toutes les entrées" },
-    ],
-  };
-  const FALLBACK_HISTORY_RANGE = "last20";
-
-  function buildHistoryRangePresets(source) {
-    const iterationPresets = HISTORY_RANGE_PRESETS.iterations.slice();
-    const periodPresets = HISTORY_RANGE_PRESETS.periods.slice();
-    if (source === "daily") {
-      return periodPresets;
-    }
-    if (source === "practice") {
-      return periodPresets.concat(iterationPresets);
-    }
-    return iterationPresets.concat(periodPresets);
-  }
-
-  function ensureHistoryRangeKey(rangeKey, presets) {
-    const values = new Set(presets.map((preset) => preset.value));
-    if (values.has(rangeKey)) {
-      return rangeKey;
-    }
-    return presets[0]?.value || FALLBACK_HISTORY_RANGE;
-  }
-
-  function applyHistoryRange(points, rangeKey, options = {}) {
-    const allPoints = Array.isArray(points) ? points : [];
-    const validPoints = allPoints
-      .filter((pt) => pt && pt.date instanceof Date && !Number.isNaN(pt.date.getTime()))
-      .map((pt) => ({ ...pt }));
-    const DAY_MS = 86400000;
-    const sortedAsc = validPoints.slice().sort((a, b) => a.date - b.date);
-    const normalizedOffset = Number.isFinite(options.offset) ? Math.trunc(options.offset) : 0;
-
-    const buildResult = (items, range = {}, options = {}) => {
-      const sanitized = (Array.isArray(items) ? items : []).slice().sort((a, b) => a.date - b.date);
-      const firstDate = sanitized[0]?.date ?? null;
-      const lastDate = sanitized[sanitized.length - 1]?.date ?? null;
-      let start = range.start instanceof Date && !Number.isNaN(range.start.getTime()) ? range.start : firstDate;
-      let end = range.end instanceof Date && !Number.isNaN(range.end.getTime()) ? range.end : lastDate;
-      if (start && end && end <= start) {
-        end = new Date(start.getTime() + DAY_MS);
-      }
+    const docs = Array.isArray(snap?.docs) ? snap.docs : [];
+    result.size = typeof snap?.size === "number" ? snap.size : docs.length;
+    let rows = docs.map((docSnap) => {
+      const data = docSnap.data() || {};
       return {
-        points: sanitized,
-        range: {
-          start: start || null,
-          end: end || null,
-        },
-        axis: typeof options.axis === "string" ? options.axis : "",
+        id: docSnap.id,
+        responseId: docSnap.id,
+        ...data,
       };
-    };
-
-    const mostRecentPoint = sortedAsc[sortedAsc.length - 1]?.date instanceof Date
-      ? new Date(sortedAsc[sortedAsc.length - 1].date)
-      : new Date();
-
-    switch (rangeKey) {
-      case "last5":
-      case "last10":
-      case "last20":
-      case "last50": {
-        const count = Number(rangeKey.replace("last", ""));
-        const subset = sortedAsc.slice(-count);
-        return buildResult(subset, {}, { axis: "iteration" });
-      }
-      case "7d": {
-        const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
-        anchor.setHours(0, 0, 0, 0);
-        const startOfWindow = new Date(anchor);
-        startOfWindow.setDate(startOfWindow.getDate() - 6 + normalizedOffset * 7);
-        const endOfWindow = new Date(startOfWindow.getTime() + 7 * DAY_MS);
-        const filtered = sortedAsc.filter((pt) => pt.date >= startOfWindow && pt.date < endOfWindow);
-        return buildResult(filtered, { start: startOfWindow, end: endOfWindow }, { axis: "rolling7d" });
-      }
-      case "30d": {
-        const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
-        const startOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-        startOfMonth.setMonth(startOfMonth.getMonth() + normalizedOffset);
-        const endOfMonth = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth() + 1, 1);
-        const filtered = sortedAsc.filter((pt) => pt.date >= startOfMonth && pt.date < endOfMonth);
-        return buildResult(filtered, { start: startOfMonth, end: endOfMonth }, { axis: "month" });
-      }
-      case "365d": {
-        const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
-        const startOfYear = new Date(anchor.getFullYear(), 0, 1);
-        startOfYear.setFullYear(startOfYear.getFullYear() + normalizedOffset);
-        const endOfYear = new Date(startOfYear.getFullYear() + 1, 0, 1);
-        const filtered = sortedAsc.filter((pt) => pt.date >= startOfYear && pt.date < endOfYear);
-        return buildResult(filtered, { start: startOfYear, end: endOfYear }, { axis: "year" });
-      }
-      case "bilan": {
-        const filtered = sortedAsc.filter((pt) => pt.isBilan);
-        return buildResult(filtered, {}, { axis: "bilan" });
-      }
-      case "all":
-      default:
-        return buildResult(sortedAsc);
+    });
+    rows = mergeRowsWithRecent(rows, consigneId);
+    if (options.filterDailyDuplicates !== false) {
+      const seenDailyDayKeys = new Set();
+      rows = rows.filter((row) => {
+        const modeKey = normalizeHistoryMode(row);
+        if (!DAILY_HISTORY_MODE_KEYS.has(modeKey)) {
+          return true;
+        }
+        const createdAtSource = row?.createdAt ?? row?.updatedAt ?? null;
+        const createdAt = parseHistoryResponseDate(createdAtSource);
+        const primaryDate = resolveHistoryEntryDate(row) || createdAt;
+        const resolvedDayKey = resolveHistoryResponseDayKey(row, primaryDate);
+        if (!resolvedDayKey) {
+          return true;
+        }
+        const normalizedKey = normalizeHistoryDayKey(resolvedDayKey);
+        if (!normalizedKey) {
+          return true;
+        }
+        if (seenDailyDayKeys.has(normalizedKey)) {
+          return false;
+        }
+        seenDailyDayKeys.add(normalizedKey);
+        return true;
+      });
     }
+    result.rows = rows;
+    return result;
   }
 
-  const HISTORY_NAVIGATION_FALLBACK_LIMITS = {
-    "7d": 52,
-    "30d": 24,
-    "365d": 5,
-  };
-
-  function computeHistoryNavigationBounds(points) {
-    const fallbackBounds = Object.entries(HISTORY_NAVIGATION_FALLBACK_LIMITS).reduce((acc, [key, limit]) => {
-      acc[key] = { min: Number.isFinite(limit) ? -Math.abs(limit) : 0, max: 0 };
-      return acc;
-    }, {});
-    const bounds = { ...fallbackBounds };
-    if (!Array.isArray(points) || !points.length) {
-      return bounds;
+  function collectConsigneTimelineSnapshot(consigne) {
+    if (!consigne || consigne.id == null || typeof document === "undefined") {
+      return null;
     }
-    const sortedAsc = points
-      .filter((pt) => pt && pt.date instanceof Date && !Number.isNaN(pt.date.getTime()))
-      .slice()
-      .sort((a, b) => a.date - b.date);
-    if (!sortedAsc.length) {
-      return bounds;
+    const consigneId = String(consigne.id);
+    // Prefer the standard selector first, but also support bilan rows which carry data-id
+    const selector = `[data-consigne-id="${escapeTimelineSelector(consigneId)}"]`;
+    let row = document.querySelector(selector);
+    if (!(row instanceof HTMLElement)) {
+      // Bilan page rows use data-id instead of data-consigne-id
+      const altSelector = `[data-id="${escapeTimelineSelector(consigneId)}"]`;
+      const candidate = document.querySelector(altSelector);
+      if (candidate instanceof HTMLElement) {
+        row = candidate;
+      }
     }
-    const first = sortedAsc[0].date;
-    const last = sortedAsc[sortedAsc.length - 1].date;
-    if (!(first instanceof Date) || !(last instanceof Date)) {
-      return bounds;
+    if (!(row instanceof HTMLElement)) {
+      return null;
     }
-
-    const DAY_MS = 86400000;
-    const startOfWeek = (date) => {
-      const d = new Date(date);
-      d.setHours(0, 0, 0, 0);
-      const day = d.getDay();
-      const diffToMonday = (day + 6) % 7;
-      d.setDate(d.getDate() - diffToMonday);
-      return d;
-    };
-    const latestWeekStart = startOfWeek(last);
-    const earliestWeekStart = startOfWeek(first);
-    const diffWeeks = Math.max(0, Math.floor((latestWeekStart - earliestWeekStart) / (7 * DAY_MS)));
-    const fallbackWeek = fallbackBounds["7d"]?.min ?? 0;
-    bounds["7d"] = { min: Math.min(-diffWeeks, fallbackWeek), max: 0 };
-
-    const monthIndex = (date) => date.getFullYear() * 12 + date.getMonth();
-    const latestMonthIndex = monthIndex(last);
-    const earliestMonthIndex = monthIndex(first);
-    const diffMonths = Math.max(0, latestMonthIndex - earliestMonthIndex);
-    const fallbackMonth = fallbackBounds["30d"]?.min ?? 0;
-    bounds["30d"] = { min: Math.min(-diffMonths, fallbackMonth), max: 0 };
-
-    const diffYears = Math.max(0, last.getFullYear() - first.getFullYear());
-    const fallbackYear = fallbackBounds["365d"]?.min ?? 0;
-    bounds["365d"] = { min: Math.min(-diffYears, fallbackYear), max: 0 };
-
-    return bounds;
-  }
-
-  const historySource = typeof options.source === "string" ? options.source.toLowerCase() : "";
-  const historyRangePresets = buildHistoryRangePresets(historySource);
-  const defaultHistoryRange = ensureHistoryRangeKey(FALLBACK_HISTORY_RANGE, historyRangePresets);
-  const historyRangeOptions = historyRangePresets
-    .map((option) => {
-      const selectedAttr = option.value === defaultHistoryRange ? " selected" : "";
-      return `<option value="${escapeHtml(option.value)}"${selectedAttr}>${escapeHtml(option.label)}</option>`;
-    })
-    .join("");
-
-  const rowMetas = [];
-  const list = rows
-    .map((r, index) => {
-      const recordedAt = firstValidDate([
-        r.createdAt,
-        r.created_at,
-        r.recordedAt,
-        r.recorded_at,
-        r.updatedAt,
-        r.updated_at,
-      ]);
-      const primaryDate = resolveHistoryEntryDate(r);
-      const timelineKeyInfo = resolveHistoryTimelineKey(r, consigne);
-      const canonicalDayKey = timelineKeyInfo?.dayKey || "";
-      const dayKeyFallback = resolveHistoryResponseDayKey(r, primaryDate || recordedAt);
-      const dayKey = canonicalDayKey || dayKeyFallback;
-      const dayDate =
-        timelineKeyInfo?.date instanceof Date && !Number.isNaN(timelineKeyInfo.date.getTime())
-          ? timelineKeyInfo.date
-          : dayKey
-            ? modesParseDayKeyToDate(dayKey)
-            : null;
-      const displayDate = firstValidDate([dayDate, primaryDate, recordedAt]);
-      const iso = displayDate instanceof Date ? displayDate.toISOString() : "";
-      const dateText = displayDate instanceof Date
-        ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
-        : "Date inconnue";
-      const relative = displayDate instanceof Date ? relativeLabel(displayDate) : "";
-      const formattedText = formatConsigneValue(consigne.type, r.value, { consigne });
-      const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html", consigne });
-      // Align panel status computation with timeline by normalizing the value first
-      const normalizedValueForStatus = resolveHistoryTimelineValue(r, consigne);
-      const status = dotColor(consigne.type, normalizedValueForStatus ?? r.value, consigne) || "na";
-      const numericValue = numericPoint(consigne.type, normalizedValueForStatus ?? r.value, consigne);
-      const montantDetails =
-        consigne.type === "montant" ? normalizeMontantValue(r.value, consigne) : null;
-      const chartValue =
-        consigne.type === "montant"
-          ? Number.isFinite(montantDetails?.amount)
-            ? montantDetails.amount
-            : Number.NaN
-          : Number(numericValue);
-      const note = r.note && String(r.note).trim();
-      const summaryInfo = resolveHistoryEntrySummaryInfo(r);
-      const normalizedDayKey = normalizeHistoryDayKey(dayKey);
-      const computedHistoryId = resolveHistoryDocumentId(r, dayKey);
+    const state = CONSIGNE_HISTORY_ROW_STATE.get(row) || null;
+    // Prefer the tracked timeline from state, but fall back to querying the DOM directly
+    const track = state?.track || row.querySelector?.("[data-consigne-history-track]") || null;
+    if (!track) {
+      return { row, items: [] };
+    }
+    const nodes = Array.from(track.querySelectorAll(".consigne-history__item"));
+    const items = nodes.map((item, index) => {
+      const details = item._historyDetails && typeof item._historyDetails === "object" ? item._historyDetails : {};
+      const rawDayKey =
+        (typeof details.dayKey === "string" && details.dayKey.trim()) ||
+        (typeof item.dataset.historyDay === "string" && item.dataset.historyDay.trim()) ||
+        "";
+      const normalizedDayKey = normalizeHistoryDayKey(rawDayKey);
+      const status = item.dataset.status || details.status || "";
       const historyId =
-        (typeof r.historyId === "string" && r.historyId.trim()) ||
-        (typeof r.history_id === "string" && r.history_id.trim()) ||
-        (typeof computedHistoryId === "string" && computedHistoryId.trim() ? computedHistoryId.trim() : "");
-      const computedResponseId = resolveHistoryResponseId(r);
+        (typeof details.historyId === "string" && details.historyId.trim()) ||
+        (typeof item.dataset.historyId === "string" && item.dataset.historyId.trim()) ||
+        "";
       const responseId =
-        (typeof r.responseId === "string" && r.responseId.trim()) ||
-        (typeof r.response_id === "string" && r.response_id.trim()) ||
-        (typeof r.id === "string" && r.id.trim()) ||
-        (typeof computedResponseId === "string" && computedResponseId.trim() ? computedResponseId.trim() : "");
-      rowMetas.push({
+        (typeof details.responseId === "string" && details.responseId.trim()) ||
+        (typeof item.dataset.historyResponseId === "string" && item.dataset.historyResponseId.trim()) ||
+        "";
+      return {
         index,
-        dayKey,
+        dayKey: rawDayKey,
         normalizedDayKey,
         status,
         historyId,
         responseId,
-        value: r.value,
-        note: note || "",
-        source: summaryInfo.isBilan ? "bilan" : normalizeHistoryMode(r),
-      });
-      const rawSummaryLabel = summaryInfo.isSummary
-        ? firstNonEmptyString(
-          r.summaryLabel,
-          r.summary_label,
-          r.summary?.label,
-          r.summary?.title,
-          r.summaryTitle,
-          r.summary_title,
-          r.label
-        )
-        : "";
-      const defaultBilanLabel = summaryInfo.isBilan
-        ? summaryInfo.scope === "monthly"
-          ? "Bilan mensuel"
-          : summaryInfo.scope === "weekly"
-            ? "Bilan hebdomadaire"
-            : summaryInfo.scope === "yearly"
-              ? "Bilan annuel"
-              : "Bilan"
-        : "";
-      const summaryLabel = rawSummaryLabel || defaultBilanLabel;
-      const summaryNoteLabel = summaryLabel
-        ? summaryInfo.isBilan
-          ? summaryInfo.scope === "monthly"
-            ? "Note de bilan mensuel"
-            : summaryInfo.scope === "weekly"
-              ? "Note de bilan hebdomadaire"
-              : summaryInfo.scope === "yearly"
-                ? "Note de bilan annuel"
-                : "Note de bilan"
-          : summaryLabel
-        : "";
-      const noteClasses = ["history-panel__note"];
-      let noteDataAttrs = "";
-      let noteBadgeMarkup = "";
-      if (note && summaryNoteLabel) {
-        if (summaryInfo.isBilan) {
-          noteClasses.push("history-panel__note--bilan");
-          const scopeAttr = summaryInfo.scope
-            ? ` data-note-scope="${escapeHtml(summaryInfo.scope)}"`
-            : "";
-          noteDataAttrs = ` data-note-source="bilan"${scopeAttr}`;
-        }
-        noteBadgeMarkup = `<span class="history-panel__note-badge">${escapeHtml(summaryNoteLabel)}</span>`;
+        details,
+      };
+    });
+    return { row, items };
+  }
+
+  function findOpenHistoryPanelRoot(consigneId) {
+    if (consigneId == null || typeof document === "undefined") {
+      return null;
+    }
+    const selector = `[data-history-panel-consigne="${escapeTimelineSelector(String(consigneId))}"]`;
+    const panel = document.querySelector(selector);
+    return panel instanceof HTMLElement ? panel : null;
+  }
+
+  function refreshOpenHistoryPanel(consigneId) {
+    const panelRoot = findOpenHistoryPanelRoot(consigneId);
+    if (!panelRoot) {
+      return false;
+    }
+    const reopen = panelRoot.__historyReopen;
+    if (typeof reopen === "function") {
+      try {
+        reopen();
+        return true;
+      } catch (error) {
+        try {
+          console.warn("history.panel.refresh", { consigneId, error });
+        } catch (_) { }
       }
-      const noteMarkup = note
-        ? `<p class="${noteClasses.join(" ")}"${noteDataAttrs}>${noteBadgeMarkup}${noteBadgeMarkup ? " " : ""}<span class="history-panel__note-text">${escapeHtml(note)}</span></p>`
-        : "";
-      const statusLabel = STATUS_LABELS[status] || "Valeur";
-      const hasFormatted = formattedText && formattedText.trim() && formattedText !== "—";
-      const formattedMarkup = hasFormatted ? formattedHtml : escapeHtml(consigne.type === "info" ? "" : "—");
-      let checklistBadgeMarkup = "";
-      if (consigne.type === "checklist") {
-        const stats = resolveChecklistStatsFromResponse(r) || deriveChecklistStats(r.value);
-        if (stats) {
-          const pct = Number.isFinite(stats.percentage) ? stats.percentage : 0;
-          const colorFn = window.ColorUtils?.checklistColor;
-          let colorKey = null;
-          if (typeof colorFn === "function") {
-            colorKey = colorFn(pct);
-          } else if (pct >= 80) {
-            colorKey = "green";
-          } else if (pct >= 60) {
-            colorKey = "green-light";
-          } else if (pct >= 40) {
-            colorKey = "yellow";
-          } else if (pct >= 20) {
-            colorKey = "red-light";
-          } else {
-            colorKey = "red";
-          }
-          const badgeClasses = ["badge", "badge--checklist"];
-          if (colorKey) {
-            badgeClasses.push(colorKey);
-          }
-          checklistBadgeMarkup = `<span class="${badgeClasses.join(" ")}">${escapeHtml(`${pct}%`)}</span>`;
-        }
+    }
+    return false;
+  }
+
+  // Ensure any global "consigne:history:refresh" event triggers a panel refresh
+  if (typeof window !== "undefined" && !window.__hpHistoryRefreshBound) {
+    try {
+      window.__hpHistoryRefreshBound = true;
+      window.addEventListener(
+        "consigne:history:refresh",
+        (event) => {
+          const targetId = event?.detail?.consigneId ?? event?.detail?.id ?? null;
+          if (targetId == null) return;
+          try {
+            refreshOpenHistoryPanel(String(targetId));
+          } catch (_) { }
+        },
+        { passive: true },
+      );
+    } catch (_) { }
+  }
+
+  function refreshConsigneTimelineWithRows(consigne, rows) {
+    if (!consigne || consigne.id == null) {
+      return;
+    }
+    const snapshot = collectConsigneTimelineSnapshot(consigne);
+    if (!snapshot || !(snapshot.row instanceof HTMLElement)) {
+      return;
+    }
+    const points = buildConsigneHistoryTimeline(rows, consigne);
+    try {
+      // Cache for later comparison/logging when DOM snapshot isn't available yet
+      CONSIGNE_HISTORY_LAST_POINTS.set(String(consigne.id), Array.isArray(points) ? points.slice() : []);
+    } catch (_) { }
+    const state = CONSIGNE_HISTORY_ROW_STATE.get(snapshot.row) || null;
+    const rendered = renderConsigneHistoryTimeline(snapshot.row, points);
+    if (state) {
+      state.hasDayTimeline = Boolean(points.length);
+      state.track = snapshot.row.querySelector("[data-consigne-history-track]") || state.track;
+      scheduleConsigneHistoryNavUpdate(state);
+    }
+    if (!rendered && state) {
+      state.track.dataset.historyMode = "empty";
+    }
+  }
+
+  function summarizeChecklistValue(value) {
+    try {
+      const stats = deriveChecklistStats(value);
+      if (!stats) {
+        return null;
       }
-      if (displayDate instanceof Date && numericValue !== null && !Number.isNaN(numericValue)) {
-        chartPoints.push({
-          date: displayDate,
-          value: chartValue,
-          progress: montantDetails?.progress ?? null,
-          isSummary: Boolean(summaryInfo.isSummary),
-          summaryScope: summaryInfo.scope || "",
-          isBilan: Boolean(summaryInfo.isBilan),
-          recordedAt: recordedAt instanceof Date && !Number.isNaN(recordedAt?.getTime?.()) ? recordedAt : null,
-          dayKey: typeof dayKey === "string" ? dayKey : "",
+      const checkedCount =
+        stats.checkedCount ?? stats.checked ?? (Array.isArray(stats.checkedIds) ? stats.checkedIds.length : null);
+      const skippedCount = stats.skippedCount ?? stats.skipped ?? null;
+      const total = stats.total ?? null;
+      const percentage = stats.percentage ?? null;
+      const empty =
+        typeof stats.isEmpty === "boolean"
+          ? stats.isEmpty
+          : checkedCount != null
+            ? checkedCount === 0
+            : false;
+      return {
+        total,
+        checked: checkedCount,
+        skipped: skippedCount,
+        percentage,
+        empty,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function diffChecklistSummaries(summaryA, summaryB) {
+    const keys = ["checked", "total", "skipped", "percentage", "empty"];
+    if (!summaryA && !summaryB) {
+      return [];
+    }
+    if (!summaryA || !summaryB) {
+      return [
+        {
+          field: "summary",
+          left: summaryA ?? null,
+          right: summaryB ?? null,
+          kind: "missing",
+        },
+      ];
+    }
+    const normalizeNumber = (value) => {
+      if (value === null || value === undefined) return null;
+      const num = Number(value);
+      if (!Number.isFinite(num)) return null;
+      return Math.round(num * 1000) / 1000;
+    };
+    const differences = [];
+    keys.forEach((key) => {
+      const left = summaryA[key];
+      const right = summaryB[key];
+      if (typeof left === "number" || typeof right === "number") {
+        const normLeft = normalizeNumber(left);
+        const normRight = normalizeNumber(right);
+        if (normLeft !== normRight) {
+          differences.push({ field: key, left: normLeft, right: normRight });
+        }
+        return;
+      }
+      if (left !== right) {
+        differences.push({ field: key, left, right });
+      }
+    });
+    return differences;
+  }
+
+  function logChecklistHistoryInspection(consigne, payload = {}) {
+    if (!consigne || consigne.type !== "checklist") {
+      return;
+    }
+    try {
+      const label = `[checklist-history] ${payload.label || "inspection"} (#${consigne.id ?? "?"})`;
+      console.log(label);
+      if (payload.focusDayKey || payload.timelineDetails || payload.entrySummary || payload.panelSummary || payload.matchInfo) {
+        logChecklistEvent("info", "[checklist-history] focus", {
+          dayKey: payload.focusDayKey || "",
+          timeline: payload.timelineDetails || null,
+          entry: payload.entrySummary || null,
+          panel: payload.panelSummary || null,
+          match: payload.matchInfo || null,
+          dom: payload.domSummary || null,
         });
       }
-      const summaryAttr = summaryInfo.isSummary
-        ? ` data-summary="1"${summaryInfo.scope ? ` data-summary-scope="${escapeHtml(summaryInfo.scope)}"` : ""}`
-        : "";
-      const bilanAttr = summaryInfo.isBilan ? ' data-history-source="bilan"' : "";
-      const summaryClass = summaryInfo.isSummary ? " history-panel__item--summary" : "";
-      const bilanClass = summaryInfo.isBilan ? " history-panel__item--bilan" : "";
-      const summaryBadge = summaryLabel
-        ? `<span class="history-panel__summary-badge">${escapeHtml(summaryLabel)}</span>`
-        : "";
-      let markerTitle = "";
-      if (summaryInfo.isSummary && summaryLabel) {
-        markerTitle = summaryLabel;
-      } else if (summaryInfo.isBilan) {
-        markerTitle = summaryLabel || "Bilan";
+      if (payload.matchInfo && payload.matchInfo.type && payload.matchInfo.type !== "history") {
+        logChecklistEvent("warn", `[checklist-history] attention: correspondance basée sur ${payload.matchInfo.type} (${payload.matchInfo.weight ?? "?"})`, {
+          consigneId: consigne.id ?? null,
+          dayKey: payload.focusDayKey || "",
+          match: payload.matchInfo,
+        });
       }
-      const summaryMarker = summaryInfo.isBilan
-        ? `<span class="history-panel__summary-marker"${markerTitle ? ` title="${escapeHtml(markerTitle)}"` : ""} aria-hidden="true"></span>`
-        : "";
-      // Hide base grey dot when empty and replace with purple star for bilan
-      const showStatusDot = !summaryInfo.isBilan && status !== "na";
-      const statusDotMarkup = showStatusDot
-        ? `<span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>`
-        : "";
-      const valueClasses = ["history-panel__value"];
-      if (summaryInfo.isSummary) {
-        valueClasses.push("history-panel__value--summary");
+      const summaryMap = {
+        timeline: payload.timelineDetails?.summary || null,
+        entry: payload.entrySummary?.summary || null,
+        panel: payload.panelSummary?.summary || null,
+        dom: payload.domSummary?.summary || null,
+      };
+      const summaryEntries = Object.entries(summaryMap).filter(([, summary]) => summary != null);
+      if (summaryEntries.length) {
+        logChecklistEvent("info", "[checklist-history] summary-compare", {
+          timeline: summaryMap.timeline || null,
+          entry: summaryMap.entry || null,
+          panel: summaryMap.panel || null,
+          dom: summaryMap.dom || null,
+        });
+        const keys = Object.keys(summaryMap);
+        keys.forEach((baseName, index) => {
+          const baseSummary = summaryMap[baseName];
+          if (!baseSummary) {
+            return;
+          }
+          for (let i = index + 1; i < keys.length; i += 1) {
+            const compareName = keys[i];
+            const compareSummary = summaryMap[compareName];
+            if (!compareSummary) {
+              continue;
+            }
+            const diffs = diffChecklistSummaries(baseSummary, compareSummary);
+            if (diffs.length) {
+              const severity =
+                baseName === "timeline" || compareName === "timeline"
+                  ? "error"
+                  : "warn";
+              logChecklistEvent(severity, `[checklist-history] mismatch ${baseName} vs ${compareName} (#${consigne.id ?? "?"})`, {
+                dayKey: payload.focusDayKey || "",
+                differences: diffs,
+                [baseName]: baseSummary,
+                [compareName]: compareSummary,
+              });
+            }
+          }
+        });
       }
-      let recordedMetaLabel = "";
-      if (dayDate && recordedAt && !Number.isNaN(recordedAt.getTime())) {
-        const sameDay =
-          recordedAt.getFullYear() === dayDate.getFullYear() &&
-          recordedAt.getMonth() === dayDate.getMonth() &&
-          recordedAt.getDate() === dayDate.getDate();
-        if (!sameDay) {
-          recordedMetaLabel = formatDisplayDate(recordedAt, { preferDayView: false });
+      if (Array.isArray(payload.entries)) {
+        const rows = payload.entries.slice(0, payload.maxEntries ?? 40).map((entry, index) => {
+          const keyInfo = resolveHistoryTimelineKey(entry, consigne);
+          // Normalize the value exactly like the timeline does to ensure status/metrics alignment
+          const displayValue = resolveHistoryTimelineValue(entry, consigne);
+          const summary = summarizeChecklistValue(displayValue);
+          const historyId =
+            (typeof entry?.historyId === "string" && entry.historyId.trim()) ||
+            (typeof entry?.history_id === "string" && entry.history_id.trim()) ||
+            "";
+          const responseId =
+            (typeof entry?.responseId === "string" && entry.responseId.trim()) ||
+            (typeof entry?.response_id === "string" && entry.response_id.trim()) ||
+            (typeof entry?.id === "string" && entry.id.trim()) ||
+            "";
+          return {
+            index,
+            dayKey: keyInfo?.dayKey || "",
+            normalizedDayKey: normalizeHistoryDayKey(keyInfo?.dayKey),
+            status: dotColor(consigne.type, displayValue, consigne) || "na",
+            historyId,
+            responseId,
+            checked: summary?.checked ?? null,
+            total: summary?.total ?? null,
+            skipped: summary?.skipped ?? null,
+            percentage: summary?.percentage ?? null,
+            empty: summary?.empty ?? null,
+          };
+        });
+        rows.forEach((row) => {
+          logChecklistEvent("info", "[checklist-history] history-entry", row);
+        });
+        if (payload.entries.length > rows.length) {
+          logChecklistEvent("info", "[checklist-history] history-entry:truncated", {
+            count: payload.entries.length,
+            displayed: rows.length,
+          });
         }
       }
-      const metaParts = [];
-      if (relative) {
-        metaParts.push(`<span class="history-panel__meta">${escapeHtml(relative)}</span>`);
+    } catch (error) {
+      logChecklistEvent("warn", "[checklist-history] inspection failed", { error: String(error) });
+    }
+  }
+
+  function logConsigneHistoryComparison(consigne, panelMetas, context = {}) {
+    if (!consigne || !Array.isArray(panelMetas)) {
+      return;
+    }
+    try {
+      const timelineSnapshot = collectConsigneTimelineSnapshot(consigne);
+      let timelineItems = Array.isArray(timelineSnapshot?.items) ? timelineSnapshot.items : null;
+      // If DOM snapshot is empty (e.g., bilan row not yet hydrated), fall back to the last rendered points cache
+      if (timelineItems && timelineItems.length === 0) {
+        try {
+          const cachedPoints = CONSIGNE_HISTORY_LAST_POINTS.get(String(consigne.id)) || [];
+          if (Array.isArray(cachedPoints) && cachedPoints.length) {
+            timelineItems = cachedPoints.map((pt, index) => ({
+              index,
+              dayKey: pt?.dayKey || "",
+              normalizedDayKey: normalizeHistoryDayKey(pt?.dayKey || ""),
+              status: pt?.status || "",
+              responseId: pt?.responseId || "",
+              historyId: pt?.historyId || "",
+            }));
+          }
+        } catch (_) { }
       }
-      if (recordedMetaLabel && recordedMetaLabel !== dateText) {
-        metaParts.push(
-          `<span class="history-panel__meta">${escapeHtml(`Enregistré le ${recordedMetaLabel}`)}</span>`
-        );
+      const timelineEntries = timelineItems
+        ? timelineItems.map((item) => ({
+          index: item.index,
+          dayKey: item.dayKey,
+          normalizedDayKey: item.normalizedDayKey,
+          status: item.status || "",
+          responseId: item.responseId || "",
+          historyId: item.historyId || "",
+        }))
+        : null;
+      const panelEntries = panelMetas.map((meta) => ({
+        index: meta.index,
+        dayKey: meta.dayKey || "",
+        normalizedDayKey: meta.normalizedDayKey || "",
+        status: meta.status || "",
+        responseId: meta.responseId || "",
+        historyId: meta.historyId || "",
+      }));
+
+      const buildKey = (entry) => {
+        if (!entry || typeof entry !== "object") {
+          return "";
+        }
+        const historyKey = typeof entry.historyId === "string" && entry.historyId.trim()
+          ? `history:${entry.historyId.trim()}`
+          : "";
+        if (historyKey) {
+          return historyKey;
+        }
+        const responseKey = typeof entry.responseId === "string" && entry.responseId.trim()
+          ? `response:${entry.responseId.trim()}`
+          : "";
+        if (responseKey) {
+          return responseKey;
+        }
+        const normalizedDayKey = typeof entry.normalizedDayKey === "string" && entry.normalizedDayKey.trim()
+          ? entry.normalizedDayKey.trim()
+          : "";
+        const indexPart = Number.isFinite(entry.index) ? String(entry.index) : "";
+        const dayKey = typeof entry.dayKey === "string" && entry.dayKey.trim() ? entry.dayKey.trim() : "";
+        if (normalizedDayKey || dayKey) {
+          return `day:${normalizedDayKey || dayKey}:${indexPart}`;
+        }
+        return `idx:${indexPart}`;
+      };
+
+      const timelineMap = new Map();
+      if (timelineEntries) {
+        timelineEntries.forEach((entry) => {
+          const key = buildKey(entry);
+          timelineMap.set(key, entry);
+        });
       }
-      if (summaryBadge) {
-        metaParts.push(summaryBadge);
+      const panelMap = new Map();
+      panelEntries.forEach((entry) => {
+        const key = buildKey(entry);
+        panelMap.set(key, entry);
+      });
+
+      const missingInTimeline = [];
+      panelMap.forEach((entry, key) => {
+        if (!timelineMap.has(key)) {
+          missingInTimeline.push(entry);
+        }
+      });
+      const missingInPanel = [];
+      timelineMap.forEach((entry, key) => {
+        if (!panelMap.has(key)) {
+          missingInPanel.push(entry);
+        }
+      });
+      const statusMismatches = [];
+      const idMismatches = [];
+      panelMap.forEach((entry, key) => {
+        if (!timelineMap.has(key)) {
+          return;
+        }
+        const timelineEntry = timelineMap.get(key);
+        if ((entry.status || "na") !== (timelineEntry.status || "na")) {
+          statusMismatches.push({
+            key,
+            panel: entry.status || "",
+            timeline: timelineEntry.status || "",
+          });
+        }
+        const panelResponse = entry.responseId || "";
+        const timelineResponse = timelineEntry.responseId || "";
+        if (panelResponse !== timelineResponse) {
+          idMismatches.push({
+            key,
+            panel: panelResponse || "(aucun)",
+            timeline: timelineResponse || "(aucun)",
+          });
+        }
+      });
+
+      const hasTimeline = Boolean(timelineSnapshot && timelineEntries);
+      const hasDifferences =
+        !hasTimeline ||
+        missingInTimeline.length > 0 ||
+        missingInPanel.length > 0 ||
+        statusMismatches.length > 0 ||
+        idMismatches.length > 0;
+
+      const label = `[history-sync] ${safeConsigneLabel(consigne)} (#${consigne.id ?? "?"})`;
+      const groupMethod = hasDifferences ? console.group : console.groupCollapsed;
+      if (typeof groupMethod !== "function") {
+        if (hasDifferences) {
+          console.warn(label, "différences détectées", {
+            missingInTimeline,
+            missingInPanel,
+            statusMismatches,
+            idMismatches,
+            hasTimeline,
+            context,
+          });
+        } else {
+          console.info(`${label}: OK`, { count: panelEntries.length, context });
+        }
+        return;
       }
-      const metaRowMarkup = metaParts.length
-        ? `<div class="history-panel__meta-row">${metaParts.join(" ")}</div>`
-        : "";
-      const dayKeyAttr = dayKey ? ` data-day-key="${escapeHtml(dayKey)}"` : "";
-      const responseIdAttr = responseId ? ` data-response-id="${escapeHtml(String(responseId))}"` : "";
-      const historyIdAttr = historyId ? ` data-history-id="${escapeHtml(String(historyId))}"` : "";
-      // Allow editing normal entries and bilan summary entries
-      const canEditEntry = EDITABLE_HISTORY_TYPES.has(consigne.type) && dayKey && (!summaryInfo.isSummary || summaryInfo.isBilan);
-      const editButtonMarkup = canEditEntry
-        ? `<button type="button" class="history-panel__item-edit" data-history-edit aria-label="Modifier la réponse">Modifier</button>`
-        : "";
-      return `
+
+      groupMethod.call(console, label);
+      console.info("contexte", context);
+      if (!hasTimeline) {
+        console.warn("Pastilles non disponibles pour comparaison (row introuvable ou timeline vide).");
+      } else {
+        console.table?.(timelineEntries);
+      }
+      console.table?.(panelEntries);
+      if (missingInTimeline.length) {
+        console.warn("Présent dans l’historique (panel) mais absent des pastilles :", missingInTimeline);
+      }
+      if (missingInPanel.length) {
+        console.warn("Présent dans les pastilles mais absent du panneau :", missingInPanel);
+      }
+      if (statusMismatches.length) {
+        console.warn("Statuts divergents :", statusMismatches);
+      }
+      if (idMismatches.length) {
+        console.warn("responseId divergents :", idMismatches);
+      }
+      if (!hasDifferences) {
+        console.info(`Aucune divergence détectée (${panelEntries.length} entrées synchronisées).`);
+      }
+      console.groupEnd();
+    } catch (error) {
+      console.warn("[history-sync] comparaison impossible", error);
+    }
+  }
+
+  const EDITABLE_HISTORY_TYPES = new Set([
+    "short",
+    "long",
+    "num",
+    "montant",
+    "likert5",
+    "likert6",
+    "yesno",
+    "checklist",
+  ]);
+
+  async function openHistory(ctx, consigne, options = {}) {
+    options = { ...options };
+    const focusDayKeyOption =
+      typeof options.focusDayKey === "string" && options.focusDayKey.trim() ? options.focusDayKey.trim() : "";
+    const autoEdit = options.autoEdit === true;
+    options.autoEdit = false;
+    const consigneId = consigne?.id || "";
+    const consigneType = consigne?.type || "";
+    modesLogger.group("ui.history.open", { consigneId, type: consigneType });
+
+    if (!consigneId) {
+      modesLogger.warn("ui.history.consigne.missing", { consigne });
+      showToast("Historique indisponible : consigne introuvable.");
+      modesLogger.groupEnd();
+      return null;
+    }
+
+    const uid = ctx?.user?.uid;
+    if (!uid) {
+      modesLogger.warn("ui.history.user.missing", { hasCtx: Boolean(ctx) });
+      showToast("Historique indisponible : utilisateur non identifié.");
+      modesLogger.groupEnd();
+      return null;
+    }
+
+    const safeConsigneLabel = (item) =>
+      (item?.text || item?.titre || "Sans titre").toString();
+
+    let parentConsigneForDropdown = null;
+    let childConsignesForDropdown = [];
+    if (consigne.parentId) {
+      const parentId = consigne.parentId;
+      try {
+        const parentRef = modesFirestore.doc(ctx.db, "u", uid, "consignes", parentId);
+        const parentSnap = await modesFirestore.getDoc(parentRef);
+        if (Schema.snapshotExists?.(parentSnap)) {
+          parentConsigneForDropdown = { id: parentSnap.id, ...(parentSnap.data() || {}) };
+        }
+      } catch (error) {
+        modesLogger.warn("ui.history.parent.load", { error, parentId });
+      }
+      if (parentConsigneForDropdown) {
+        try {
+          childConsignesForDropdown = await Schema.listChildConsignes(ctx.db, uid, parentConsigneForDropdown.id);
+        } catch (error) {
+          modesLogger.warn("ui.history.children.load", { error, parentId });
+        }
+      }
+    } else if (consigne.id) {
+      try {
+        childConsignesForDropdown = await Schema.listChildConsignes(ctx.db, uid, consigne.id);
+      } catch (error) {
+        modesLogger.warn("ui.history.children.load", { error, parentId: consigne.id });
+      }
+    }
+
+    const dropdownConsignes = [];
+    const seenConsigneIds = new Set();
+    const pushConsigneCandidate = (item) => {
+      const id = String(item?.id ?? "");
+      if (!id || seenConsigneIds.has(id)) return;
+      dropdownConsignes.push(item);
+      seenConsigneIds.add(id);
+    };
+
+    if (parentConsigneForDropdown) {
+      pushConsigneCandidate(parentConsigneForDropdown);
+    }
+    if (!consigne.parentId) {
+      pushConsigneCandidate(consigne);
+    }
+    childConsignesForDropdown.forEach((child) => {
+      pushConsigneCandidate(child);
+    });
+    if (consigne.parentId) {
+      const currentId = String(consigne.id ?? "");
+      if (!seenConsigneIds.has(currentId)) {
+        pushConsigneCandidate(consigne);
+      } else {
+        const index = dropdownConsignes.findIndex((item) => String(item?.id ?? "") === currentId);
+        if (index >= 0) {
+          dropdownConsignes[index] = consigne;
+        }
+      }
+    }
+
+    const dropdownConsigneMap = new Map(dropdownConsignes.map((item) => [String(item?.id ?? ""), item]));
+    const hasDropdownSelection = dropdownConsignes.length > 1;
+
+    const historyFetch = await fetchConsigneHistoryRows(ctx, consigneId, { limit: HISTORY_PANEL_FETCH_LIMIT });
+    if (!ctx?.db || (Array.isArray(historyFetch.missing) && historyFetch.missing.length)) {
+      modesLogger.warn("ui.history.firestore.missing", {
+        hasDb: Boolean(ctx?.db),
+        missing: historyFetch.missing || [],
+      });
+      showToast("Historique indisponible : connexion aux données manquante.");
+      modesLogger.groupEnd();
+      return null;
+    }
+    if (historyFetch.error) {
+      modesLogger.warn("ui.history.firestore.error", historyFetch.error);
+      showToast("Impossible de charger l’historique pour le moment.");
+      modesLogger.groupEnd();
+      return null;
+    }
+
+    const size = historyFetch.size;
+    modesLogger.info("ui.history.rows", size);
+    let rows = Array.isArray(historyFetch.rows) ? historyFetch.rows.slice() : [];
+
+    const dateTimeFormatter = new Intl.DateTimeFormat("fr-FR", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const dayDisplayFormatter = new Intl.DateTimeFormat("fr-FR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+    });
+    const capitalizeLabel = (value) => (typeof value === "string" && value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value);
+    const formatDisplayDate = (date, { preferDayView = false } = {}) => {
+      if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+        return "";
+      }
+      const formatter = preferDayView ? dayDisplayFormatter : dateTimeFormatter;
+      const raw = formatter.format(date);
+      return capitalizeLabel(raw);
+    };
+    const priorityToneValue = priorityTone(consigne.priority);
+
+    function relativeLabel(date) {
+      if (!date || Number.isNaN(date.getTime())) return "";
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const base = new Date(date.getTime());
+      base.setHours(0, 0, 0, 0);
+      const diffDays = Math.round((today.getTime() - base.getTime()) / 86400000);
+      if (diffDays === 0) return "Aujourd’hui";
+      if (diffDays === 1) return "Hier";
+      if (diffDays > 1 && diffDays < 7) return `Il y a ${diffDays} j`;
+      if (diffDays < 0) {
+        const future = Math.abs(diffDays);
+        if (future === 1) return "Demain";
+        if (future < 7) return `Dans ${future} j`;
+      }
+      return "";
+    }
+
+    function firstNonEmptyString(...values) {
+      for (const value of values) {
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          if (trimmed) {
+            return trimmed;
+          }
+        }
+      }
+      return "";
+    }
+
+    const chartPoints = [];
+    const HISTORY_RANGE_PRESETS = {
+      iterations: [
+        { value: "last5", label: "5 dernières itérations" },
+        { value: "last10", label: "10 dernières itérations" },
+        { value: "last20", label: "20 dernières itérations" },
+        { value: "last50", label: "50 dernières itérations" },
+      ],
+      periods: [
+        { value: "7d", label: "Hebdomadaire" },
+        { value: "30d", label: "Mensuel" },
+        { value: "365d", label: "Annuel" },
+        { value: "bilan", label: "Bilans" },
+        { value: "all", label: "Toutes les entrées" },
+      ],
+    };
+    const FALLBACK_HISTORY_RANGE = "last20";
+
+    function buildHistoryRangePresets(source) {
+      const iterationPresets = HISTORY_RANGE_PRESETS.iterations.slice();
+      const periodPresets = HISTORY_RANGE_PRESETS.periods.slice();
+      if (source === "daily") {
+        return periodPresets;
+      }
+      if (source === "practice") {
+        return periodPresets.concat(iterationPresets);
+      }
+      return iterationPresets.concat(periodPresets);
+    }
+
+    function ensureHistoryRangeKey(rangeKey, presets) {
+      const values = new Set(presets.map((preset) => preset.value));
+      if (values.has(rangeKey)) {
+        return rangeKey;
+      }
+      return presets[0]?.value || FALLBACK_HISTORY_RANGE;
+    }
+
+    function applyHistoryRange(points, rangeKey, options = {}) {
+      const allPoints = Array.isArray(points) ? points : [];
+      const validPoints = allPoints
+        .filter((pt) => pt && pt.date instanceof Date && !Number.isNaN(pt.date.getTime()))
+        .map((pt) => ({ ...pt }));
+      const DAY_MS = 86400000;
+      const sortedAsc = validPoints.slice().sort((a, b) => a.date - b.date);
+      const normalizedOffset = Number.isFinite(options.offset) ? Math.trunc(options.offset) : 0;
+
+      const buildResult = (items, range = {}, options = {}) => {
+        const sanitized = (Array.isArray(items) ? items : []).slice().sort((a, b) => a.date - b.date);
+        const firstDate = sanitized[0]?.date ?? null;
+        const lastDate = sanitized[sanitized.length - 1]?.date ?? null;
+        let start = range.start instanceof Date && !Number.isNaN(range.start.getTime()) ? range.start : firstDate;
+        let end = range.end instanceof Date && !Number.isNaN(range.end.getTime()) ? range.end : lastDate;
+        if (start && end && end <= start) {
+          end = new Date(start.getTime() + DAY_MS);
+        }
+        return {
+          points: sanitized,
+          range: {
+            start: start || null,
+            end: end || null,
+          },
+          axis: typeof options.axis === "string" ? options.axis : "",
+        };
+      };
+
+      const mostRecentPoint = sortedAsc[sortedAsc.length - 1]?.date instanceof Date
+        ? new Date(sortedAsc[sortedAsc.length - 1].date)
+        : new Date();
+
+      switch (rangeKey) {
+        case "last5":
+        case "last10":
+        case "last20":
+        case "last50": {
+          const count = Number(rangeKey.replace("last", ""));
+          const subset = sortedAsc.slice(-count);
+          return buildResult(subset, {}, { axis: "iteration" });
+        }
+        case "7d": {
+          const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
+          anchor.setHours(0, 0, 0, 0);
+          const startOfWindow = new Date(anchor);
+          startOfWindow.setDate(startOfWindow.getDate() - 6 + normalizedOffset * 7);
+          const endOfWindow = new Date(startOfWindow.getTime() + 7 * DAY_MS);
+          const filtered = sortedAsc.filter((pt) => pt.date >= startOfWindow && pt.date < endOfWindow);
+          return buildResult(filtered, { start: startOfWindow, end: endOfWindow }, { axis: "rolling7d" });
+        }
+        case "30d": {
+          const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
+          const startOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+          startOfMonth.setMonth(startOfMonth.getMonth() + normalizedOffset);
+          const endOfMonth = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth() + 1, 1);
+          const filtered = sortedAsc.filter((pt) => pt.date >= startOfMonth && pt.date < endOfMonth);
+          return buildResult(filtered, { start: startOfMonth, end: endOfMonth }, { axis: "month" });
+        }
+        case "365d": {
+          const anchor = mostRecentPoint instanceof Date ? new Date(mostRecentPoint) : new Date();
+          const startOfYear = new Date(anchor.getFullYear(), 0, 1);
+          startOfYear.setFullYear(startOfYear.getFullYear() + normalizedOffset);
+          const endOfYear = new Date(startOfYear.getFullYear() + 1, 0, 1);
+          const filtered = sortedAsc.filter((pt) => pt.date >= startOfYear && pt.date < endOfYear);
+          return buildResult(filtered, { start: startOfYear, end: endOfYear }, { axis: "year" });
+        }
+        case "bilan": {
+          const filtered = sortedAsc.filter((pt) => pt.isBilan);
+          return buildResult(filtered, {}, { axis: "bilan" });
+        }
+        case "all":
+        default:
+          return buildResult(sortedAsc);
+      }
+    }
+
+    const HISTORY_NAVIGATION_FALLBACK_LIMITS = {
+      "7d": 52,
+      "30d": 24,
+      "365d": 5,
+    };
+
+    function computeHistoryNavigationBounds(points) {
+      const fallbackBounds = Object.entries(HISTORY_NAVIGATION_FALLBACK_LIMITS).reduce((acc, [key, limit]) => {
+        acc[key] = { min: Number.isFinite(limit) ? -Math.abs(limit) : 0, max: 0 };
+        return acc;
+      }, {});
+      const bounds = { ...fallbackBounds };
+      if (!Array.isArray(points) || !points.length) {
+        return bounds;
+      }
+      const sortedAsc = points
+        .filter((pt) => pt && pt.date instanceof Date && !Number.isNaN(pt.date.getTime()))
+        .slice()
+        .sort((a, b) => a.date - b.date);
+      if (!sortedAsc.length) {
+        return bounds;
+      }
+      const first = sortedAsc[0].date;
+      const last = sortedAsc[sortedAsc.length - 1].date;
+      if (!(first instanceof Date) || !(last instanceof Date)) {
+        return bounds;
+      }
+
+      const DAY_MS = 86400000;
+      const startOfWeek = (date) => {
+        const d = new Date(date);
+        d.setHours(0, 0, 0, 0);
+        const day = d.getDay();
+        const diffToMonday = (day + 6) % 7;
+        d.setDate(d.getDate() - diffToMonday);
+        return d;
+      };
+      const latestWeekStart = startOfWeek(last);
+      const earliestWeekStart = startOfWeek(first);
+      const diffWeeks = Math.max(0, Math.floor((latestWeekStart - earliestWeekStart) / (7 * DAY_MS)));
+      const fallbackWeek = fallbackBounds["7d"]?.min ?? 0;
+      bounds["7d"] = { min: Math.min(-diffWeeks, fallbackWeek), max: 0 };
+
+      const monthIndex = (date) => date.getFullYear() * 12 + date.getMonth();
+      const latestMonthIndex = monthIndex(last);
+      const earliestMonthIndex = monthIndex(first);
+      const diffMonths = Math.max(0, latestMonthIndex - earliestMonthIndex);
+      const fallbackMonth = fallbackBounds["30d"]?.min ?? 0;
+      bounds["30d"] = { min: Math.min(-diffMonths, fallbackMonth), max: 0 };
+
+      const diffYears = Math.max(0, last.getFullYear() - first.getFullYear());
+      const fallbackYear = fallbackBounds["365d"]?.min ?? 0;
+      bounds["365d"] = { min: Math.min(-diffYears, fallbackYear), max: 0 };
+
+      return bounds;
+    }
+
+    const historySource = typeof options.source === "string" ? options.source.toLowerCase() : "";
+    const historyRangePresets = buildHistoryRangePresets(historySource);
+    const defaultHistoryRange = ensureHistoryRangeKey(FALLBACK_HISTORY_RANGE, historyRangePresets);
+    const historyRangeOptions = historyRangePresets
+      .map((option) => {
+        const selectedAttr = option.value === defaultHistoryRange ? " selected" : "";
+        return `<option value="${escapeHtml(option.value)}"${selectedAttr}>${escapeHtml(option.label)}</option>`;
+      })
+      .join("");
+
+    const rowMetas = [];
+    const list = rows
+      .map((r, index) => {
+        const recordedAt = firstValidDate([
+          r.createdAt,
+          r.created_at,
+          r.recordedAt,
+          r.recorded_at,
+          r.updatedAt,
+          r.updated_at,
+        ]);
+        const primaryDate = resolveHistoryEntryDate(r);
+        const timelineKeyInfo = resolveHistoryTimelineKey(r, consigne);
+        const canonicalDayKey = timelineKeyInfo?.dayKey || "";
+        const dayKeyFallback = resolveHistoryResponseDayKey(r, primaryDate || recordedAt);
+        const dayKey = canonicalDayKey || dayKeyFallback;
+        const dayDate =
+          timelineKeyInfo?.date instanceof Date && !Number.isNaN(timelineKeyInfo.date.getTime())
+            ? timelineKeyInfo.date
+            : dayKey
+              ? modesParseDayKeyToDate(dayKey)
+              : null;
+        const displayDate = firstValidDate([dayDate, primaryDate, recordedAt]);
+        const iso = displayDate instanceof Date ? displayDate.toISOString() : "";
+        const dateText = displayDate instanceof Date
+          ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
+          : "Date inconnue";
+        const relative = displayDate instanceof Date ? relativeLabel(displayDate) : "";
+        const formattedText = formatConsigneValue(consigne.type, r.value, { consigne });
+        const formattedHtml = formatConsigneValue(consigne.type, r.value, { mode: "html", consigne });
+        // Align panel status computation with timeline by normalizing the value first
+        const normalizedValueForStatus = resolveHistoryTimelineValue(r, consigne);
+        const status = dotColor(consigne.type, normalizedValueForStatus ?? r.value, consigne) || "na";
+        const numericValue = numericPoint(consigne.type, normalizedValueForStatus ?? r.value, consigne);
+        const montantDetails =
+          consigne.type === "montant" ? normalizeMontantValue(r.value, consigne) : null;
+        const chartValue =
+          consigne.type === "montant"
+            ? Number.isFinite(montantDetails?.amount)
+              ? montantDetails.amount
+              : Number.NaN
+            : Number(numericValue);
+        const note = r.note && String(r.note).trim();
+        const summaryInfo = resolveHistoryEntrySummaryInfo(r);
+        const normalizedDayKey = normalizeHistoryDayKey(dayKey);
+        const computedHistoryId = resolveHistoryDocumentId(r, dayKey);
+        const historyId =
+          (typeof r.historyId === "string" && r.historyId.trim()) ||
+          (typeof r.history_id === "string" && r.history_id.trim()) ||
+          (typeof computedHistoryId === "string" && computedHistoryId.trim() ? computedHistoryId.trim() : "");
+        const computedResponseId = resolveHistoryResponseId(r);
+        const responseId =
+          (typeof r.responseId === "string" && r.responseId.trim()) ||
+          (typeof r.response_id === "string" && r.response_id.trim()) ||
+          (typeof r.id === "string" && r.id.trim()) ||
+          (typeof computedResponseId === "string" && computedResponseId.trim() ? computedResponseId.trim() : "");
+        rowMetas.push({
+          index,
+          dayKey,
+          normalizedDayKey,
+          status,
+          historyId,
+          responseId,
+          value: r.value,
+          note: note || "",
+          source: summaryInfo.isBilan ? "bilan" : normalizeHistoryMode(r),
+        });
+        const rawSummaryLabel = summaryInfo.isSummary
+          ? firstNonEmptyString(
+            r.summaryLabel,
+            r.summary_label,
+            r.summary?.label,
+            r.summary?.title,
+            r.summaryTitle,
+            r.summary_title,
+            r.label
+          )
+          : "";
+        const defaultBilanLabel = summaryInfo.isBilan
+          ? summaryInfo.scope === "monthly"
+            ? "Bilan mensuel"
+            : summaryInfo.scope === "weekly"
+              ? "Bilan hebdomadaire"
+              : summaryInfo.scope === "yearly"
+                ? "Bilan annuel"
+                : "Bilan"
+          : "";
+        const summaryLabel = rawSummaryLabel || defaultBilanLabel;
+        const summaryNoteLabel = summaryLabel
+          ? summaryInfo.isBilan
+            ? summaryInfo.scope === "monthly"
+              ? "Note de bilan mensuel"
+              : summaryInfo.scope === "weekly"
+                ? "Note de bilan hebdomadaire"
+                : summaryInfo.scope === "yearly"
+                  ? "Note de bilan annuel"
+                  : "Note de bilan"
+            : summaryLabel
+          : "";
+        const noteClasses = ["history-panel__note"];
+        let noteDataAttrs = "";
+        let noteBadgeMarkup = "";
+        if (note && summaryNoteLabel) {
+          if (summaryInfo.isBilan) {
+            noteClasses.push("history-panel__note--bilan");
+            const scopeAttr = summaryInfo.scope
+              ? ` data-note-scope="${escapeHtml(summaryInfo.scope)}"`
+              : "";
+            noteDataAttrs = ` data-note-source="bilan"${scopeAttr}`;
+          }
+          noteBadgeMarkup = `<span class="history-panel__note-badge">${escapeHtml(summaryNoteLabel)}</span>`;
+        }
+        const noteMarkup = note
+          ? `<p class="${noteClasses.join(" ")}"${noteDataAttrs}>${noteBadgeMarkup}${noteBadgeMarkup ? " " : ""}<span class="history-panel__note-text">${escapeHtml(note)}</span></p>`
+          : "";
+        const statusLabel = STATUS_LABELS[status] || "Valeur";
+        const hasFormatted = formattedText && formattedText.trim() && formattedText !== "—";
+        const formattedMarkup = hasFormatted ? formattedHtml : escapeHtml(consigne.type === "info" ? "" : "—");
+        let checklistBadgeMarkup = "";
+        if (consigne.type === "checklist") {
+          const stats = resolveChecklistStatsFromResponse(r) || deriveChecklistStats(r.value);
+          if (stats) {
+            const pct = Number.isFinite(stats.percentage) ? stats.percentage : 0;
+            const colorFn = window.ColorUtils?.checklistColor;
+            let colorKey = null;
+            if (typeof colorFn === "function") {
+              colorKey = colorFn(pct);
+            } else if (pct >= 80) {
+              colorKey = "green";
+            } else if (pct >= 60) {
+              colorKey = "green-light";
+            } else if (pct >= 40) {
+              colorKey = "yellow";
+            } else if (pct >= 20) {
+              colorKey = "red-light";
+            } else {
+              colorKey = "red";
+            }
+            const badgeClasses = ["badge", "badge--checklist"];
+            if (colorKey) {
+              badgeClasses.push(colorKey);
+            }
+            checklistBadgeMarkup = `<span class="${badgeClasses.join(" ")}">${escapeHtml(`${pct}%`)}</span>`;
+          }
+        }
+        if (displayDate instanceof Date && numericValue !== null && !Number.isNaN(numericValue)) {
+          chartPoints.push({
+            date: displayDate,
+            value: chartValue,
+            progress: montantDetails?.progress ?? null,
+            isSummary: Boolean(summaryInfo.isSummary),
+            summaryScope: summaryInfo.scope || "",
+            isBilan: Boolean(summaryInfo.isBilan),
+            recordedAt: recordedAt instanceof Date && !Number.isNaN(recordedAt?.getTime?.()) ? recordedAt : null,
+            dayKey: typeof dayKey === "string" ? dayKey : "",
+          });
+        }
+        const summaryAttr = summaryInfo.isSummary
+          ? ` data-summary="1"${summaryInfo.scope ? ` data-summary-scope="${escapeHtml(summaryInfo.scope)}"` : ""}`
+          : "";
+        const bilanAttr = summaryInfo.isBilan ? ' data-history-source="bilan"' : "";
+        const summaryClass = summaryInfo.isSummary ? " history-panel__item--summary" : "";
+        const bilanClass = summaryInfo.isBilan ? " history-panel__item--bilan" : "";
+        const summaryBadge = summaryLabel
+          ? `<span class="history-panel__summary-badge">${escapeHtml(summaryLabel)}</span>`
+          : "";
+        let markerTitle = "";
+        if (summaryInfo.isSummary && summaryLabel) {
+          markerTitle = summaryLabel;
+        } else if (summaryInfo.isBilan) {
+          markerTitle = summaryLabel || "Bilan";
+        }
+        const summaryMarker = summaryInfo.isBilan
+          ? `<span class="history-panel__summary-marker"${markerTitle ? ` title="${escapeHtml(markerTitle)}"` : ""} aria-hidden="true"></span>`
+          : "";
+        // Hide base grey dot when empty and replace with purple star for bilan
+        const showStatusDot = !summaryInfo.isBilan && status !== "na";
+        const statusDotMarkup = showStatusDot
+          ? `<span class="history-panel__dot history-panel__dot--${status}" data-status-dot data-priority-tone="${escapeHtml(priorityToneValue)}" aria-hidden="true"></span>`
+          : "";
+        const valueClasses = ["history-panel__value"];
+        if (summaryInfo.isSummary) {
+          valueClasses.push("history-panel__value--summary");
+        }
+        let recordedMetaLabel = "";
+        if (dayDate && recordedAt && !Number.isNaN(recordedAt.getTime())) {
+          const sameDay =
+            recordedAt.getFullYear() === dayDate.getFullYear() &&
+            recordedAt.getMonth() === dayDate.getMonth() &&
+            recordedAt.getDate() === dayDate.getDate();
+          if (!sameDay) {
+            recordedMetaLabel = formatDisplayDate(recordedAt, { preferDayView: false });
+          }
+        }
+        const metaParts = [];
+        if (relative) {
+          metaParts.push(`<span class="history-panel__meta">${escapeHtml(relative)}</span>`);
+        }
+        if (recordedMetaLabel && recordedMetaLabel !== dateText) {
+          metaParts.push(
+            `<span class="history-panel__meta">${escapeHtml(`Enregistré le ${recordedMetaLabel}`)}</span>`
+          );
+        }
+        if (summaryBadge) {
+          metaParts.push(summaryBadge);
+        }
+        const metaRowMarkup = metaParts.length
+          ? `<div class="history-panel__meta-row">${metaParts.join(" ")}</div>`
+          : "";
+        const dayKeyAttr = dayKey ? ` data-day-key="${escapeHtml(dayKey)}"` : "";
+        const responseIdAttr = responseId ? ` data-response-id="${escapeHtml(String(responseId))}"` : "";
+        const historyIdAttr = historyId ? ` data-history-id="${escapeHtml(String(historyId))}"` : "";
+        // Allow editing normal entries and bilan summary entries
+        const canEditEntry = EDITABLE_HISTORY_TYPES.has(consigne.type) && dayKey && (!summaryInfo.isSummary || summaryInfo.isBilan);
+        const editButtonMarkup = canEditEntry
+          ? `<button type="button" class="history-panel__item-edit" data-history-edit aria-label="Modifier la réponse">Modifier</button>`
+          : "";
+        return `
         <li class="history-panel__item${summaryClass}${bilanClass}" data-history-entry data-history-index="${index}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}"${summaryAttr}${dayKeyAttr}${responseIdAttr}${historyIdAttr}${bilanAttr}>
           <div class="history-panel__item-row">
             <span class="${valueClasses.join(" ")}" data-priority-tone="${escapeHtml(priorityToneValue)}" data-status="${escapeHtml(status)}">
@@ -17383,58 +17348,58 @@ async function openHistory(ctx, consigne, options = {}) {
           ${noteMarkup}
         </li>
       `;
-    })
-    .join("");
-
-  refreshConsigneTimelineWithRows(consigne, rows);
-  logConsigneHistoryComparison(consigne, rowMetas, {
-    source: historySource || options.source || "",
-    size,
-    panelCount: rowMetas.length,
-  });
-  logChecklistHistoryInspection(consigne, {
-    label: "panel:rows",
-    entries: rows,
-  });
-
-  const totalLabel = rows.length === 0 ? "Aucune entrée" : rows.length === 1 ? "1 entrée" : `${rows.length} entrées`;
-  const navigationBounds = computeHistoryNavigationBounds(chartPoints);
-  const initialChartPoints = applyHistoryRange(chartPoints, defaultHistoryRange);
-  const chartMarkup = renderHistoryChart(initialChartPoints, { type: consigne.type, mode: historySource });
-  const consigneOptionsMarkup = hasDropdownSelection
-    ? dropdownConsignes
-      .map((item) => {
-        const id = String(item?.id ?? "");
-        if (!id) return "";
-        const selected = id === String(consigne.id ?? "");
-        return `<option value="${escapeHtml(id)}"${selected ? " selected" : ""}>${escapeHtml(
-          safeConsigneLabel(item)
-        )}</option>`;
       })
-      .join("")
-    : "";
-  const historyHeadingMarkup = hasDropdownSelection
-    ? `Historique — <span class="history-panel__heading-select"><span class="sr-only">Choisir une consigne</span><select data-history-consigne aria-label="Choisir une consigne">${consigneOptionsMarkup}</select></span>`
-    : `Historique — ${escapeHtml(safeConsigneLabel(consigne))}`;
+      .join("");
 
-  const resolveNavigationBounds = (key) => {
-    const fallbackLimit = HISTORY_NAVIGATION_FALLBACK_LIMITS[key];
-    const defaultBounds = Number.isFinite(fallbackLimit)
-      ? { min: -Math.abs(fallbackLimit), max: 0 }
-      : { min: 0, max: 0 };
-    const bounds = navigationBounds[key];
-    if (bounds && typeof bounds === "object") {
-      const hasMin = Object.prototype.hasOwnProperty.call(bounds, "min");
-      const hasMax = Object.prototype.hasOwnProperty.call(bounds, "max");
-      return {
-        min: hasMin ? bounds.min : defaultBounds.min,
-        max: hasMax ? bounds.max : defaultBounds.max,
-      };
-    }
-    return defaultBounds;
-  };
+    refreshConsigneTimelineWithRows(consigne, rows);
+    logConsigneHistoryComparison(consigne, rowMetas, {
+      source: historySource || options.source || "",
+      size,
+      panelCount: rowMetas.length,
+    });
+    logChecklistHistoryInspection(consigne, {
+      label: "panel:rows",
+      entries: rows,
+    });
 
-  const html = `
+    const totalLabel = rows.length === 0 ? "Aucune entrée" : rows.length === 1 ? "1 entrée" : `${rows.length} entrées`;
+    const navigationBounds = computeHistoryNavigationBounds(chartPoints);
+    const initialChartPoints = applyHistoryRange(chartPoints, defaultHistoryRange);
+    const chartMarkup = renderHistoryChart(initialChartPoints, { type: consigne.type, mode: historySource });
+    const consigneOptionsMarkup = hasDropdownSelection
+      ? dropdownConsignes
+        .map((item) => {
+          const id = String(item?.id ?? "");
+          if (!id) return "";
+          const selected = id === String(consigne.id ?? "");
+          return `<option value="${escapeHtml(id)}"${selected ? " selected" : ""}>${escapeHtml(
+            safeConsigneLabel(item)
+          )}</option>`;
+        })
+        .join("")
+      : "";
+    const historyHeadingMarkup = hasDropdownSelection
+      ? `Historique — <span class="history-panel__heading-select"><span class="sr-only">Choisir une consigne</span><select data-history-consigne aria-label="Choisir une consigne">${consigneOptionsMarkup}</select></span>`
+      : `Historique — ${escapeHtml(safeConsigneLabel(consigne))}`;
+
+    const resolveNavigationBounds = (key) => {
+      const fallbackLimit = HISTORY_NAVIGATION_FALLBACK_LIMITS[key];
+      const defaultBounds = Number.isFinite(fallbackLimit)
+        ? { min: -Math.abs(fallbackLimit), max: 0 }
+        : { min: 0, max: 0 };
+      const bounds = navigationBounds[key];
+      if (bounds && typeof bounds === "object") {
+        const hasMin = Object.prototype.hasOwnProperty.call(bounds, "min");
+        const hasMax = Object.prototype.hasOwnProperty.call(bounds, "max");
+        return {
+          min: hasMin ? bounds.min : defaultBounds.min,
+          max: hasMax ? bounds.max : defaultBounds.max,
+        };
+      }
+      return defaultBounds;
+    };
+
+    const html = `
     <div class="history-panel">
       <header class="history-panel__header">
         <div class="history-panel__title">
@@ -17461,290 +17426,290 @@ async function openHistory(ctx, consigne, options = {}) {
       </div>
     </div>
   `;
-  const panel = drawer(html);
-  panel.querySelector('[data-close]')?.addEventListener('click', () => panel.remove());
-  const panelRoot = panel.querySelector('.history-panel');
-  if (panelRoot) {
-    if (consigne?.id != null) {
-      panelRoot.dataset.historyPanelConsigne = String(consigne.id);
-    } else {
-      delete panelRoot.dataset.historyPanelConsigne;
+    const panel = drawer(html);
+    panel.querySelector('[data-close]')?.addEventListener('click', () => panel.remove());
+    const panelRoot = panel.querySelector('.history-panel');
+    if (panelRoot) {
+      if (consigne?.id != null) {
+        panelRoot.dataset.historyPanelConsigne = String(consigne.id);
+      } else {
+        delete panelRoot.dataset.historyPanelConsigne;
+      }
     }
-  }
 
-  const chartContainer = panel.querySelector('[data-history-chart]');
-  const rangeSelector = panel.querySelector('[data-history-range]');
-  const navContainer = panel.querySelector('[data-history-nav]');
-  const navLabel = panel.querySelector('[data-history-range-label]');
-  const navPrev = panel.querySelector('[data-history-nav-prev]');
-  const navNext = panel.querySelector('[data-history-nav-next]');
-  const consigneSelector = panel.querySelector('[data-history-consigne]');
-  const listContainer = panel.querySelector('.history-panel__list');
-  if (consigneSelector) {
-    consigneSelector.addEventListener('change', (event) => {
-      const nextId = String(event.target?.value ?? '');
-      const currentId = String(consigne.id ?? '');
-      if (!nextId || nextId === currentId) {
-        return;
-      }
-      const nextConsigne = dropdownConsigneMap.get(nextId);
-      if (!nextConsigne) {
-        return;
-      }
-      panel.remove();
-      openHistory(ctx, nextConsigne, options);
-    });
-  }
-
-  const reopenHistory = () => {
-    try {
-      panel.remove();
-    } catch (error) {
-      modesLogger.warn('ui.history.panel.remove', error);
-    }
-    openHistory(ctx, consigne, options);
-  };
-  if (panelRoot) {
-    panelRoot.__historyReopen = reopenHistory;
-  }
-
-  const openEntryEditor = async (entryIndex, itemNode) => {
-    if (!EDITABLE_HISTORY_TYPES.has(consigne.type)) {
-      showToast("Modification non disponible pour ce type de consigne.");
-      return;
-    }
-    const row = rows[entryIndex];
-    if (!row) return;
-    const dayKeyAttr = itemNode?.getAttribute('data-day-key');
-    const responseIdAttr = itemNode?.getAttribute('data-response-id');
-    const historyIdAttr = itemNode?.getAttribute('data-history-id');
-    const isBilanEntry = itemNode?.getAttribute('data-history-source') === 'bilan';
-    const dayKey = dayKeyAttr && dayKeyAttr.trim() ? dayKeyAttr.trim() : resolveHistoryResponseDayKey(row, null);
-    if (!dayKey) {
-      showToast("Impossible d’identifier la date de cette réponse.");
-      return;
-    }
-    if (consigne.type === "checklist") {
-      const panelSummary = summarizeChecklistValue(row.value);
-      logChecklistHistoryInspection(consigne, {
-        label: "panel:item",
-        focusDayKey: dayKey,
-        panelSummary: panelSummary
-          ? {
-            summary: panelSummary,
-            responseId:
-              (typeof row.responseId === "string" && row.responseId.trim()) ||
-              (typeof row.response_id === "string" && row.response_id.trim()) ||
-              (typeof row.id === "string" && row.id.trim()) ||
-              (responseIdAttr && responseIdAttr.trim()) ||
-              "",
-            historyId:
-              (typeof row.historyId === "string" && row.historyId.trim()) ||
-              (typeof row.history_id === "string" && row.history_id.trim()) ||
-              (historyIdAttr && historyIdAttr.trim()) ||
-              "",
-            rawValue: row.value ?? null,
-          }
-          : null,
-        entries: [],
-      });
-    }
-    let historyDocumentId = dayKey;
-    let resolveHistoryDocPromise = null;
-    if (ctx?.db && typeof Schema?.loadConsigneHistory === "function") {
-      resolveHistoryDocPromise = (async () => {
-        try {
-          const historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
-          const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey, {
-            responseId: responseIdAttr,
-            historyId: historyIdAttr,
-          });
-          const historyEntry = match?.entry || null;
-          const resolvedId = resolveHistoryDocumentId(historyEntry, dayKey);
-          if (resolvedId) {
-            historyDocumentId = resolvedId;
-          }
-        } catch (error) {
-          modesLogger?.warn?.("ui.history.resolveDocId", { consigneId: consigne.id, dayKey, error });
-        }
-      })();
-    }
-    const ensureHistoryDocumentId = async () => {
-      if (resolveHistoryDocPromise) {
-        try {
-          await resolveHistoryDocPromise;
-        } catch (_) { }
-        resolveHistoryDocPromise = null;
-      }
-      return historyDocumentId;
-    };
-    const createdAtSource = row.createdAt ?? row.updatedAt ?? null;
-    const createdAt = asDate(createdAtSource);
-    const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
-    const displayDate = dayDate || createdAt;
-    const dateLabel = displayDate && !Number.isNaN(displayDate.getTime())
-      ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
-      : dayKey || 'Date inconnue';
-    const relative = displayDate ? relativeLabel(displayDate) : '';
-    const noteValue = row.note ? String(row.note) : '';
-    const fieldId = `history-edit-value-${consigne.id}-${entryIndex}-${Date.now()}`;
-    // If this is a bilan entry, open the dedicated bilan editor instead of the inline editor,
-    // rendering inside the history panel so it appears on top.
-    if (isBilanEntry) {
-      await openBilanHistoryEditor(null, consigne, ctx, {
-        dayKey,
-        details: { rawValue: row.value, date: displayDate, timestamp: createdAtSource, isBilan: true },
-        trigger: itemNode,
-        renderInPanel: true,
-        panel,
-        responseId: responseIdAttr,
-        summaryScope: itemNode?.getAttribute('data-summary-scope') || '',
-        onChange: reopenHistory,
-      });
-      return;
-    }
-    const valueField = renderConsigneValueField(consigne, row.value, fieldId);
-    const autosaveKey = [`history-entry`, ctx.user?.uid || 'anon', consigne.id || 'consigne', dayKey]
-      .map((part) => String(part || ''))
-      .join(':');
-    const responseSyncOptions = {
-      responseId: responseIdAttr && responseIdAttr.trim() ? responseIdAttr.trim() : row.id || '',
-      responseMode: normalizeHistoryMode(row) || row.mode || row.source || '',
-      responseType: typeof row.type === 'string' && row.type.trim() ? row.type.trim() : consigne.type,
-      responseDayKey: dayKey,
-      responseCreatedAt:
-        createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
-          ? createdAt.toISOString()
-          : typeof createdAtSource === 'string'
-            ? createdAtSource
-            : '',
-    };
-    const syncTimelineAfterPanelChange = ({
-      remove = false,
-      value = "",
-      note = "",
-      historyId = "",
-      responseId = "",
-      keepPlaceholder = false,
-    } = {}) => {
-      const snapshot = collectConsigneTimelineSnapshot(consigne);
-      const timelineRow = snapshot?.row || null;
-      if (!timelineRow) {
-        return;
-      }
-      const normalizedValue = remove ? "" : value;
-      const normalizedNote = remove ? "" : note;
-      let status = "na";
-      if (!remove) {
-        const hasValue =
-          normalizedValue !== null &&
-          normalizedValue !== undefined &&
-          !(typeof normalizedValue === "string" && normalizedValue === "");
-        if (hasValue) {
-          status = dotColor(consigne.type, normalizedValue, consigne) || "na";
-        } else if (typeof normalizedNote === "string" && normalizedNote.trim()) {
-          status = "note";
-        }
-      }
-      updateConsigneHistoryTimeline(timelineRow, status, {
-        consigne,
-        value: normalizedValue,
-        note: normalizedNote,
-        dayKey,
-        historyId,
-        responseId,
-        keepPlaceholder: remove ? keepPlaceholder : false,
-        remove,
-      });
-      triggerConsigneRowUpdateHighlight(timelineRow);
-    };
-    const updateDailyPrefillCacheForHistoryEdit = (nextValue) => {
-      const hasContent = (() => {
-        if (nextValue === null || nextValue === undefined) {
-          return false;
-        }
-        try {
-          if (consigne?.type === "checklist") {
-            return hasChecklistResponse(consigne, null, nextValue);
-          }
-          return hasValueForConsigne(consigne, nextValue);
-        } catch (_) {
-          return Boolean(
-            nextValue !== "" &&
-            !(typeof nextValue === "object" && Object.keys(nextValue || {}).length === 0),
-          );
-        }
-      })();
-      if (!hasContent) {
-        previousAnswers.delete(consigne.id);
-      } else if (nextValue !== undefined) {
-        const base = previousAnswers.get(consigne.id) || { consigneId: consigne.id };
-        const entry = {
-          ...base,
-          consigneId: consigne.id,
-          value: nextValue,
-          dayKey,
-          updatedAt: new Date().toISOString(),
-        };
-        delete entry.__serialized;
-        previousAnswers.set(consigne.id, entry);
-      }
-      if (!dayKey) {
-        return;
-      }
-      try {
-        const escapeConsigneId =
-          typeof CSS !== "undefined" && typeof CSS.escape === "function"
-            ? CSS.escape(String(consigne.id ?? ""))
-            : String(consigne.id ?? "").replace(/"/g, '\\"');
-        const escapeDayKey =
-          typeof CSS !== "undefined" && typeof CSS.escape === "function"
-            ? CSS.escape(String(dayKey ?? ""))
-            : String(dayKey ?? "").replace(/"/g, '\\"');
-        const selector = `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`;
-        const dailyRow = document.querySelector(selector);
-        if (!dailyRow) {
+    const chartContainer = panel.querySelector('[data-history-chart]');
+    const rangeSelector = panel.querySelector('[data-history-range]');
+    const navContainer = panel.querySelector('[data-history-nav]');
+    const navLabel = panel.querySelector('[data-history-range-label]');
+    const navPrev = panel.querySelector('[data-history-nav-prev]');
+    const navNext = panel.querySelector('[data-history-nav-next]');
+    const consigneSelector = panel.querySelector('[data-history-consigne]');
+    const listContainer = panel.querySelector('.history-panel__list');
+    if (consigneSelector) {
+      consigneSelector.addEventListener('change', (event) => {
+        const nextId = String(event.target?.value ?? '');
+        const currentId = String(consigne.id ?? '');
+        if (!nextId || nextId === currentId) {
           return;
         }
-        const valueToApply = nextValue === undefined ? null : nextValue;
+        const nextConsigne = dropdownConsigneMap.get(nextId);
+        if (!nextConsigne) {
+          return;
+        }
+        panel.remove();
+        openHistory(ctx, nextConsigne, options);
+      });
+    }
+
+    const reopenHistory = () => {
+      try {
+        panel.remove();
+      } catch (error) {
+        modesLogger.warn('ui.history.panel.remove', error);
+      }
+      openHistory(ctx, consigne, options);
+    };
+    if (panelRoot) {
+      panelRoot.__historyReopen = reopenHistory;
+    }
+
+    const openEntryEditor = async (entryIndex, itemNode) => {
+      if (!EDITABLE_HISTORY_TYPES.has(consigne.type)) {
+        showToast("Modification non disponible pour ce type de consigne.");
+        return;
+      }
+      const row = rows[entryIndex];
+      if (!row) return;
+      const dayKeyAttr = itemNode?.getAttribute('data-day-key');
+      const responseIdAttr = itemNode?.getAttribute('data-response-id');
+      const historyIdAttr = itemNode?.getAttribute('data-history-id');
+      const isBilanEntry = itemNode?.getAttribute('data-history-source') === 'bilan';
+      const dayKey = dayKeyAttr && dayKeyAttr.trim() ? dayKeyAttr.trim() : resolveHistoryResponseDayKey(row, null);
+      if (!dayKey) {
+        showToast("Impossible d’identifier la date de cette réponse.");
+        return;
+      }
+      if (consigne.type === "checklist") {
+        const panelSummary = summarizeChecklistValue(row.value);
+        logChecklistHistoryInspection(consigne, {
+          label: "panel:item",
+          focusDayKey: dayKey,
+          panelSummary: panelSummary
+            ? {
+              summary: panelSummary,
+              responseId:
+                (typeof row.responseId === "string" && row.responseId.trim()) ||
+                (typeof row.response_id === "string" && row.response_id.trim()) ||
+                (typeof row.id === "string" && row.id.trim()) ||
+                (responseIdAttr && responseIdAttr.trim()) ||
+                "",
+              historyId:
+                (typeof row.historyId === "string" && row.historyId.trim()) ||
+                (typeof row.history_id === "string" && row.history_id.trim()) ||
+                (historyIdAttr && historyIdAttr.trim()) ||
+                "",
+              rawValue: row.value ?? null,
+            }
+            : null,
+          entries: [],
+        });
+      }
+      let historyDocumentId = dayKey;
+      let resolveHistoryDocPromise = null;
+      if (ctx?.db && typeof Schema?.loadConsigneHistory === "function") {
+        resolveHistoryDocPromise = (async () => {
+          try {
+            const historyEntries = await Schema.loadConsigneHistory(ctx.db, ctx.user.uid, consigne.id);
+            const match = findHistoryEntryForDayKey(historyEntries, consigne, dayKey, {
+              responseId: responseIdAttr,
+              historyId: historyIdAttr,
+            });
+            const historyEntry = match?.entry || null;
+            const resolvedId = resolveHistoryDocumentId(historyEntry, dayKey);
+            if (resolvedId) {
+              historyDocumentId = resolvedId;
+            }
+          } catch (error) {
+            modesLogger?.warn?.("ui.history.resolveDocId", { consigneId: consigne.id, dayKey, error });
+          }
+        })();
+      }
+      const ensureHistoryDocumentId = async () => {
+        if (resolveHistoryDocPromise) {
+          try {
+            await resolveHistoryDocPromise;
+          } catch (_) { }
+          resolveHistoryDocPromise = null;
+        }
+        return historyDocumentId;
+      };
+      const createdAtSource = row.createdAt ?? row.updatedAt ?? null;
+      const createdAt = asDate(createdAtSource);
+      const dayDate = dayKey ? modesParseDayKeyToDate(dayKey) : null;
+      const displayDate = dayDate || createdAt;
+      const dateLabel = displayDate && !Number.isNaN(displayDate.getTime())
+        ? formatDisplayDate(displayDate, { preferDayView: Boolean(dayDate) })
+        : dayKey || 'Date inconnue';
+      const relative = displayDate ? relativeLabel(displayDate) : '';
+      const noteValue = row.note ? String(row.note) : '';
+      const fieldId = `history-edit-value-${consigne.id}-${entryIndex}-${Date.now()}`;
+      // If this is a bilan entry, open the dedicated bilan editor instead of the inline editor,
+      // rendering inside the history panel so it appears on top.
+      if (isBilanEntry) {
+        await openBilanHistoryEditor(null, consigne, ctx, {
+          dayKey,
+          details: { rawValue: row.value, date: displayDate, timestamp: createdAtSource, isBilan: true },
+          trigger: itemNode,
+          renderInPanel: true,
+          panel,
+          responseId: responseIdAttr,
+          summaryScope: itemNode?.getAttribute('data-summary-scope') || '',
+          onChange: reopenHistory,
+        });
+        return;
+      }
+      const valueField = renderConsigneValueField(consigne, row.value, fieldId);
+      const autosaveKey = [`history-entry`, ctx.user?.uid || 'anon', consigne.id || 'consigne', dayKey]
+        .map((part) => String(part || ''))
+        .join(':');
+      const responseSyncOptions = {
+        responseId: responseIdAttr && responseIdAttr.trim() ? responseIdAttr.trim() : row.id || '',
+        responseMode: normalizeHistoryMode(row) || row.mode || row.source || '',
+        responseType: typeof row.type === 'string' && row.type.trim() ? row.type.trim() : consigne.type,
+        responseDayKey: dayKey,
+        responseCreatedAt:
+          createdAt instanceof Date && !Number.isNaN(createdAt.getTime())
+            ? createdAt.toISOString()
+            : typeof createdAtSource === 'string'
+              ? createdAtSource
+              : '',
+      };
+      const syncTimelineAfterPanelChange = ({
+        remove = false,
+        value = "",
+        note = "",
+        historyId = "",
+        responseId = "",
+        keepPlaceholder = false,
+      } = {}) => {
+        const snapshot = collectConsigneTimelineSnapshot(consigne);
+        const timelineRow = snapshot?.row || null;
+        if (!timelineRow) {
+          return;
+        }
+        const normalizedValue = remove ? "" : value;
+        const normalizedNote = remove ? "" : note;
+        let status = "na";
+        if (!remove) {
+          const hasValue =
+            normalizedValue !== null &&
+            normalizedValue !== undefined &&
+            !(typeof normalizedValue === "string" && normalizedValue === "");
+          if (hasValue) {
+            status = dotColor(consigne.type, normalizedValue, consigne) || "na";
+          } else if (typeof normalizedNote === "string" && normalizedNote.trim()) {
+            status = "note";
+          }
+        }
+        updateConsigneHistoryTimeline(timelineRow, status, {
+          consigne,
+          value: normalizedValue,
+          note: normalizedNote,
+          dayKey,
+          historyId,
+          responseId,
+          keepPlaceholder: remove ? keepPlaceholder : false,
+          remove,
+        });
+        triggerConsigneRowUpdateHighlight(timelineRow);
+      };
+      const updateDailyPrefillCacheForHistoryEdit = (nextValue) => {
+        const hasContent = (() => {
+          if (nextValue === null || nextValue === undefined) {
+            return false;
+          }
+          try {
+            if (consigne?.type === "checklist") {
+              return hasChecklistResponse(consigne, null, nextValue);
+            }
+            return hasValueForConsigne(consigne, nextValue);
+          } catch (_) {
+            return Boolean(
+              nextValue !== "" &&
+              !(typeof nextValue === "object" && Object.keys(nextValue || {}).length === 0),
+            );
+          }
+        })();
+        if (!hasContent) {
+          previousAnswers.delete(consigne.id);
+        } else if (nextValue !== undefined) {
+          const base = previousAnswers.get(consigne.id) || { consigneId: consigne.id };
+          const entry = {
+            ...base,
+            consigneId: consigne.id,
+            value: nextValue,
+            dayKey,
+            updatedAt: new Date().toISOString(),
+          };
+          delete entry.__serialized;
+          previousAnswers.set(consigne.id, entry);
+        }
+        if (!dayKey) {
+          return;
+        }
+        try {
+          const escapeConsigneId =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(String(consigne.id ?? ""))
+              : String(consigne.id ?? "").replace(/"/g, '\\"');
+          const escapeDayKey =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(String(dayKey ?? ""))
+              : String(dayKey ?? "").replace(/"/g, '\\"');
+          const selector = `[data-consigne-id="${escapeConsigneId}"][data-day-key="${escapeDayKey}"]`;
+          const dailyRow = document.querySelector(selector);
+          if (!dailyRow) {
+            return;
+          }
+          const valueToApply = nextValue === undefined ? null : nextValue;
+          const context = {
+            source: "history:updateDailyPrefillCacheForHistoryEdit",
+            consigneId: consigne?.id ?? null,
+            dayKey,
+            action: valueToApply === null ? "clear" : "apply",
+          };
+          pushPrefillDebugContext(context);
+          try {
+            setConsigneRowValue(dailyRow, consigne, valueToApply);
+          } finally {
+            popPrefillDebugContext();
+          }
+          triggerConsigneRowUpdateHighlight(dailyRow);
+        } catch (_) { }
+      };
+      const propagateDailyPrefillUpdate = (nextValue) => {
+        try {
+          updateDailyPrefillCacheForHistoryEdit(nextValue);
+        } catch (_) { }
+        const normalizedValue = nextValue === undefined ? null : nextValue;
         const context = {
-          source: "history:updateDailyPrefillCacheForHistoryEdit",
+          source: "history:propagateDailyPrefillUpdate",
           consigneId: consigne?.id ?? null,
           dayKey,
-          action: valueToApply === null ? "clear" : "apply",
+          action: normalizedValue === null ? "clear" : "apply",
         };
         pushPrefillDebugContext(context);
         try {
-          setConsigneRowValue(dailyRow, consigne, valueToApply);
-        } finally {
-          popPrefillDebugContext();
-        }
-        triggerConsigneRowUpdateHighlight(dailyRow);
-      } catch (_) { }
-    };
-    const propagateDailyPrefillUpdate = (nextValue) => {
-      try {
-        updateDailyPrefillCacheForHistoryEdit(nextValue);
-      } catch (_) { }
-      const normalizedValue = nextValue === undefined ? null : nextValue;
-      const context = {
-        source: "history:propagateDailyPrefillUpdate",
-        consigneId: consigne?.id ?? null,
-        dayKey,
-        action: normalizedValue === null ? "clear" : "apply",
+          if (typeof window !== "undefined" && window?.Modes?.applyDailyPrefillUpdate) {
+            window.Modes.applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue);
+          } else if (typeof applyDailyPrefillUpdate === "function") {
+            applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue);
+          }
+        } catch (_) { }
+        popPrefillDebugContext();
       };
-      pushPrefillDebugContext(context);
-      try {
-        if (typeof window !== "undefined" && window?.Modes?.applyDailyPrefillUpdate) {
-          window.Modes.applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue);
-        } else if (typeof applyDailyPrefillUpdate === "function") {
-          applyDailyPrefillUpdate(consigne.id, dayKey, normalizedValue);
-        }
-      } catch (_) { }
-      popPrefillDebugContext();
-    };
-    const labelForAttr3 = consigne.type === "checklist" ? "" : ` for="${fieldId}"`;
-    const editorHtml = `
+      const labelForAttr3 = consigne.type === "checklist" ? "" : ` for="${fieldId}"`;
+      const editorHtml = `
       <form class="practice-editor" data-autosave-key="${escapeHtml(autosaveKey)}">
         <header class="practice-editor__header">
           <h3 class="practice-editor__title">Modifier la réponse</h3>
@@ -17769,121 +17734,175 @@ async function openHistory(ctx, consigne, options = {}) {
         </div>
       </form>
     `;
-    const previousOverlay = panel.querySelector('.history-panel__edit-overlay');
-    if (previousOverlay) {
-      previousOverlay.dispatchEvent(new Event('history-edit-request-close'));
-    }
-    const overlay = document.createElement('div');
-    overlay.className = 'history-panel__edit-overlay';
-    overlay.innerHTML = `
+      const previousOverlay = panel.querySelector('.history-panel__edit-overlay');
+      if (previousOverlay) {
+        previousOverlay.dispatchEvent(new Event('history-edit-request-close'));
+      }
+      const overlay = document.createElement('div');
+      overlay.className = 'history-panel__edit-overlay';
+      overlay.innerHTML = `
       <div class="history-panel__edit-dialog" role="dialog" aria-modal="true" tabindex="-1">
         ${editorHtml}
       </div>
     `;
-    panel.appendChild(overlay);
-    const dialog = overlay.querySelector('.history-panel__edit-dialog');
-    // Initialize checklist behaviors and scoping for history inline editor
-    try {
-      initializeChecklistScope(overlay, { dateKey: dayKey });
-    } catch (_) { }
-    const form = overlay.querySelector('form');
-    const cancelBtn = form?.querySelector('[data-cancel]');
-    const clearBtn = form?.querySelector('[data-clear]');
-    const submitBtn = form?.querySelector('button[type="submit"]');
-    let handleKeyDown;
-    let overlayObserver;
-    let cleanupListeners = null;
-    const closeEditor = () => {
-      if (cleanupListeners) {
-        cleanupListeners();
-      }
-      if (overlay.isConnected) {
-        overlay.remove();
-      }
-    };
-    cleanupListeners = () => {
-      if (handleKeyDown) {
-        document.removeEventListener('keydown', handleKeyDown, true);
-        handleKeyDown = null;
-      }
-      overlay.removeEventListener('history-edit-request-close', closeEditor);
-      if (overlayObserver) {
-        overlayObserver.disconnect();
-        overlayObserver = null;
-      }
-      cleanupListeners = null;
-    };
-    handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeEditor();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown, true);
-    overlay.addEventListener('history-edit-request-close', closeEditor);
-    overlayObserver = new MutationObserver(() => {
-      if (!overlay.isConnected && cleanupListeners) {
-        cleanupListeners();
-      }
-    });
-    try {
-      overlayObserver.observe(panel, { childList: true });
-    } catch (error) {
-      modesLogger?.warn?.('ui.history.edit.observe', error);
-    }
-    overlay.addEventListener('click', (event) => {
-      if (event.target === overlay) {
-        closeEditor();
-      }
-    });
-    requestAnimationFrame(() => {
-      dialog?.focus({ preventScroll: true });
-    });
-    cancelBtn?.addEventListener('click', closeEditor);
-    if (clearBtn) {
-      const hasInitialData = hasValueForConsigne(consigne, row.value) || (noteValue && noteValue.trim());
-      if (!hasInitialData) {
-        clearBtn.disabled = true;
-      }
-      clearBtn.addEventListener('click', async (event) => {
-        event.preventDefault();
-        if (!confirm('Effacer la note pour cette date ?')) {
-          return;
+      panel.appendChild(overlay);
+      const dialog = overlay.querySelector('.history-panel__edit-dialog');
+      // Initialize checklist behaviors and scoping for history inline editor
+      try {
+        initializeChecklistScope(overlay, { dateKey: dayKey });
+      } catch (_) { }
+      const form = overlay.querySelector('form');
+      const cancelBtn = form?.querySelector('[data-cancel]');
+      const clearBtn = form?.querySelector('[data-clear]');
+      const submitBtn = form?.querySelector('button[type="submit"]');
+      let handleKeyDown;
+      let overlayObserver;
+      let cleanupListeners = null;
+      const closeEditor = () => {
+        if (cleanupListeners) {
+          cleanupListeners();
         }
-        clearBtn.disabled = true;
-        if (submitBtn) submitBtn.disabled = true;
+        if (overlay.isConnected) {
+          overlay.remove();
+        }
+      };
+      cleanupListeners = () => {
+        if (handleKeyDown) {
+          document.removeEventListener('keydown', handleKeyDown, true);
+          handleKeyDown = null;
+        }
+        overlay.removeEventListener('history-edit-request-close', closeEditor);
+        if (overlayObserver) {
+          overlayObserver.disconnect();
+          overlayObserver = null;
+        }
+        cleanupListeners = null;
+      };
+      handleKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeEditor();
+        }
+      };
+      document.addEventListener('keydown', handleKeyDown, true);
+      overlay.addEventListener('history-edit-request-close', closeEditor);
+      overlayObserver = new MutationObserver(() => {
+        if (!overlay.isConnected && cleanupListeners) {
+          cleanupListeners();
+        }
+      });
+      try {
+        overlayObserver.observe(panel, { childList: true });
+      } catch (error) {
+        modesLogger?.warn?.('ui.history.edit.observe', error);
+      }
+      overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) {
+          closeEditor();
+        }
+      });
+      requestAnimationFrame(() => {
+        dialog?.focus({ preventScroll: true });
+      });
+      cancelBtn?.addEventListener('click', closeEditor);
+      if (clearBtn) {
+        const hasInitialData = hasValueForConsigne(consigne, row.value) || (noteValue && noteValue.trim());
+        if (!hasInitialData) {
+          clearBtn.disabled = true;
+        }
+        clearBtn.addEventListener('click', async (event) => {
+          event.preventDefault();
+          if (!confirm('Effacer la note pour cette date ?')) {
+            return;
+          }
+          clearBtn.disabled = true;
+          if (submitBtn) submitBtn.disabled = true;
+          try {
+            const targetDocId = await ensureHistoryDocumentId();
+            await runWithAutoSaveSuppressed(consigne.id, dayKey, async () => {
+              await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
+              try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) { }
+              try { clearRecentResponsesForConsigne(consigne.id); } catch (e) { }
+              try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) { }
+              syncTimelineAfterPanelChange({
+                remove: true,
+                historyId: targetDocId,
+                responseId: responseSyncOptions?.responseId || "",
+                keepPlaceholder: true,
+              });
+              try { propagateDailyPrefillUpdate(null); } catch (_) { }
+            });
+            // Remove the item immediately in the UI for instant feedback
+            try {
+              const li = itemNode && itemNode.closest('[data-history-entry]');
+              if (li && li.parentElement) {
+                li.parentElement.removeChild(li);
+                // Update header badge and empty state if needed
+                const listEl = panel.querySelector('.history-panel__list');
+                const badge = panel.querySelector('.history-panel__badge');
+                const count = listEl ? listEl.querySelectorAll('[data-history-entry]').length : 0;
+                if (badge) {
+                  badge.textContent = count === 0 ? 'Aucune entrée' : (count === 1 ? '1 entrée' : `${count} entrées`);
+                }
+                if (listEl && count === 0) {
+                  listEl.innerHTML = '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>';
+                }
+              }
+            } catch (_) { }
+            closeEditor();
+            reopenHistory();
+            // Clear local recent cache and notify global listeners so other views refresh
+            try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
+            try {
+              if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+                window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
+              }
+            } catch (_) { }
+          } catch (error) {
+            console.error('history-entry:clear', error);
+            clearBtn.disabled = false;
+            if (submitBtn) submitBtn.disabled = false;
+          }
+        });
+      }
+      form?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!submitBtn || submitBtn.disabled) return;
+        submitBtn.disabled = true;
+        if (clearBtn) clearBtn.disabled = true;
         try {
+          const rawValue = readConsigneValueFromForm(consigne, form);
+          const note = (form.elements.note?.value || '').trim();
+          const isRawEmpty = rawValue === '' || rawValue == null;
           const targetDocId = await ensureHistoryDocumentId();
-          await runWithAutoSaveSuppressed(consigne.id, dayKey, async () => {
-            await Schema.deleteHistoryEntry(ctx.db, ctx.user.uid, consigne.id, targetDocId, responseSyncOptions);
+          if (isRawEmpty && !note) {
+            // Do not delete implicitly on empty submit. Ask user to use "Effacer" instead.
+            try { showToast && showToast('Réponse vide non enregistrée. Utilise le bouton Effacer pour supprimer.'); } catch (_) { }
+            submitBtn.disabled = false;
+            if (clearBtn) clearBtn.disabled = false;
+            return;
+          } else {
+            await Schema.saveHistoryEntry(
+              ctx.db,
+              ctx.user.uid,
+              consigne.id,
+              targetDocId,
+              {
+                value: rawValue,
+                note,
+              },
+              responseSyncOptions
+            );
             try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) { }
-            try { clearRecentResponsesForConsigne(consigne.id); } catch (e) { }
-            try { await deleteAllResponsesForDay(ctx.db, ctx.user.uid, consigne.id, dayKey); } catch (e) { }
             syncTimelineAfterPanelChange({
-              remove: true,
+              remove: false,
+              value: rawValue,
+              note,
               historyId: targetDocId,
               responseId: responseSyncOptions?.responseId || "",
-              keepPlaceholder: true,
             });
-            try { propagateDailyPrefillUpdate(null); } catch (_) { }
-          });
-          // Remove the item immediately in the UI for instant feedback
-          try {
-            const li = itemNode && itemNode.closest('[data-history-entry]');
-            if (li && li.parentElement) {
-              li.parentElement.removeChild(li);
-              // Update header badge and empty state if needed
-              const listEl = panel.querySelector('.history-panel__list');
-              const badge = panel.querySelector('.history-panel__badge');
-              const count = listEl ? listEl.querySelectorAll('[data-history-entry]').length : 0;
-              if (badge) {
-                badge.textContent = count === 0 ? 'Aucune entrée' : (count === 1 ? '1 entrée' : `${count} entrées`);
-              }
-              if (listEl && count === 0) {
-                listEl.innerHTML = '<li class="history-panel__empty">Aucune réponse pour l’instant.</li>';
-              }
-            }
-          } catch (_) { }
+            try { propagateDailyPrefillUpdate(rawValue); } catch (_) { }
+          }
           closeEditor();
           reopenHistory();
           // Clear local recent cache and notify global listeners so other views refresh
@@ -17894,340 +17913,286 @@ async function openHistory(ctx, consigne, options = {}) {
             }
           } catch (_) { }
         } catch (error) {
-          console.error('history-entry:clear', error);
-          clearBtn.disabled = false;
-          if (submitBtn) submitBtn.disabled = false;
-        }
-      });
-    }
-    form?.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      if (!submitBtn || submitBtn.disabled) return;
-      submitBtn.disabled = true;
-      if (clearBtn) clearBtn.disabled = true;
-      try {
-        const rawValue = readConsigneValueFromForm(consigne, form);
-        const note = (form.elements.note?.value || '').trim();
-        const isRawEmpty = rawValue === '' || rawValue == null;
-        const targetDocId = await ensureHistoryDocumentId();
-        if (isRawEmpty && !note) {
-          // Do not delete implicitly on empty submit. Ask user to use "Effacer" instead.
-          try { showToast && showToast('Réponse vide non enregistrée. Utilise le bouton Effacer pour supprimer.'); } catch (_) { }
+          console.error('history-entry:save', error);
           submitBtn.disabled = false;
           if (clearBtn) clearBtn.disabled = false;
-          return;
-        } else {
-          await Schema.saveHistoryEntry(
-            ctx.db,
-            ctx.user.uid,
-            consigne.id,
-            targetDocId,
-            {
-              value: rawValue,
-              note,
-            },
-            responseSyncOptions
-          );
-          try { removeRecentResponsesForDay(consigne.id, dayKey); } catch (e) { }
-          syncTimelineAfterPanelChange({
-            remove: false,
-            value: rawValue,
-            note,
-            historyId: targetDocId,
-            responseId: responseSyncOptions?.responseId || "",
-          });
-          try { propagateDailyPrefillUpdate(rawValue); } catch (_) { }
         }
-        closeEditor();
-        reopenHistory();
-        // Clear local recent cache and notify global listeners so other views refresh
-        try { clearRecentResponsesForConsigne(consigne.id); } catch (_) { }
-        try {
-          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-            window.dispatchEvent(new CustomEvent('consigne:history:refresh', { detail: { consigneId: consigne.id } }));
-          }
-        } catch (_) { }
-      } catch (error) {
-        console.error('history-entry:save', error);
-        submitBtn.disabled = false;
-        if (clearBtn) clearBtn.disabled = false;
-      }
-    });
-  };
-
-  if (listContainer) {
-    listContainer.addEventListener('click', (event) => {
-      const editTrigger = event.target.closest('[data-history-edit]');
-      if (!editTrigger) return;
-      const itemNode = editTrigger.closest('[data-history-entry]');
-      if (!itemNode) return;
-      const rawIndex = itemNode.getAttribute('data-history-index');
-      const entryIndex = Number(rawIndex);
-      if (!Number.isInteger(entryIndex) || entryIndex < 0 || entryIndex >= rows.length) {
-        return;
-      }
-      event.preventDefault();
-      void openEntryEditor(entryIndex, itemNode);
-    });
-    if (focusDayKeyOption) {
-      const focusIndex = rows.findIndex((row) => {
-        const createdAtSource = row?.createdAt ?? row?.updatedAt ?? null;
-        const resolvedKey = resolveHistoryResponseDayKey(row, createdAtSource);
-        return resolvedKey === focusDayKeyOption;
       });
-      if (focusIndex >= 0) {
-        const focusItem = listContainer.querySelector(
-          `[data-history-entry][data-history-index="${focusIndex}"]`,
-        );
-        if (focusItem) {
-          requestAnimationFrame(() => {
-            try {
-              focusItem.scrollIntoView({ block: "nearest", inline: "nearest" });
-            } catch (_) {
-              focusItem.scrollIntoView();
-            }
-            if (autoEdit && EDITABLE_HISTORY_TYPES.has(consigne.type)) {
-              void openEntryEditor(focusIndex, focusItem);
-            }
-          });
-        }
-      }
-    }
-  }
-
-  const NAVIGABLE_RANGES = new Set(["7d", "30d", "365d"]);
-  const navigationState = {
-    key: defaultHistoryRange,
-    offsets: {
-      "7d": 0,
-      "30d": 0,
-      "365d": 0,
-    },
-  };
-
-  const weekRangeFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
-  const monthRangeFormatter = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
-  const yearRangeFormatter = new Intl.DateTimeFormat("fr-FR", { year: "numeric" });
-
-  const formatHistoryRangeLabel = (result) => {
-    if (!result || !result.range) return "";
-    const start = result.range.start instanceof Date && !Number.isNaN(result.range.start.getTime()) ? result.range.start : null;
-    const end = result.range.end instanceof Date && !Number.isNaN(result.range.end.getTime()) ? result.range.end : null;
-    if (!start || !end) return "";
-    const axis = typeof result.axis === "string" ? result.axis.toLowerCase() : "";
-    if (axis === "rolling7d") {
-      let inclusiveEnd = new Date(end.getTime() - 86400000);
-      if (inclusiveEnd < start) {
-        inclusiveEnd = new Date(start);
-      }
-      const sameYear = start.getFullYear() === inclusiveEnd.getFullYear();
-      const startLabel = `${weekRangeFormatter.format(start)}${sameYear ? "" : ` ${yearRangeFormatter.format(start)}`}`;
-      const endLabel = `${weekRangeFormatter.format(inclusiveEnd)} ${yearRangeFormatter.format(inclusiveEnd)}`;
-      return `Du ${startLabel} au ${endLabel}`;
-    }
-    if (axis === "week") {
-      let inclusiveEnd = new Date(end.getTime() - 86400000);
-      if (inclusiveEnd < start) {
-        inclusiveEnd = new Date(start);
-      }
-      const sameYear = start.getFullYear() === inclusiveEnd.getFullYear();
-      const startLabel = `${weekRangeFormatter.format(start)}${sameYear ? "" : ` ${yearRangeFormatter.format(start)}`}`;
-      const endLabel = `${weekRangeFormatter.format(inclusiveEnd)} ${yearRangeFormatter.format(inclusiveEnd)}`;
-      return `Semaine du ${startLabel} au ${endLabel}`;
-    }
-    if (axis === "month") {
-      return monthRangeFormatter.format(start);
-    }
-    if (axis === "year") {
-      return `Année ${yearRangeFormatter.format(start)}`;
-    }
-    return "";
-  };
-
-  const updateNavControls = (selected, result) => {
-    if (!navContainer || !navLabel || !navPrev || !navNext) return;
-    const isNavigable = NAVIGABLE_RANGES.has(selected);
-    navContainer.hidden = !isNavigable;
-    if (!isNavigable) {
-      navLabel.textContent = "";
-      return;
-    }
-    const bounds = resolveNavigationBounds(selected);
-    const offset = navigationState.offsets[selected] || 0;
-    navLabel.textContent = formatHistoryRangeLabel(result);
-    navPrev.disabled = offset <= (bounds.min ?? offset);
-    navNext.disabled = offset >= (bounds.max ?? 0);
-  };
-
-  if (chartContainer && rangeSelector) {
-    const updateChart = (forcedKey = null) => {
-      const selectedKey = ensureHistoryRangeKey(forcedKey || rangeSelector.value || defaultHistoryRange, historyRangePresets);
-      navigationState.key = selectedKey;
-      if (rangeSelector.value !== selectedKey) {
-        rangeSelector.value = selectedKey;
-      }
-      const offset = navigationState.offsets[selectedKey] || 0;
-      const filteredPoints = applyHistoryRange(chartPoints, selectedKey, { offset });
-      chartContainer.innerHTML = renderHistoryChart(filteredPoints, { type: consigne.type, mode: historySource });
-      enhanceHistoryChart(chartContainer);
-      updateNavControls(selectedKey, filteredPoints);
     };
 
-    rangeSelector.addEventListener("change", () => {
-      const selectedKey = ensureHistoryRangeKey(rangeSelector.value || defaultHistoryRange, historyRangePresets);
-      if (NAVIGABLE_RANGES.has(selectedKey)) {
-        navigationState.offsets[selectedKey] = 0;
-      }
-      updateChart(selectedKey);
-    });
-
-    if (navPrev) {
-      navPrev.addEventListener("click", () => {
-        const selectedKey = navigationState.key;
-        if (!NAVIGABLE_RANGES.has(selectedKey)) return;
-        const bounds = resolveNavigationBounds(selectedKey);
-        const currentOffset = navigationState.offsets[selectedKey] || 0;
-        const nextOffset = Math.max(bounds.min ?? currentOffset, currentOffset - 1);
-        if (nextOffset === currentOffset) return;
-        navigationState.offsets[selectedKey] = nextOffset;
-        updateChart(selectedKey);
-      });
-    }
-
-    if (navNext) {
-      navNext.addEventListener("click", () => {
-        const selectedKey = navigationState.key;
-        if (!NAVIGABLE_RANGES.has(selectedKey)) return;
-        const bounds = resolveNavigationBounds(selectedKey);
-        const currentOffset = navigationState.offsets[selectedKey] || 0;
-        const nextOffset = Math.min(bounds.max ?? 0, currentOffset + 1);
-        if (nextOffset === currentOffset) return;
-        navigationState.offsets[selectedKey] = nextOffset;
-        updateChart(selectedKey);
-      });
-    }
-
-    updateChart(defaultHistoryRange);
-  }
-  if (chartContainer && !rangeSelector) {
-    enhanceHistoryChart(chartContainer);
-  }
-
-  modesLogger.groupEnd();
-
-}
-
-async function renderPractice(ctx, root, _opts = {}) {
-  modesLogger.group("screen.practice.render", { hash: ctx.route });
-  if (practiceMutationListener) {
-    document.removeEventListener("consigne:mutated", practiceMutationListener);
-    practiceMutationListener = null;
-  }
-  root.innerHTML = "";
-  const container = document.createElement("div");
-  container.className = "space-y-4";
-  container.classList.add("w-full", "max-w-4xl", "mx-auto");
-  container.dataset.practiceContainer = "1";
-  container.__practiceCtx = ctx;
-  root.appendChild(container);
-
-  const currentHash = ctx.route || window.location.hash || "#/practice";
-  const fetchedCategories = await Schema.fetchCategories(ctx.db, ctx.user.uid);
-  const categories = sortCategoriesForDisplay(
-    fetchedCategories.filter((cat) => cat.mode === "practice")
-  );
-  const qp = new URLSearchParams(currentHash.split("?")[1] || "");
-  const requestedCat = qp.get("cat") || "";
-  const storedCat = readStoredConsigneCategory(ctx?.user?.uid || null, "practice") || "";
-  const categoryNames = categories.map((cat) => cat.name).filter(Boolean);
-
-  let currentCat = requestedCat && categoryNames.includes(requestedCat) ? requestedCat : "";
-  if (!currentCat) {
-    if (storedCat && categoryNames.includes(storedCat)) {
-      currentCat = storedCat;
-    } else if (categoryNames.length) {
-      currentCat = categoryNames[0];
-    }
-  }
-
-  const basePath = (ctx.route || "#/practice").split("?")[0];
-  if (currentCat && currentCat !== requestedCat) {
-    storeConsigneCategory(ctx?.user?.uid || null, "practice", currentCat);
-    navigate(`${toAppPath(basePath)}?cat=${encodeURIComponent(currentCat)}`);
-    return;
-  }
-
-  if (!currentCat && categoryNames.length) {
-    currentCat = categoryNames[0];
-  }
-
-  if (currentCat) {
-    storeConsigneCategory(ctx?.user?.uid || null, "practice", currentCat);
-  } else {
-    storeConsigneCategory(ctx?.user?.uid || null, "practice", null);
-  }
-
-  const autosaveDayKey = typeof Schema.todayKey === "function"
-    ? Schema.todayKey()
-    : new Date().toISOString().slice(0, 10);
-  const practiceFormAutosaveKey = [
-    "practice-session",
-    ctx.user?.uid || "anon",
-    currentCat || "all",
-    autosaveDayKey || "today",
-  ].map((part) => String(part)).join(":");
-
-  async function archiveConsigneWithRefresh(consigne, { close, row } = {}) {
-    if (!consigne || !consigne.id) {
-      return false;
-    }
-    const safeLabel = consigne.text || consigne.titre || "cette consigne";
-    const confirmed = confirm(
-      `Archiver « ${safeLabel} » ?\nTu pourras la retrouver dans les réponses archivées.`
-    );
-    if (!confirmed) {
-      return false;
-    }
-    try {
-      await Schema.archiveConsigne(ctx.db, ctx.user.uid, consigne.id);
-      if (typeof close === "function") {
-        try {
-          close();
-        } catch (error) {
-          console.warn("practice.archive.close", error);
+    if (listContainer) {
+      listContainer.addEventListener('click', (event) => {
+        const editTrigger = event.target.closest('[data-history-edit]');
+        if (!editTrigger) return;
+        const itemNode = editTrigger.closest('[data-history-entry]');
+        if (!itemNode) return;
+        const rawIndex = itemNode.getAttribute('data-history-index');
+        const entryIndex = Number(rawIndex);
+        if (!Number.isInteger(entryIndex) || entryIndex < 0 || entryIndex >= rows.length) {
+          return;
         }
-      }
-      const fallbackRow = row && row instanceof Element ? row : findPracticeConsigneRowById(consigne.id, container);
-      if (fallbackRow) {
-        const isChildRow = fallbackRow.classList.contains("consigne-row--child") && !fallbackRow.classList.contains("consigne-row--parent");
-        removePracticeConsigneRow(fallbackRow, { removeGroup: !isChildRow });
-        if (isChildRow) {
-          const parentCard = fallbackRow.closest(".consigne-row--parent");
-          if (parentCard && parentCard.__practiceEditorConfig) {
-            const childConsignes = Array.isArray(parentCard.__practiceEditorConfig.childConsignes)
-              ? parentCard.__practiceEditorConfig.childConsignes
-              : [];
-            parentCard.__practiceEditorConfig.childConsignes = childConsignes.filter((childCfg) => {
-              const childId = childCfg?.consigne?.id ?? childCfg?.id;
-              return String(childId) !== String(consigne.id);
+        event.preventDefault();
+        void openEntryEditor(entryIndex, itemNode);
+      });
+      if (focusDayKeyOption) {
+        const focusIndex = rows.findIndex((row) => {
+          const createdAtSource = row?.createdAt ?? row?.updatedAt ?? null;
+          const resolvedKey = resolveHistoryResponseDayKey(row, createdAtSource);
+          return resolvedKey === focusDayKeyOption;
+        });
+        if (focusIndex >= 0) {
+          const focusItem = listContainer.querySelector(
+            `[data-history-entry][data-history-index="${focusIndex}"]`,
+          );
+          if (focusItem) {
+            requestAnimationFrame(() => {
+              try {
+                focusItem.scrollIntoView({ block: "nearest", inline: "nearest" });
+              } catch (_) {
+                focusItem.scrollIntoView();
+              }
+              if (autoEdit && EDITABLE_HISTORY_TYPES.has(consigne.type)) {
+                void openEntryEditor(focusIndex, focusItem);
+              }
             });
           }
         }
       }
-      removePracticeHiddenConsigne(consigne.id, container);
-      showToast("Consigne archivée.");
-      return true;
-    } catch (error) {
-      console.error(error);
-      showToast("Impossible d'archiver la consigne.");
-      return false;
     }
+
+    const NAVIGABLE_RANGES = new Set(["7d", "30d", "365d"]);
+    const navigationState = {
+      key: defaultHistoryRange,
+      offsets: {
+        "7d": 0,
+        "30d": 0,
+        "365d": 0,
+      },
+    };
+
+    const weekRangeFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+    const monthRangeFormatter = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+    const yearRangeFormatter = new Intl.DateTimeFormat("fr-FR", { year: "numeric" });
+
+    const formatHistoryRangeLabel = (result) => {
+      if (!result || !result.range) return "";
+      const start = result.range.start instanceof Date && !Number.isNaN(result.range.start.getTime()) ? result.range.start : null;
+      const end = result.range.end instanceof Date && !Number.isNaN(result.range.end.getTime()) ? result.range.end : null;
+      if (!start || !end) return "";
+      const axis = typeof result.axis === "string" ? result.axis.toLowerCase() : "";
+      if (axis === "rolling7d") {
+        let inclusiveEnd = new Date(end.getTime() - 86400000);
+        if (inclusiveEnd < start) {
+          inclusiveEnd = new Date(start);
+        }
+        const sameYear = start.getFullYear() === inclusiveEnd.getFullYear();
+        const startLabel = `${weekRangeFormatter.format(start)}${sameYear ? "" : ` ${yearRangeFormatter.format(start)}`}`;
+        const endLabel = `${weekRangeFormatter.format(inclusiveEnd)} ${yearRangeFormatter.format(inclusiveEnd)}`;
+        return `Du ${startLabel} au ${endLabel}`;
+      }
+      if (axis === "week") {
+        let inclusiveEnd = new Date(end.getTime() - 86400000);
+        if (inclusiveEnd < start) {
+          inclusiveEnd = new Date(start);
+        }
+        const sameYear = start.getFullYear() === inclusiveEnd.getFullYear();
+        const startLabel = `${weekRangeFormatter.format(start)}${sameYear ? "" : ` ${yearRangeFormatter.format(start)}`}`;
+        const endLabel = `${weekRangeFormatter.format(inclusiveEnd)} ${yearRangeFormatter.format(inclusiveEnd)}`;
+        return `Semaine du ${startLabel} au ${endLabel}`;
+      }
+      if (axis === "month") {
+        return monthRangeFormatter.format(start);
+      }
+      if (axis === "year") {
+        return `Année ${yearRangeFormatter.format(start)}`;
+      }
+      return "";
+    };
+
+    const updateNavControls = (selected, result) => {
+      if (!navContainer || !navLabel || !navPrev || !navNext) return;
+      const isNavigable = NAVIGABLE_RANGES.has(selected);
+      navContainer.hidden = !isNavigable;
+      if (!isNavigable) {
+        navLabel.textContent = "";
+        return;
+      }
+      const bounds = resolveNavigationBounds(selected);
+      const offset = navigationState.offsets[selected] || 0;
+      navLabel.textContent = formatHistoryRangeLabel(result);
+      navPrev.disabled = offset <= (bounds.min ?? offset);
+      navNext.disabled = offset >= (bounds.max ?? 0);
+    };
+
+    if (chartContainer && rangeSelector) {
+      const updateChart = (forcedKey = null) => {
+        const selectedKey = ensureHistoryRangeKey(forcedKey || rangeSelector.value || defaultHistoryRange, historyRangePresets);
+        navigationState.key = selectedKey;
+        if (rangeSelector.value !== selectedKey) {
+          rangeSelector.value = selectedKey;
+        }
+        const offset = navigationState.offsets[selectedKey] || 0;
+        const filteredPoints = applyHistoryRange(chartPoints, selectedKey, { offset });
+        chartContainer.innerHTML = renderHistoryChart(filteredPoints, { type: consigne.type, mode: historySource });
+        enhanceHistoryChart(chartContainer);
+        updateNavControls(selectedKey, filteredPoints);
+      };
+
+      rangeSelector.addEventListener("change", () => {
+        const selectedKey = ensureHistoryRangeKey(rangeSelector.value || defaultHistoryRange, historyRangePresets);
+        if (NAVIGABLE_RANGES.has(selectedKey)) {
+          navigationState.offsets[selectedKey] = 0;
+        }
+        updateChart(selectedKey);
+      });
+
+      if (navPrev) {
+        navPrev.addEventListener("click", () => {
+          const selectedKey = navigationState.key;
+          if (!NAVIGABLE_RANGES.has(selectedKey)) return;
+          const bounds = resolveNavigationBounds(selectedKey);
+          const currentOffset = navigationState.offsets[selectedKey] || 0;
+          const nextOffset = Math.max(bounds.min ?? currentOffset, currentOffset - 1);
+          if (nextOffset === currentOffset) return;
+          navigationState.offsets[selectedKey] = nextOffset;
+          updateChart(selectedKey);
+        });
+      }
+
+      if (navNext) {
+        navNext.addEventListener("click", () => {
+          const selectedKey = navigationState.key;
+          if (!NAVIGABLE_RANGES.has(selectedKey)) return;
+          const bounds = resolveNavigationBounds(selectedKey);
+          const currentOffset = navigationState.offsets[selectedKey] || 0;
+          const nextOffset = Math.min(bounds.max ?? 0, currentOffset + 1);
+          if (nextOffset === currentOffset) return;
+          navigationState.offsets[selectedKey] = nextOffset;
+          updateChart(selectedKey);
+        });
+      }
+
+      updateChart(defaultHistoryRange);
+    }
+    if (chartContainer && !rangeSelector) {
+      enhanceHistoryChart(chartContainer);
+    }
+
+    modesLogger.groupEnd();
+
   }
 
-  const card = document.createElement("section");
-  card.className = "card space-y-4 p-3 sm:p-4";
-  card.dataset.practiceRoot = "1";
-  card.innerHTML = `
+  async function renderPractice(ctx, root, _opts = {}) {
+    modesLogger.group("screen.practice.render", { hash: ctx.route });
+    if (practiceMutationListener) {
+      document.removeEventListener("consigne:mutated", practiceMutationListener);
+      practiceMutationListener = null;
+    }
+    root.innerHTML = "";
+    const container = document.createElement("div");
+    container.className = "space-y-4";
+    container.classList.add("w-full", "max-w-4xl", "mx-auto");
+    container.dataset.practiceContainer = "1";
+    container.__practiceCtx = ctx;
+    root.appendChild(container);
+
+    const currentHash = ctx.route || window.location.hash || "#/practice";
+    const fetchedCategories = await Schema.fetchCategories(ctx.db, ctx.user.uid);
+    const categories = sortCategoriesForDisplay(
+      fetchedCategories.filter((cat) => cat.mode === "practice")
+    );
+    const qp = new URLSearchParams(currentHash.split("?")[1] || "");
+    const requestedCat = qp.get("cat") || "";
+    const storedCat = readStoredConsigneCategory(ctx?.user?.uid || null, "practice") || "";
+    const categoryNames = categories.map((cat) => cat.name).filter(Boolean);
+
+    let currentCat = requestedCat && categoryNames.includes(requestedCat) ? requestedCat : "";
+    if (!currentCat) {
+      if (storedCat && categoryNames.includes(storedCat)) {
+        currentCat = storedCat;
+      } else if (categoryNames.length) {
+        currentCat = categoryNames[0];
+      }
+    }
+
+    const basePath = (ctx.route || "#/practice").split("?")[0];
+    if (currentCat && currentCat !== requestedCat) {
+      storeConsigneCategory(ctx?.user?.uid || null, "practice", currentCat);
+      navigate(`${toAppPath(basePath)}?cat=${encodeURIComponent(currentCat)}`);
+      return;
+    }
+
+    if (!currentCat && categoryNames.length) {
+      currentCat = categoryNames[0];
+    }
+
+    if (currentCat) {
+      storeConsigneCategory(ctx?.user?.uid || null, "practice", currentCat);
+    } else {
+      storeConsigneCategory(ctx?.user?.uid || null, "practice", null);
+    }
+
+    const autosaveDayKey = typeof Schema.todayKey === "function"
+      ? Schema.todayKey()
+      : new Date().toISOString().slice(0, 10);
+    const practiceFormAutosaveKey = [
+      "practice-session",
+      ctx.user?.uid || "anon",
+      currentCat || "all",
+      autosaveDayKey || "today",
+    ].map((part) => String(part)).join(":");
+
+    async function archiveConsigneWithRefresh(consigne, { close, row } = {}) {
+      if (!consigne || !consigne.id) {
+        return false;
+      }
+      const safeLabel = consigne.text || consigne.titre || "cette consigne";
+      const confirmed = confirm(
+        `Archiver « ${safeLabel} » ?\nTu pourras la retrouver dans les réponses archivées.`
+      );
+      if (!confirmed) {
+        return false;
+      }
+      try {
+        await Schema.archiveConsigne(ctx.db, ctx.user.uid, consigne.id);
+        if (typeof close === "function") {
+          try {
+            close();
+          } catch (error) {
+            console.warn("practice.archive.close", error);
+          }
+        }
+        const fallbackRow = row && row instanceof Element ? row : findPracticeConsigneRowById(consigne.id, container);
+        if (fallbackRow) {
+          const isChildRow = fallbackRow.classList.contains("consigne-row--child") && !fallbackRow.classList.contains("consigne-row--parent");
+          removePracticeConsigneRow(fallbackRow, { removeGroup: !isChildRow });
+          if (isChildRow) {
+            const parentCard = fallbackRow.closest(".consigne-row--parent");
+            if (parentCard && parentCard.__practiceEditorConfig) {
+              const childConsignes = Array.isArray(parentCard.__practiceEditorConfig.childConsignes)
+                ? parentCard.__practiceEditorConfig.childConsignes
+                : [];
+              parentCard.__practiceEditorConfig.childConsignes = childConsignes.filter((childCfg) => {
+                const childId = childCfg?.consigne?.id ?? childCfg?.id;
+                return String(childId) !== String(consigne.id);
+              });
+            }
+          }
+        }
+        removePracticeHiddenConsigne(consigne.id, container);
+        showToast("Consigne archivée.");
+        return true;
+      } catch (error) {
+        console.error(error);
+        showToast("Impossible d'archiver la consigne.");
+        return false;
+      }
+    }
+
+    const card = document.createElement("section");
+    card.className = "card space-y-4 p-3 sm:p-4";
+    card.dataset.practiceRoot = "1";
+    card.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-2">
         <span class="text-sm text-[var(--muted)]">Catégorie</span>
@@ -18243,806 +18208,375 @@ async function renderPractice(ctx, root, _opts = {}) {
       <button class="btn btn-primary" type="button" id="save">Enregistrer</button>
     </div>
   `;
-  container.appendChild(card);
+    container.appendChild(card);
 
-  const categoryHolder = card.querySelector("[data-practice-category-holder]");
-  if (categoryHolder) {
-    if (categories.length) {
-      const picker = createCategoryMenu({
-        categories,
-        currentName: currentCat,
-        disabled: !categories.length,
-        onSelect: (name) => {
-          if (!name || name === currentCat) {
-            storeConsigneCategory(ctx?.user?.uid || null, "practice", name || null);
-            return;
-          }
-          storeConsigneCategory(ctx?.user?.uid || null, "practice", name);
-          navigate(`${toAppPath(basePath)}?cat=${encodeURIComponent(name)}`);
-        },
-        onReorder: async (orderedIds) => {
-          if (!ctx?.db || !ctx?.user?.uid) return;
-          try {
-            await Schema.reorderCategories(ctx.db, ctx.user.uid, orderedIds);
-          } catch (error) {
-            console.warn("practice.categories.reorder", error);
-          }
-        },
-      });
-      if (picker?.element) {
-        categoryHolder.appendChild(picker.element);
+    const categoryHolder = card.querySelector("[data-practice-category-holder]");
+    if (categoryHolder) {
+      if (categories.length) {
+        const picker = createCategoryMenu({
+          categories,
+          currentName: currentCat,
+          disabled: !categories.length,
+          onSelect: (name) => {
+            if (!name || name === currentCat) {
+              storeConsigneCategory(ctx?.user?.uid || null, "practice", name || null);
+              return;
+            }
+            storeConsigneCategory(ctx?.user?.uid || null, "practice", name);
+            navigate(`${toAppPath(basePath)}?cat=${encodeURIComponent(name)}`);
+          },
+          onReorder: async (orderedIds) => {
+            if (!ctx?.db || !ctx?.user?.uid) return;
+            try {
+              await Schema.reorderCategories(ctx.db, ctx.user.uid, orderedIds);
+            } catch (error) {
+              console.warn("practice.categories.reorder", error);
+            }
+          },
+        });
+        if (picker?.element) {
+          categoryHolder.appendChild(picker.element);
+        }
+      } else {
+        const empty = document.createElement("span");
+        empty.className = "text-sm text-[var(--muted)]";
+        empty.textContent = "Aucune catégorie";
+        categoryHolder.appendChild(empty);
       }
-    } else {
-      const empty = document.createElement("span");
-      empty.className = "text-sm text-[var(--muted)]";
-      empty.textContent = "Aucune catégorie";
-      categoryHolder.appendChild(empty);
     }
-  }
-  card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null, { defaultCategory: currentCat });
-  const bilanBtn = card.querySelector(".js-bilan");
-  if (bilanBtn) {
-    const hasCategory = Boolean(currentCat);
-    bilanBtn.disabled = !hasCategory;
-    bilanBtn.classList.toggle("opacity-50", !hasCategory);
-    bilanBtn.onclick = async () => {
-      if (!currentCat) return;
-      await loadBilanSettings(ctx);
-      const scopeChoice = await chooseBilanScope({
-        allowMonthly: DAILY_MONTHLY_ENABLED,
+    card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null, { defaultCategory: currentCat });
+    const bilanBtn = card.querySelector(".js-bilan");
+    if (bilanBtn) {
+      const hasCategory = Boolean(currentCat);
+      bilanBtn.disabled = !hasCategory;
+      bilanBtn.classList.toggle("opacity-50", !hasCategory);
+      bilanBtn.onclick = async () => {
+        if (!currentCat) return;
+        await loadBilanSettings(ctx);
+        const scopeChoice = await chooseBilanScope({
+          allowMonthly: DAILY_MONTHLY_ENABLED,
+        });
+        if (!scopeChoice) {
+          return;
+        }
+        const { scope } = scopeChoice;
+        const practiceConsignes = summaryConsignes.slice();
+        openBilanModal(ctx, {
+          scope,
+          title: `${scopeChoice.label} — ${currentCat}`,
+          subtitle: `Catégorie : ${currentCat}`,
+          sections: {
+            practice: practiceConsignes,
+            daily: [],
+            objective: [],
+          },
+        });
+      };
+    }
+
+    const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "practice");
+    const categoryConsignes = all.filter((c) => (c.category || "") === currentCat);
+    const playableConsignes = categoryConsignes.filter((c) => !c.summaryOnlyScope);
+    modesLogger.info("screen.practice.consignes", playableConsignes.length);
+
+    const sortConsignesForDisplay = (list) =>
+      list.slice().sort((a, b) => {
+        const orderA = Number(a.order || 0);
+        const orderB = Number(b.order || 0);
+        if (orderA !== orderB) return orderA - orderB;
+        const prioA = Number(a.priority || 0);
+        const prioB = Number(b.priority || 0);
+        if (prioA !== prioB) return prioA - prioB;
+        return (a.text || a.titre || "").localeCompare(b.text || b.titre || "");
       });
-      if (!scopeChoice) {
-        return;
+
+    const orderSorted = sortConsignesForDisplay(playableConsignes);
+    const summaryConsignes = sortConsignesForDisplay(categoryConsignes);
+
+    const sessionIndex = await Schema.countPracticeSessions(ctx.db, ctx.user.uid);
+    container.dataset.practiceSessionIndex = String(Number(sessionIndex) || 0);
+    const visible = [];
+    const hidden = [];
+    for (const c of orderSorted) {
+      if (c.srEnabled === false) {
+        visible.push(c);
+        continue;
       }
-      const { scope } = scopeChoice;
-      const practiceConsignes = summaryConsignes.slice();
-      openBilanModal(ctx, {
-        scope,
-        title: `${scopeChoice.label} — ${currentCat}`,
-        subtitle: `Catégorie : ${currentCat}`,
-        sections: {
-          practice: practiceConsignes,
-          daily: [],
-          objective: [],
-        },
-      });
+      // eslint-disable-next-line no-await-in-loop
+      const st = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "consigne");
+      if (!st || st.nextAllowedIndex === undefined || st.nextAllowedIndex <= sessionIndex) {
+        visible.push(c);
+      } else {
+        hidden.push({ c, remaining: st.nextAllowedIndex - sessionIndex });
+      }
+    }
+
+    const hiddenParentIds = new Set(hidden.map((entry) => entry?.c?.id).filter(Boolean));
+    const visibleConsignes = filterConsignesByParentVisibility(visible, hiddenParentIds);
+
+    const form = card.querySelector("#practice-form");
+    const PRACTICE_EMPTY_HTML =
+      '<div class="rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]">Aucune consigne visible pour cette itération.</div>';
+    const PRACTICE_EMPTY_TEXT = "Aucune consigne visible pour cette itération.";
+    const practiceHasPlaceholder = () => {
+      if (!form) return false;
+      if (form.childElementCount > 0) return false;
+      return form.textContent.trim() === PRACTICE_EMPTY_TEXT;
     };
-  }
+    const clearPracticePlaceholder = () => {
+      if (!form) return;
+      if (practiceHasPlaceholder()) {
+        form.innerHTML = "";
+      }
+    };
+    const ensurePracticePlaceholder = () => {
+      if (!form) return;
+      const hasGroup = form.querySelector(".consigne-group");
+      const hasLowDetails = form.querySelector(".daily-category__low");
+      if (!hasGroup && !hasLowDetails) {
+        form.innerHTML = PRACTICE_EMPTY_HTML;
+      }
+    };
 
-  const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "practice");
-  const categoryConsignes = all.filter((c) => (c.category || "") === currentCat);
-  const playableConsignes = categoryConsignes.filter((c) => !c.summaryOnlyScope);
-  modesLogger.info("screen.practice.consignes", playableConsignes.length);
+    const escapeHiddenId = (value) => {
+      if (!value && value !== 0) return "";
+      if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+        return CSS.escape(String(value));
+      }
+      return String(value).replace(/"/g, '\\"');
+    };
 
-  const sortConsignesForDisplay = (list) =>
-    list.slice().sort((a, b) => {
-      const orderA = Number(a.order || 0);
-      const orderB = Number(b.order || 0);
-      if (orderA !== orderB) return orderA - orderB;
-      const prioA = Number(a.priority || 0);
-      const prioB = Number(b.priority || 0);
-      if (prioA !== prioB) return prioA - prioB;
-      return (a.text || a.titre || "").localeCompare(b.text || b.titre || "");
-    });
+    function findPracticeConsigneRowById(consigneId, scopeRoot) {
+      if (consigneId == null) {
+        return null;
+      }
+      const rootEl = scopeRoot || container || document;
+      const selector = `[data-consigne-id="${escapeHiddenId(consigneId)}"]`;
+      return rootEl.querySelector(selector);
+    }
 
-  const orderSorted = sortConsignesForDisplay(playableConsignes);
-  const summaryConsignes = sortConsignesForDisplay(categoryConsignes);
-
-  const sessionIndex = await Schema.countPracticeSessions(ctx.db, ctx.user.uid);
-  container.dataset.practiceSessionIndex = String(Number(sessionIndex) || 0);
-  const visible = [];
-  const hidden = [];
-  for (const c of orderSorted) {
-    if (c.srEnabled === false) {
-      visible.push(c);
-      continue;
-    }
-    // eslint-disable-next-line no-await-in-loop
-    const st = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "consigne");
-    if (!st || st.nextAllowedIndex === undefined || st.nextAllowedIndex <= sessionIndex) {
-      visible.push(c);
-    } else {
-      hidden.push({ c, remaining: st.nextAllowedIndex - sessionIndex });
-    }
-  }
-
-  const hiddenParentIds = new Set(hidden.map((entry) => entry?.c?.id).filter(Boolean));
-  const visibleConsignes = filterConsignesByParentVisibility(visible, hiddenParentIds);
-
-  const form = card.querySelector("#practice-form");
-  const PRACTICE_EMPTY_HTML =
-    '<div class="rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)]">Aucune consigne visible pour cette itération.</div>';
-  const PRACTICE_EMPTY_TEXT = "Aucune consigne visible pour cette itération.";
-  const practiceHasPlaceholder = () => {
-    if (!form) return false;
-    if (form.childElementCount > 0) return false;
-    return form.textContent.trim() === PRACTICE_EMPTY_TEXT;
-  };
-  const clearPracticePlaceholder = () => {
-    if (!form) return;
-    if (practiceHasPlaceholder()) {
-      form.innerHTML = "";
-    }
-  };
-  const ensurePracticePlaceholder = () => {
-    if (!form) return;
-    const hasGroup = form.querySelector(".consigne-group");
-    const hasLowDetails = form.querySelector(".daily-category__low");
-    if (!hasGroup && !hasLowDetails) {
-      form.innerHTML = PRACTICE_EMPTY_HTML;
-    }
-  };
-
-  const escapeHiddenId = (value) => {
-    if (!value && value !== 0) return "";
-    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
-      return CSS.escape(String(value));
-    }
-    return String(value).replace(/"/g, '\\"');
-  };
-
-  function findPracticeConsigneRowById(consigneId, scopeRoot) {
-    if (consigneId == null) {
-      return null;
-    }
-    const rootEl = scopeRoot || container || document;
-    const selector = `[data-consigne-id="${escapeHiddenId(consigneId)}"]`;
-    return rootEl.querySelector(selector);
-  }
-
-  function removePracticeHiddenConsigne(consigneId, scopeRoot) {
-    if (consigneId == null) {
-      return;
-    }
-    const box = (scopeRoot || container)?.querySelector?.("[data-practice-hidden-box]");
-    if (!box) return;
-    const list = box.querySelector("[data-practice-hidden-list]");
-    if (!list) return;
-    const selector = `[data-practice-hidden-item][data-consigne-id="${escapeHiddenId(consigneId)}"]`;
-    const item = list.querySelector(selector);
-    if (!item) {
-      return;
-    }
-    item.remove();
-    updatePracticeHiddenCounts();
-  }
-
-  const updatePracticeHiddenCounts = () => {
-    const box = container.querySelector("[data-practice-hidden-box]");
-    if (!box) return;
-    const list = box.querySelector("[data-practice-hidden-list]");
-    const title = box.querySelector("[data-practice-hidden-title]");
-    const items = list ? list.querySelectorAll("[data-practice-hidden-item]") : [];
-    const count = items.length;
-    if (title) {
-      title.textContent = `Masquées par répétition espacée (${count})`;
-    }
-    if (!count) {
-      box.remove();
-    }
-  };
-
-  const ensurePracticeHiddenBox = () => {
-    let box = container.querySelector("[data-practice-hidden-box]");
-    if (box) {
-      return box;
-    }
-    box = document.createElement("div");
-    box.className = "card p-3 space-y-2";
-    box.dataset.practiceHiddenBox = "1";
-    const title = document.createElement("div");
-    title.className = "font-medium";
-    title.dataset.practiceHiddenTitle = "1";
-    box.appendChild(title);
-    const list = document.createElement("ul");
-    list.className = "text-sm text-[var(--muted)] space-y-1";
-    list.dataset.practiceHiddenList = "1";
-    box.appendChild(list);
-    box.addEventListener("click", async (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) {
+    function removePracticeHiddenConsigne(consigneId, scopeRoot) {
+      if (consigneId == null) {
         return;
       }
-      const ctxRef = container.__practiceCtx;
-      if (!ctxRef || !ctxRef.db || !ctxRef.user?.uid) {
-        return;
-      }
-      const item = target.closest("[data-practice-hidden-item]");
+      const box = (scopeRoot || container)?.querySelector?.("[data-practice-hidden-box]");
+      if (!box) return;
+      const list = box.querySelector("[data-practice-hidden-list]");
+      if (!list) return;
+      const selector = `[data-practice-hidden-item][data-consigne-id="${escapeHiddenId(consigneId)}"]`;
+      const item = list.querySelector(selector);
       if (!item) {
         return;
       }
-      const historyTrigger = target.closest(".js-histo-hidden");
-      const resetTrigger = target.closest(".js-reset-sr");
-      if (historyTrigger) {
-        const consigneData = item.__consigneData;
-        if (consigneData) {
-          openHistory(ctxRef, consigneData, { source: "practice" });
-        }
-        return;
+      item.remove();
+      updatePracticeHiddenCounts();
+    }
+
+    const updatePracticeHiddenCounts = () => {
+      const box = container.querySelector("[data-practice-hidden-box]");
+      if (!box) return;
+      const list = box.querySelector("[data-practice-hidden-list]");
+      const title = box.querySelector("[data-practice-hidden-title]");
+      const items = list ? list.querySelectorAll("[data-practice-hidden-item]") : [];
+      const count = items.length;
+      if (title) {
+        title.textContent = `Masquées par répétition espacée (${count})`;
       }
-      if (resetTrigger) {
-        const id = resetTrigger.dataset.id || item.dataset.consigneId || "";
-        if (!id) {
+      if (!count) {
+        box.remove();
+      }
+    };
+
+    const ensurePracticeHiddenBox = () => {
+      let box = container.querySelector("[data-practice-hidden-box]");
+      if (box) {
+        return box;
+      }
+      box = document.createElement("div");
+      box.className = "card p-3 space-y-2";
+      box.dataset.practiceHiddenBox = "1";
+      const title = document.createElement("div");
+      title.className = "font-medium";
+      title.dataset.practiceHiddenTitle = "1";
+      box.appendChild(title);
+      const list = document.createElement("ul");
+      list.className = "text-sm text-[var(--muted)] space-y-1";
+      list.dataset.practiceHiddenList = "1";
+      box.appendChild(list);
+      box.addEventListener("click", async (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) {
           return;
         }
-        try {
-          await Schema.resetSRForConsigne(ctxRef.db, ctxRef.user.uid, id);
-          item.remove();
-          updatePracticeHiddenCounts();
-          showToast("Répétition espacée réinitialisée.");
-        } catch (error) {
-          console.error("practice.hidden.reset", error);
-          showToast("Impossible de réinitialiser la répétition espacée.");
+        const ctxRef = container.__practiceCtx;
+        if (!ctxRef || !ctxRef.db || !ctxRef.user?.uid) {
+          return;
         }
-      }
-    });
-    container.appendChild(box);
-    return box;
-  };
-
-  const createPracticeHiddenItem = (consigne, remaining) => {
-    const item = document.createElement("li");
-    item.className = "practice-hidden__item";
-    item.dataset.practiceHiddenItem = "1";
-    if (consigne?.id != null) {
-      const stringId = String(consigne.id);
-      item.dataset.consigneId = stringId;
-    }
-    item.__consigneData = consigne || null;
-    const label = document.createElement("div");
-    label.className = "practice-hidden__text";
-    const safeLabel = consigne?.text || consigne?.titre || "cette consigne";
-    label.innerHTML = `<span class="font-medium text-slate-600">${escapeHtml(safeLabel)}</span> — revient dans ${remaining} itération(s)`;
-    const actions = document.createElement("div");
-    actions.className = "practice-hidden__actions";
-    const historyBtn = document.createElement("button");
-    historyBtn.type = "button";
-    historyBtn.className = "btn btn-ghost text-xs js-histo-hidden";
-    historyBtn.dataset.id = consigne?.id || "";
-    historyBtn.textContent = "Historique";
-    const resetBtn = document.createElement("button");
-    resetBtn.type = "button";
-    resetBtn.className = "btn btn-ghost text-xs js-reset-sr";
-    resetBtn.dataset.id = consigne?.id || "";
-    resetBtn.textContent = "Réinitialiser";
-    actions.appendChild(historyBtn);
-    actions.appendChild(resetBtn);
-    item.appendChild(label);
-    item.appendChild(actions);
-    return item;
-  };
-
-  const appendPracticeHiddenConsigne = (consigne, remaining) => {
-    if (!consigne) return;
-    const box = ensurePracticeHiddenBox();
-    const list = box.querySelector("[data-practice-hidden-list]");
-    if (!list) return;
-    if (consigne.id != null) {
-      const selector = `[data-practice-hidden-item][data-consigne-id="${escapeHiddenId(consigne.id)}"]`;
-      const existing = list.querySelector(selector);
-      if (existing) {
-        existing.remove();
-      }
-    }
-    const item = createPracticeHiddenItem(consigne, remaining);
-    list.appendChild(item);
-    updatePracticeHiddenCounts();
-  };
-
-  function removePracticeConsigneRow(targetRow, { removeGroup = true } = {}) {
-    if (!targetRow) return;
-    const cardRoot = targetRow.closest("[data-practice-root]");
-    const containerForm = cardRoot ? cardRoot.querySelector("#practice-form") : form;
-    const group = targetRow.closest(".consigne-group");
-    if (group && removeGroup) {
-      group.remove();
-    } else {
-      targetRow.remove();
-      if (group && !removeGroup) {
-        const childRows = group.querySelectorAll(".consigne-row--child:not(.consigne-row--parent)");
-        if (!childRows.length) {
-          // Si aucun enfant restant, laisser uniquement la consigne parent visible.
-          const parentRow = group.querySelector(".consigne-row--parent");
-          if (!parentRow) {
-            group.remove();
+        const item = target.closest("[data-practice-hidden-item]");
+        if (!item) {
+          return;
+        }
+        const historyTrigger = target.closest(".js-histo-hidden");
+        const resetTrigger = target.closest(".js-reset-sr");
+        if (historyTrigger) {
+          const consigneData = item.__consigneData;
+          if (consigneData) {
+            openHistory(ctxRef, consigneData, { source: "practice" });
           }
+          return;
         }
-      }
-    }
-    if (cardRoot) {
-      const lowDetails = cardRoot.querySelectorAll(".daily-category__low");
-      lowDetails.forEach((detailsEl) => {
-        const nested = detailsEl.querySelector(".daily-category__items--nested");
-        const groupCount = nested ? nested.querySelectorAll(".consigne-group").length : 0;
-        if (!groupCount) {
-          detailsEl.remove();
-        } else {
-          const summary = detailsEl.querySelector(".daily-category__low-summary");
-          if (summary) {
-            summary.textContent = `Priorité basse (${groupCount})`;
+        if (resetTrigger) {
+          const id = resetTrigger.dataset.id || item.dataset.consigneId || "";
+          if (!id) {
+            return;
+          }
+          try {
+            await Schema.resetSRForConsigne(ctxRef.db, ctxRef.user.uid, id);
+            item.remove();
+            updatePracticeHiddenCounts();
+            showToast("Répétition espacée réinitialisée.");
+          } catch (error) {
+            console.error("practice.hidden.reset", error);
+            showToast("Impossible de réinitialiser la répétition espacée.");
           }
         }
       });
-    }
-    const hasRemaining = (cardRoot || form)?.querySelector?.(".consigne-group");
-    if (!hasRemaining && containerForm) {
-      containerForm.innerHTML = PRACTICE_EMPTY_HTML;
-    }
-  }
+      container.appendChild(box);
+      return box;
+    };
 
-  const handlePracticeConsigneDelayed = (consigne, targetRow, delayState) => {
-    if (!targetRow) return;
-    removePracticeConsigneRow(targetRow);
-    const state = delayState || {};
-    const baseIndex = Number(container.dataset.practiceSessionIndex || sessionIndex || 0);
-    const nextAllowed = Number(state.nextAllowedIndex ?? 0);
-    if (Number.isFinite(nextAllowed)) {
-      const remaining = Math.max(0, nextAllowed - baseIndex);
-      appendPracticeHiddenConsigne(consigne, remaining);
-    } else {
+    const createPracticeHiddenItem = (consigne, remaining) => {
+      const item = document.createElement("li");
+      item.className = "practice-hidden__item";
+      item.dataset.practiceHiddenItem = "1";
+      if (consigne?.id != null) {
+        const stringId = String(consigne.id);
+        item.dataset.consigneId = stringId;
+      }
+      item.__consigneData = consigne || null;
+      const label = document.createElement("div");
+      label.className = "practice-hidden__text";
+      const safeLabel = consigne?.text || consigne?.titre || "cette consigne";
+      label.innerHTML = `<span class="font-medium text-slate-600">${escapeHtml(safeLabel)}</span> — revient dans ${remaining} itération(s)`;
+      const actions = document.createElement("div");
+      actions.className = "practice-hidden__actions";
+      const historyBtn = document.createElement("button");
+      historyBtn.type = "button";
+      historyBtn.className = "btn btn-ghost text-xs js-histo-hidden";
+      historyBtn.dataset.id = consigne?.id || "";
+      historyBtn.textContent = "Historique";
+      const resetBtn = document.createElement("button");
+      resetBtn.type = "button";
+      resetBtn.className = "btn btn-ghost text-xs js-reset-sr";
+      resetBtn.dataset.id = consigne?.id || "";
+      resetBtn.textContent = "Réinitialiser";
+      actions.appendChild(historyBtn);
+      actions.appendChild(resetBtn);
+      item.appendChild(label);
+      item.appendChild(actions);
+      return item;
+    };
+
+    const appendPracticeHiddenConsigne = (consigne, remaining) => {
+      if (!consigne) return;
+      const box = ensurePracticeHiddenBox();
+      const list = box.querySelector("[data-practice-hidden-list]");
+      if (!list) return;
+      if (consigne.id != null) {
+        const selector = `[data-practice-hidden-item][data-consigne-id="${escapeHiddenId(consigne.id)}"]`;
+        const existing = list.querySelector(selector);
+        if (existing) {
+          existing.remove();
+        }
+      }
+      const item = createPracticeHiddenItem(consigne, remaining);
+      list.appendChild(item);
       updatePracticeHiddenCounts();
-    }
-  };
+    };
 
-  const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
-    const tone = priorityTone(c.priority);
-    const row = document.createElement("div");
-    row.className = `consigne-row priority-surface priority-surface-${tone}`;
-    row.dataset.id = c.id;
-    if (c?.id != null) {
-      const stringId = String(c.id);
-      row.dataset.consigneId = stringId;
-      row.setAttribute("data-consigne-id", stringId);
-    } else {
-      delete row.dataset.consigneId;
-      row.removeAttribute("data-consigne-id");
-    }
-    row.dataset.priorityTone = tone;
-    if (isChild) {
-      row.classList.add("consigne-row--child");
-      if (c.parentId) {
-        row.dataset.parentId = c.parentId;
+    function removePracticeConsigneRow(targetRow, { removeGroup = true } = {}) {
+      if (!targetRow) return;
+      const cardRoot = targetRow.closest("[data-practice-root]");
+      const containerForm = cardRoot ? cardRoot.querySelector("#practice-form") : form;
+      const group = targetRow.closest(".consigne-group");
+      if (group && removeGroup) {
+        group.remove();
       } else {
-        delete row.dataset.parentId;
-      }
-      row.draggable = false;
-    } else {
-      row.classList.add("consigne-row--parent");
-      delete row.dataset.parentId;
-      row.draggable = true;
-    }
-    row.innerHTML = `
-        <div class="consigne-row__header">
-          <div class="consigne-row__main">
-            <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
-              <span class="consigne-row__title">${escapeHtml(c.text)}</span>
-              ${prioChip(Number(c.priority) || 2)}
-            </button>
-          </div>
-        <div class="consigne-row__meta">
-          <span class="consigne-row__status" data-status="na">
-            <button type="button"
-                    class="consigne-row__dot-button"
-                    data-priority-trigger
-                    aria-haspopup="true"
-                    aria-expanded="false"
-                    title="Changer la priorité">
-              <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
-            </button>
-            <div class="consigne-row__priority-menu" data-priority-menu hidden></div>
-            <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
-            <span class="sr-only" data-status-live aria-live="polite"></span>
-          </span>
-          ${consigneActions()}
-        </div>
-        </div>
-        <div class="consigne-history" data-consigne-history hidden>
-          <button type="button" class="consigne-history__nav" data-consigne-history-prev aria-label="Faire défiler l’historique vers la gauche" hidden><span aria-hidden="true">&lsaquo;</span></button>
-          <div class="consigne-history__viewport" data-consigne-history-viewport>
-            <div class="consigne-history__track" data-consigne-history-track role="list"></div>
-          </div>
-          <button type="button" class="consigne-history__nav" data-consigne-history-next aria-label="Faire défiler l’historique vers la droite" hidden><span aria-hidden="true">&rsaquo;</span></button>
-        </div>
-        <div data-consigne-input-holder hidden></div>
-      `;
-    const statusHolder = row.querySelector("[data-status]");
-    if (statusHolder) {
-      statusHolder.dataset.priorityTone = tone;
-    }
-    const statusDot = row.querySelector("[data-status-dot]");
-    if (statusDot) {
-      statusDot.dataset.priorityTone = tone;
-    }
-    setupConsignePriorityMenu(row, c, ctx);
-    const holder = row.querySelector("[data-consigne-input-holder]");
-    if (holder) {
-      holder.innerHTML = inputForType(c);
-      enhanceRangeMeters(holder);
-      initializeChecklistScope(holder, { consigneId: c?.id ?? null });
-      ensureConsigneSkipField(row, c);
-    }
-    setupConsigneHistoryTimeline(row, c, ctx, { mode: "practice" });
-    const bH = row.querySelector(".js-histo");
-    const bE = row.querySelector(".js-edit");
-    const bD = row.querySelector(".js-del");
-    const bA = row.querySelector(".js-archive");
-    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c, { source: "practice" }); };
-    bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
-    bD.onclick = async (e) => {
-      e.preventDefault(); e.stopPropagation();
-      closeConsigneActionMenuFromNode(bD);
-      if (confirm("Supprimer cette consigne ? (historique conservé)")) {
-        Schema.D.info("ui.deleteConsigne.confirm", c.id);
-        await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, c.id);
-        renderPractice(ctx, root);
-      }
-    };
-    if (bA) {
-      bA.onclick = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        closeConsigneActionMenuFromNode(bA);
-        await archiveConsigneWithRefresh(c, { row });
-      };
-    }
-    let srEnabled = c?.srEnabled !== false;
-    const delayBtn = row.querySelector(".js-delay");
-    const updateDelayState = (enabled) => {
-      if (!delayBtn) return;
-      delayBtn.disabled = !enabled;
-      delayBtn.classList.toggle("opacity-50", !enabled);
-      delayBtn.title = enabled
-        ? "Décaler la prochaine itération"
-        : "Active la répétition espacée pour décaler";
-    };
-    if (delayBtn) {
-      updateDelayState(srEnabled);
-      delayBtn.onclick = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        closeConsigneActionMenuFromNode(delayBtn);
-        if (delayBtn.disabled) {
-          showToast("Active la répétition espacée pour utiliser le décalage.");
-          return;
-        }
-        const raw = prompt("Décaler de combien d'itérations ?", "1");
-        if (raw === null) return;
-        const value = Number(String(raw).replace(",", "."));
-        const rounded = Math.round(value);
-        if (!Number.isFinite(value) || !Number.isFinite(rounded) || rounded < 1) {
-          showToast("Entre un entier positif.");
-          return;
-        }
-        const amount = rounded;
-        delayBtn.disabled = true;
-        try {
-          const state = await Schema.delayConsigne({
-            db: ctx.db,
-            uid: ctx.user.uid,
-            consigne: c,
-            mode: "practice",
-            amount,
-            sessionIndex,
-          });
-          showToast(`Consigne décalée de ${amount} itération${amount > 1 ? "s" : ""}.`);
-          handlePracticeConsigneDelayed(c, row, state);
-        } catch (err) {
-          console.error(err);
-          showToast("Impossible de décaler la consigne.");
-        } finally {
-          updateDelayState(srEnabled);
-        }
-      };
-    }
-    setupConsigneActionMenus(row, () => ({
-      srToggle: {
-        getEnabled: () => srEnabled,
-        onToggle: async (next) => {
-          try {
-            await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { srEnabled: next });
-            srEnabled = next;
-            c.srEnabled = next;
-            updateDelayState(srEnabled);
-            return srEnabled;
-          } catch (err) {
-            console.error(err);
-            showToast("Impossible de mettre à jour la répétition espacée.");
-            return srEnabled;
+        targetRow.remove();
+        if (group && !removeGroup) {
+          const childRows = group.querySelectorAll(".consigne-row--child:not(.consigne-row--parent)");
+          if (!childRows.length) {
+            // Si aucun enfant restant, laisser uniquement la consigne parent visible.
+            const parentRow = group.querySelector(".consigne-row--parent");
+            if (!parentRow) {
+              group.remove();
+            }
           }
-        },
-      },
-      archive: () => archiveConsigneWithRefresh(c, { row }),
-    }));
-    const applyDelayFromEditor = async (rawAmount, context = {}) => {
-      const numeric = Number(rawAmount);
-      const rounded = Math.round(numeric);
-      if (!Number.isFinite(numeric) || rounded < 1) {
-        return false;
-      }
-      if (!srEnabled) {
-        showToast("Active la répétition espacée pour utiliser le décalage.");
-        return false;
-      }
-      if (!ctx?.db || !ctx?.user?.uid) {
-        return false;
-      }
-      const answersToPersist = [];
-      const rawSessionIndex = Number(sessionIndex);
-      const normalizedSessionIndex = Number.isFinite(rawSessionIndex) ? rawSessionIndex : 0;
-      const sessionNumber = normalizedSessionIndex + 1;
-      const sessionId = `session-${String(sessionNumber).padStart(4, "0")}`;
-      const pushAnswer = (targetConsigne, targetRow, rawValue, extraSummary = null) => {
-        if (!targetConsigne || targetConsigne.id == null) {
-          return;
         }
-        if (rawValue === undefined) {
-          return;
-        }
-        const hostRow = targetRow || row;
-        const normalizedValue = normalizeConsigneValueForPersistence(
-          targetConsigne,
-          hostRow,
-          rawValue,
-        );
-        const hasContent = hasValueForConsigne(targetConsigne, normalizedValue);
-        if (!hasContent) {
-          return;
-        }
-        const answer = {
-          consigne: targetConsigne,
-          value: normalizedValue,
-          sessionIndex: normalizedSessionIndex,
-          sessionNumber,
-          sessionId,
-        };
-        const normalizedSummary =
-          extraSummary && typeof extraSummary === "object"
-            ? normalizeSummaryMetadataInput(extraSummary)
-            : null;
-        if (normalizedSummary) {
-          Object.assign(answer, normalizedSummary);
-        }
-        answersToPersist.push(answer);
-      };
-      if (context && Object.prototype.hasOwnProperty.call(context, "value")) {
-        pushAnswer(c, row, context.value, context.summary || null);
       }
-      if (Array.isArray(context?.childAnswers)) {
-        context.childAnswers.forEach((entry) => {
-          if (!entry || typeof entry !== "object") {
-            return;
+      if (cardRoot) {
+        const lowDetails = cardRoot.querySelectorAll(".daily-category__low");
+        lowDetails.forEach((detailsEl) => {
+          const nested = detailsEl.querySelector(".daily-category__items--nested");
+          const groupCount = nested ? nested.querySelectorAll(".consigne-group").length : 0;
+          if (!groupCount) {
+            detailsEl.remove();
+          } else {
+            const summary = detailsEl.querySelector(".daily-category__low-summary");
+            if (summary) {
+              summary.textContent = `Priorité basse (${groupCount})`;
+            }
           }
-          pushAnswer(entry.consigne, entry.row || null, entry.value);
         });
       }
-      if (answersToPersist.length) {
-        try {
-          await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answersToPersist);
-        } catch (error) {
-          console.error("practice.delay.save", error);
-          showToast("Impossible d'enregistrer la réponse avant de décaler.");
-          return false;
-        }
+      const hasRemaining = (cardRoot || form)?.querySelector?.(".consigne-group");
+      if (!hasRemaining && containerForm) {
+        containerForm.innerHTML = PRACTICE_EMPTY_HTML;
       }
-      try {
-        const state = await Schema.delayConsigne({
-          db: ctx.db,
-          uid: ctx.user.uid,
-          consigne: c,
-          mode: "practice",
-          amount: rounded,
-          sessionIndex,
-        });
-        showToast(`Consigne décalée de ${rounded} itération${rounded > 1 ? "s" : ""}.`);
-        handlePracticeConsigneDelayed(c, row, state);
-        return true;
-      } catch (err) {
-        console.error(err);
-        showToast("Impossible de décaler la consigne.");
-        return false;
+    }
+
+    const handlePracticeConsigneDelayed = (consigne, targetRow, delayState) => {
+      if (!targetRow) return;
+      removePracticeConsigneRow(targetRow);
+      const state = delayState || {};
+      const baseIndex = Number(container.dataset.practiceSessionIndex || sessionIndex || 0);
+      const nextAllowed = Number(state.nextAllowedIndex ?? 0);
+      if (Number.isFinite(nextAllowed)) {
+        const remaining = Math.max(0, nextAllowed - baseIndex);
+        appendPracticeHiddenConsigne(consigne, remaining);
+      } else {
+        updatePracticeHiddenCounts();
       }
     };
-    const editorConfig = { variant: "modal", ...(editorOptions || {}) };
-    if (!editorConfig.delayOptions) {
-      editorConfig.delayOptions = {
-        amounts: [1, 3, 5, 10, 15, 20],
-        label: "Revoir dans",
-        placeholder: "Sans délai",
-        helper: "Appliqué après validation.",
-        disabledHint: "Active la répétition espacée pour décaler.",
-        getSrEnabled: () => srEnabled,
-        applyDelay: applyDelayFromEditor,
-        allowArchive: true,
-        archiveLabel: "Archiver la consigne",
-        archiveValue: CONSIGNE_ARCHIVE_DELAY_VALUE,
-        onArchive: ({ close } = {}) => archiveConsigneWithRefresh(c, { close, row }),
-      };
-    }
-    row.__practiceEditorConfig = editorConfig;
-    if (!deferEditor) {
-      attachConsigneEditor(row, c, editorConfig);
-    }
-    bindConsigneRowValue(row, c, {
-      onChange: (value) => {
-        if (value === null || value === undefined) {
-          delete row.dataset.currentValue;
-        } else {
-          row.dataset.currentValue = String(value);
-        }
-      },
-    });
-    return row;
-  };
 
-  const ensurePracticeLowContainer = () => {
-    if (!form) {
-      return { lowDetails: null, lowStack: null };
-    }
-    let lowDetails = form.querySelector(".daily-category__low");
-    let lowStack = lowDetails?.querySelector(".daily-category__items--nested") || null;
-    if (!lowDetails) {
-      lowDetails = document.createElement("details");
-      lowDetails.className = "daily-category__low";
-      const summary = document.createElement("summary");
-      summary.className = "daily-category__low-summary";
-      summary.textContent = "Priorité basse (0)";
-      lowDetails.appendChild(summary);
-      lowStack = document.createElement("div");
-      lowStack.className = "daily-category__items daily-category__items--nested";
-      lowDetails.appendChild(lowStack);
-      form.appendChild(lowDetails);
-    } else if (!lowStack) {
-      lowStack = document.createElement("div");
-      lowStack.className = "daily-category__items daily-category__items--nested";
-      lowDetails.appendChild(lowStack);
-    }
-    return { lowDetails, lowStack };
-  };
-
-  const updateLowPrioritySummary = () => {
-    if (!form) return;
-    const lowDetails = form.querySelector(".daily-category__low");
-    if (!lowDetails) return;
-    const lowStack = lowDetails.querySelector(".daily-category__items--nested");
-    const summary = lowDetails.querySelector(".daily-category__low-summary");
-    const count = lowStack ? lowStack.querySelectorAll(".consigne-group").length : 0;
-    if (summary) {
-      summary.textContent = `Priorité basse (${count})`;
-    }
-    if (!count) {
-      lowDetails.remove();
-      ensurePracticePlaceholder();
-    }
-  };
-
-  const createPracticeGroup = (nextConsigne) => {
-    const wrapper = document.createElement("div");
-    wrapper.className = "consigne-group";
-    const row = makeItem(nextConsigne, { isChild: false, deferEditor: false });
-    wrapper.appendChild(row);
-    return { wrapper, row };
-  };
-  const highlightPracticeGroup = (group) => {
-    if (!group) return;
-    const targetRow =
-      group.querySelector(".consigne-row--parent") ||
-      group.querySelector(".consigne-row");
-    if (targetRow) {
-      triggerConsigneRowUpdateHighlight(targetRow);
-    }
-  };
-
-  const upsertPracticeConsigneRow = (nextConsigne, action = "update") => {
-    if (!nextConsigne || !form) return false;
-    if (nextConsigne.active === false || nextConsigne.archived === true || nextConsigne.visible === false || nextConsigne.hidden === true) {
-      return false;
-    }
-    if (nextConsigne.parentId) return false;
-    const targetCategory = nextConsigne.category || "";
-    if (targetCategory !== (currentCat || "")) return false;
-    const priorityValue = Number(nextConsigne.priority || 0);
-    const isLowPriority = priorityValue >= 3;
-    const existingRow = nextConsigne.id ? findPracticeConsigneRowById(nextConsigne.id, container) : null;
-    if (existingRow) {
-      const wrapper = existingRow.closest(".consigne-group");
-      if (!wrapper) return false;
-      if (wrapper.querySelector(".consigne-row--child:not(.consigne-row--parent)")) {
-        return false;
-      }
-      const parentNode = wrapper.parentElement;
-      if (!parentNode) return false;
-      const { wrapper: newGroup } = createPracticeGroup(nextConsigne);
-      parentNode.replaceChild(newGroup, wrapper);
-      highlightPracticeGroup(newGroup);
-      if (isLowPriority) {
-        const { lowStack } = ensurePracticeLowContainer();
-        if (lowStack) {
-          lowStack.appendChild(newGroup);
-        }
-      } else if (newGroup.closest(".daily-category__low")) {
-        const lowDetails = form.querySelector(".daily-category__low");
-        if (lowDetails) {
-          form.insertBefore(newGroup, lowDetails);
-        } else {
-          form.appendChild(newGroup);
-        }
-      }
-      updateLowPrioritySummary();
-      ensurePracticePlaceholder();
-      return true;
-    }
-    if (action !== "create") {
-      return false;
-    }
-    clearPracticePlaceholder();
-    const { wrapper: group } = createPracticeGroup(nextConsigne);
-    if (isLowPriority) {
-      const { lowStack } = ensurePracticeLowContainer();
-      if (!lowStack) return false;
-      lowStack.appendChild(group);
-      updateLowPrioritySummary();
-    } else {
-      const lowDetails = form.querySelector(".daily-category__low");
-      if (lowDetails) {
-        form.insertBefore(group, lowDetails);
+    const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
+      const tone = priorityTone(c.priority);
+      const row = document.createElement("div");
+      row.className = `consigne-row priority-surface priority-surface-${tone}`;
+      row.dataset.id = c.id;
+      if (c?.id != null) {
+        const stringId = String(c.id);
+        row.dataset.consigneId = stringId;
+        row.setAttribute("data-consigne-id", stringId);
       } else {
-        form.appendChild(group);
+        delete row.dataset.consigneId;
+        row.removeAttribute("data-consigne-id");
       }
-    }
-    ensurePracticePlaceholder();
-    highlightPracticeGroup(group);
-    return true;
-  };
-
-  practiceMutationListener = (event) => {
-    const detail = event?.detail || {};
-    if (!detail || detail.mode !== "practice") return;
-    const nextConsigne = detail.consigne || null;
-    if (!nextConsigne) return;
-    if ((nextConsigne.category || "") !== (currentCat || "")) return;
-    if (nextConsigne.summaryOnlyScope) return;
-    const handled = upsertPracticeConsigneRow(nextConsigne, detail.action || "update");
-    if (!handled) return;
-    if (typeof window.attachConsignesDragDrop === "function") {
-      window.attachConsignesDragDrop(form, ctx);
-    }
-    event.preventDefault();
-  };
-  document.addEventListener("consigne:mutated", practiceMutationListener);
-
-  if (!visibleConsignes.length) {
-    form.innerHTML = PRACTICE_EMPTY_HTML;
-  } else {
-    form.innerHTML = "";
-    /* Legacy practice rendering helpers (remapped earlier)
-  const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
-    const tone = priorityTone(c.priority);
-    const row = document.createElement("div");
-    row.className = `consigne-row priority-surface priority-surface-${tone}`;
-    row.dataset.id = c.id;
-    if (c?.id != null) {
-      const stringId = String(c.id);
-      row.dataset.consigneId = stringId;
-      row.setAttribute("data-consigne-id", stringId);
-    } else {
-      delete row.dataset.consigneId;
-      row.removeAttribute("data-consigne-id");
-    }
-    row.dataset.priorityTone = tone;
-    if (isChild) {
-      row.classList.add("consigne-row--child");
-      if (c.parentId) {
-        row.dataset.parentId = c.parentId;
+      row.dataset.priorityTone = tone;
+      if (isChild) {
+        row.classList.add("consigne-row--child");
+        if (c.parentId) {
+          row.dataset.parentId = c.parentId;
+        } else {
+          delete row.dataset.parentId;
+        }
+        row.draggable = false;
       } else {
+        row.classList.add("consigne-row--parent");
         delete row.dataset.parentId;
+        row.draggable = true;
       }
-      row.draggable = false;
-    } else {
-      row.classList.add("consigne-row--parent");
-      delete row.dataset.parentId;
-      row.draggable = true;
-    }
-    row.innerHTML = `
+      row.innerHTML = `
         <div class="consigne-row__header">
           <div class="consigne-row__main">
             <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
@@ -19236,7 +18770,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           answersToPersist.push(answer);
         };
         if (context && Object.prototype.hasOwnProperty.call(context, "value")) {
-          pushAnswer(consigne, row, context.value, context.summary || null);
+          pushAnswer(c, row, context.value, context.summary || null);
         }
         if (Array.isArray(context?.childAnswers)) {
           context.childAnswers.forEach((entry) => {
@@ -19353,9 +18887,21 @@ async function renderPractice(ctx, root, _opts = {}) {
       wrapper.appendChild(row);
       return { wrapper, row };
     };
+    const highlightPracticeGroup = (group) => {
+      if (!group) return;
+      const targetRow =
+        group.querySelector(".consigne-row--parent") ||
+        group.querySelector(".consigne-row");
+      if (targetRow) {
+        triggerConsigneRowUpdateHighlight(targetRow);
+      }
+    };
 
     const upsertPracticeConsigneRow = (nextConsigne, action = "update") => {
       if (!nextConsigne || !form) return false;
+      if (nextConsigne.active === false || nextConsigne.archived === true || nextConsigne.visible === false || nextConsigne.hidden === true) {
+        return false;
+      }
       if (nextConsigne.parentId) return false;
       const targetCategory = nextConsigne.category || "";
       if (targetCategory !== (currentCat || "")) return false;
@@ -19372,6 +18918,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         if (!parentNode) return false;
         const { wrapper: newGroup } = createPracticeGroup(nextConsigne);
         parentNode.replaceChild(newGroup, wrapper);
+        highlightPracticeGroup(newGroup);
         if (isLowPriority) {
           const { lowStack } = ensurePracticeLowContainer();
           if (lowStack) {
@@ -19408,6 +18955,7 @@ async function renderPractice(ctx, root, _opts = {}) {
         }
       }
       ensurePracticePlaceholder();
+      highlightPracticeGroup(group);
       return true;
     };
 
@@ -19426,927 +18974,1344 @@ async function renderPractice(ctx, root, _opts = {}) {
       event.preventDefault();
     };
     document.addEventListener("consigne:mutated", practiceMutationListener);
-    */
-    const grouped = groupConsignes(visibleConsignes);
-    const renderGroup = (group, target) => {
-      const wrapper = document.createElement("div");
-      wrapper.className = "consigne-group";
-      const parentCard = makeItem(group.consigne, { isChild: false, deferEditor: true });
-      wrapper.appendChild(parentCard);
-      const childConfigs = group.children.map((child) => {
-        const childRow = createHiddenConsigneRow(child);
-        childRow.dataset.parentId = child.parentId || group.consigne.id || "";
-        childRow.draggable = false;
-        parentCard.appendChild(childRow);
-        bindConsigneRowValue(childRow, child);
-        let srEnabled = child?.srEnabled !== false;
-        const config = {
-          consigne: child,
-          row: childRow,
-          srEnabled,
-          onHistory: () => {
-            Schema.D.info("ui.history.click", child.id);
-            openHistory(ctx, child, { source: "practice" });
-          },
-          onEdit: ({ close } = {}) => {
-            Schema.D.info("ui.editConsigne.click", child.id);
-            if (typeof close === "function") {
-              close();
-            }
-            openConsigneForm(ctx, child);
-          },
-          onDelete: async ({ close } = {}) => {
-            if (!confirm("Supprimer cette consigne ? (historique conservé)")) {
-              return false;
-            }
-            Schema.D.info("ui.deleteConsigne.confirm", child.id);
-            await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, child.id);
-            if (typeof close === "function") {
-              close();
-            }
+
+    if (!visibleConsignes.length) {
+      form.innerHTML = PRACTICE_EMPTY_HTML;
+    } else {
+      form.innerHTML = "";
+      /* Legacy practice rendering helpers (remapped earlier)
+    const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
+      const tone = priorityTone(c.priority);
+      const row = document.createElement("div");
+      row.className = `consigne-row priority-surface priority-surface-${tone}`;
+      row.dataset.id = c.id;
+      if (c?.id != null) {
+        const stringId = String(c.id);
+        row.dataset.consigneId = stringId;
+        row.setAttribute("data-consigne-id", stringId);
+      } else {
+        delete row.dataset.consigneId;
+        row.removeAttribute("data-consigne-id");
+      }
+      row.dataset.priorityTone = tone;
+      if (isChild) {
+        row.classList.add("consigne-row--child");
+        if (c.parentId) {
+          row.dataset.parentId = c.parentId;
+        } else {
+          delete row.dataset.parentId;
+        }
+        row.draggable = false;
+      } else {
+        row.classList.add("consigne-row--parent");
+        delete row.dataset.parentId;
+        row.draggable = true;
+      }
+      row.innerHTML = `
+          <div class="consigne-row__header">
+            <div class="consigne-row__main">
+              <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
+                <span class="consigne-row__title">${escapeHtml(c.text)}</span>
+                ${prioChip(Number(c.priority) || 2)}
+              </button>
+            </div>
+          <div class="consigne-row__meta">
+            <span class="consigne-row__status" data-status="na">
+              <button type="button"
+                      class="consigne-row__dot-button"
+                      data-priority-trigger
+                      aria-haspopup="true"
+                      aria-expanded="false"
+                      title="Changer la priorité">
+                <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
+              </button>
+              <div class="consigne-row__priority-menu" data-priority-menu hidden></div>
+              <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
+              <span class="sr-only" data-status-live aria-live="polite"></span>
+            </span>
+            ${consigneActions()}
+          </div>
+          </div>
+          <div class="consigne-history" data-consigne-history hidden>
+            <button type="button" class="consigne-history__nav" data-consigne-history-prev aria-label="Faire défiler l’historique vers la gauche" hidden><span aria-hidden="true">&lsaquo;</span></button>
+            <div class="consigne-history__viewport" data-consigne-history-viewport>
+              <div class="consigne-history__track" data-consigne-history-track role="list"></div>
+            </div>
+            <button type="button" class="consigne-history__nav" data-consigne-history-next aria-label="Faire défiler l’historique vers la droite" hidden><span aria-hidden="true">&rsaquo;</span></button>
+          </div>
+          <div data-consigne-input-holder hidden></div>
+        `;
+        const statusHolder = row.querySelector("[data-status]");
+        if (statusHolder) {
+          statusHolder.dataset.priorityTone = tone;
+        }
+        const statusDot = row.querySelector("[data-status-dot]");
+        if (statusDot) {
+          statusDot.dataset.priorityTone = tone;
+        }
+        setupConsignePriorityMenu(row, c, ctx);
+        const holder = row.querySelector("[data-consigne-input-holder]");
+        if (holder) {
+          holder.innerHTML = inputForType(c);
+          enhanceRangeMeters(holder);
+          initializeChecklistScope(holder, { consigneId: c?.id ?? null });
+          ensureConsigneSkipField(row, c);
+        }
+        setupConsigneHistoryTimeline(row, c, ctx, { mode: "practice" });
+        const bH = row.querySelector(".js-histo");
+        const bE = row.querySelector(".js-edit");
+        const bD = row.querySelector(".js-del");
+        const bA = row.querySelector(".js-archive");
+        bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c, { source: "practice" }); };
+        bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
+        bD.onclick = async (e) => {
+          e.preventDefault(); e.stopPropagation();
+          closeConsigneActionMenuFromNode(bD);
+          if (confirm("Supprimer cette consigne ? (historique conservé)")) {
+            Schema.D.info("ui.deleteConsigne.confirm", c.id);
+            await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, c.id);
             renderPractice(ctx, root);
-            return true;
-          },
-          onArchive: ({ close } = {}) => archiveConsigneWithRefresh(child, { close, row: childRow }),
-          onToggleSr: async (next) => {
+          }
+        };
+        if (bA) {
+          bA.onclick = async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeConsigneActionMenuFromNode(bA);
+            await archiveConsigneWithRefresh(c, { row });
+          };
+        }
+        let srEnabled = c?.srEnabled !== false;
+        const delayBtn = row.querySelector(".js-delay");
+        const updateDelayState = (enabled) => {
+          if (!delayBtn) return;
+          delayBtn.disabled = !enabled;
+          delayBtn.classList.toggle("opacity-50", !enabled);
+          delayBtn.title = enabled
+            ? "Décaler la prochaine itération"
+            : "Active la répétition espacée pour décaler";
+        };
+        if (delayBtn) {
+          updateDelayState(srEnabled);
+          delayBtn.onclick = async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeConsigneActionMenuFromNode(delayBtn);
+            if (delayBtn.disabled) {
+              showToast("Active la répétition espacée pour utiliser le décalage.");
+              return;
+            }
+            const raw = prompt("Décaler de combien d'itérations ?", "1");
+            if (raw === null) return;
+            const value = Number(String(raw).replace(",", "."));
+            const rounded = Math.round(value);
+            if (!Number.isFinite(value) || !Number.isFinite(rounded) || rounded < 1) {
+              showToast("Entre un entier positif.");
+              return;
+            }
+            const amount = rounded;
+            delayBtn.disabled = true;
             try {
-              await Schema.updateConsigne(ctx.db, ctx.user.uid, child.id, { srEnabled: next });
-              srEnabled = next;
-              config.srEnabled = srEnabled;
-              child.srEnabled = next;
-              return srEnabled;
+              const state = await Schema.delayConsigne({
+                db: ctx.db,
+                uid: ctx.user.uid,
+                consigne: c,
+                mode: "practice",
+                amount,
+                sessionIndex,
+              });
+              showToast(`Consigne décalée de ${amount} itération${amount > 1 ? "s" : ""}.`);
+              handlePracticeConsigneDelayed(c, row, state);
             } catch (err) {
               console.error(err);
-              showToast("Impossible de mettre à jour la répétition espacée.");
-              return srEnabled;
+              showToast("Impossible de décaler la consigne.");
+            } finally {
+              updateDelayState(srEnabled);
+            }
+          };
+        }
+        setupConsigneActionMenus(row, () => ({
+          srToggle: {
+            getEnabled: () => srEnabled,
+            onToggle: async (next) => {
+              try {
+                await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { srEnabled: next });
+                srEnabled = next;
+                c.srEnabled = next;
+                updateDelayState(srEnabled);
+                return srEnabled;
+              } catch (err) {
+                console.error(err);
+                showToast("Impossible de mettre à jour la répétition espacée.");
+                return srEnabled;
+              }
+            },
+          },
+          archive: () => archiveConsigneWithRefresh(c, { row }),
+        }));
+        const applyDelayFromEditor = async (rawAmount, context = {}) => {
+          const numeric = Number(rawAmount);
+          const rounded = Math.round(numeric);
+          if (!Number.isFinite(numeric) || rounded < 1) {
+            return false;
+          }
+          if (!srEnabled) {
+            showToast("Active la répétition espacée pour utiliser le décalage.");
+            return false;
+          }
+          if (!ctx?.db || !ctx?.user?.uid) {
+            return false;
+          }
+          const answersToPersist = [];
+          const rawSessionIndex = Number(sessionIndex);
+          const normalizedSessionIndex = Number.isFinite(rawSessionIndex) ? rawSessionIndex : 0;
+          const sessionNumber = normalizedSessionIndex + 1;
+          const sessionId = `session-${String(sessionNumber).padStart(4, "0")}`;
+          const pushAnswer = (targetConsigne, targetRow, rawValue, extraSummary = null) => {
+            if (!targetConsigne || targetConsigne.id == null) {
+              return;
+            }
+            if (rawValue === undefined) {
+              return;
+            }
+            const hostRow = targetRow || row;
+            const normalizedValue = normalizeConsigneValueForPersistence(
+              targetConsigne,
+              hostRow,
+              rawValue,
+            );
+            const hasContent = hasValueForConsigne(targetConsigne, normalizedValue);
+            if (!hasContent) {
+              return;
+            }
+            const answer = {
+              consigne: targetConsigne,
+              value: normalizedValue,
+              sessionIndex: normalizedSessionIndex,
+              sessionNumber,
+              sessionId,
+            };
+            const normalizedSummary =
+              extraSummary && typeof extraSummary === "object"
+                ? normalizeSummaryMetadataInput(extraSummary)
+                : null;
+            if (normalizedSummary) {
+              Object.assign(answer, normalizedSummary);
+            }
+            answersToPersist.push(answer);
+          };
+          if (context && Object.prototype.hasOwnProperty.call(context, "value")) {
+            pushAnswer(consigne, row, context.value, context.summary || null);
+          }
+          if (Array.isArray(context?.childAnswers)) {
+            context.childAnswers.forEach((entry) => {
+              if (!entry || typeof entry !== "object") {
+                return;
+              }
+              pushAnswer(entry.consigne, entry.row || null, entry.value);
+            });
+          }
+          if (answersToPersist.length) {
+            try {
+              await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answersToPersist);
+            } catch (error) {
+              console.error("practice.delay.save", error);
+              showToast("Impossible d'enregistrer la réponse avant de décaler.");
+              return false;
+            }
+          }
+          try {
+            const state = await Schema.delayConsigne({
+              db: ctx.db,
+              uid: ctx.user.uid,
+              consigne: c,
+              mode: "practice",
+              amount: rounded,
+              sessionIndex,
+            });
+            showToast(`Consigne décalée de ${rounded} itération${rounded > 1 ? "s" : ""}.`);
+            handlePracticeConsigneDelayed(c, row, state);
+            return true;
+          } catch (err) {
+            console.error(err);
+            showToast("Impossible de décaler la consigne.");
+            return false;
+          }
+        };
+        const editorConfig = { variant: "modal", ...(editorOptions || {}) };
+        if (!editorConfig.delayOptions) {
+          editorConfig.delayOptions = {
+            amounts: [1, 3, 5, 10, 15, 20],
+            label: "Revoir dans",
+            placeholder: "Sans délai",
+            helper: "Appliqué après validation.",
+            disabledHint: "Active la répétition espacée pour décaler.",
+            getSrEnabled: () => srEnabled,
+            applyDelay: applyDelayFromEditor,
+            allowArchive: true,
+            archiveLabel: "Archiver la consigne",
+            archiveValue: CONSIGNE_ARCHIVE_DELAY_VALUE,
+            onArchive: ({ close } = {}) => archiveConsigneWithRefresh(c, { close, row }),
+          };
+        }
+        row.__practiceEditorConfig = editorConfig;
+        if (!deferEditor) {
+          attachConsigneEditor(row, c, editorConfig);
+        }
+        bindConsigneRowValue(row, c, {
+          onChange: (value) => {
+            if (value === null || value === undefined) {
+              delete row.dataset.currentValue;
+            } else {
+              row.dataset.currentValue = String(value);
             }
           },
-        };
-        return config;
-      });
-      const inheritedEditorConfig =
-        (parentCard && parentCard.__practiceEditorConfig) || {};
-      const editorConfig = {
-        ...inheritedEditorConfig,
-        variant: "modal",
-        childConsignes: childConfigs,
+        });
+        return row;
       };
-      attachConsigneEditor(parentCard, group.consigne, editorConfig);
-      target.appendChild(wrapper);
-    };
-
-    const highs = grouped.filter((group) => (group.consigne.priority || 2) <= 2);
-    const lows = grouped.filter((group) => (group.consigne.priority || 2) >= 3);
-
-    highs.forEach((group) => renderGroup(group, form));
-
-    if (lows.length) {
-      const lowDetails = document.createElement("details");
-      lowDetails.className = "daily-category__low";
-      const lowCount = lows.reduce((acc, group) => acc + 1 + group.children.length, 0);
-      lowDetails.innerHTML = `<summary class="daily-category__low-summary">Priorité basse (${lowCount})</summary>`;
-      const lowStack = document.createElement("div");
-      lowStack.className = "daily-category__items daily-category__items--nested";
-      lows.forEach((group) => renderGroup(group, lowStack));
-      lowDetails.appendChild(lowStack);
-      form.appendChild(lowDetails);
-    }
-
-    if (typeof window.attachConsignesDragDrop === "function") {
-      window.attachConsignesDragDrop(form, ctx);
-    }
-  }
-
-  if (hidden.length) {
-    const box = ensurePracticeHiddenBox();
-    const list = box.querySelector("[data-practice-hidden-list]");
-    if (list) {
-      list.innerHTML = "";
-      hidden.forEach((entry) => {
-        const item = createPracticeHiddenItem(entry.c, entry.remaining);
-        list.appendChild(item);
-      });
-      updatePracticeHiddenCounts();
-    }
-  } else {
-    const existing = container.querySelector("[data-practice-hidden-box]");
-    if (existing) {
-      existing.remove();
-    }
-  }
-
-  const saveBtn = card.querySelector("#save");
-  saveBtn.onclick = async (e) => {
-    e.preventDefault();
-    const answers = collectAnswers(form, visibleConsignes);
-    const sessionNumber = sessionIndex + 1;
-    const sessionId = `session-${String(sessionNumber).padStart(4, "0")}`;
-    answers.forEach((ans) => {
-      ans.sessionIndex = sessionIndex;
-      ans.sessionNumber = sessionNumber;
-      ans.sessionId = sessionId;
-    });
-
-    saveBtn.disabled = true;
-    saveBtn.textContent = "Enregistrement…";
-
-    try {
-      if (answers.length) {
-        await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answers);
-      }
-      await Schema.startNewPracticeSession(ctx.db, ctx.user.uid, {
-        sessionId,
-        index: sessionNumber,
-        sessionIndex,
-      });
-
-      if (form && window.formAutosave?.clear) {
-        window.formAutosave.clear(form);
-      }
-
-      $$("input[type=text],textarea", form).forEach((input) => (input.value = ""));
-      $$("input[type=range]", form).forEach((input) => {
-        input.value = 5;
-        input.dispatchEvent(new Event("input"));
-      });
-      $$("select", form).forEach((input) => {
-        input.selectedIndex = 0;
-      });
-      $$("input[type=radio]", form).forEach((input) => (input.checked = false));
-      $$("[data-rich-text-root]", form).forEach((editor) => {
-        const hidden = editor.querySelector("[data-rich-text-input]");
-        const content = editor.querySelector("[data-rich-text-content]");
-        if (content) {
-          content.innerHTML = "<p><br></p>";
+  
+      const ensurePracticeLowContainer = () => {
+        if (!form) {
+          return { lowDetails: null, lowStack: null };
         }
-        if (hidden) {
-          const emptyValue = normalizeRichTextValue("");
-          hidden.value = JSON.stringify(emptyValue);
-          hidden.dispatchEvent(new Event("input", { bubbles: true }));
-          hidden.dispatchEvent(new Event("change", { bubbles: true }));
+        let lowDetails = form.querySelector(".daily-category__low");
+        let lowStack = lowDetails?.querySelector(".daily-category__items--nested") || null;
+        if (!lowDetails) {
+          lowDetails = document.createElement("details");
+          lowDetails.className = "daily-category__low";
+          const summary = document.createElement("summary");
+          summary.className = "daily-category__low-summary";
+          summary.textContent = "Priorité basse (0)";
+          lowDetails.appendChild(summary);
+          lowStack = document.createElement("div");
+          lowStack.className = "daily-category__items daily-category__items--nested";
+          lowDetails.appendChild(lowStack);
+          form.appendChild(lowDetails);
+        } else if (!lowStack) {
+          lowStack = document.createElement("div");
+          lowStack.className = "daily-category__items daily-category__items--nested";
+          lowDetails.appendChild(lowStack);
         }
+        return { lowDetails, lowStack };
+      };
+  
+      const updateLowPrioritySummary = () => {
+        if (!form) return;
+        const lowDetails = form.querySelector(".daily-category__low");
+        if (!lowDetails) return;
+        const lowStack = lowDetails.querySelector(".daily-category__items--nested");
+        const summary = lowDetails.querySelector(".daily-category__low-summary");
+        const count = lowStack ? lowStack.querySelectorAll(".consigne-group").length : 0;
+        if (summary) {
+          summary.textContent = `Priorité basse (${count})`;
+        }
+        if (!count) {
+          lowDetails.remove();
+          ensurePracticePlaceholder();
+        }
+      };
+  
+      const createPracticeGroup = (nextConsigne) => {
+        const wrapper = document.createElement("div");
+        wrapper.className = "consigne-group";
+        const row = makeItem(nextConsigne, { isChild: false, deferEditor: false });
+        wrapper.appendChild(row);
+        return { wrapper, row };
+      };
+  
+      const upsertPracticeConsigneRow = (nextConsigne, action = "update") => {
+        if (!nextConsigne || !form) return false;
+        if (nextConsigne.parentId) return false;
+        const targetCategory = nextConsigne.category || "";
+        if (targetCategory !== (currentCat || "")) return false;
+        const priorityValue = Number(nextConsigne.priority || 0);
+        const isLowPriority = priorityValue >= 3;
+        const existingRow = nextConsigne.id ? findPracticeConsigneRowById(nextConsigne.id, container) : null;
+        if (existingRow) {
+          const wrapper = existingRow.closest(".consigne-group");
+          if (!wrapper) return false;
+          if (wrapper.querySelector(".consigne-row--child:not(.consigne-row--parent)")) {
+            return false;
+          }
+          const parentNode = wrapper.parentElement;
+          if (!parentNode) return false;
+          const { wrapper: newGroup } = createPracticeGroup(nextConsigne);
+          parentNode.replaceChild(newGroup, wrapper);
+          if (isLowPriority) {
+            const { lowStack } = ensurePracticeLowContainer();
+            if (lowStack) {
+              lowStack.appendChild(newGroup);
+            }
+          } else if (newGroup.closest(".daily-category__low")) {
+            const lowDetails = form.querySelector(".daily-category__low");
+            if (lowDetails) {
+              form.insertBefore(newGroup, lowDetails);
+            } else {
+              form.appendChild(newGroup);
+            }
+          }
+          updateLowPrioritySummary();
+          ensurePracticePlaceholder();
+          return true;
+        }
+        if (action !== "create") {
+          return false;
+        }
+        clearPracticePlaceholder();
+        const { wrapper: group } = createPracticeGroup(nextConsigne);
+        if (isLowPriority) {
+          const { lowStack } = ensurePracticeLowContainer();
+          if (!lowStack) return false;
+          lowStack.appendChild(group);
+          updateLowPrioritySummary();
+        } else {
+          const lowDetails = form.querySelector(".daily-category__low");
+          if (lowDetails) {
+            form.insertBefore(group, lowDetails);
+          } else {
+            form.appendChild(group);
+          }
+        }
+        ensurePracticePlaceholder();
+        return true;
+      };
+  
+      practiceMutationListener = (event) => {
+        const detail = event?.detail || {};
+        if (!detail || detail.mode !== "practice") return;
+        const nextConsigne = detail.consigne || null;
+        if (!nextConsigne) return;
+        if ((nextConsigne.category || "") !== (currentCat || "")) return;
+        if (nextConsigne.summaryOnlyScope) return;
+        const handled = upsertPracticeConsigneRow(nextConsigne, detail.action || "update");
+        if (!handled) return;
+        if (typeof window.attachConsignesDragDrop === "function") {
+          window.attachConsignesDragDrop(form, ctx);
+        }
+        event.preventDefault();
+      };
+      document.addEventListener("consigne:mutated", practiceMutationListener);
+      */
+      const grouped = groupConsignes(visibleConsignes);
+      const renderGroup = (group, target) => {
+        const wrapper = document.createElement("div");
+        wrapper.className = "consigne-group";
+        const parentCard = makeItem(group.consigne, { isChild: false, deferEditor: true });
+        wrapper.appendChild(parentCard);
+        const childConfigs = group.children.map((child) => {
+          const childRow = createHiddenConsigneRow(child);
+          childRow.dataset.parentId = child.parentId || group.consigne.id || "";
+          childRow.draggable = false;
+          parentCard.appendChild(childRow);
+          bindConsigneRowValue(childRow, child);
+          let srEnabled = child?.srEnabled !== false;
+          const config = {
+            consigne: child,
+            row: childRow,
+            srEnabled,
+            onHistory: () => {
+              Schema.D.info("ui.history.click", child.id);
+              openHistory(ctx, child, { source: "practice" });
+            },
+            onEdit: ({ close } = {}) => {
+              Schema.D.info("ui.editConsigne.click", child.id);
+              if (typeof close === "function") {
+                close();
+              }
+              openConsigneForm(ctx, child);
+            },
+            onDelete: async ({ close } = {}) => {
+              if (!confirm("Supprimer cette consigne ? (historique conservé)")) {
+                return false;
+              }
+              Schema.D.info("ui.deleteConsigne.confirm", child.id);
+              await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, child.id);
+              if (typeof close === "function") {
+                close();
+              }
+              renderPractice(ctx, root);
+              return true;
+            },
+            onArchive: ({ close } = {}) => archiveConsigneWithRefresh(child, { close, row: childRow }),
+            onToggleSr: async (next) => {
+              try {
+                await Schema.updateConsigne(ctx.db, ctx.user.uid, child.id, { srEnabled: next });
+                srEnabled = next;
+                config.srEnabled = srEnabled;
+                child.srEnabled = next;
+                return srEnabled;
+              } catch (err) {
+                console.error(err);
+                showToast("Impossible de mettre à jour la répétition espacée.");
+                return srEnabled;
+              }
+            },
+          };
+          return config;
+        });
+        const inheritedEditorConfig =
+          (parentCard && parentCard.__practiceEditorConfig) || {};
+        const editorConfig = {
+          ...inheritedEditorConfig,
+          variant: "modal",
+          childConsignes: childConfigs,
+        };
+        attachConsigneEditor(parentCard, group.consigne, editorConfig);
+        target.appendChild(wrapper);
+      };
+
+      const highs = grouped.filter((group) => (group.consigne.priority || 2) <= 2);
+      const lows = grouped.filter((group) => (group.consigne.priority || 2) >= 3);
+
+      highs.forEach((group) => renderGroup(group, form));
+
+      if (lows.length) {
+        const lowDetails = document.createElement("details");
+        lowDetails.className = "daily-category__low";
+        const lowCount = lows.reduce((acc, group) => acc + 1 + group.children.length, 0);
+        lowDetails.innerHTML = `<summary class="daily-category__low-summary">Priorité basse (${lowCount})</summary>`;
+        const lowStack = document.createElement("div");
+        lowStack.className = "daily-category__items daily-category__items--nested";
+        lows.forEach((group) => renderGroup(group, lowStack));
+        lowDetails.appendChild(lowStack);
+        form.appendChild(lowDetails);
+      }
+
+      if (typeof window.attachConsignesDragDrop === "function") {
+        window.attachConsignesDragDrop(form, ctx);
+      }
+    }
+
+    if (hidden.length) {
+      const box = ensurePracticeHiddenBox();
+      const list = box.querySelector("[data-practice-hidden-list]");
+      if (list) {
+        list.innerHTML = "";
+        hidden.forEach((entry) => {
+          const item = createPracticeHiddenItem(entry.c, entry.remaining);
+          list.appendChild(item);
+        });
+        updatePracticeHiddenCounts();
+      }
+    } else {
+      const existing = container.querySelector("[data-practice-hidden-box]");
+      if (existing) {
+        existing.remove();
+      }
+    }
+
+    const saveBtn = card.querySelector("#save");
+    saveBtn.onclick = async (e) => {
+      e.preventDefault();
+      const answers = collectAnswers(form, visibleConsignes);
+      const sessionNumber = sessionIndex + 1;
+      const sessionId = `session-${String(sessionNumber).padStart(4, "0")}`;
+      answers.forEach((ans) => {
+        ans.sessionIndex = sessionIndex;
+        ans.sessionNumber = sessionNumber;
+        ans.sessionId = sessionId;
       });
 
-      showToast(answers.length ? "Itération enregistrée" : "Itération passée");
-      saveBtn.classList.add("btn-saved");
-      saveBtn.textContent = "✓ Enregistré";
-      setTimeout(() => {
-        saveBtn.classList.remove("btn-saved");
-        saveBtn.textContent = "Enregistrer";
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Enregistrement…";
+
+      try {
+        if (answers.length) {
+          await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answers);
+        }
+        await Schema.startNewPracticeSession(ctx.db, ctx.user.uid, {
+          sessionId,
+          index: sessionNumber,
+          sessionIndex,
+        });
+
+        if (form && window.formAutosave?.clear) {
+          window.formAutosave.clear(form);
+        }
+
+        $$("input[type=text],textarea", form).forEach((input) => (input.value = ""));
+        $$("input[type=range]", form).forEach((input) => {
+          input.value = 5;
+          input.dispatchEvent(new Event("input"));
+        });
+        $$("select", form).forEach((input) => {
+          input.selectedIndex = 0;
+        });
+        $$("input[type=radio]", form).forEach((input) => (input.checked = false));
+        $$("[data-rich-text-root]", form).forEach((editor) => {
+          const hidden = editor.querySelector("[data-rich-text-input]");
+          const content = editor.querySelector("[data-rich-text-content]");
+          if (content) {
+            content.innerHTML = "<p><br></p>";
+          }
+          if (hidden) {
+            const emptyValue = normalizeRichTextValue("");
+            hidden.value = JSON.stringify(emptyValue);
+            hidden.dispatchEvent(new Event("input", { bubbles: true }));
+            hidden.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        });
+
+        showToast(answers.length ? "Itération enregistrée" : "Itération passée");
+        saveBtn.classList.add("btn-saved");
+        saveBtn.textContent = "✓ Enregistré";
+        setTimeout(() => {
+          saveBtn.classList.remove("btn-saved");
+          saveBtn.textContent = "Enregistrer";
+          saveBtn.disabled = false;
+        }, 900);
+
+        renderPractice(ctx, root);
+      } catch (err) {
+        console.error(err);
         saveBtn.disabled = false;
-      }, 900);
+        saveBtn.textContent = "Enregistrer";
+      }
+    };
+    modesLogger.groupEnd();
+  }
 
-      renderPractice(ctx, root);
-    } catch (err) {
-      console.error(err);
-      saveBtn.disabled = false;
-      saveBtn.textContent = "Enregistrer";
-    }
+  const DOW = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
+  const DAILY_ENTRY_TYPES = {
+    DAY: "day",
+    WEEKLY: "week",
+    MONTHLY: "month",
+    YEARLY: "year",
+    ADHOC: "adhoc",
   };
-  modesLogger.groupEnd();
-}
 
-const DOW = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
-const DAILY_ENTRY_TYPES = {
-  DAY: "day",
-  WEEKLY: "week",
-  MONTHLY: "month",
-  YEARLY: "year",
-  ADHOC: "adhoc",
-};
-
-function normalizeDailyView(value) {
-  if (!value) return null;
-  const normalized = String(value).toLowerCase();
-  if (normalized === "week" || normalized === "weekly") {
-    return DAILY_ENTRY_TYPES.WEEKLY;
-  }
-  if (normalized === "month" || normalized === "monthly") {
-    return DAILY_ENTRY_TYPES.MONTHLY;
-  }
-  if (
-    normalized === "year" ||
-    normalized === "yearly" ||
-    normalized === "annuel" ||
-    normalized === "annuelle" ||
-    normalized === "annual"
-  ) {
-    return DAILY_ENTRY_TYPES.YEARLY;
-  }
-  return null;
-}
-const DAILY_WEEKDAY_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
-const DAILY_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
-const DAILY_SHORT_RANGE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
-const DAILY_LONG_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "2-digit", month: "long" });
-const DAILY_MONTH_LABEL_FORMATTER = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
-const BILAN_MODULE_ID = "bilan";
-const BILAN_DEFAULT_SETTINGS = {
-  weekEndsOn: 0,
-  monthlyEnabled: true,
-  weeklyReminderEnabled: false,
-  monthlyReminderEnabled: false,
-  yearlyReminderEnabled: false,
-};
-
-let DAILY_WEEK_ENDS_ON = BILAN_DEFAULT_SETTINGS.weekEndsOn;
-let DAILY_MONTHLY_ENABLED = BILAN_DEFAULT_SETTINGS.monthlyEnabled;
-
-let bilanSettingsCache = null;
-let bilanSettingsUid = null;
-let bilanSettingsPromise = null;
-
-function normalizeWeekdayIndex(value) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return 0;
-  const rounded = Math.round(num);
-  return ((rounded % 7) + 7) % 7;
-}
-
-function normalizeBilanReminder(value) {
-  if (value === true) return true;
-  if (value === false) return false;
-  if (value && typeof value === "object") {
-    if (typeof value.enabled === "boolean") {
-      return value.enabled;
+  function normalizeDailyView(value) {
+    if (!value) return null;
+    const normalized = String(value).toLowerCase();
+    if (normalized === "week" || normalized === "weekly") {
+      return DAILY_ENTRY_TYPES.WEEKLY;
     }
+    if (normalized === "month" || normalized === "monthly") {
+      return DAILY_ENTRY_TYPES.MONTHLY;
+    }
+    if (
+      normalized === "year" ||
+      normalized === "yearly" ||
+      normalized === "annuel" ||
+      normalized === "annuelle" ||
+      normalized === "annual"
+    ) {
+      return DAILY_ENTRY_TYPES.YEARLY;
+    }
+    return null;
   }
-  return false;
-}
-
-function normalizeBilanSettings(raw) {
-  const data = raw && typeof raw === "object" ? raw : {};
-  const weekEndsOn = normalizeWeekdayIndex(data.weekEndsOn ?? data.weekEnd ?? BILAN_DEFAULT_SETTINGS.weekEndsOn);
-  const monthlyEnabled = data.monthlyEnabled !== false;
-  const weeklyReminderEnabled = normalizeBilanReminder(data.weeklyReminder ?? data.weeklyReminderEnabled);
-  const monthlyReminderEnabled = normalizeBilanReminder(data.monthlyReminder ?? data.monthlyReminderEnabled);
-  const yearlyReminderEnabled = normalizeBilanReminder(data.yearlyReminder ?? data.yearlyReminderEnabled);
-  return {
-    weekEndsOn,
-    monthlyEnabled,
-    weeklyReminderEnabled,
-    monthlyReminderEnabled,
-    yearlyReminderEnabled,
+  const DAILY_WEEKDAY_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
+  const DAILY_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
+  const DAILY_SHORT_RANGE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+  const DAILY_LONG_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "2-digit", month: "long" });
+  const DAILY_MONTH_LABEL_FORMATTER = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+  const BILAN_MODULE_ID = "bilan";
+  const BILAN_DEFAULT_SETTINGS = {
+    weekEndsOn: 0,
+    monthlyEnabled: true,
+    weeklyReminderEnabled: false,
+    monthlyReminderEnabled: false,
+    yearlyReminderEnabled: false,
   };
-}
 
-function setBilanRuntimeSettings(settings) {
-  const normalized = normalizeBilanSettings(settings);
-  DAILY_WEEK_ENDS_ON = normalized.weekEndsOn;
-  DAILY_MONTHLY_ENABLED = normalized.monthlyEnabled;
-  bilanSettingsCache = normalized;
-  return normalized;
-}
+  let DAILY_WEEK_ENDS_ON = BILAN_DEFAULT_SETTINGS.weekEndsOn;
+  let DAILY_MONTHLY_ENABLED = BILAN_DEFAULT_SETTINGS.monthlyEnabled;
 
-async function loadBilanSettings(ctx) {
-  const uid = ctx?.user?.uid;
-  if (!uid || !ctx?.db || typeof Schema?.loadModuleSettings !== "function") {
-    return setBilanRuntimeSettings(BILAN_DEFAULT_SETTINGS);
+  let bilanSettingsCache = null;
+  let bilanSettingsUid = null;
+  let bilanSettingsPromise = null;
+
+  function normalizeWeekdayIndex(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 0;
+    const rounded = Math.round(num);
+    return ((rounded % 7) + 7) % 7;
   }
-  if (bilanSettingsCache && bilanSettingsUid === uid) {
-    return bilanSettingsCache;
+
+  function normalizeBilanReminder(value) {
+    if (value === true) return true;
+    if (value === false) return false;
+    if (value && typeof value === "object") {
+      if (typeof value.enabled === "boolean") {
+        return value.enabled;
+      }
+    }
+    return false;
   }
-  if (bilanSettingsPromise && bilanSettingsUid === uid) {
+
+  function normalizeBilanSettings(raw) {
+    const data = raw && typeof raw === "object" ? raw : {};
+    const weekEndsOn = normalizeWeekdayIndex(data.weekEndsOn ?? data.weekEnd ?? BILAN_DEFAULT_SETTINGS.weekEndsOn);
+    const monthlyEnabled = data.monthlyEnabled !== false;
+    const weeklyReminderEnabled = normalizeBilanReminder(data.weeklyReminder ?? data.weeklyReminderEnabled);
+    const monthlyReminderEnabled = normalizeBilanReminder(data.monthlyReminder ?? data.monthlyReminderEnabled);
+    const yearlyReminderEnabled = normalizeBilanReminder(data.yearlyReminder ?? data.yearlyReminderEnabled);
+    return {
+      weekEndsOn,
+      monthlyEnabled,
+      weeklyReminderEnabled,
+      monthlyReminderEnabled,
+      yearlyReminderEnabled,
+    };
+  }
+
+  function setBilanRuntimeSettings(settings) {
+    const normalized = normalizeBilanSettings(settings);
+    DAILY_WEEK_ENDS_ON = normalized.weekEndsOn;
+    DAILY_MONTHLY_ENABLED = normalized.monthlyEnabled;
+    bilanSettingsCache = normalized;
+    return normalized;
+  }
+
+  async function loadBilanSettings(ctx) {
+    const uid = ctx?.user?.uid;
+    if (!uid || !ctx?.db || typeof Schema?.loadModuleSettings !== "function") {
+      return setBilanRuntimeSettings(BILAN_DEFAULT_SETTINGS);
+    }
+    if (bilanSettingsCache && bilanSettingsUid === uid) {
+      return bilanSettingsCache;
+    }
+    if (bilanSettingsPromise && bilanSettingsUid === uid) {
+      return bilanSettingsPromise;
+    }
+    bilanSettingsUid = uid;
+    bilanSettingsPromise = (async () => {
+      try {
+        const raw = await Schema.loadModuleSettings(ctx.db, uid, BILAN_MODULE_ID);
+        return setBilanRuntimeSettings(raw);
+      } catch (error) {
+        console.warn("bilan.settings.load", error);
+        return setBilanRuntimeSettings(BILAN_DEFAULT_SETTINGS);
+      } finally {
+        bilanSettingsPromise = null;
+      }
+    })();
     return bilanSettingsPromise;
   }
-  bilanSettingsUid = uid;
-  bilanSettingsPromise = (async () => {
-    try {
-      const raw = await Schema.loadModuleSettings(ctx.db, uid, BILAN_MODULE_ID);
-      return setBilanRuntimeSettings(raw);
-    } catch (error) {
-      console.warn("bilan.settings.load", error);
-      return setBilanRuntimeSettings(BILAN_DEFAULT_SETTINGS);
-    } finally {
-      bilanSettingsPromise = null;
-    }
-  })();
-  return bilanSettingsPromise;
-}
 
-async function initializeBilanSettingsControls(ctx, host) {
-  if (!host || typeof host.querySelector !== "function") {
-    return;
-  }
-  const wrapper = host.querySelector("[data-bilan-settings]");
-  if (!wrapper || wrapper.dataset.bilanSettingsBound === "1") {
-    return;
-  }
-  wrapper.dataset.bilanSettingsBound = "1";
-  const trigger = wrapper.querySelector("[data-bilan-settings-trigger]");
-  const panel = wrapper.querySelector("[data-bilan-settings-panel]");
-  const select = wrapper.querySelector("[data-bilan-weekendson]");
-  const weeklyCb = wrapper.querySelector("[data-bilan-weekly-rem]");
-  const monthlyCb = wrapper.querySelector("[data-bilan-monthly-rem]");
-  const yearlyCb = wrapper.querySelector("[data-bilan-yearly-rem]");
-  const btnSave = wrapper.querySelector("[data-bilan-settings-save]");
-  const btnCancel = wrapper.querySelector("[data-bilan-settings-cancel]");
-  if (!trigger || !panel || !select || !btnSave) {
-    return;
-  }
-  trigger.setAttribute("aria-haspopup", "dialog");
-  trigger.setAttribute("aria-expanded", "false");
-
-  const applySettingsToForm = (settings) => {
-    if (!settings || typeof settings !== "object") {
+  async function initializeBilanSettingsControls(ctx, host) {
+    if (!host || typeof host.querySelector !== "function") {
       return;
     }
-    if (typeof settings.weekEndsOn === "number") {
-      select.value = String(settings.weekEndsOn);
+    const wrapper = host.querySelector("[data-bilan-settings]");
+    if (!wrapper || wrapper.dataset.bilanSettingsBound === "1") {
+      return;
     }
-    if (weeklyCb) {
-      weeklyCb.checked = !!settings.weeklyReminderEnabled;
+    wrapper.dataset.bilanSettingsBound = "1";
+    const trigger = wrapper.querySelector("[data-bilan-settings-trigger]");
+    const panel = wrapper.querySelector("[data-bilan-settings-panel]");
+    const select = wrapper.querySelector("[data-bilan-weekendson]");
+    const weeklyCb = wrapper.querySelector("[data-bilan-weekly-rem]");
+    const monthlyCb = wrapper.querySelector("[data-bilan-monthly-rem]");
+    const yearlyCb = wrapper.querySelector("[data-bilan-yearly-rem]");
+    const btnSave = wrapper.querySelector("[data-bilan-settings-save]");
+    const btnCancel = wrapper.querySelector("[data-bilan-settings-cancel]");
+    if (!trigger || !panel || !select || !btnSave) {
+      return;
     }
-    if (monthlyCb) {
-      monthlyCb.checked = !!settings.monthlyReminderEnabled;
-    }
-    if (yearlyCb) {
-      yearlyCb.checked = !!settings.yearlyReminderEnabled;
-    }
-  };
-
-  try {
-    const settings = await loadBilanSettings(ctx);
-    applySettingsToForm(settings);
-  } catch (error) {
-    console.warn("bilan.settings.prefill", error);
-  }
-
-  let outsideHandler = null;
-  const cleanupOutsideHandler = () => {
-    if (outsideHandler) {
-      document.removeEventListener("click", outsideHandler, true);
-      outsideHandler = null;
-    }
-  };
-
-  const closePanel = () => {
-    panel.hidden = true;
+    trigger.setAttribute("aria-haspopup", "dialog");
     trigger.setAttribute("aria-expanded", "false");
-    cleanupOutsideHandler();
-  };
 
-  const openPanel = () => {
-    if (!panel.hidden) {
-      return;
+    const applySettingsToForm = (settings) => {
+      if (!settings || typeof settings !== "object") {
+        return;
+      }
+      if (typeof settings.weekEndsOn === "number") {
+        select.value = String(settings.weekEndsOn);
+      }
+      if (weeklyCb) {
+        weeklyCb.checked = !!settings.weeklyReminderEnabled;
+      }
+      if (monthlyCb) {
+        monthlyCb.checked = !!settings.monthlyReminderEnabled;
+      }
+      if (yearlyCb) {
+        yearlyCb.checked = !!settings.yearlyReminderEnabled;
+      }
+    };
+
+    try {
+      const settings = await loadBilanSettings(ctx);
+      applySettingsToForm(settings);
+    } catch (error) {
+      console.warn("bilan.settings.prefill", error);
     }
-    panel.hidden = false;
-    trigger.setAttribute("aria-expanded", "true");
-    cleanupOutsideHandler();
-    outsideHandler = (event) => {
-      if (!wrapper.contains(event.target)) {
+
+    let outsideHandler = null;
+    const cleanupOutsideHandler = () => {
+      if (outsideHandler) {
+        document.removeEventListener("click", outsideHandler, true);
+        outsideHandler = null;
+      }
+    };
+
+    const closePanel = () => {
+      panel.hidden = true;
+      trigger.setAttribute("aria-expanded", "false");
+      cleanupOutsideHandler();
+    };
+
+    const openPanel = () => {
+      if (!panel.hidden) {
+        return;
+      }
+      panel.hidden = false;
+      trigger.setAttribute("aria-expanded", "true");
+      cleanupOutsideHandler();
+      outsideHandler = (event) => {
+        if (!wrapper.contains(event.target)) {
+          closePanel();
+        }
+      };
+      setTimeout(() => {
+        if (outsideHandler) {
+          document.addEventListener("click", outsideHandler, true);
+        }
+      }, 0);
+    };
+
+    trigger.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (panel.hidden) {
+        openPanel();
+      } else {
         closePanel();
       }
-    };
-    setTimeout(() => {
-      if (outsideHandler) {
-        document.addEventListener("click", outsideHandler, true);
-      }
-    }, 0);
-  };
+    });
 
-  trigger.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (panel.hidden) {
-      openPanel();
-    } else {
-      closePanel();
+    panel.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+
+    if (btnCancel) {
+      btnCancel.addEventListener("click", (event) => {
+        event.preventDefault();
+        closePanel();
+      });
     }
-  });
 
-  panel.addEventListener("click", (event) => {
-    event.stopPropagation();
-  });
-
-  if (btnCancel) {
-    btnCancel.addEventListener("click", (event) => {
+    let isSaving = false;
+    btnSave.addEventListener("click", async (event) => {
       event.preventDefault();
-      closePanel();
+      if (isSaving || !ctx?.db || !ctx?.user?.uid) {
+        return;
+      }
+      const payload = {
+        weekEndsOn: normalizeWeekdayIndex(select.value),
+        weeklyReminderEnabled: weeklyCb ? !!weeklyCb.checked : false,
+        monthlyReminderEnabled: monthlyCb ? !!monthlyCb.checked : false,
+        yearlyReminderEnabled: yearlyCb ? !!yearlyCb.checked : false,
+      };
+      try {
+        isSaving = true;
+        btnSave.disabled = true;
+        await Schema.saveModuleSettings(ctx.db, ctx.user.uid, BILAN_MODULE_ID, payload);
+        setBilanRuntimeSettings(payload);
+        closePanel();
+        if (typeof showToast === "function") {
+          showToast("Paramètres de bilan enregistrés.");
+        }
+      } catch (error) {
+        console.error("bilan.settings.save", error);
+        if (typeof showToast === "function") {
+          showToast("Impossible d’enregistrer les paramètres.");
+        }
+      } finally {
+        isSaving = false;
+        btnSave.disabled = false;
+      }
     });
+
+    if (typeof MutationObserver === "function" && document?.body) {
+      const observer = new MutationObserver(() => {
+        if (!wrapper.isConnected) {
+          cleanupOutsideHandler();
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
   }
 
-  let isSaving = false;
-  btnSave.addEventListener("click", async (event) => {
-    event.preventDefault();
-    if (isSaving || !ctx?.db || !ctx?.user?.uid) {
-      return;
+  function modesParseDayKeyToDate(key) {
+    if (typeof key !== "string") {
+      return null;
     }
-    const payload = {
-      weekEndsOn: normalizeWeekdayIndex(select.value),
-      weeklyReminderEnabled: weeklyCb ? !!weeklyCb.checked : false,
-      monthlyReminderEnabled: monthlyCb ? !!monthlyCb.checked : false,
-      yearlyReminderEnabled: yearlyCb ? !!yearlyCb.checked : false,
+    const trimmed = key.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (typeof parseDayKeyToDate === "function") {
+      try {
+        const parsedViaGlobal = parseDayKeyToDate(trimmed);
+        if (parsedViaGlobal instanceof Date && !Number.isNaN(parsedViaGlobal.getTime())) {
+          return parsedViaGlobal;
+        }
+      } catch (error) {
+        modesLogger?.debug?.("ui.daily.parseDayKey", error);
+      }
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const [yearStr, monthStr, dayStr] = trimmed.split("-");
+      const year = Number(yearStr);
+      const month = Number(monthStr);
+      const day = Number(dayStr);
+      if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+        const candidate = new Date(year, (month || 1) - 1, day || 1);
+        if (!Number.isNaN(candidate.getTime())) {
+          candidate.setHours(0, 0, 0, 0);
+          return candidate;
+        }
+      }
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      parsed.setHours(0, 0, 0, 0);
+      return parsed;
+    }
+    return null;
+  }
+
+  function modesToFirestoreTimestamp(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return null;
+    }
+    const tsSource =
+      modesFirestore?.Timestamp ||
+      Schema.firestore?.Timestamp ||
+      (typeof window !== "undefined" && window.firebase?.firestore?.Timestamp) ||
+      (typeof window !== "undefined" && window.firebase?.Timestamp) ||
+      null;
+    if (tsSource && typeof tsSource.fromDate === "function") {
+      try {
+        return tsSource.fromDate(date);
+      } catch (error) {
+        modesLogger?.debug?.("ui.daily.timestamp", error);
+      }
+    }
+    return null;
+  }
+
+  function modesMondayStartOf(date) {
+    const base = toStartOfDay(date);
+    if (!base) return null;
+    const diff = (base.getDay() + 6) % 7;
+    const monday = new Date(base.getTime());
+    monday.setDate(monday.getDate() - diff);
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  }
+
+  function computeDailyPageContext({ date, dayKey } = {}) {
+    const fromDate = date instanceof Date ? toStartOfDay(date) : null;
+    const fromKey = !fromDate && dayKey ? modesParseDayKeyToDate(dayKey) : null;
+    const baseDate = fromDate || fromKey || toStartOfDay(new Date());
+    if (!baseDate) {
+      return null;
+    }
+    const pageDateIso = typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(baseDate)
+      : baseDate.toISOString().slice(0, 10);
+    const weekStartDate = modesMondayStartOf(baseDate);
+    const weekStart = weekStartDate && typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(weekStartDate)
+      : weekStartDate
+        ? weekStartDate.toISOString().slice(0, 10)
+        : "";
+    const pageDayIndex = ((baseDate.getDay() + 6) % 7 + 7) % 7;
+    const pageDate = modesToFirestoreTimestamp(baseDate);
+    return {
+      pageDate,
+      pageDateIso,
+      weekStart,
+      pageDayIndex,
     };
-    try {
-      isSaving = true;
-      btnSave.disabled = true;
-      await Schema.saveModuleSettings(ctx.db, ctx.user.uid, BILAN_MODULE_ID, payload);
-      setBilanRuntimeSettings(payload);
-      closePanel();
-      if (typeof showToast === "function") {
-        showToast("Paramètres de bilan enregistrés.");
-      }
-    } catch (error) {
-      console.error("bilan.settings.save", error);
-      if (typeof showToast === "function") {
-        showToast("Impossible d’enregistrer les paramètres.");
-      }
-    } finally {
-      isSaving = false;
-      btnSave.disabled = false;
-    }
-  });
+  }
 
-  if (typeof MutationObserver === "function" && document?.body) {
-    const observer = new MutationObserver(() => {
-      if (!wrapper.isConnected) {
-        cleanupOutsideHandler();
-        observer.disconnect();
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+  function toStartOfDay(dateInput) {
+    const date = dateInput instanceof Date ? new Date(dateInput.getTime()) : new Date(dateInput);
+    if (Number.isNaN(date.getTime())) return null;
+    date.setHours(0, 0, 0, 0);
+    return date;
   }
-}
-
-function modesParseDayKeyToDate(key) {
-  if (typeof key !== "string") {
-    return null;
+  function formatDailyNavLabel(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+    const weekday = DAILY_WEEKDAY_FORMATTER.format(date) || "";
+    const digits = DAILY_DATE_FORMATTER.format(date) || "";
+    const capitalized = weekday ? `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}` : "";
+    return [capitalized, digits].filter(Boolean).join(" ");
   }
-  const trimmed = key.trim();
-  if (!trimmed) {
-    return null;
+  function formatWeekRangeLabel(start, end) {
+    if (!(start instanceof Date) || !(end instanceof Date)) return "";
+    const startLabel = DAILY_SHORT_RANGE_FORMATTER.format(start);
+    const endLabel = DAILY_SHORT_RANGE_FORMATTER.format(end);
+    return `${startLabel} → ${endLabel}`;
   }
-  if (typeof parseDayKeyToDate === "function") {
-    try {
-      const parsedViaGlobal = parseDayKeyToDate(trimmed);
-      if (parsedViaGlobal instanceof Date && !Number.isNaN(parsedViaGlobal.getTime())) {
-        return parsedViaGlobal;
-      }
-    } catch (error) {
-      modesLogger?.debug?.("ui.daily.parseDayKey", error);
-    }
+  function formatMonthLabel(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+    const raw = DAILY_MONTH_LABEL_FORMATTER.format(date);
+    return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "";
   }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    const [yearStr, monthStr, dayStr] = trimmed.split("-");
-    const year = Number(yearStr);
-    const month = Number(monthStr);
-    const day = Number(dayStr);
-    if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
-      const candidate = new Date(year, (month || 1) - 1, day || 1);
-      if (!Number.isNaN(candidate.getTime())) {
-        candidate.setHours(0, 0, 0, 0);
-        return candidate;
+  function weekAnchorForDate(dateInput) {
+    const base = toStartOfDay(dateInput);
+    if (!base) return null;
+    const offset = (DAILY_WEEK_ENDS_ON - base.getDay() + 7) % 7;
+    const anchor = new Date(base.getTime());
+    anchor.setDate(anchor.getDate() + offset);
+    return anchor;
+  }
+  function weekWindowForAnchor(anchor) {
+    const end = toStartOfDay(anchor);
+    if (!end) return null;
+    const start = new Date(end.getTime());
+    start.setDate(start.getDate() - 6);
+    return { start, end };
+  }
+  function monthlySummaryInfoForAnchor(anchor) {
+    if (!DAILY_MONTHLY_ENABLED) return null;
+    const range = weekWindowForAnchor(anchor);
+    if (!range) return null;
+    let monthEnd = null;
+    for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
+      const cursor = new Date(range.start.getTime());
+      cursor.setDate(range.start.getDate() + dayOffset);
+      const lastDay = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+      if (cursor.getDate() === lastDay) {
+        monthEnd = cursor;
+        break;
       }
     }
+    if (!monthEnd) return null;
+    const monthKey = typeof Schema?.monthKeyFromDate === "function"
+      ? Schema.monthKeyFromDate(monthEnd)
+      : `${monthEnd.getFullYear()}-${String(monthEnd.getMonth() + 1).padStart(2, "0")}`;
+    const monthLabel = formatMonthLabel(monthEnd);
+    return { monthEnd, monthKey, monthLabel };
   }
-  const parsed = new Date(trimmed);
-  if (!Number.isNaN(parsed.getTime())) {
-    parsed.setHours(0, 0, 0, 0);
-    return parsed;
+  function createDayEntry(date) {
+    const normalized = toStartOfDay(date);
+    if (!normalized) return null;
+    const dayCode = DOW[normalized.getDay()];
+    const navLabel = formatDailyNavLabel(normalized);
+    const todayKey = typeof Schema?.todayKey === "function" ? Schema.todayKey() : null;
+    const dayKey = typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(normalized) : null;
+    const isTodaySelected = todayKey && dayKey ? todayKey === dayKey : false;
+    return {
+      type: DAILY_ENTRY_TYPES.DAY,
+      date: normalized,
+      dayCode,
+      navLabel,
+      navSubtitle: isTodaySelected ? "Aujourd’hui" : "",
+      isToday: isTodaySelected,
+    };
   }
-  return null;
-}
-
-function modesToFirestoreTimestamp(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    return null;
-  }
-  const tsSource =
-    modesFirestore?.Timestamp ||
-    Schema.firestore?.Timestamp ||
-    (typeof window !== "undefined" && window.firebase?.firestore?.Timestamp) ||
-    (typeof window !== "undefined" && window.firebase?.Timestamp) ||
-    null;
-  if (tsSource && typeof tsSource.fromDate === "function") {
-    try {
-      return tsSource.fromDate(date);
-    } catch (error) {
-      modesLogger?.debug?.("ui.daily.timestamp", error);
-    }
-  }
-  return null;
-}
-
-function modesMondayStartOf(date) {
-  const base = toStartOfDay(date);
-  if (!base) return null;
-  const diff = (base.getDay() + 6) % 7;
-  const monday = new Date(base.getTime());
-  monday.setDate(monday.getDate() - diff);
-  monday.setHours(0, 0, 0, 0);
-  return monday;
-}
-
-function computeDailyPageContext({ date, dayKey } = {}) {
-  const fromDate = date instanceof Date ? toStartOfDay(date) : null;
-  const fromKey = !fromDate && dayKey ? modesParseDayKeyToDate(dayKey) : null;
-  const baseDate = fromDate || fromKey || toStartOfDay(new Date());
-  if (!baseDate) {
-    return null;
-  }
-  const pageDateIso = typeof Schema?.dayKeyFromDate === "function"
-    ? Schema.dayKeyFromDate(baseDate)
-    : baseDate.toISOString().slice(0, 10);
-  const weekStartDate = modesMondayStartOf(baseDate);
-  const weekStart = weekStartDate && typeof Schema?.dayKeyFromDate === "function"
-    ? Schema.dayKeyFromDate(weekStartDate)
-    : weekStartDate
-      ? weekStartDate.toISOString().slice(0, 10)
-      : "";
-  const pageDayIndex = ((baseDate.getDay() + 6) % 7 + 7) % 7;
-  const pageDate = modesToFirestoreTimestamp(baseDate);
-  return {
-    pageDate,
-    pageDateIso,
-    weekStart,
-    pageDayIndex,
-  };
-}
-
-function toStartOfDay(dateInput) {
-  const date = dateInput instanceof Date ? new Date(dateInput.getTime()) : new Date(dateInput);
-  if (Number.isNaN(date.getTime())) return null;
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-function formatDailyNavLabel(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
-  const weekday = DAILY_WEEKDAY_FORMATTER.format(date) || "";
-  const digits = DAILY_DATE_FORMATTER.format(date) || "";
-  const capitalized = weekday ? `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}` : "";
-  return [capitalized, digits].filter(Boolean).join(" ");
-}
-function formatWeekRangeLabel(start, end) {
-  if (!(start instanceof Date) || !(end instanceof Date)) return "";
-  const startLabel = DAILY_SHORT_RANGE_FORMATTER.format(start);
-  const endLabel = DAILY_SHORT_RANGE_FORMATTER.format(end);
-  return `${startLabel} → ${endLabel}`;
-}
-function formatMonthLabel(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
-  const raw = DAILY_MONTH_LABEL_FORMATTER.format(date);
-  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "";
-}
-function weekAnchorForDate(dateInput) {
-  const base = toStartOfDay(dateInput);
-  if (!base) return null;
-  const offset = (DAILY_WEEK_ENDS_ON - base.getDay() + 7) % 7;
-  const anchor = new Date(base.getTime());
-  anchor.setDate(anchor.getDate() + offset);
-  return anchor;
-}
-function weekWindowForAnchor(anchor) {
-  const end = toStartOfDay(anchor);
-  if (!end) return null;
-  const start = new Date(end.getTime());
-  start.setDate(start.getDate() - 6);
-  return { start, end };
-}
-function monthlySummaryInfoForAnchor(anchor) {
-  if (!DAILY_MONTHLY_ENABLED) return null;
-  const range = weekWindowForAnchor(anchor);
-  if (!range) return null;
-  let monthEnd = null;
-  for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
-    const cursor = new Date(range.start.getTime());
-    cursor.setDate(range.start.getDate() + dayOffset);
-    const lastDay = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
-    if (cursor.getDate() === lastDay) {
-      monthEnd = cursor;
-      break;
-    }
-  }
-  if (!monthEnd) return null;
-  const monthKey = typeof Schema?.monthKeyFromDate === "function"
-    ? Schema.monthKeyFromDate(monthEnd)
-    : `${monthEnd.getFullYear()}-${String(monthEnd.getMonth() + 1).padStart(2, "0")}`;
-  const monthLabel = formatMonthLabel(monthEnd);
-  return { monthEnd, monthKey, monthLabel };
-}
-function createDayEntry(date) {
-  const normalized = toStartOfDay(date);
-  if (!normalized) return null;
-  const dayCode = DOW[normalized.getDay()];
-  const navLabel = formatDailyNavLabel(normalized);
-  const todayKey = typeof Schema?.todayKey === "function" ? Schema.todayKey() : null;
-  const dayKey = typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(normalized) : null;
-  const isTodaySelected = todayKey && dayKey ? todayKey === dayKey : false;
-  return {
-    type: DAILY_ENTRY_TYPES.DAY,
-    date: normalized,
-    dayCode,
-    navLabel,
-    navSubtitle: isTodaySelected ? "Aujourd’hui" : "",
-    isToday: isTodaySelected,
-  };
-}
-function createWeeklySummaryEntry(anchorDate) {
-  const anchor = weekAnchorForDate(anchorDate);
-  if (!anchor) return null;
-  const range = weekWindowForAnchor(anchor);
-  if (!range) return null;
-  const weekKey = typeof Schema?.weekKeyFromDate === "function"
-    ? Schema.weekKeyFromDate(anchor, DAILY_WEEK_ENDS_ON)
-    : null;
-  return {
-    type: DAILY_ENTRY_TYPES.WEEKLY,
-    sunday: anchor,
-    weekStart: range.start,
-    weekEnd: range.end,
-    weekEndsOn: DAILY_WEEK_ENDS_ON,
-    weekKey,
-    navLabel: "Bilan de la semaine",
-    navSubtitle: formatWeekRangeLabel(range.start, range.end),
-  };
-}
-function createMonthlySummaryEntry(anchorDate) {
-  const weekly = createWeeklySummaryEntry(anchorDate);
-  if (!weekly) return null;
-  const monthInfo = monthlySummaryInfoForAnchor(weekly.sunday);
-  if (!monthInfo) return null;
-  return {
-    ...weekly,
-    type: DAILY_ENTRY_TYPES.MONTHLY,
-    monthEnd: monthInfo.monthEnd,
-    monthKey: monthInfo.monthKey,
-    monthLabel: monthInfo.monthLabel,
-    navLabel: "Bilan du mois",
-    navSubtitle: monthInfo.monthLabel || weekly.navSubtitle,
-  };
-}
-function entryToDayKey(entry) {
-  if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
-    return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.date) : null;
-  }
-  if ((entry?.type === DAILY_ENTRY_TYPES.WEEKLY || entry?.type === DAILY_ENTRY_TYPES.MONTHLY) && entry.sunday) {
-    return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.sunday) : null;
-  }
-  if (entry?.type === DAILY_ENTRY_TYPES.YEARLY) {
-    const anchor = entry.yearEnd instanceof Date ? entry.yearEnd : entry.yearStart;
-    return anchor && typeof Schema?.dayKeyFromDate === "function"
-      ? Schema.dayKeyFromDate(anchor)
+  function createWeeklySummaryEntry(anchorDate) {
+    const anchor = weekAnchorForDate(anchorDate);
+    if (!anchor) return null;
+    const range = weekWindowForAnchor(anchor);
+    if (!range) return null;
+    const weekKey = typeof Schema?.weekKeyFromDate === "function"
+      ? Schema.weekKeyFromDate(anchor, DAILY_WEEK_ENDS_ON)
       : null;
+    return {
+      type: DAILY_ENTRY_TYPES.WEEKLY,
+      sunday: anchor,
+      weekStart: range.start,
+      weekEnd: range.end,
+      weekEndsOn: DAILY_WEEK_ENDS_ON,
+      weekKey,
+      navLabel: "Bilan de la semaine",
+      navSubtitle: formatWeekRangeLabel(range.start, range.end),
+    };
   }
-  if (entry?.type === DAILY_ENTRY_TYPES.ADHOC) {
-    if (typeof entry.dayKey === "string" && entry.dayKey) {
-      return entry.dayKey;
+  function createMonthlySummaryEntry(anchorDate) {
+    const weekly = createWeeklySummaryEntry(anchorDate);
+    if (!weekly) return null;
+    const monthInfo = monthlySummaryInfoForAnchor(weekly.sunday);
+    if (!monthInfo) return null;
+    return {
+      ...weekly,
+      type: DAILY_ENTRY_TYPES.MONTHLY,
+      monthEnd: monthInfo.monthEnd,
+      monthKey: monthInfo.monthKey,
+      monthLabel: monthInfo.monthLabel,
+      navLabel: "Bilan du mois",
+      navSubtitle: monthInfo.monthLabel || weekly.navSubtitle,
+    };
+  }
+  function entryToDayKey(entry) {
+    if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
+      return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.date) : null;
     }
-    return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.date) : null;
-  }
-  return null;
-}
-function isWeekBoundaryDay(entry) {
-  if (!entry || entry.type !== DAILY_ENTRY_TYPES.DAY) return false;
-  const date = entry.date instanceof Date ? entry.date : null;
-  if (!date) return false;
-  return date.getDay() === DAILY_WEEK_ENDS_ON;
-}
-function computeNextEntry(entry) {
-  if (!entry) return null;
-  if (entry.type === DAILY_ENTRY_TYPES.DAY) {
-    if (isWeekBoundaryDay(entry)) {
-      const weekly = createWeeklySummaryEntry(entry.date);
-      if (weekly) return weekly;
+    if ((entry?.type === DAILY_ENTRY_TYPES.WEEKLY || entry?.type === DAILY_ENTRY_TYPES.MONTHLY) && entry.sunday) {
+      return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.sunday) : null;
     }
-    const nextDate = new Date(entry.date.getTime());
-    nextDate.setDate(nextDate.getDate() + 1);
-    return createDayEntry(nextDate);
-  }
-  if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
-    const monthly = createMonthlySummaryEntry(entry.sunday);
-    if (monthly) return monthly;
-    if (entry.sunday instanceof Date) {
-      const nextDate = new Date(entry.sunday.getTime());
-      nextDate.setDate(nextDate.getDate() + 1);
-      return createDayEntry(nextDate);
+    if (entry?.type === DAILY_ENTRY_TYPES.YEARLY) {
+      const anchor = entry.yearEnd instanceof Date ? entry.yearEnd : entry.yearStart;
+      return anchor && typeof Schema?.dayKeyFromDate === "function"
+        ? Schema.dayKeyFromDate(anchor)
+        : null;
     }
-    return null;
-  }
-  if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
-    const monthEnd = entry.monthEnd instanceof Date ? entry.monthEnd : null;
-    if (monthEnd && monthEnd.getMonth() === 11) {
-      const yearly = createYearlySummaryEntry(monthEnd);
-      if (yearly) {
-        return yearly;
+    if (entry?.type === DAILY_ENTRY_TYPES.ADHOC) {
+      if (typeof entry.dayKey === "string" && entry.dayKey) {
+        return entry.dayKey;
       }
-    }
-    if (entry.sunday instanceof Date) {
-      const nextDate = new Date(entry.sunday.getTime());
-      nextDate.setDate(nextDate.getDate() + 1);
-      return createDayEntry(nextDate);
-    }
-  }
-  if (entry.type === DAILY_ENTRY_TYPES.YEARLY) {
-    const anchor = entry.yearEnd instanceof Date ? entry.yearEnd : entry.yearStart;
-    if (anchor instanceof Date) {
-      const nextDate = new Date(anchor.getTime());
-      nextDate.setDate(nextDate.getDate() + 1);
-      return createDayEntry(nextDate);
+      return typeof Schema?.dayKeyFromDate === "function" ? Schema.dayKeyFromDate(entry.date) : null;
     }
     return null;
   }
-  if (entry.type === DAILY_ENTRY_TYPES.ADHOC) {
-    if (entry.date instanceof Date) {
+  function isWeekBoundaryDay(entry) {
+    if (!entry || entry.type !== DAILY_ENTRY_TYPES.DAY) return false;
+    const date = entry.date instanceof Date ? entry.date : null;
+    if (!date) return false;
+    return date.getDay() === DAILY_WEEK_ENDS_ON;
+  }
+  function computeNextEntry(entry) {
+    if (!entry) return null;
+    if (entry.type === DAILY_ENTRY_TYPES.DAY) {
+      if (isWeekBoundaryDay(entry)) {
+        const weekly = createWeeklySummaryEntry(entry.date);
+        if (weekly) return weekly;
+      }
       const nextDate = new Date(entry.date.getTime());
       nextDate.setDate(nextDate.getDate() + 1);
       return createDayEntry(nextDate);
     }
-    return null;
-  }
-  return null;
-}
-function computePrevEntry(entry) {
-  if (!entry) return null;
-  if (entry.type === DAILY_ENTRY_TYPES.DAY) {
-    const prevDate = new Date(entry.date.getTime());
-    prevDate.setDate(prevDate.getDate() - 1);
-    const prevDay = createDayEntry(prevDate);
-    if (prevDay && isWeekBoundaryDay(prevDay)) {
-      if (prevDay.date instanceof Date && prevDay.date.getMonth() === 11 && prevDay.date.getDate() === 31) {
-        const yearly = createYearlySummaryEntry(prevDay.date);
-        if (yearly) return yearly;
-      }
-      const monthly = createMonthlySummaryEntry(prevDay.date);
+    if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
+      const monthly = createMonthlySummaryEntry(entry.sunday);
       if (monthly) return monthly;
-      const weekly = createWeeklySummaryEntry(prevDay.date);
-      if (weekly) return weekly;
-    }
-    return prevDay;
-  }
-  if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
-    return createDayEntry(entry.sunday);
-  }
-  if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
-    const weekly = createWeeklySummaryEntry(entry.sunday);
-    if (weekly) return weekly;
-    return createDayEntry(entry.sunday);
-  }
-  if (entry.type === DAILY_ENTRY_TYPES.YEARLY) {
-    const anchor = entry.yearEnd instanceof Date ? entry.yearEnd : entry.yearStart;
-    if (anchor instanceof Date) {
-      const monthly = createMonthlySummaryEntry(anchor);
-      if (monthly) return monthly;
-      const weekly = createWeeklySummaryEntry(anchor);
-      if (weekly) return weekly;
-      return createDayEntry(anchor);
-    }
-    return null;
-  }
-  if (entry.type === DAILY_ENTRY_TYPES.ADHOC) {
-    if (entry.date instanceof Date) {
-      return createDayEntry(entry.date);
-    }
-    return null;
-  }
-  return null;
-}
-function entryToQuery(entry, basePath, qp) {
-  const params = new URLSearchParams(qp);
-  params.delete("day");
-  if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
-    params.delete("view");
-    const key = entryToDayKey(entry);
-    if (key) {
-      params.set("d", key);
-    } else {
-      params.delete("d");
-    }
-  } else if (entry?.type === DAILY_ENTRY_TYPES.ADHOC) {
-    params.delete("view");
-    const key = entryToDayKey(entry);
-    if (key) {
-      params.set("d", key);
-    } else {
-      params.delete("d");
-    }
-  } else if (
-    entry?.type === DAILY_ENTRY_TYPES.WEEKLY ||
-    entry?.type === DAILY_ENTRY_TYPES.MONTHLY ||
-    entry?.type === DAILY_ENTRY_TYPES.YEARLY
-  ) {
-    const viewValue = entry.type === DAILY_ENTRY_TYPES.WEEKLY
-      ? "week"
-      : entry.type === DAILY_ENTRY_TYPES.MONTHLY
-        ? "month"
-        : "year";
-    params.set("view", viewValue);
-    const key = entryToDayKey(entry);
-    if (key) {
-      params.set("d", key);
-    }
-  }
-  const search = params.toString();
-  return `${basePath}${search ? `?${search}` : ""}`;
-}
-function dateForDayFromToday(label) {
-  const target = DOW.indexOf(label);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  if (target < 0) return today;
-  const cur = today.getDay(); // 0..6 (DIM=0)
-  const delta = (target - cur + 7) % 7;
-  const d = new Date(today);
-  d.setDate(d.getDate() + delta);
-  return d;
-}
-function daysBetween(a, b) {
-  const ms = (b.setHours(0, 0, 0, 0), a.setHours(0, 0, 0, 0), (b - a));
-  return Math.max(0, Math.round(ms / 86400000));
-}
-
-async function renderDaily(ctx, root, opts = {}) {
-  if (dailyMutationListener) {
-    document.removeEventListener("consigne:mutated", dailyMutationListener);
-    dailyMutationListener = null;
-  }
-  root.innerHTML = "";
-  const container = document.createElement("div");
-  container.className = "space-y-4";
-  container.classList.add("w-full", "max-w-4xl", "mx-auto");
-  root.appendChild(container);
-
-  const currentHash = ctx.route || window.location.hash || "#/daily";
-  const qp = new URLSearchParams(currentHash.split("?")[1] || "");
-  await loadBilanSettings(ctx);
-  const dateIso = opts.dateIso || qp.get("d");
-  const explicitDate = dateIso ? toStartOfDay(dateIso) : null;
-  const requestedDay = normalizeDay(opts.day) || normalizeDay(qp.get("day"));
-  const requestedView = normalizeDailyView(opts.view || qp.get("view"));
-
-  let entry = null;
-  let selectedDate = null;
-  let currentDay = null;
-
-  const baseDate = explicitDate
-    ? new Date(explicitDate.getTime())
-    : requestedDay
-      ? (() => {
-        const d = dateForDayFromToday(requestedDay);
-        d.setHours(0, 0, 0, 0);
-        return d;
-      })()
-      : toStartOfDay(new Date());
-
-  if (baseDate) {
-    selectedDate = new Date(baseDate.getTime());
-  }
-
-  if (requestedView === DAILY_ENTRY_TYPES.WEEKLY) {
-    entry = createWeeklySummaryEntry(selectedDate);
-  } else if (requestedView === DAILY_ENTRY_TYPES.MONTHLY) {
-    entry = createMonthlySummaryEntry(selectedDate) || createWeeklySummaryEntry(selectedDate);
-  } else if (requestedView === DAILY_ENTRY_TYPES.YEARLY) {
-    entry = createYearlySummaryEntry(selectedDate);
-  }
-
-  if (!entry && selectedDate) {
-    entry = createDayEntry(selectedDate);
-  }
-
-  if (!entry) {
-    selectedDate = toStartOfDay(new Date());
-    entry = createDayEntry(selectedDate);
-  }
-
-  if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
-    currentDay = entry.dayCode || requestedDay || null;
-    if (entry.date instanceof Date) {
-      selectedDate = new Date(entry.date.getTime());
-    }
-  } else {
-    currentDay = null;
-  }
-
-  const navLabel = entry?.navLabel || (selectedDate ? formatDailyNavLabel(selectedDate) : "Journalier");
-  const navSubtitle = entry?.navSubtitle || "";
-  const isDayEntry = entry?.type === DAILY_ENTRY_TYPES.DAY;
-  // For weekly/monthly/yearly summary pages, still propagate a concrete dayKey (the route's d=...)
-  // so checklist hydration/persistence consistently target the visible page date instead of "today".
-  const selectedKey = selectedDate && typeof Schema?.dayKeyFromDate === "function"
-    ? Schema.dayKeyFromDate(selectedDate)
-    : null;
-  // Propagate the effective page date into global context so checklist hydration/persistence is day-scoped
-  try {
-    if (typeof window !== "undefined") {
-      const nextIso = selectedKey || null;
-      if (!window.AppCtx || window.AppCtx !== ctx) {
-        window.AppCtx = ctx;
+      if (entry.sunday instanceof Date) {
+        const nextDate = new Date(entry.sunday.getTime());
+        nextDate.setDate(nextDate.getDate() + 1);
+        return createDayEntry(nextDate);
       }
-      ctx.dateIso = nextIso;
-      window.AppCtx.dateIso = nextIso;
+      return null;
     }
-  } catch (_) { }
-  const pageContext = computeDailyPageContext({ date: selectedDate, dayKey: selectedKey });
-  modesLogger.group("screen.daily.render", {
-    hash: ctx.route,
-    entryType: entry?.type || DAILY_ENTRY_TYPES.DAY,
-    day: currentDay,
-    date: selectedDate?.toISOString?.(),
-  });
+    if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
+      const monthEnd = entry.monthEnd instanceof Date ? entry.monthEnd : null;
+      if (monthEnd && monthEnd.getMonth() === 11) {
+        const yearly = createYearlySummaryEntry(monthEnd);
+        if (yearly) {
+          return yearly;
+        }
+      }
+      if (entry.sunday instanceof Date) {
+        const nextDate = new Date(entry.sunday.getTime());
+        nextDate.setDate(nextDate.getDate() + 1);
+        return createDayEntry(nextDate);
+      }
+    }
+    if (entry.type === DAILY_ENTRY_TYPES.YEARLY) {
+      const anchor = entry.yearEnd instanceof Date ? entry.yearEnd : entry.yearStart;
+      if (anchor instanceof Date) {
+        const nextDate = new Date(anchor.getTime());
+        nextDate.setDate(nextDate.getDate() + 1);
+        return createDayEntry(nextDate);
+      }
+      return null;
+    }
+    if (entry.type === DAILY_ENTRY_TYPES.ADHOC) {
+      if (entry.date instanceof Date) {
+        const nextDate = new Date(entry.date.getTime());
+        nextDate.setDate(nextDate.getDate() + 1);
+        return createDayEntry(nextDate);
+      }
+      return null;
+    }
+    return null;
+  }
+  function computePrevEntry(entry) {
+    if (!entry) return null;
+    if (entry.type === DAILY_ENTRY_TYPES.DAY) {
+      const prevDate = new Date(entry.date.getTime());
+      prevDate.setDate(prevDate.getDate() - 1);
+      const prevDay = createDayEntry(prevDate);
+      if (prevDay && isWeekBoundaryDay(prevDay)) {
+        if (prevDay.date instanceof Date && prevDay.date.getMonth() === 11 && prevDay.date.getDate() === 31) {
+          const yearly = createYearlySummaryEntry(prevDay.date);
+          if (yearly) return yearly;
+        }
+        const monthly = createMonthlySummaryEntry(prevDay.date);
+        if (monthly) return monthly;
+        const weekly = createWeeklySummaryEntry(prevDay.date);
+        if (weekly) return weekly;
+      }
+      return prevDay;
+    }
+    if (entry.type === DAILY_ENTRY_TYPES.WEEKLY) {
+      return createDayEntry(entry.sunday);
+    }
+    if (entry.type === DAILY_ENTRY_TYPES.MONTHLY) {
+      const weekly = createWeeklySummaryEntry(entry.sunday);
+      if (weekly) return weekly;
+      return createDayEntry(entry.sunday);
+    }
+    if (entry.type === DAILY_ENTRY_TYPES.YEARLY) {
+      const anchor = entry.yearEnd instanceof Date ? entry.yearEnd : entry.yearStart;
+      if (anchor instanceof Date) {
+        const monthly = createMonthlySummaryEntry(anchor);
+        if (monthly) return monthly;
+        const weekly = createWeeklySummaryEntry(anchor);
+        if (weekly) return weekly;
+        return createDayEntry(anchor);
+      }
+      return null;
+    }
+    if (entry.type === DAILY_ENTRY_TYPES.ADHOC) {
+      if (entry.date instanceof Date) {
+        return createDayEntry(entry.date);
+      }
+      return null;
+    }
+    return null;
+  }
+  function entryToQuery(entry, basePath, qp) {
+    const params = new URLSearchParams(qp);
+    params.delete("day");
+    if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
+      params.delete("view");
+      const key = entryToDayKey(entry);
+      if (key) {
+        params.set("d", key);
+      } else {
+        params.delete("d");
+      }
+    } else if (entry?.type === DAILY_ENTRY_TYPES.ADHOC) {
+      params.delete("view");
+      const key = entryToDayKey(entry);
+      if (key) {
+        params.set("d", key);
+      } else {
+        params.delete("d");
+      }
+    } else if (
+      entry?.type === DAILY_ENTRY_TYPES.WEEKLY ||
+      entry?.type === DAILY_ENTRY_TYPES.MONTHLY ||
+      entry?.type === DAILY_ENTRY_TYPES.YEARLY
+    ) {
+      const viewValue = entry.type === DAILY_ENTRY_TYPES.WEEKLY
+        ? "week"
+        : entry.type === DAILY_ENTRY_TYPES.MONTHLY
+          ? "month"
+          : "year";
+      params.set("view", viewValue);
+      const key = entryToDayKey(entry);
+      if (key) {
+        params.set("d", key);
+      }
+    }
+    const search = params.toString();
+    return `${basePath}${search ? `?${search}` : ""}`;
+  }
+  function dateForDayFromToday(label) {
+    const target = DOW.indexOf(label);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (target < 0) return today;
+    const cur = today.getDay(); // 0..6 (DIM=0)
+    const delta = (target - cur + 7) % 7;
+    const d = new Date(today);
+    d.setDate(d.getDate() + delta);
+    return d;
+  }
+  function daysBetween(a, b) {
+    const ms = (b.setHours(0, 0, 0, 0), a.setHours(0, 0, 0, 0), (b - a));
+    return Math.max(0, Math.round(ms / 86400000));
+  }
 
-  const card = document.createElement("section");
-  card.className = "card space-y-4 p-3 sm:p-4";
-  card.innerHTML = `
+  async function renderDaily(ctx, root, opts = {}) {
+    if (dailyMutationListener) {
+      document.removeEventListener("consigne:mutated", dailyMutationListener);
+      dailyMutationListener = null;
+    }
+    root.innerHTML = "";
+    const container = document.createElement("div");
+    container.className = "space-y-4";
+    container.classList.add("w-full", "max-w-4xl", "mx-auto");
+    root.appendChild(container);
+
+    const currentHash = ctx.route || window.location.hash || "#/daily";
+    const qp = new URLSearchParams(currentHash.split("?")[1] || "");
+    await loadBilanSettings(ctx);
+    const dateIso = opts.dateIso || qp.get("d");
+    const explicitDate = dateIso ? toStartOfDay(dateIso) : null;
+    const requestedDay = normalizeDay(opts.day) || normalizeDay(qp.get("day"));
+    const requestedView = normalizeDailyView(opts.view || qp.get("view"));
+
+    let entry = null;
+    let selectedDate = null;
+    let currentDay = null;
+
+    const baseDate = explicitDate
+      ? new Date(explicitDate.getTime())
+      : requestedDay
+        ? (() => {
+          const d = dateForDayFromToday(requestedDay);
+          d.setHours(0, 0, 0, 0);
+          return d;
+        })()
+        : toStartOfDay(new Date());
+
+    if (baseDate) {
+      selectedDate = new Date(baseDate.getTime());
+    }
+
+    if (requestedView === DAILY_ENTRY_TYPES.WEEKLY) {
+      entry = createWeeklySummaryEntry(selectedDate);
+    } else if (requestedView === DAILY_ENTRY_TYPES.MONTHLY) {
+      entry = createMonthlySummaryEntry(selectedDate) || createWeeklySummaryEntry(selectedDate);
+    } else if (requestedView === DAILY_ENTRY_TYPES.YEARLY) {
+      entry = createYearlySummaryEntry(selectedDate);
+    }
+
+    if (!entry && selectedDate) {
+      entry = createDayEntry(selectedDate);
+    }
+
+    if (!entry) {
+      selectedDate = toStartOfDay(new Date());
+      entry = createDayEntry(selectedDate);
+    }
+
+    if (entry?.type === DAILY_ENTRY_TYPES.DAY) {
+      currentDay = entry.dayCode || requestedDay || null;
+      if (entry.date instanceof Date) {
+        selectedDate = new Date(entry.date.getTime());
+      }
+    } else {
+      currentDay = null;
+    }
+
+    const navLabel = entry?.navLabel || (selectedDate ? formatDailyNavLabel(selectedDate) : "Journalier");
+    const navSubtitle = entry?.navSubtitle || "";
+    const isDayEntry = entry?.type === DAILY_ENTRY_TYPES.DAY;
+    // For weekly/monthly/yearly summary pages, still propagate a concrete dayKey (the route's d=...)
+    // so checklist hydration/persistence consistently target the visible page date instead of "today".
+    const selectedKey = selectedDate && typeof Schema?.dayKeyFromDate === "function"
+      ? Schema.dayKeyFromDate(selectedDate)
+      : null;
+    // Propagate the effective page date into global context so checklist hydration/persistence is day-scoped
+    try {
+      if (typeof window !== "undefined") {
+        const nextIso = selectedKey || null;
+        if (!window.AppCtx || window.AppCtx !== ctx) {
+          window.AppCtx = ctx;
+        }
+        ctx.dateIso = nextIso;
+        window.AppCtx.dateIso = nextIso;
+      }
+    } catch (_) { }
+    const pageContext = computeDailyPageContext({ date: selectedDate, dayKey: selectedKey });
+    modesLogger.group("screen.daily.render", {
+      hash: ctx.route,
+      entryType: entry?.type || DAILY_ENTRY_TYPES.DAY,
+      day: currentDay,
+      date: selectedDate?.toISOString?.(),
+    });
+
+    const card = document.createElement("section");
+    card.className = "card space-y-4 p-3 sm:p-4";
+    card.innerHTML = `
     <div class="flex flex-wrap items-center gap-2">
       <div class="day-nav" data-day-nav>
         <button type="button" class="day-nav-btn" data-dir="prev" aria-label="Entrée précédente">
@@ -20363,61 +20328,61 @@ async function renderDaily(ctx, root, opts = {}) {
       <div class="daily-header-actions flex items-center gap-2">${smallBtn("📝 Faire un bilan", "js-bilan")}${smallBtn("+ Nouvelle consigne", "js-new")}</div>
     </div>
   `;
-  container.appendChild(card);
+    container.appendChild(card);
 
-  const navContainer = card.querySelector("[data-day-nav]");
-  if (navContainer) {
-    const basePath = toAppPath((currentHash.split("?")[0]) || "#/daily");
-    const prevEntry = computePrevEntry(entry);
-    const nextEntry = computeNextEntry(entry);
-    const prevBtn = navContainer.querySelector('[data-dir="prev"]');
-    const nextBtn = navContainer.querySelector('[data-dir="next"]');
-    if (prevBtn) {
-      prevBtn.disabled = !prevEntry;
-      prevBtn.classList.toggle("opacity-50", !prevEntry);
-      prevBtn.onclick = prevEntry
-        ? () => navigate(entryToQuery(prevEntry, basePath, qp))
-        : null;
-    }
-    if (nextBtn) {
-      nextBtn.disabled = !nextEntry;
-      nextBtn.classList.toggle("opacity-50", !nextEntry);
-      nextBtn.onclick = nextEntry
-        ? () => navigate(entryToQuery(nextEntry, basePath, qp))
-        : null;
-    }
-    const mainLabel = navContainer.querySelector("[data-nav-main]");
-    if (mainLabel) {
-      mainLabel.textContent = navLabel;
-    }
-    const subLabel = navContainer.querySelector(".day-nav-sub");
-    if (subLabel) {
-      subLabel.textContent = navSubtitle;
-      subLabel.hidden = !navSubtitle;
-    }
-  }
-  card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
-  const bilanBtn = card.querySelector(".js-bilan");
-  if (bilanBtn) {
-    bilanBtn.onclick = async () => {
-      await loadBilanSettings(ctx);
-      const scopeChoice = await chooseBilanScope({ allowMonthly: DAILY_MONTHLY_ENABLED });
-      if (!scopeChoice) {
-        return;
+    const navContainer = card.querySelector("[data-day-nav]");
+    if (navContainer) {
+      const basePath = toAppPath((currentHash.split("?")[0]) || "#/daily");
+      const prevEntry = computePrevEntry(entry);
+      const nextEntry = computeNextEntry(entry);
+      const prevBtn = navContainer.querySelector('[data-dir="prev"]');
+      const nextBtn = navContainer.querySelector('[data-dir="next"]');
+      if (prevBtn) {
+        prevBtn.disabled = !prevEntry;
+        prevBtn.classList.toggle("opacity-50", !prevEntry);
+        prevBtn.onclick = prevEntry
+          ? () => navigate(entryToQuery(prevEntry, basePath, qp))
+          : null;
       }
-      openBilanModal(ctx, {
-        scope: scopeChoice.scope,
-        title: scopeChoice.label,
-      });
-    };
-  }
+      if (nextBtn) {
+        nextBtn.disabled = !nextEntry;
+        nextBtn.classList.toggle("opacity-50", !nextEntry);
+        nextBtn.onclick = nextEntry
+          ? () => navigate(entryToQuery(nextEntry, basePath, qp))
+          : null;
+      }
+      const mainLabel = navContainer.querySelector("[data-nav-main]");
+      if (mainLabel) {
+        mainLabel.textContent = navLabel;
+      }
+      const subLabel = navContainer.querySelector(".day-nav-sub");
+      if (subLabel) {
+        subLabel.textContent = navSubtitle;
+        subLabel.hidden = !navSubtitle;
+      }
+    }
+    card.querySelector(".js-new").onclick = () => openConsigneForm(ctx, null);
+    const bilanBtn = card.querySelector(".js-bilan");
+    if (bilanBtn) {
+      bilanBtn.onclick = async () => {
+        await loadBilanSettings(ctx);
+        const scopeChoice = await chooseBilanScope({ allowMonthly: DAILY_MONTHLY_ENABLED });
+        if (!scopeChoice) {
+          return;
+        }
+        openBilanModal(ctx, {
+          scope: scopeChoice.scope,
+          title: scopeChoice.label,
+        });
+      };
+    }
 
-  if (!isDayEntry) {
-    const summaryCard = document.createElement("section");
-    summaryCard.className = "card space-y-4 p-3 sm:p-4";
-    const summaryTitle = entry?.navLabel || "Bilan";
-    const summarySubtitle = entry?.navSubtitle || "";
-    summaryCard.innerHTML = `
+    if (!isDayEntry) {
+      const summaryCard = document.createElement("section");
+      summaryCard.className = "card space-y-4 p-3 sm:p-4";
+      const summaryTitle = entry?.navLabel || "Bilan";
+      const summarySubtitle = entry?.navSubtitle || "";
+      summaryCard.innerHTML = `
       <header class="flex flex-wrap items-start justify-between gap-3">
         <div class="space-y-1">
           <h2 class="text-lg font-semibold">${escapeHtml(summaryTitle)}</h2>
@@ -20434,10 +20399,10 @@ async function renderDaily(ctx, root, opts = {}) {
                 <label class="block text-sm font-medium">Jour du bilan hebdomadaire</label>
                 <select class="w-full" data-bilan-weekendson>
                   ${[0, 1, 2, 3, 4, 5, 6].map((i) => {
-      const d = new Date(); d.setDate(d.getDate() + ((i - d.getDay() + 7) % 7));
-      const label = DAILY_WEEKDAY_FORMATTER.format(d);
-      return `<option value="${i}">${escapeHtml(label)}</option>`;
-    }).join("")}
+        const d = new Date(); d.setDate(d.getDate() + ((i - d.getDay() + 7) % 7));
+        const label = DAILY_WEEKDAY_FORMATTER.format(d);
+        return `<option value="${i}">${escapeHtml(label)}</option>`;
+      }).join("")}
                 </select>
                 <p class="text-xs text-[var(--muted)]">Ce jour détermine quand le bilan hebdo apparaît dans l’onglet journalier et le jour du rappel hebdo.</p>
               </div>
@@ -20469,865 +20434,865 @@ async function renderDaily(ctx, root, opts = {}) {
         <p class="text-sm text-[var(--muted)]">Chargement du bilan…</p>
       </div>
     `;
-    container.appendChild(summaryCard);
-    const summaryRoot = summaryCard.querySelector("[data-summary-root]");
-    if (!summaryRoot) {
-      modesLogger.groupEnd();
-      if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
-        window.__appBadge.refresh(ctx.user?.uid).catch(() => { });
-      }
-      return;
-    }
-    // Paramètres (roue ⚙️) dans l'encart de bilan du journalier
-    void initializeBilanSettingsControls(ctx, summaryCard);
-    if (!window.Bilan || typeof window.Bilan.renderSummary !== "function") {
-      summaryRoot.innerHTML = `<p class="text-sm text-[var(--muted)]">Module de bilan indisponible.</p>`;
-      modesLogger.groupEnd();
-      if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
-        window.__appBadge.refresh(ctx.user?.uid).catch(() => { });
-      }
-      return;
-    }
-    try {
-      await window.Bilan.renderSummary({ ctx, entry, mount: summaryRoot });
-    } catch (error) {
-      console.error("daily.summary.render", error);
-      summaryRoot.innerHTML = `<p class="text-sm text-red-600">Impossible de charger les consignes du bilan.</p>`;
-    }
-    modesLogger.groupEnd();
-    if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
-      window.__appBadge.refresh(ctx.user?.uid).catch(() => { });
-    }
-    return;
-  }
-
-  const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
-  // Objectifs du jour (affichage dans l’onglet Journalier)
-  let objectivesDueToday = [];
-  try {
-    objectivesDueToday = await Schema.listObjectivesDueOn(ctx.db, ctx.user.uid, selectedDate);
-  } catch (e) {
-    try { modesLogger?.warn?.("daily.objectivesDue.load", e); } catch (_) { }
-    objectivesDueToday = [];
-  }
-  const interactiveConsignes = all.filter((c) => !c.summaryOnlyScope);
-  const consignes = interactiveConsignes.filter((c) => !c.days?.length || c.days.includes(currentDay));
-  modesLogger.info("screen.daily.consignes", consignes.length);
-
-  const dayKey = selectedKey;
-  const visible = [];
-  const hidden = [];
-  await Promise.all(consignes.map(async (c) => {
-    if (c.srEnabled === false) { visible.push(c); return; }
-    // eslint-disable-next-line no-await-in-loop
-    const st = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "consigne");
-    const nextISO = st?.nextVisibleOn || st?.hideUntil;
-    if (!nextISO) { visible.push(c); return; }
-    const next = new Date(nextISO);
-    if (next <= selectedDate) visible.push(c);
-    else hidden.push({ c, daysLeft: daysBetween(new Date(), next), when: next });
-  }));
-
-  const hiddenParentIds = new Set(hidden.map((entry) => entry?.c?.id).filter(Boolean));
-  const visibleConsignes = filterConsignesByParentVisibility(visible, hiddenParentIds);
-
-  const orderIndex = new Map(visibleConsignes.map((c, idx) => [c.id, idx]));
-  const catGroups = new Map();
-  visibleConsignes.forEach((consigne) => {
-    const cat = consigne.category || "Général";
-    const list = catGroups.get(cat) || [];
-    list.push(consigne);
-    catGroups.set(cat, list);
-  });
-  const categoryGroups = Array.from(catGroups.entries()).map(([cat, list]) => {
-    const sorted = list.slice().sort((a, b) => {
-      const idxA = orderIndex.get(a.id) ?? 0;
-      const idxB = orderIndex.get(b.id) ?? 0;
-      if (idxA !== idxB) return idxA - idxB;
-      const prioDiff = (a.priority || 2) - (b.priority || 2);
-      if (prioDiff !== 0) return prioDiff;
-      return (a.text || "").localeCompare(b.text || "");
-    });
-    const groups = groupConsignes(sorted);
-    const total = groups.reduce((acc, group) => acc + 1 + group.children.length, 0);
-    return [cat, { groups, total }];
-  });
-
-  const previousAnswersRaw = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
-  let previousAnswers = previousAnswersRaw instanceof Map
-    ? previousAnswersRaw
-    : new Map(previousAnswersRaw || []);
-  const normalizedCurrentDayKey =
-    typeof dayKey === "string" && dayKey.trim() ? normalizeHistoryDayKey(dayKey) : "";
-  const resolvePreviousEntryDayKey = (entry) => {
-    if (!entry || typeof entry !== "object") {
-      return "";
-    }
-    const candidates = [
-      entry.dayKey,
-      entry.day_key,
-      entry.dateKey,
-      entry.date_key,
-      entry.responseDayKey,
-      entry.day,
-      entry.pageDateIso,
-      entry.page_date_iso,
-    ];
-    for (const candidate of candidates) {
-      if (typeof candidate === "string" && candidate.trim()) {
-        return normalizeHistoryDayKey(candidate);
-      }
-    }
-    return "";
-  };
-
-  const isSummaryLikeEntry = (entry) => {
-    if (!entry || typeof entry !== "object") {
-      return false;
-    }
-    const scope =
-      (typeof entry.summaryScope === "string" && entry.summaryScope.trim()) ||
-      (typeof entry.summary_scope === "string" && entry.summary_scope.trim()) ||
-      "";
-    if (scope) {
-      return true;
-    }
-    const source = typeof entry.source === "string" ? entry.source.toLowerCase() : "";
-    const origin = typeof entry.origin === "string" ? entry.origin.toLowerCase() : "";
-    if (source.includes("summary") || origin.includes("summary")) {
-      return true;
-    }
-    return false;
-  };
-
-  if (previousAnswers && previousAnswers.size && normalizedCurrentDayKey) {
-    const filtered = new Map();
-    previousAnswers.forEach((entry, consigneId) => {
-      const entryKey = resolvePreviousEntryDayKey(entry);
-      if (
-        entryKey &&
-        entryKey === normalizedCurrentDayKey &&
-        !isSummaryLikeEntry(entry)
-      ) {
-        filtered.set(consigneId, entry);
-      }
-    });
-    previousAnswers = filtered;
-  }
-
-  const observedValues = new Map();
-  const autoSaveStates = new Map();
-  const autoSaveErrorState = { lastShownAt: 0 };
-  const suppressedAutoSaveScopes = new Set();
-
-  const resolveAutoSaveScopeKey = (consigneId, scopeDayKey = dayKey) => {
-    const safeConsigneId = typeof consigneId === "string" || typeof consigneId === "number"
-      ? String(consigneId)
-      : "";
-    const normalizedScopeDayKey =
-      typeof scopeDayKey === "string" && scopeDayKey.trim()
-        ? normalizeHistoryDayKey(scopeDayKey)
-        : "";
-    return `${safeConsigneId}::${normalizedScopeDayKey}`;
-  };
-
-  const AUTO_SAVE_DEFAULT_DELAY = 900;
-  const AUTO_SAVE_LONG_DELAY = 1400;
-  const AUTO_SAVE_FAST_DELAY = 200;
-
-  const serializeValueForComparison = (consigne, value) => {
-    if (consigne?.type === "long") {
-      try {
-        return JSON.stringify(normalizeRichTextValue(value));
-      } catch (error) {
-        console.warn("daily.autosave.serialize.richtext", error);
-        return JSON.stringify({ value });
-      }
-    }
-    if (Array.isArray(value) || (value && typeof value === "object")) {
-      try {
-        return JSON.stringify(value);
-      } catch (error) {
-        console.warn("daily.autosave.serialize.object", error);
-        return String(value);
-      }
-    }
-    if (value === null || value === undefined) {
-      return "";
-    }
-    return String(value);
-  };
-
-  const resolveAutoSaveDelay = (consigne) => {
-    const type = consigne?.type;
-    if (type === "long") return AUTO_SAVE_LONG_DELAY;
-    if (type === "short") return AUTO_SAVE_DEFAULT_DELAY;
-    if (type === "checklist") return AUTO_SAVE_FAST_DELAY;
-    if (type === "yesno" || type === "likert6" || type === "likert5" || type === "num" || type === "montant") {
-      return AUTO_SAVE_FAST_DELAY;
-    }
-    return AUTO_SAVE_DEFAULT_DELAY;
-  };
-
-  const markAnswerAsSaved = (consigne, value, serialized, summary = null) => {
-    const base = previousAnswers.get(consigne.id) || { consigneId: consigne.id };
-    const entry = {
-      ...base,
-      value,
-      dayKey,
-      updatedAt: new Date().toISOString(),
-      __serialized: serialized,
-    };
-    if (pageContext) {
-      if (pageContext.pageDate) {
-        entry.pageDate = pageContext.pageDate;
-      }
-      if (pageContext.weekStart) {
-        entry.weekStart = pageContext.weekStart;
-      }
-      if (pageContext.pageDateIso) {
-        entry.pageDateIso = pageContext.pageDateIso;
-      }
-      if (typeof pageContext.pageDayIndex === "number") {
-        entry.pageDayIndex = pageContext.pageDayIndex;
-      }
-    }
-    if (consigne.type === "checklist") {
-      const stats = deriveChecklistStats(value);
-      entry.checkedIds = stats.checkedIds;
-      entry.checkedCount = stats.checkedCount;
-      entry.total = stats.total;
-      entry.percentage = stats.percentage;
-      entry.isEmpty = stats.isEmpty;
-    }
-    if (summary && typeof summary === "object") {
-      Object.assign(entry, summary);
-    } else {
-      ["summaryScope", "summaryLabel", "summaryPeriod", "summaryMode"].forEach((key) => {
-        if (Object.prototype.hasOwnProperty.call(entry, key)) {
-          delete entry[key];
-        }
-      });
-      ["source", "origin", "context", "moduleId"].forEach((key) => {
-        if (!Object.prototype.hasOwnProperty.call(entry, key)) {
-          return;
-        }
-        const value = entry[key];
-        if (value === null || value === undefined) {
-          delete entry[key];
-          return;
-        }
-        const stringValue = String(value).toLowerCase();
-        if (stringValue.startsWith("bilan")) {
-          delete entry[key];
-        }
-      });
-    }
-    previousAnswers.set(consigne.id, entry);
-  };
-
-  const notifyAutoSaveError = () => {
-    const now = Date.now();
-    if (now - autoSaveErrorState.lastShownAt < 8000) {
-      return;
-    }
-    autoSaveErrorState.lastShownAt = now;
-    showToast("Impossible d’enregistrer automatiquement. Vérifie ta connexion.");
-  };
-
-  const runAutoSave = (consigneId) => {
-    // Autosave désactivé: on court-circuite pour s'appuyer uniquement sur l'historique
-    return;
-    const state = autoSaveStates.get(consigneId);
-    if (!state) return;
-    state.timeout = null;
-    if (!state.pendingHasContent) {
-      autoSaveStates.delete(consigneId);
-      return;
-    }
-    if (!ctx?.db || !ctx?.user?.uid) {
-      notifyAutoSaveError();
-      const retryDelay = Math.max(2000, resolveAutoSaveDelay(state.consigne));
-      state.timeout = setTimeout(() => runAutoSave(consigneId), retryDelay);
-      autoSaveStates.set(consigneId, state);
-      return;
-    }
-    const { consigne, pendingValue, pendingSerialized, pendingSummary } = state;
-    state.inFlight = true;
-    autoSaveStates.set(consigneId, state);
-    const normalizedSummary = normalizeSummaryMetadataInput(pendingSummary);
-    const extras = {};
-    if (consigne.type === "checklist") {
-      const stats = deriveChecklistStats(pendingValue);
-      Object.assign(extras, {
-        checkedIds: stats.checkedIds,
-        checkedCount: stats.checkedCount,
-        total: stats.total,
-        percentage: stats.percentage,
-        isEmpty: stats.isEmpty,
-      });
-    }
-    if (pageContext) {
-      if (pageContext.pageDate) {
-        extras.pageDate = pageContext.pageDate;
-      }
-      if (pageContext.weekStart) {
-        extras.weekStart = pageContext.weekStart;
-      }
-      if (pageContext.pageDateIso) {
-        extras.pageDateIso = pageContext.pageDateIso;
-      }
-      if (typeof pageContext.pageDayIndex === "number") {
-        extras.pageDayIndex = pageContext.pageDayIndex;
-      }
-    }
-    const answers = [{ consigne, value: pendingValue, dayKey, ...extras }];
-    if (normalizedSummary) {
-      Object.assign(answers[0], normalizedSummary);
-    }
-    if (consigne.type === "checklist") {
-      logChecklistEvent("info", "[checklist-history] daily.autosave.payload", {
-        consigneId: consigne?.id ?? null,
-        dayKey,
-        items: Array.isArray(pendingValue?.items) ? pendingValue.items : null,
-        skipped: Array.isArray(pendingValue?.skipped) ? pendingValue.skipped : null,
-        hasSummary: !!normalizedSummary,
-      });
-    }
-    try {
-      modesLogger?.info?.("daily.autosave.enqueue", {
-        consigneId: consigne?.id ?? null,
-        type: consigne?.type || null,
-        hasSummary: !!normalizedSummary,
-        dayKey,
-        skipped: !!(pendingValue && typeof pendingValue === 'object' && pendingValue.skipped === true),
-      });
-    } catch (_) { }
-    const savePromise = Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers);
-    state.inFlightPromise = savePromise;
-    autoSaveStates.set(consigneId, state);
-    savePromise
-      .then(async () => {
-        try {
-          modesLogger?.info?.("daily.autosave.saved", {
-            consigneId: consigne?.id ?? null,
-            dayKey,
-          });
-        } catch (_) { }
-        markAnswerAsSaved(consigne, pendingValue, pendingSerialized, normalizedSummary);
+      container.appendChild(summaryCard);
+      const summaryRoot = summaryCard.querySelector("[data-summary-root]");
+      if (!summaryRoot) {
+        modesLogger.groupEnd();
         if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+          window.__appBadge.refresh(ctx.user?.uid).catch(() => { });
+        }
+        return;
+      }
+      // Paramètres (roue ⚙️) dans l'encart de bilan du journalier
+      void initializeBilanSettingsControls(ctx, summaryCard);
+      if (!window.Bilan || typeof window.Bilan.renderSummary !== "function") {
+        summaryRoot.innerHTML = `<p class="text-sm text-[var(--muted)]">Module de bilan indisponible.</p>`;
+        modesLogger.groupEnd();
+        if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+          window.__appBadge.refresh(ctx.user?.uid).catch(() => { });
+        }
+        return;
+      }
+      try {
+        await window.Bilan.renderSummary({ ctx, entry, mount: summaryRoot });
+      } catch (error) {
+        console.error("daily.summary.render", error);
+        summaryRoot.innerHTML = `<p class="text-sm text-red-600">Impossible de charger les consignes du bilan.</p>`;
+      }
+      modesLogger.groupEnd();
+      if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+        window.__appBadge.refresh(ctx.user?.uid).catch(() => { });
+      }
+      return;
+    }
+
+    const all = await Schema.fetchConsignes(ctx.db, ctx.user.uid, "daily");
+    // Objectifs du jour (affichage dans l’onglet Journalier)
+    let objectivesDueToday = [];
+    try {
+      objectivesDueToday = await Schema.listObjectivesDueOn(ctx.db, ctx.user.uid, selectedDate);
+    } catch (e) {
+      try { modesLogger?.warn?.("daily.objectivesDue.load", e); } catch (_) { }
+      objectivesDueToday = [];
+    }
+    const interactiveConsignes = all.filter((c) => !c.summaryOnlyScope);
+    const consignes = interactiveConsignes.filter((c) => !c.days?.length || c.days.includes(currentDay));
+    modesLogger.info("screen.daily.consignes", consignes.length);
+
+    const dayKey = selectedKey;
+    const visible = [];
+    const hidden = [];
+    await Promise.all(consignes.map(async (c) => {
+      if (c.srEnabled === false) { visible.push(c); return; }
+      // eslint-disable-next-line no-await-in-loop
+      const st = await Schema.readSRState(ctx.db, ctx.user.uid, c.id, "consigne");
+      const nextISO = st?.nextVisibleOn || st?.hideUntil;
+      if (!nextISO) { visible.push(c); return; }
+      const next = new Date(nextISO);
+      if (next <= selectedDate) visible.push(c);
+      else hidden.push({ c, daysLeft: daysBetween(new Date(), next), when: next });
+    }));
+
+    const hiddenParentIds = new Set(hidden.map((entry) => entry?.c?.id).filter(Boolean));
+    const visibleConsignes = filterConsignesByParentVisibility(visible, hiddenParentIds);
+
+    const orderIndex = new Map(visibleConsignes.map((c, idx) => [c.id, idx]));
+    const catGroups = new Map();
+    visibleConsignes.forEach((consigne) => {
+      const cat = consigne.category || "Général";
+      const list = catGroups.get(cat) || [];
+      list.push(consigne);
+      catGroups.set(cat, list);
+    });
+    const categoryGroups = Array.from(catGroups.entries()).map(([cat, list]) => {
+      const sorted = list.slice().sort((a, b) => {
+        const idxA = orderIndex.get(a.id) ?? 0;
+        const idxB = orderIndex.get(b.id) ?? 0;
+        if (idxA !== idxB) return idxA - idxB;
+        const prioDiff = (a.priority || 2) - (b.priority || 2);
+        if (prioDiff !== 0) return prioDiff;
+        return (a.text || "").localeCompare(b.text || "");
+      });
+      const groups = groupConsignes(sorted);
+      const total = groups.reduce((acc, group) => acc + 1 + group.children.length, 0);
+      return [cat, { groups, total }];
+    });
+
+    const previousAnswersRaw = await Schema.fetchDailyResponses(ctx.db, ctx.user.uid, dayKey);
+    let previousAnswers = previousAnswersRaw instanceof Map
+      ? previousAnswersRaw
+      : new Map(previousAnswersRaw || []);
+    const normalizedCurrentDayKey =
+      typeof dayKey === "string" && dayKey.trim() ? normalizeHistoryDayKey(dayKey) : "";
+    const resolvePreviousEntryDayKey = (entry) => {
+      if (!entry || typeof entry !== "object") {
+        return "";
+      }
+      const candidates = [
+        entry.dayKey,
+        entry.day_key,
+        entry.dateKey,
+        entry.date_key,
+        entry.responseDayKey,
+        entry.day,
+        entry.pageDateIso,
+        entry.page_date_iso,
+      ];
+      for (const candidate of candidates) {
+        if (typeof candidate === "string" && candidate.trim()) {
+          return normalizeHistoryDayKey(candidate);
+        }
+      }
+      return "";
+    };
+
+    const isSummaryLikeEntry = (entry) => {
+      if (!entry || typeof entry !== "object") {
+        return false;
+      }
+      const scope =
+        (typeof entry.summaryScope === "string" && entry.summaryScope.trim()) ||
+        (typeof entry.summary_scope === "string" && entry.summary_scope.trim()) ||
+        "";
+      if (scope) {
+        return true;
+      }
+      const source = typeof entry.source === "string" ? entry.source.toLowerCase() : "";
+      const origin = typeof entry.origin === "string" ? entry.origin.toLowerCase() : "";
+      if (source.includes("summary") || origin.includes("summary")) {
+        return true;
+      }
+      return false;
+    };
+
+    if (previousAnswers && previousAnswers.size && normalizedCurrentDayKey) {
+      const filtered = new Map();
+      previousAnswers.forEach((entry, consigneId) => {
+        const entryKey = resolvePreviousEntryDayKey(entry);
+        if (
+          entryKey &&
+          entryKey === normalizedCurrentDayKey &&
+          !isSummaryLikeEntry(entry)
+        ) {
+          filtered.set(consigneId, entry);
+        }
+      });
+      previousAnswers = filtered;
+    }
+
+    const observedValues = new Map();
+    const autoSaveStates = new Map();
+    const autoSaveErrorState = { lastShownAt: 0 };
+    const suppressedAutoSaveScopes = new Set();
+
+    const resolveAutoSaveScopeKey = (consigneId, scopeDayKey = dayKey) => {
+      const safeConsigneId = typeof consigneId === "string" || typeof consigneId === "number"
+        ? String(consigneId)
+        : "";
+      const normalizedScopeDayKey =
+        typeof scopeDayKey === "string" && scopeDayKey.trim()
+          ? normalizeHistoryDayKey(scopeDayKey)
+          : "";
+      return `${safeConsigneId}::${normalizedScopeDayKey}`;
+    };
+
+    const AUTO_SAVE_DEFAULT_DELAY = 900;
+    const AUTO_SAVE_LONG_DELAY = 1400;
+    const AUTO_SAVE_FAST_DELAY = 200;
+
+    const serializeValueForComparison = (consigne, value) => {
+      if (consigne?.type === "long") {
+        try {
+          return JSON.stringify(normalizeRichTextValue(value));
+        } catch (error) {
+          console.warn("daily.autosave.serialize.richtext", error);
+          return JSON.stringify({ value });
+        }
+      }
+      if (Array.isArray(value) || (value && typeof value === "object")) {
+        try {
+          return JSON.stringify(value);
+        } catch (error) {
+          console.warn("daily.autosave.serialize.object", error);
+          return String(value);
+        }
+      }
+      if (value === null || value === undefined) {
+        return "";
+      }
+      return String(value);
+    };
+
+    const resolveAutoSaveDelay = (consigne) => {
+      const type = consigne?.type;
+      if (type === "long") return AUTO_SAVE_LONG_DELAY;
+      if (type === "short") return AUTO_SAVE_DEFAULT_DELAY;
+      if (type === "checklist") return AUTO_SAVE_FAST_DELAY;
+      if (type === "yesno" || type === "likert6" || type === "likert5" || type === "num" || type === "montant") {
+        return AUTO_SAVE_FAST_DELAY;
+      }
+      return AUTO_SAVE_DEFAULT_DELAY;
+    };
+
+    const markAnswerAsSaved = (consigne, value, serialized, summary = null) => {
+      const base = previousAnswers.get(consigne.id) || { consigneId: consigne.id };
+      const entry = {
+        ...base,
+        value,
+        dayKey,
+        updatedAt: new Date().toISOString(),
+        __serialized: serialized,
+      };
+      if (pageContext) {
+        if (pageContext.pageDate) {
+          entry.pageDate = pageContext.pageDate;
+        }
+        if (pageContext.weekStart) {
+          entry.weekStart = pageContext.weekStart;
+        }
+        if (pageContext.pageDateIso) {
+          entry.pageDateIso = pageContext.pageDateIso;
+        }
+        if (typeof pageContext.pageDayIndex === "number") {
+          entry.pageDayIndex = pageContext.pageDayIndex;
+        }
+      }
+      if (consigne.type === "checklist") {
+        const stats = deriveChecklistStats(value);
+        entry.checkedIds = stats.checkedIds;
+        entry.checkedCount = stats.checkedCount;
+        entry.total = stats.total;
+        entry.percentage = stats.percentage;
+        entry.isEmpty = stats.isEmpty;
+      }
+      if (summary && typeof summary === "object") {
+        Object.assign(entry, summary);
+      } else {
+        ["summaryScope", "summaryLabel", "summaryPeriod", "summaryMode"].forEach((key) => {
+          if (Object.prototype.hasOwnProperty.call(entry, key)) {
+            delete entry[key];
+          }
+        });
+        ["source", "origin", "context", "moduleId"].forEach((key) => {
+          if (!Object.prototype.hasOwnProperty.call(entry, key)) {
+            return;
+          }
+          const value = entry[key];
+          if (value === null || value === undefined) {
+            delete entry[key];
+            return;
+          }
+          const stringValue = String(value).toLowerCase();
+          if (stringValue.startsWith("bilan")) {
+            delete entry[key];
+          }
+        });
+      }
+      previousAnswers.set(consigne.id, entry);
+    };
+
+    const notifyAutoSaveError = () => {
+      const now = Date.now();
+      if (now - autoSaveErrorState.lastShownAt < 8000) {
+        return;
+      }
+      autoSaveErrorState.lastShownAt = now;
+      showToast("Impossible d’enregistrer automatiquement. Vérifie ta connexion.");
+    };
+
+    const runAutoSave = (consigneId) => {
+      // Autosave désactivé: on court-circuite pour s'appuyer uniquement sur l'historique
+      return;
+      const state = autoSaveStates.get(consigneId);
+      if (!state) return;
+      state.timeout = null;
+      if (!state.pendingHasContent) {
+        autoSaveStates.delete(consigneId);
+        return;
+      }
+      if (!ctx?.db || !ctx?.user?.uid) {
+        notifyAutoSaveError();
+        const retryDelay = Math.max(2000, resolveAutoSaveDelay(state.consigne));
+        state.timeout = setTimeout(() => runAutoSave(consigneId), retryDelay);
+        autoSaveStates.set(consigneId, state);
+        return;
+      }
+      const { consigne, pendingValue, pendingSerialized, pendingSummary } = state;
+      state.inFlight = true;
+      autoSaveStates.set(consigneId, state);
+      const normalizedSummary = normalizeSummaryMetadataInput(pendingSummary);
+      const extras = {};
+      if (consigne.type === "checklist") {
+        const stats = deriveChecklistStats(pendingValue);
+        Object.assign(extras, {
+          checkedIds: stats.checkedIds,
+          checkedCount: stats.checkedCount,
+          total: stats.total,
+          percentage: stats.percentage,
+          isEmpty: stats.isEmpty,
+        });
+      }
+      if (pageContext) {
+        if (pageContext.pageDate) {
+          extras.pageDate = pageContext.pageDate;
+        }
+        if (pageContext.weekStart) {
+          extras.weekStart = pageContext.weekStart;
+        }
+        if (pageContext.pageDateIso) {
+          extras.pageDateIso = pageContext.pageDateIso;
+        }
+        if (typeof pageContext.pageDayIndex === "number") {
+          extras.pageDayIndex = pageContext.pageDayIndex;
+        }
+      }
+      const answers = [{ consigne, value: pendingValue, dayKey, ...extras }];
+      if (normalizedSummary) {
+        Object.assign(answers[0], normalizedSummary);
+      }
+      if (consigne.type === "checklist") {
+        logChecklistEvent("info", "[checklist-history] daily.autosave.payload", {
+          consigneId: consigne?.id ?? null,
+          dayKey,
+          items: Array.isArray(pendingValue?.items) ? pendingValue.items : null,
+          skipped: Array.isArray(pendingValue?.skipped) ? pendingValue.skipped : null,
+          hasSummary: !!normalizedSummary,
+        });
+      }
+      try {
+        modesLogger?.info?.("daily.autosave.enqueue", {
+          consigneId: consigne?.id ?? null,
+          type: consigne?.type || null,
+          hasSummary: !!normalizedSummary,
+          dayKey,
+          skipped: !!(pendingValue && typeof pendingValue === 'object' && pendingValue.skipped === true),
+        });
+      } catch (_) { }
+      const savePromise = Schema.saveResponses(ctx.db, ctx.user.uid, "daily", answers);
+      state.inFlightPromise = savePromise;
+      autoSaveStates.set(consigneId, state);
+      savePromise
+        .then(async () => {
           try {
-            await window.__appBadge.refresh(ctx.user?.uid);
-          } catch (error) {
-            console.warn("daily.autosave.badge", error);
+            modesLogger?.info?.("daily.autosave.saved", {
+              consigneId: consigne?.id ?? null,
+              dayKey,
+            });
+          } catch (_) { }
+          markAnswerAsSaved(consigne, pendingValue, pendingSerialized, normalizedSummary);
+          if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+            try {
+              await window.__appBadge.refresh(ctx.user?.uid);
+            } catch (error) {
+              console.warn("daily.autosave.badge", error);
+            }
+          }
+        })
+        .catch((error) => {
+          console.error("daily.autosave.error", error);
+          try {
+            modesLogger?.warn?.("daily.autosave.fail", {
+              consigneId: consigne?.id ?? null,
+              dayKey,
+              error: String(error && error.message || error) || "unknown",
+            });
+          } catch (_) { }
+          notifyAutoSaveError();
+          const retryDelay = Math.min(10000, Math.max(2000, resolveAutoSaveDelay(consigne) * 2));
+          state.timeout = setTimeout(() => runAutoSave(consigneId), retryDelay);
+        })
+        .finally(() => {
+          const latest = autoSaveStates.get(consigneId);
+          if (!latest) {
+            return;
+          }
+          latest.inFlight = false;
+          latest.inFlightPromise = null;
+          const hasPendingChange = latest.pendingHasContent && latest.pendingSerialized !== pendingSerialized;
+          if (hasPendingChange && !latest.timeout) {
+            const delay = resolveAutoSaveDelay(latest.consigne);
+            latest.timeout = setTimeout(() => runAutoSave(consigneId), delay);
+            autoSaveStates.set(consigneId, latest);
+            return;
+          }
+          if (latest.timeout) {
+            autoSaveStates.set(consigneId, latest);
+            return;
+          }
+          if (hasPendingChange) {
+            const delay = resolveAutoSaveDelay(latest.consigne);
+            latest.timeout = setTimeout(() => runAutoSave(consigneId), delay);
+            autoSaveStates.set(consigneId, latest);
+            return;
+          }
+          autoSaveStates.delete(consigneId);
+        });
+    };
+
+    const flushAutoSaveForConsigneImpl = async (consigneId, targetDayKey = null) => {
+      if (!consigneId) {
+        return;
+      }
+      const state = autoSaveStates.get(consigneId);
+      if (!state) {
+        const existing = previousAnswers.get(consigneId);
+        if (existing) {
+          const normalizedTarget =
+            typeof targetDayKey === "string" && targetDayKey.trim()
+              ? normalizeHistoryDayKey(targetDayKey)
+              : normalizedCurrentDayKey;
+          const entryKey = resolvePreviousEntryDayKey(existing);
+          if (!normalizedTarget || !entryKey || normalizedTarget === entryKey) {
+            previousAnswers.delete(consigneId);
           }
         }
-      })
-      .catch((error) => {
-        console.error("daily.autosave.error", error);
+        return;
+      }
+      if (state.timeout) {
+        clearTimeout(state.timeout);
+        state.timeout = null;
+      }
+      state.pendingHasContent = false;
+      state.pendingValue = null;
+      state.pendingSerialized = null;
+      state.pendingSummary = null;
+      autoSaveStates.set(consigneId, state);
+      const promise = state.inFlightPromise;
+      if (promise && typeof promise.then === "function") {
         try {
-          modesLogger?.warn?.("daily.autosave.fail", {
-            consigneId: consigne?.id ?? null,
-            dayKey,
-            error: String(error && error.message || error) || "unknown",
-          });
+          await promise;
         } catch (_) { }
-        notifyAutoSaveError();
-        const retryDelay = Math.min(10000, Math.max(2000, resolveAutoSaveDelay(consigne) * 2));
-        state.timeout = setTimeout(() => runAutoSave(consigneId), retryDelay);
-      })
-      .finally(() => {
-        const latest = autoSaveStates.get(consigneId);
-        if (!latest) {
-          return;
-        }
-        latest.inFlight = false;
-        latest.inFlightPromise = null;
-        const hasPendingChange = latest.pendingHasContent && latest.pendingSerialized !== pendingSerialized;
-        if (hasPendingChange && !latest.timeout) {
-          const delay = resolveAutoSaveDelay(latest.consigne);
-          latest.timeout = setTimeout(() => runAutoSave(consigneId), delay);
-          autoSaveStates.set(consigneId, latest);
-          return;
-        }
-        if (latest.timeout) {
-          autoSaveStates.set(consigneId, latest);
-          return;
-        }
-        if (hasPendingChange) {
-          const delay = resolveAutoSaveDelay(latest.consigne);
-          latest.timeout = setTimeout(() => runAutoSave(consigneId), delay);
-          autoSaveStates.set(consigneId, latest);
-          return;
-        }
-        autoSaveStates.delete(consigneId);
-      });
-  };
-
-  const flushAutoSaveForConsigneImpl = async (consigneId, targetDayKey = null) => {
-    if (!consigneId) {
-      return;
-    }
-    const state = autoSaveStates.get(consigneId);
-    if (!state) {
+      } else if (state.inFlight) {
+        await new Promise((resolve) => {
+          const startedAt = Date.now();
+          const poll = () => {
+            const latest = autoSaveStates.get(consigneId);
+            if (!latest || !latest.inFlight) {
+              resolve();
+              return;
+            }
+            if (Date.now() - startedAt > 2000) {
+              resolve();
+              return;
+            }
+            setTimeout(poll, 80);
+          };
+          poll();
+        });
+      }
+      const normalizedTarget =
+        typeof targetDayKey === "string" && targetDayKey.trim()
+          ? normalizeHistoryDayKey(targetDayKey)
+          : normalizedCurrentDayKey;
       const existing = previousAnswers.get(consigneId);
       if (existing) {
-        const normalizedTarget =
-          typeof targetDayKey === "string" && targetDayKey.trim()
-            ? normalizeHistoryDayKey(targetDayKey)
-            : normalizedCurrentDayKey;
         const entryKey = resolvePreviousEntryDayKey(existing);
         if (!normalizedTarget || !entryKey || normalizedTarget === entryKey) {
           previousAnswers.delete(consigneId);
         }
       }
-      return;
-    }
-    if (state.timeout) {
-      clearTimeout(state.timeout);
-      state.timeout = null;
-    }
-    state.pendingHasContent = false;
-    state.pendingValue = null;
-    state.pendingSerialized = null;
-    state.pendingSummary = null;
-    autoSaveStates.set(consigneId, state);
-    const promise = state.inFlightPromise;
-    if (promise && typeof promise.then === "function") {
-      try {
-        await promise;
-      } catch (_) { }
-    } else if (state.inFlight) {
-      await new Promise((resolve) => {
-        const startedAt = Date.now();
-        const poll = () => {
-          const latest = autoSaveStates.get(consigneId);
-          if (!latest || !latest.inFlight) {
-            resolve();
-            return;
-          }
-          if (Date.now() - startedAt > 2000) {
-            resolve();
-            return;
-          }
-          setTimeout(poll, 80);
-        };
-        poll();
-      });
-    }
-    const normalizedTarget =
-      typeof targetDayKey === "string" && targetDayKey.trim()
-        ? normalizeHistoryDayKey(targetDayKey)
-        : normalizedCurrentDayKey;
-    const existing = previousAnswers.get(consigneId);
-    if (existing) {
-      const entryKey = resolvePreviousEntryDayKey(existing);
-      if (!normalizedTarget || !entryKey || normalizedTarget === entryKey) {
-        previousAnswers.delete(consigneId);
-      }
-    }
-    autoSaveStates.delete(consigneId);
-  };
-  flushAutoSaveForConsigne = flushAutoSaveForConsigneImpl;
-
-  const runWithAutoSaveSuppressedImpl = async (consigneId, scopeDayKey, task) => {
-    if (!consigneId || typeof task !== "function") {
-      return typeof task === "function" ? task() : undefined;
-    }
-    const scopeKey = resolveAutoSaveScopeKey(consigneId, scopeDayKey);
-    const alreadySuppressed = suppressedAutoSaveScopes.has(scopeKey);
-    suppressedAutoSaveScopes.add(scopeKey);
-    try {
-      await flushAutoSaveForConsigneImpl(consigneId, scopeDayKey);
-      return await task();
-    } finally {
-      if (!alreadySuppressed) {
-        suppressedAutoSaveScopes.delete(scopeKey);
-      }
-    }
-  };
-  runWithAutoSaveSuppressed = runWithAutoSaveSuppressedImpl;
-
-  const scheduleAutoSave = (consigne, value, { serialized, hasContent, summary } = {}) => {
-    // Autosave désactivé: on ne planifie plus d'enregistrement automatique
-    return;
-    if (!consigne || !consigne.id) return;
-    const consigneId = consigne.id;
-    const scopeKey = resolveAutoSaveScopeKey(consigneId, dayKey);
-    const computedSerialized = serialized !== undefined ? serialized : serializeValueForComparison(consigne, value);
-    const effectiveHasContent = hasContent !== undefined ? hasContent : hasValueForConsigne(consigne, value);
-    const state = autoSaveStates.get(consigneId) || {
-      consigne,
-      pendingValue: null,
-      pendingSerialized: null,
-      pendingHasContent: false,
-      pendingSummary: null,
-      timeout: null,
-      inFlight: false,
-      inFlightPromise: null,
-    };
-    if (state.inFlightPromise === undefined) {
-      state.inFlightPromise = null;
-    }
-    state.consigne = consigne;
-    state.pendingValue = value;
-    state.pendingSerialized = computedSerialized;
-    state.pendingHasContent = effectiveHasContent;
-    state.pendingSummary = effectiveHasContent
-      ? normalizeSummaryMetadataInput(summary)
-      : null;
-
-    if (suppressedAutoSaveScopes.has(scopeKey)) {
-      if (state.timeout) {
-        clearTimeout(state.timeout);
-        state.timeout = null;
-      }
-      if (!state.inFlight) {
-        autoSaveStates.delete(consigneId);
-      } else {
-        state.pendingHasContent = false;
-        state.pendingValue = null;
-        state.pendingSerialized = null;
-        state.pendingSummary = null;
-        autoSaveStates.set(consigneId, state);
-      }
-      return;
-    }
-
-    const savedEntry = previousAnswers.get(consigneId);
-    if (savedEntry && savedEntry.__serialized === undefined && Object.prototype.hasOwnProperty.call(savedEntry, "value")) {
-      try {
-        const baseSerialized = serializeValueForComparison(consigne, savedEntry.value);
-        const savedSummary = normalizeSummaryMetadataInput(savedEntry);
-        const savedSummarySerialized = serializeSummaryMetadataForComparison(savedSummary);
-        savedEntry.__serialized = savedSummarySerialized
-          ? `${baseSerialized}__summary__${savedSummarySerialized}`
-          : baseSerialized;
-        previousAnswers.set(consigneId, savedEntry);
-      } catch (error) {
-        console.warn("daily.autosave.serialize.previous", error);
-      }
-    }
-    if (savedEntry && savedEntry.__serialized === computedSerialized && !state.inFlight) {
-      if (state.timeout) {
-        clearTimeout(state.timeout);
-      }
       autoSaveStates.delete(consigneId);
-      return;
-    }
+    };
+    flushAutoSaveForConsigne = flushAutoSaveForConsigneImpl;
 
-    if (!effectiveHasContent) {
+    const runWithAutoSaveSuppressedImpl = async (consigneId, scopeDayKey, task) => {
+      if (!consigneId || typeof task !== "function") {
+        return typeof task === "function" ? task() : undefined;
+      }
+      const scopeKey = resolveAutoSaveScopeKey(consigneId, scopeDayKey);
+      const alreadySuppressed = suppressedAutoSaveScopes.has(scopeKey);
+      suppressedAutoSaveScopes.add(scopeKey);
+      try {
+        await flushAutoSaveForConsigneImpl(consigneId, scopeDayKey);
+        return await task();
+      } finally {
+        if (!alreadySuppressed) {
+          suppressedAutoSaveScopes.delete(scopeKey);
+        }
+      }
+    };
+    runWithAutoSaveSuppressed = runWithAutoSaveSuppressedImpl;
+
+    const scheduleAutoSave = (consigne, value, { serialized, hasContent, summary } = {}) => {
+      // Autosave désactivé: on ne planifie plus d'enregistrement automatique
+      return;
+      if (!consigne || !consigne.id) return;
+      const consigneId = consigne.id;
+      const scopeKey = resolveAutoSaveScopeKey(consigneId, dayKey);
+      const computedSerialized = serialized !== undefined ? serialized : serializeValueForComparison(consigne, value);
+      const effectiveHasContent = hasContent !== undefined ? hasContent : hasValueForConsigne(consigne, value);
+      const state = autoSaveStates.get(consigneId) || {
+        consigne,
+        pendingValue: null,
+        pendingSerialized: null,
+        pendingHasContent: false,
+        pendingSummary: null,
+        timeout: null,
+        inFlight: false,
+        inFlightPromise: null,
+      };
+      if (state.inFlightPromise === undefined) {
+        state.inFlightPromise = null;
+      }
+      state.consigne = consigne;
+      state.pendingValue = value;
+      state.pendingSerialized = computedSerialized;
+      state.pendingHasContent = effectiveHasContent;
+      state.pendingSummary = effectiveHasContent
+        ? normalizeSummaryMetadataInput(summary)
+        : null;
+
+      if (suppressedAutoSaveScopes.has(scopeKey)) {
+        if (state.timeout) {
+          clearTimeout(state.timeout);
+          state.timeout = null;
+        }
+        if (!state.inFlight) {
+          autoSaveStates.delete(consigneId);
+        } else {
+          state.pendingHasContent = false;
+          state.pendingValue = null;
+          state.pendingSerialized = null;
+          state.pendingSummary = null;
+          autoSaveStates.set(consigneId, state);
+        }
+        return;
+      }
+
+      const savedEntry = previousAnswers.get(consigneId);
+      if (savedEntry && savedEntry.__serialized === undefined && Object.prototype.hasOwnProperty.call(savedEntry, "value")) {
+        try {
+          const baseSerialized = serializeValueForComparison(consigne, savedEntry.value);
+          const savedSummary = normalizeSummaryMetadataInput(savedEntry);
+          const savedSummarySerialized = serializeSummaryMetadataForComparison(savedSummary);
+          savedEntry.__serialized = savedSummarySerialized
+            ? `${baseSerialized}__summary__${savedSummarySerialized}`
+            : baseSerialized;
+          previousAnswers.set(consigneId, savedEntry);
+        } catch (error) {
+          console.warn("daily.autosave.serialize.previous", error);
+        }
+      }
+      if (savedEntry && savedEntry.__serialized === computedSerialized && !state.inFlight) {
+        if (state.timeout) {
+          clearTimeout(state.timeout);
+        }
+        autoSaveStates.delete(consigneId);
+        return;
+      }
+
+      if (!effectiveHasContent) {
+        if (state.timeout) {
+          clearTimeout(state.timeout);
+        }
+        if (!state.inFlight) {
+          autoSaveStates.delete(consigneId);
+        } else {
+          autoSaveStates.set(consigneId, state);
+        }
+        return;
+      }
+
+      if (state.inFlight) {
+        autoSaveStates.set(consigneId, state);
+        return;
+      }
+
       if (state.timeout) {
         clearTimeout(state.timeout);
       }
-      if (!state.inFlight) {
-        autoSaveStates.delete(consigneId);
-      } else {
-        autoSaveStates.set(consigneId, state);
-      }
-      return;
-    }
-
-    if (state.inFlight) {
+      const delay = resolveAutoSaveDelay(consigne);
+      state.timeout = setTimeout(() => runAutoSave(consigneId), delay);
       autoSaveStates.set(consigneId, state);
-      return;
-    }
-
-    if (state.timeout) {
-      clearTimeout(state.timeout);
-    }
-    const delay = resolveAutoSaveDelay(consigne);
-    state.timeout = setTimeout(() => runAutoSave(consigneId), delay);
-    autoSaveStates.set(consigneId, state);
-  };
-
-  // Expose a robust global updater for daily UI/caches after external edits
-  // Signature: applyDailyPrefillUpdate(consigneId, targetDayKey = dayKey, nextValue = "")
-  // Backward-compat: if called with a single argument (nextValue), it's ignored here; callers should pass ids.
-  try {
-    const cssEscape = (v) => (typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(String(v)) : String(v).replace(/"/g, '\\"'));
-    const inferTypeFromRow = (row, consigneId) => {
-      const field = row?.querySelector?.(`[name$=":${cssEscape(consigneId)}"]`);
-      const prefix = field && typeof field.name === "string" ? field.name.split(":")[0] : "";
-      if (row?.querySelector?.("[data-checklist-root]")) return "checklist";
-      if (prefix === "yesno") return "yesno";
-      if (prefix === "likert6") return "likert6";
-      if (prefix === "likert5") return "likert5";
-      if (prefix === "montant") return "montant";
-      if (prefix === "num") return "num";
-      if (prefix === "long") return "long";
-      if (prefix === "short") return "short";
-      return "short";
     };
-    applyDailyPrefillUpdate = (consigneId, targetDayKey = dayKey, nextValue = "") => {
-      if (!consigneId) return;
-      const canonicalInfo =
-        canonicalDayKeyFromValue(targetDayKey) ||
-        canonicalDayKeyFromValue(dayKey) ||
-        null;
-      const canonicalTargetKey = canonicalInfo?.dayKey
-        ? canonicalInfo.dayKey
-        : typeof targetDayKey === "string" && targetDayKey.trim()
-          ? targetDayKey.trim()
-          : typeof dayKey === "string" && dayKey.trim()
-            ? dayKey.trim()
-            : "";
-      const normalizedTarget = canonicalTargetKey
-        ? normalizeHistoryDayKey(canonicalTargetKey)
-        : normalizeHistoryDayKey(targetDayKey || dayKey || "");
-      try { observedValues.delete(consigneId); } catch (_) { }
-      try { previousAnswers.delete(consigneId); } catch (_) { }
-      try { removeRecentResponsesForDay(consigneId, canonicalTargetKey || normalizedTarget); } catch (_) { }
-      try { clearRecentResponsesForConsigne(consigneId); } catch (_) { }
 
-      // Prevent autosave relaunch while clearing
-      try {
-        const scopeKey = resolveAutoSaveScopeKey(consigneId, normalizedTarget);
-        suppressedAutoSaveScopes.add(scopeKey);
-        setTimeout(() => suppressedAutoSaveScopes.delete(scopeKey), 1500);
-      } catch (_) { }
-      // Flush any pending autosave state for this consigne
-      try { if (typeof flushAutoSaveForConsigneImpl === "function") { flushAutoSaveForConsigneImpl(consigneId, normalizedTarget); } } catch (_) { }
-
-      // Update DOM row
-      try {
-        const domTargetKey = canonicalTargetKey || normalizedTarget;
-        const sel = `[data-consigne-id="${cssEscape(consigneId)}"][data-day-key="${cssEscape(domTargetKey)}"]`;
-        const dailyRow = document.querySelector(sel);
-        if (dailyRow) {
-          const type = inferTypeFromRow(dailyRow, consigneId);
-          const consigne = { id: consigneId, type };
-          setConsigneRowValue(dailyRow, consigne, nextValue);
-          clearConsigneSummaryMetadata(dailyRow);
-          // Ensure flags that can force non-NA status are cleared
-          try {
-            delete dailyRow.dataset.currentValue;
-            delete dailyRow.dataset.skipAnswered;
-            delete dailyRow.dataset.childAnswered;
-            delete dailyRow.dataset.hasAnswer;
-          } catch (_) { }
-          // Also clear any restored skip/autosave footprint for this consigne in the enclosing form
-          try {
-            const form = dailyRow.closest && dailyRow.closest("form");
-            if (form && typeof window !== "undefined" && window.formAutosave && typeof window.formAutosave.clear === "function") {
-              window.formAutosave.clear(form);
-            }
-            const skipInput = dailyRow.querySelector('[data-consigne-skip-input]');
-            if (skipInput) {
-              if (skipInput.value !== "") {
-                skipInput.value = "";
-                skipInput.dispatchEvent(new Event("input", { bubbles: true }));
-                skipInput.dispatchEvent(new Event("change", { bubbles: true }));
-              }
-            }
-          } catch (_) { }
-          try { updateConsigneStatusUI(dailyRow, consigne, nextValue); } catch (_) { }
-          triggerConsigneRowUpdateHighlight(dailyRow);
-        }
-      } catch (_) { }
-    };
-    // Also expose on window for safety
+    // Expose a robust global updater for daily UI/caches after external edits
+    // Signature: applyDailyPrefillUpdate(consigneId, targetDayKey = dayKey, nextValue = "")
+    // Backward-compat: if called with a single argument (nextValue), it's ignored here; callers should pass ids.
     try {
-      window.Modes = window.Modes || {};
-      window.Modes.applyDailyPrefillUpdate = applyDailyPrefillUpdate;
-      window.applyDailyPrefillUpdate = applyDailyPrefillUpdate;
-    } catch (_) { }
-  } catch (_) { }
+      const cssEscape = (v) => (typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(String(v)) : String(v).replace(/"/g, '\\"'));
+      const inferTypeFromRow = (row, consigneId) => {
+        const field = row?.querySelector?.(`[name$=":${cssEscape(consigneId)}"]`);
+        const prefix = field && typeof field.name === "string" ? field.name.split(":")[0] : "";
+        if (row?.querySelector?.("[data-checklist-root]")) return "checklist";
+        if (prefix === "yesno") return "yesno";
+        if (prefix === "likert6") return "likert6";
+        if (prefix === "likert5") return "likert5";
+        if (prefix === "montant") return "montant";
+        if (prefix === "num") return "num";
+        if (prefix === "long") return "long";
+        if (prefix === "short") return "short";
+        return "short";
+      };
+      applyDailyPrefillUpdate = (consigneId, targetDayKey = dayKey, nextValue = "") => {
+        if (!consigneId) return;
+        const canonicalInfo =
+          canonicalDayKeyFromValue(targetDayKey) ||
+          canonicalDayKeyFromValue(dayKey) ||
+          null;
+        const canonicalTargetKey = canonicalInfo?.dayKey
+          ? canonicalInfo.dayKey
+          : typeof targetDayKey === "string" && targetDayKey.trim()
+            ? targetDayKey.trim()
+            : typeof dayKey === "string" && dayKey.trim()
+              ? dayKey.trim()
+              : "";
+        const normalizedTarget = canonicalTargetKey
+          ? normalizeHistoryDayKey(canonicalTargetKey)
+          : normalizeHistoryDayKey(targetDayKey || dayKey || "");
+        try { observedValues.delete(consigneId); } catch (_) { }
+        try { previousAnswers.delete(consigneId); } catch (_) { }
+        try { removeRecentResponsesForDay(consigneId, canonicalTargetKey || normalizedTarget); } catch (_) { }
+        try { clearRecentResponsesForConsigne(consigneId); } catch (_) { }
 
-  const handleValueChange = async (consigne, row, value, { serialized, summary, baseSerialized } = {}) => {
-    const normalizedValue = normalizeConsigneValueForPersistence(consigne, row, value);
-    const skipActive = Boolean(row?.dataset?.skipAnswered === "1");
-    const hasContent = skipActive
-      ? true
-      : consigne.type === "checklist"
-        ? hasChecklistResponse(consigne, row, normalizedValue)
-        : hasValueForConsigne(consigne, normalizedValue);
-    try {
-      modesLogger?.debug?.("consigne.value.change", {
-        consigneId: consigne?.id ?? null,
-        type: consigne?.type || null,
-        skipActive,
-        hasContent,
-        normalizedIsSkipped: !!(normalizedValue && typeof normalizedValue === 'object' && normalizedValue.skipped === true),
-      });
-    } catch (_) { }
+        // Prevent autosave relaunch while clearing
+        try {
+          const scopeKey = resolveAutoSaveScopeKey(consigneId, normalizedTarget);
+          suppressedAutoSaveScopes.add(scopeKey);
+          setTimeout(() => suppressedAutoSaveScopes.delete(scopeKey), 1500);
+        } catch (_) { }
+        // Flush any pending autosave state for this consigne
+        try { if (typeof flushAutoSaveForConsigneImpl === "function") { flushAutoSaveForConsigneImpl(consigneId, normalizedTarget); } } catch (_) { }
 
-    // Persistance minimale en daily: créer une entrée d’historique au premier changement pour obtenir des IDs
-    try {
-      if (
-        DAILY_HISTORY_PERSIST_ON_CHANGE &&
-        hasContent &&
-        row &&
-        !(row?.dataset?.historyId || row?.dataset?.historyResponseId) &&
-        ctx?.db && ctx?.user?.uid && consigne?.id &&
-        typeof dayKey === "string" && dayKey.trim()
-      ) {
-        const targetDocId = dayKey.trim();
-        const responseSyncOptions = {
-          responseId: row?.dataset?.historyResponseId || "",
-          responseMode: "daily",
-          responseType: consigne.type,
-          responseDayKey: targetDocId,
-          responseCreatedAt: new Date().toISOString(),
-        };
-        Promise.resolve(
-          Schema.saveHistoryEntry(
-            ctx.db,
-            ctx.user.uid,
-            consigne.id,
-            targetDocId,
-            { value: normalizedValue },
-            responseSyncOptions,
-          ),
-        )
-          .then(() => {
-            // Propager l'identifiant sur la ligne et rafraîchir la timeline avec IDs
-            try { row.dataset.historyId = targetDocId; } catch (_) { }
+        // Update DOM row
+        try {
+          const domTargetKey = canonicalTargetKey || normalizedTarget;
+          const sel = `[data-consigne-id="${cssEscape(consigneId)}"][data-day-key="${cssEscape(domTargetKey)}"]`;
+          const dailyRow = document.querySelector(sel);
+          if (dailyRow) {
+            const type = inferTypeFromRow(dailyRow, consigneId);
+            const consigne = { id: consigneId, type };
+            setConsigneRowValue(dailyRow, consigne, nextValue);
+            clearConsigneSummaryMetadata(dailyRow);
+            // Ensure flags that can force non-NA status are cleared
             try {
-              // Aligner la couleur de la pastille sur le calcul du dot (skip + checklist __hasAnswer)
-              const statusValueForTimeline = (() => {
-                try {
-                  if (row?.dataset?.skipAnswered === "1") {
-                    // Même logique que mapValueForStatus: si skip sans valeur propre, statut 'skipped'
-                    return { skipped: true };
-                  }
-                  if (consigne.type === "checklist") {
-                    const hasAnswer = hasChecklistResponse(consigne, row, normalizedValue);
-                    const base = normalizedValue && typeof normalizedValue === "object" ? normalizedValue : {};
-                    return { ...base, __hasAnswer: hasAnswer };
-                  }
-                } catch (_) { }
-                return normalizedValue;
-              })();
-              const statusForTimeline = dotColor(consigne.type, statusValueForTimeline, consigne) || "na";
-              // IDs posés: notifier immédiatement les listeners pour une synchro instantanée
-              try {
-                row.dispatchEvent(new CustomEvent("consigne-status-changed", {
-                  detail: { status: statusForTimeline, value: normalizedValue, dayKey: targetDocId },
-                }));
-              } catch (_) { }
-              updateConsigneHistoryTimeline(row, statusForTimeline, {
-                consigne,
-                value: normalizedValue,
-                dayKey: targetDocId,
-                historyId: targetDocId,
-                responseId: responseSyncOptions.responseId || "",
-              });
+              delete dailyRow.dataset.currentValue;
+              delete dailyRow.dataset.skipAnswered;
+              delete dailyRow.dataset.childAnswered;
+              delete dailyRow.dataset.hasAnswer;
             } catch (_) { }
-          })
-          .catch((e) => {
-            try { console.warn("[daily] history.persist.onChange:save", e); } catch (_) { }
-          });
-      }
-    } catch (e) {
-      try { console.warn("[daily] history.persist.onChange", e); } catch (_) { }
-    }
-    if (!hasContent) {
-      previousAnswers.delete(consigne.id);
-      if (row) {
-        clearConsigneSummaryMetadata(row);
-      }
-    }
-    const summaryMetadata =
-      summary !== undefined
-        ? normalizeSummaryMetadataInput(summary)
-        : normalizeSummaryMetadataInput(readConsigneSummaryMetadata(row));
-    const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
-    const computedBaseSerialized =
-      baseSerialized !== undefined
-        ? baseSerialized
-        : serializeValueForComparison(consigne, normalizedValue);
-    const providedCombined = typeof serialized === "string" ? serialized : null;
-    const combinedSerialized =
-      providedCombined !== null
-        ? providedCombined
-        : summarySerialized
-          ? `${computedBaseSerialized}__summary__${summarySerialized}`
-          : computedBaseSerialized;
-    if (row) {
-      if (!hasContent) {
-        delete row.dataset.currentValue;
-      } else if (typeof normalizedValue === "object") {
-        row.dataset.currentValue = computedBaseSerialized;
-      } else {
-        row.dataset.currentValue = String(normalizedValue);
-      }
-    }
-    scheduleAutoSave(consigne, normalizedValue, {
-      serialized: combinedSerialized,
-      hasContent,
-      summary: hasContent ? summaryMetadata : null,
-    });
-  };
+            // Also clear any restored skip/autosave footprint for this consigne in the enclosing form
+            try {
+              const form = dailyRow.closest && dailyRow.closest("form");
+              if (form && typeof window !== "undefined" && window.formAutosave && typeof window.formAutosave.clear === "function") {
+                window.formAutosave.clear(form);
+              }
+              const skipInput = dailyRow.querySelector('[data-consigne-skip-input]');
+              if (skipInput) {
+                if (skipInput.value !== "") {
+                  skipInput.value = "";
+                  skipInput.dispatchEvent(new Event("input", { bubbles: true }));
+                  skipInput.dispatchEvent(new Event("change", { bubbles: true }));
+                }
+              }
+            } catch (_) { }
+            try { updateConsigneStatusUI(dailyRow, consigne, nextValue); } catch (_) { }
+            triggerConsigneRowUpdateHighlight(dailyRow);
+          }
+        } catch (_) { }
+      };
+      // Also expose on window for safety
+      try {
+        window.Modes = window.Modes || {};
+        window.Modes.applyDailyPrefillUpdate = applyDailyPrefillUpdate;
+        window.applyDailyPrefillUpdate = applyDailyPrefillUpdate;
+      } catch (_) { }
+    } catch (_) { }
 
-  const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
-    const previous = previousAnswers.get(item.id);
-    const previousHasValue = Boolean(
-      previous && Object.prototype.hasOwnProperty.call(previous, "value"),
-    );
-    let hasPrevValue = false;
-    if (previousHasValue) {
-      if (item.type === "checklist") {
-        const previousDayKey = resolvePreviousEntryDayKey(previous);
-        const sameDay = normalizedCurrentDayKey
-          ? previousDayKey === normalizedCurrentDayKey
-          : Boolean(previousDayKey);
-        if (sameDay && hasChecklistResponse(item, null, previous.value)) {
+    const handleValueChange = async (consigne, row, value, { serialized, summary, baseSerialized } = {}) => {
+      const normalizedValue = normalizeConsigneValueForPersistence(consigne, row, value);
+      const skipActive = Boolean(row?.dataset?.skipAnswered === "1");
+      const hasContent = skipActive
+        ? true
+        : consigne.type === "checklist"
+          ? hasChecklistResponse(consigne, row, normalizedValue)
+          : hasValueForConsigne(consigne, normalizedValue);
+      try {
+        modesLogger?.debug?.("consigne.value.change", {
+          consigneId: consigne?.id ?? null,
+          type: consigne?.type || null,
+          skipActive,
+          hasContent,
+          normalizedIsSkipped: !!(normalizedValue && typeof normalizedValue === 'object' && normalizedValue.skipped === true),
+        });
+      } catch (_) { }
+
+      // Persistance minimale en daily: créer une entrée d’historique au premier changement pour obtenir des IDs
+      try {
+        if (
+          DAILY_HISTORY_PERSIST_ON_CHANGE &&
+          hasContent &&
+          row &&
+          !(row?.dataset?.historyId || row?.dataset?.historyResponseId) &&
+          ctx?.db && ctx?.user?.uid && consigne?.id &&
+          typeof dayKey === "string" && dayKey.trim()
+        ) {
+          const targetDocId = dayKey.trim();
+          const responseSyncOptions = {
+            responseId: row?.dataset?.historyResponseId || "",
+            responseMode: "daily",
+            responseType: consigne.type,
+            responseDayKey: targetDocId,
+            responseCreatedAt: new Date().toISOString(),
+          };
+          Promise.resolve(
+            Schema.saveHistoryEntry(
+              ctx.db,
+              ctx.user.uid,
+              consigne.id,
+              targetDocId,
+              { value: normalizedValue },
+              responseSyncOptions,
+            ),
+          )
+            .then(() => {
+              // Propager l'identifiant sur la ligne et rafraîchir la timeline avec IDs
+              try { row.dataset.historyId = targetDocId; } catch (_) { }
+              try {
+                // Aligner la couleur de la pastille sur le calcul du dot (skip + checklist __hasAnswer)
+                const statusValueForTimeline = (() => {
+                  try {
+                    if (row?.dataset?.skipAnswered === "1") {
+                      // Même logique que mapValueForStatus: si skip sans valeur propre, statut 'skipped'
+                      return { skipped: true };
+                    }
+                    if (consigne.type === "checklist") {
+                      const hasAnswer = hasChecklistResponse(consigne, row, normalizedValue);
+                      const base = normalizedValue && typeof normalizedValue === "object" ? normalizedValue : {};
+                      return { ...base, __hasAnswer: hasAnswer };
+                    }
+                  } catch (_) { }
+                  return normalizedValue;
+                })();
+                const statusForTimeline = dotColor(consigne.type, statusValueForTimeline, consigne) || "na";
+                // IDs posés: notifier immédiatement les listeners pour une synchro instantanée
+                try {
+                  row.dispatchEvent(new CustomEvent("consigne-status-changed", {
+                    detail: { status: statusForTimeline, value: normalizedValue, dayKey: targetDocId },
+                  }));
+                } catch (_) { }
+                updateConsigneHistoryTimeline(row, statusForTimeline, {
+                  consigne,
+                  value: normalizedValue,
+                  dayKey: targetDocId,
+                  historyId: targetDocId,
+                  responseId: responseSyncOptions.responseId || "",
+                });
+              } catch (_) { }
+            })
+            .catch((e) => {
+              try { console.warn("[daily] history.persist.onChange:save", e); } catch (_) { }
+            });
+        }
+      } catch (e) {
+        try { console.warn("[daily] history.persist.onChange", e); } catch (_) { }
+      }
+      if (!hasContent) {
+        previousAnswers.delete(consigne.id);
+        if (row) {
+          clearConsigneSummaryMetadata(row);
+        }
+      }
+      const summaryMetadata =
+        summary !== undefined
+          ? normalizeSummaryMetadataInput(summary)
+          : normalizeSummaryMetadataInput(readConsigneSummaryMetadata(row));
+      const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
+      const computedBaseSerialized =
+        baseSerialized !== undefined
+          ? baseSerialized
+          : serializeValueForComparison(consigne, normalizedValue);
+      const providedCombined = typeof serialized === "string" ? serialized : null;
+      const combinedSerialized =
+        providedCombined !== null
+          ? providedCombined
+          : summarySerialized
+            ? `${computedBaseSerialized}__summary__${summarySerialized}`
+            : computedBaseSerialized;
+      if (row) {
+        if (!hasContent) {
+          delete row.dataset.currentValue;
+        } else if (typeof normalizedValue === "object") {
+          row.dataset.currentValue = computedBaseSerialized;
+        } else {
+          row.dataset.currentValue = String(normalizedValue);
+        }
+      }
+      scheduleAutoSave(consigne, normalizedValue, {
+        serialized: combinedSerialized,
+        hasContent,
+        summary: hasContent ? summaryMetadata : null,
+      });
+    };
+
+    const renderItemCard = (item, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
+      const previous = previousAnswers.get(item.id);
+      const previousHasValue = Boolean(
+        previous && Object.prototype.hasOwnProperty.call(previous, "value"),
+      );
+      let hasPrevValue = false;
+      if (previousHasValue) {
+        if (item.type === "checklist") {
+          const previousDayKey = resolvePreviousEntryDayKey(previous);
+          const sameDay = normalizedCurrentDayKey
+            ? previousDayKey === normalizedCurrentDayKey
+            : Boolean(previousDayKey);
+          if (sameDay && hasChecklistResponse(item, null, previous.value)) {
+            hasPrevValue = true;
+          }
+        } else {
           hasPrevValue = true;
         }
-      } else {
-        hasPrevValue = true;
       }
-    }
-    // Neutraliser le prefill daily si aucun point d'historique ne correspond au jour courant
-    try {
-      const snapshot = collectConsigneTimelineSnapshot(item);
-      const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
-      const targetKey = normalizedCurrentDayKey || (typeof dayKey === "string" ? normalizeHistoryDayKey(dayKey) : "");
-      const hasTimelineMatch = targetKey
-        ? items.some((it) => {
-          const k = it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "");
-          const hasId = Boolean((it && it.historyId) || (it && it.responseId));
-          return k === targetKey && hasId;
-        })
-        : false;
-      if (!hasTimelineMatch) {
-        hasPrevValue = false;
-      }
-    } catch (_) { }
-    const initialValue = hasPrevValue ? previous.value : null;
-    const row = document.createElement("div");
-    const tone = priorityTone(item.priority);
-    row.className = `consigne-row priority-surface priority-surface-${tone}`;
-    row.dataset.id = item.id;
-    if (item?.id != null) {
-      const stringId = String(item.id);
-      row.dataset.consigneId = stringId;
-      row.setAttribute("data-consigne-id", stringId);
-    } else {
-      delete row.dataset.consigneId;
-      row.removeAttribute("data-consigne-id");
-    }
-    row.dataset.priorityTone = tone;
-    if (typeof dayKey === "string" && dayKey) {
-      row.dataset.dayKey = dayKey;
-    } else {
-      delete row.dataset.dayKey;
-    }
-    if (isChild) {
-      row.classList.add("consigne-row--child");
-      if (item.parentId) {
-        row.dataset.parentId = item.parentId;
+      // Neutraliser le prefill daily si aucun point d'historique ne correspond au jour courant
+      try {
+        const snapshot = collectConsigneTimelineSnapshot(item);
+        const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+        const targetKey = normalizedCurrentDayKey || (typeof dayKey === "string" ? normalizeHistoryDayKey(dayKey) : "");
+        const hasTimelineMatch = targetKey
+          ? items.some((it) => {
+            const k = it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "");
+            const hasId = Boolean((it && it.historyId) || (it && it.responseId));
+            return k === targetKey && hasId;
+          })
+          : false;
+        if (!hasTimelineMatch) {
+          hasPrevValue = false;
+        }
+      } catch (_) { }
+      const initialValue = hasPrevValue ? previous.value : null;
+      const row = document.createElement("div");
+      const tone = priorityTone(item.priority);
+      row.className = `consigne-row priority-surface priority-surface-${tone}`;
+      row.dataset.id = item.id;
+      if (item?.id != null) {
+        const stringId = String(item.id);
+        row.dataset.consigneId = stringId;
+        row.setAttribute("data-consigne-id", stringId);
       } else {
+        delete row.dataset.consigneId;
+        row.removeAttribute("data-consigne-id");
+      }
+      row.dataset.priorityTone = tone;
+      if (typeof dayKey === "string" && dayKey) {
+        row.dataset.dayKey = dayKey;
+      } else {
+        delete row.dataset.dayKey;
+      }
+      if (isChild) {
+        row.classList.add("consigne-row--child");
+        if (item.parentId) {
+          row.dataset.parentId = item.parentId;
+        } else {
+          delete row.dataset.parentId;
+        }
+        row.draggable = false;
+      } else {
+        row.classList.add("consigne-row--parent");
         delete row.dataset.parentId;
+        row.draggable = true;
       }
-      row.draggable = false;
-    } else {
-      row.classList.add("consigne-row--parent");
-      delete row.dataset.parentId;
-      row.draggable = true;
-    }
-    row.innerHTML = `
+      row.innerHTML = `
       <div class="consigne-row__header">
         <div class="consigne-row__main">
           <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
@@ -21361,781 +21326,781 @@ async function renderDaily(ctx, root, opts = {}) {
       </div>
       <div data-consigne-input-holder hidden></div>
     `;
-    const statusHolder = row.querySelector("[data-status]");
-    if (statusHolder) {
-      statusHolder.dataset.priorityTone = tone;
-    }
-    const statusDot = row.querySelector("[data-status-dot]");
-    if (statusDot) {
-      statusDot.dataset.priorityTone = tone;
-    }
-    setupConsignePriorityMenu(row, item, ctx);
-    const holder = row.querySelector("[data-consigne-input-holder]");
-    if (holder) {
-      holder.innerHTML = inputForType(item, previous?.value ?? null, { pageContext });
-      enhanceRangeMeters(holder);
-      initializeChecklistScope(holder, { consigneId: item?.id ?? null });
-      ensureConsigneSkipField(row, item);
-      // Si la valeur précédente indiquait un « Passer », applique l’état dès le rendu initial
-      try {
-        const prevVal = previous?.value;
-        const wasSkipped = !!(prevVal && typeof prevVal === "object" && prevVal.skipped === true);
-        if (wasSkipped) {
-          setConsigneSkipState(row, item, true, { emitInputEvents: false, updateUI: true });
-        }
-      } catch (_) { }
-    }
-    setupConsigneHistoryTimeline(row, item, ctx, { mode: "daily", dayKey });
-    const previousSummary = normalizeSummaryMetadataInput(previous);
-    if (previousSummary) {
-      setConsigneSummaryMetadata(row, previousSummary);
-    } else {
-      clearConsigneSummaryMetadata(row);
-    }
-    const bH = row.querySelector(".js-histo");
-    const bE = row.querySelector(".js-edit");
-    const bD = row.querySelector(".js-del");
-    bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item, { source: "daily" }); };
-    bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
-    bD.onclick = async (e) => {
-      e.preventDefault(); e.stopPropagation();
-      closeConsigneActionMenuFromNode(bD);
-      if (confirm("Supprimer cette consigne ? (historique conservé)")) {
-        Schema.D.info("ui.deleteConsigne.confirm", item.id);
-        await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, item.id);
-        renderDaily(ctx, root, { day: currentDay });
+      const statusHolder = row.querySelector("[data-status]");
+      if (statusHolder) {
+        statusHolder.dataset.priorityTone = tone;
       }
-    };
-    let srEnabled = item?.srEnabled !== false;
-    const delayBtn = row.querySelector(".js-delay");
-    const updateDelayState = (enabled) => {
-      if (!delayBtn) return;
-      delayBtn.disabled = !enabled;
-      delayBtn.classList.toggle("opacity-50", !enabled);
-      delayBtn.title = enabled
-        ? "Décaler la prochaine apparition"
-        : "Active la répétition espacée pour décaler";
-    };
-    if (delayBtn) {
-      updateDelayState(srEnabled);
-      delayBtn.onclick = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        closeConsigneActionMenuFromNode(delayBtn);
-        if (delayBtn.disabled) {
-          showToast("Active la répétition espacée pour utiliser le décalage.");
-          return;
-        }
-        const raw = prompt("Décaler de combien de jours ?", "1");
-        if (raw === null) return;
-        const value = Number(String(raw).replace(",", "."));
-        const rounded = Math.round(value);
-        if (!Number.isFinite(value) || !Number.isFinite(rounded) || rounded < 1) {
-          showToast("Entre un entier positif.");
-          return;
-        }
-        const amount = rounded;
-        delayBtn.disabled = true;
+      const statusDot = row.querySelector("[data-status-dot]");
+      if (statusDot) {
+        statusDot.dataset.priorityTone = tone;
+      }
+      setupConsignePriorityMenu(row, item, ctx);
+      const holder = row.querySelector("[data-consigne-input-holder]");
+      if (holder) {
+        holder.innerHTML = inputForType(item, previous?.value ?? null, { pageContext });
+        enhanceRangeMeters(holder);
+        initializeChecklistScope(holder, { consigneId: item?.id ?? null });
+        ensureConsigneSkipField(row, item);
+        // Si la valeur précédente indiquait un « Passer », applique l’état dès le rendu initial
         try {
-          await Schema.delayConsigne({
-            db: ctx.db,
-            uid: ctx.user.uid,
-            consigne: item,
-            mode: "daily",
-            amount,
-          });
-          showToast(`Consigne décalée de ${amount} jour${amount > 1 ? "s" : ""}.`);
-          renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
-        } catch (err) {
-          console.error(err);
-          showToast("Impossible de décaler la consigne.");
-        } finally {
-          updateDelayState(srEnabled);
-        }
-      };
-    }
-    setupConsigneActionMenus(row, () => ({
-      srToggle: {
-        getEnabled: () => srEnabled,
-        onToggle: async (next) => {
-          try {
-            await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { srEnabled: next });
-            srEnabled = next;
-            item.srEnabled = next;
-            updateDelayState(srEnabled);
-            return srEnabled;
-          } catch (err) {
-            console.error(err);
-            showToast("Impossible de mettre à jour la répétition espacée.");
-            return srEnabled;
-          }
-        },
-      },
-    }));
-
-    const editorConfig = { variant: "modal", ...(editorOptions || {}) };
-    if (!deferEditor) {
-      attachConsigneEditor(row, item, editorConfig);
-    }
-    bindConsigneRowValue(row, item, {
-      initialValue,
-      onChange: (value) => {
-        const normalizedValue = normalizeConsigneValueForPersistence(item, row, value);
-        const baseSerialized = serializeValueForComparison(item, normalizedValue);
-        const summaryMetadata = readConsigneSummaryMetadata(row);
-        const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
-        const combinedSerialized = summarySerialized
-          ? `${baseSerialized}__summary__${summarySerialized}`
-          : baseSerialized;
-        const previousSerialized = observedValues.get(item.id);
-        if (previousSerialized === undefined) {
-          observedValues.set(item.id, combinedSerialized);
-          return;
-        }
-        if (previousSerialized === combinedSerialized) {
-          return;
-        }
-        observedValues.set(item.id, combinedSerialized);
-        handleValueChange(item, row, normalizedValue, {
-          serialized: combinedSerialized,
-          summary: summaryMetadata,
-          baseSerialized,
-        });
-      },
-    });
-
-    // Post-render audit: detect pre-marked rows without matching history/pre-fills for the current day
-    try {
-      const auditDay = normalizedCurrentDayKey || dayKey || null;
-      window.requestAnimationFrame(() => {
-        try {
-          const datasetStatus = row?.dataset?.status || null;
-          const currentVal = readConsigneCurrentValue(item, row);
-          const computedStatus = dotColor(item.type, currentVal, item);
-          const prevEntry = previousAnswers.get(item.id) || null;
-          const prevKey = prevEntry ? resolvePreviousEntryDayKey(prevEntry) : null;
-          const hasPrevForToday = Boolean(prevKey && auditDay && prevKey === auditDay);
-          const isSummaryLike = prevEntry ? Boolean((prevEntry.summaryScope || prevEntry.summary_scope || "").trim()) ||
-            (typeof prevEntry.source === "string" && prevEntry.source.toLowerCase().includes("summary")) ||
-            (typeof prevEntry.origin === "string" && prevEntry.origin.toLowerCase().includes("summary")) : false;
-          const mismatch = (datasetStatus && datasetStatus !== "na") && !hasPrevForToday;
-          prefillLog("row-init", {
-            at: "renderItemCard",
-            consigneId: item.id,
-            type: item.type,
-            dayKey: auditDay,
-            datasetStatus,
-            computedStatus,
-            hasPrevForToday,
-            prevEntryDayKey: prevKey || null,
-            isSummaryLikePrev: isSummaryLike,
-          });
-          if (mismatch) {
-            prefillAlert("row-mismatch", {
-              consigneId: item.id,
-              reason: "status-not-na-without-day-prev",
-              at: "renderItemCard:post",
-            });
+          const prevVal = previous?.value;
+          const wasSkipped = !!(prevVal && typeof prevVal === "object" && prevVal.skipped === true);
+          if (wasSkipped) {
+            setConsigneSkipState(row, item, true, { emitInputEvents: false, updateUI: true });
           }
         } catch (_) { }
-      });
-    } catch (_) { }
-
-    return row;
-  };
-
-  const renderGroup = (group, target) => {
-    const wrapper = document.createElement("div");
-    wrapper.className = "consigne-group";
-    const parentCard = renderItemCard(group.consigne, { isChild: false, deferEditor: true });
-    wrapper.appendChild(parentCard);
-    const childConfigs = group.children.map((child) => {
-      const previous = previousAnswers.get(child.id);
-      const previousHasValue = Boolean(
-        previous && Object.prototype.hasOwnProperty.call(previous, "value"),
-      );
-      let hasPrevValue = false;
-      if (previousHasValue) {
-        if (child.type === "checklist") {
-          const previousDayKey = resolvePreviousEntryDayKey(previous);
-          const sameDay = normalizedCurrentDayKey
-            ? previousDayKey === normalizedCurrentDayKey
-            : Boolean(previousDayKey);
-          if (sameDay && hasChecklistResponse(child, null, previous.value)) {
-            hasPrevValue = true;
-          }
-        } else {
-          hasPrevValue = true;
-        }
       }
-      // Neutraliser le prefill daily pour l'enfant si aucun point d'historique ne correspond au jour
-      try {
-        const snapshot = collectConsigneTimelineSnapshot(child);
-        const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
-        const targetKey = normalizedCurrentDayKey || (typeof dayKey === "string" ? normalizeHistoryDayKey(dayKey) : "");
-        const hasTimelineMatch = targetKey
-          ? items.some((it) => {
-            const k = it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "");
-            const hasId = Boolean((it && it.historyId) || (it && it.responseId));
-            return k === targetKey && hasId;
-          })
-          : false;
-        if (!hasTimelineMatch) {
-          hasPrevValue = false;
-        }
-      } catch (_) { }
-      const initialValue = hasPrevValue ? previous.value : null;
-      const childRow = createHiddenConsigneRow(child, { initialValue });
-      childRow.dataset.parentId = child.parentId || group.consigne.id || "";
-      childRow.draggable = false;
-      parentCard.appendChild(childRow);
-      const childSummary = normalizeSummaryMetadataInput(previous);
-      if (childSummary) {
-        setConsigneSummaryMetadata(childRow, childSummary);
+      setupConsigneHistoryTimeline(row, item, ctx, { mode: "daily", dayKey });
+      const previousSummary = normalizeSummaryMetadataInput(previous);
+      if (previousSummary) {
+        setConsigneSummaryMetadata(row, previousSummary);
       } else {
-        clearConsigneSummaryMetadata(childRow);
+        clearConsigneSummaryMetadata(row);
       }
-      bindConsigneRowValue(childRow, child, {
+      const bH = row.querySelector(".js-histo");
+      const bE = row.querySelector(".js-edit");
+      const bD = row.querySelector(".js-del");
+      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", item.id); openHistory(ctx, item, { source: "daily" }); };
+      bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", item.id); openConsigneForm(ctx, item); };
+      bD.onclick = async (e) => {
+        e.preventDefault(); e.stopPropagation();
+        closeConsigneActionMenuFromNode(bD);
+        if (confirm("Supprimer cette consigne ? (historique conservé)")) {
+          Schema.D.info("ui.deleteConsigne.confirm", item.id);
+          await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, item.id);
+          renderDaily(ctx, root, { day: currentDay });
+        }
+      };
+      let srEnabled = item?.srEnabled !== false;
+      const delayBtn = row.querySelector(".js-delay");
+      const updateDelayState = (enabled) => {
+        if (!delayBtn) return;
+        delayBtn.disabled = !enabled;
+        delayBtn.classList.toggle("opacity-50", !enabled);
+        delayBtn.title = enabled
+          ? "Décaler la prochaine apparition"
+          : "Active la répétition espacée pour décaler";
+      };
+      if (delayBtn) {
+        updateDelayState(srEnabled);
+        delayBtn.onclick = async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          closeConsigneActionMenuFromNode(delayBtn);
+          if (delayBtn.disabled) {
+            showToast("Active la répétition espacée pour utiliser le décalage.");
+            return;
+          }
+          const raw = prompt("Décaler de combien de jours ?", "1");
+          if (raw === null) return;
+          const value = Number(String(raw).replace(",", "."));
+          const rounded = Math.round(value);
+          if (!Number.isFinite(value) || !Number.isFinite(rounded) || rounded < 1) {
+            showToast("Entre un entier positif.");
+            return;
+          }
+          const amount = rounded;
+          delayBtn.disabled = true;
+          try {
+            await Schema.delayConsigne({
+              db: ctx.db,
+              uid: ctx.user.uid,
+              consigne: item,
+              mode: "daily",
+              amount,
+            });
+            showToast(`Consigne décalée de ${amount} jour${amount > 1 ? "s" : ""}.`);
+            renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
+          } catch (err) {
+            console.error(err);
+            showToast("Impossible de décaler la consigne.");
+          } finally {
+            updateDelayState(srEnabled);
+          }
+        };
+      }
+      setupConsigneActionMenus(row, () => ({
+        srToggle: {
+          getEnabled: () => srEnabled,
+          onToggle: async (next) => {
+            try {
+              await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { srEnabled: next });
+              srEnabled = next;
+              item.srEnabled = next;
+              updateDelayState(srEnabled);
+              return srEnabled;
+            } catch (err) {
+              console.error(err);
+              showToast("Impossible de mettre à jour la répétition espacée.");
+              return srEnabled;
+            }
+          },
+        },
+      }));
+
+      const editorConfig = { variant: "modal", ...(editorOptions || {}) };
+      if (!deferEditor) {
+        attachConsigneEditor(row, item, editorConfig);
+      }
+      bindConsigneRowValue(row, item, {
         initialValue,
         onChange: (value) => {
-          const normalizedValue = normalizeConsigneValueForPersistence(child, childRow, value);
-          const baseSerialized = serializeValueForComparison(child, normalizedValue);
-          const summaryMetadata = readConsigneSummaryMetadata(childRow);
+          const normalizedValue = normalizeConsigneValueForPersistence(item, row, value);
+          const baseSerialized = serializeValueForComparison(item, normalizedValue);
+          const summaryMetadata = readConsigneSummaryMetadata(row);
           const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
           const combinedSerialized = summarySerialized
             ? `${baseSerialized}__summary__${summarySerialized}`
             : baseSerialized;
-          const prevSerialized = observedValues.get(child.id);
-          if (prevSerialized === undefined) {
-            observedValues.set(child.id, combinedSerialized);
+          const previousSerialized = observedValues.get(item.id);
+          if (previousSerialized === undefined) {
+            observedValues.set(item.id, combinedSerialized);
             return;
           }
-          if (prevSerialized === combinedSerialized) {
+          if (previousSerialized === combinedSerialized) {
             return;
           }
-          observedValues.set(child.id, combinedSerialized);
-          handleValueChange(child, childRow, normalizedValue, {
+          observedValues.set(item.id, combinedSerialized);
+          handleValueChange(item, row, normalizedValue, {
             serialized: combinedSerialized,
             summary: summaryMetadata,
             baseSerialized,
           });
         },
       });
-      let srEnabled = child?.srEnabled !== false;
-      const config = {
-        consigne: child,
-        row: childRow,
-        srEnabled,
-        onHistory: () => {
-          Schema.D.info("ui.history.click", child.id);
-          openHistory(ctx, child, { source: "daily" });
-        },
-        onEdit: ({ close } = {}) => {
-          Schema.D.info("ui.editConsigne.click", child.id);
-          if (typeof close === "function") {
-            close();
-          }
-          openConsigneForm(ctx, child);
-        },
-        onDelete: async ({ close } = {}) => {
-          if (!confirm("Supprimer cette consigne ? (historique conservé)")) {
-            return false;
-          }
-          Schema.D.info("ui.deleteConsigne.confirm", child.id);
-          await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, child.id);
-          if (typeof close === "function") {
-            close();
-          }
-          renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
-          return true;
-        },
-        onToggleSr: async (next) => {
-          try {
-            await Schema.updateConsigne(ctx.db, ctx.user.uid, child.id, { srEnabled: next });
-            srEnabled = next;
-            config.srEnabled = srEnabled;
-            child.srEnabled = next;
-            return srEnabled;
-          } catch (err) {
-            console.error(err);
-            showToast("Impossible de mettre à jour la répétition espacée.");
-            return srEnabled;
-          }
-        },
-      };
-      return config;
-    });
-    attachConsigneEditor(parentCard, group.consigne, {
-      variant: "modal",
-      childConsignes: childConfigs,
-    });
-    target.appendChild(wrapper);
-  };
 
-  const form = document.createElement("form");
-  form.className = "daily-grid";
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-  });
-  card.appendChild(form);
-  const DAILY_EMPTY_TEXT = "Aucune consigne visible pour ce jour.";
-  const findDailyPlaceholder = () => form.querySelector("[data-daily-empty-placeholder]");
-  const dailyHasPlaceholder = () => Boolean(findDailyPlaceholder());
-  const clearDailyPlaceholder = () => {
-    const placeholder = findDailyPlaceholder();
-    if (placeholder) {
-      placeholder.remove();
-    }
-  };
-  const hasDailyVisibleGroups = () =>
-    Boolean(form.querySelector(".daily-category[data-category] .consigne-group"));
-  const ensureDailyPlaceholder = () => {
-    if (hasDailyVisibleGroups()) {
-      clearDailyPlaceholder();
-      return;
-    }
-    if (!dailyHasPlaceholder()) {
-      const placeholder = document.createElement("div");
-      placeholder.className =
-        "rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)] daily-grid__item";
-      placeholder.textContent = DAILY_EMPTY_TEXT;
-      placeholder.dataset.dailyEmptyPlaceholder = "1";
-      const actionsNode = form.querySelector(".daily-grid__actions");
-      form.insertBefore(placeholder, actionsNode || null);
-    }
-  };
-  const escapeSelectorValue = (value) => {
-    if (value === null || value === undefined) return "";
-    const stringValue = String(value);
-    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
-      return CSS.escape(stringValue);
-    }
-    return stringValue.replace(/"/g, '\\"');
-  };
-  const normalizeCategoryName = (value) => {
-    if (value === null || value === undefined) return "Général";
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      return trimmed || "Général";
-    }
-    const stringValue = String(value).trim();
-    return stringValue || "Général";
-  };
-  const findDailyCategorySection = (categoryName) => {
-    const normalized = normalizeCategoryName(categoryName);
-    const selector = `.daily-category[data-category="${escapeSelectorValue(normalized)}"]`;
-    return form.querySelector(selector);
-  };
-  const getHighStackForSection = (section) => {
-    if (!section) return null;
-    return Array.from(section.children).find(
-      (child) =>
-        child instanceof Element &&
-        child.classList.contains("daily-category__items") &&
-        !child.classList.contains("daily-category__items--nested"),
-    ) || null;
-  };
-  const ensureCategoryLowContainer = (section) => {
-    const stack = getHighStackForSection(section);
-    if (!stack) {
-      return { lowDetails: null, lowStack: null };
-    }
-    let lowDetails = Array.from(stack.children).find((child) =>
-      child instanceof Element && child.classList.contains("daily-category__low"),
-    ) || null;
-    let lowStack = lowDetails?.querySelector(".daily-category__items--nested") || null;
-    if (!lowDetails) {
-      lowDetails = document.createElement("details");
-      lowDetails.className = "daily-category__low";
-      const summary = document.createElement("summary");
-      summary.className = "daily-category__low-summary";
-      summary.textContent = "Priorité basse (0)";
-      lowDetails.appendChild(summary);
-      lowStack = document.createElement("div");
-      lowStack.className = "daily-category__items daily-category__items--nested";
-      lowDetails.appendChild(lowStack);
-      stack.appendChild(lowDetails);
-    } else if (!lowStack) {
-      lowStack = document.createElement("div");
-      lowStack.className = "daily-category__items daily-category__items--nested";
-      lowDetails.appendChild(lowStack);
-    }
-    return { lowDetails, lowStack };
-  };
-  const computeGroupTotal = (groupEl) => {
-    if (!groupEl) return 0;
-    const hasParent = Boolean(groupEl.querySelector(".consigne-row--parent"));
-    const childCount = groupEl.querySelectorAll(".consigne-row--child:not(.consigne-row--parent)").length;
-    return (hasParent ? 1 : 0) + childCount;
-  };
-  const updateDailyCategoryStats = (section) => {
-    if (!section) return;
-    const groups = Array.from(section.querySelectorAll(".consigne-group"));
-    if (!groups.length) {
-      section.remove();
-      return;
-    }
-    const total = groups.reduce((sum, group) => sum + computeGroupTotal(group), 0);
-    const countLabel = section.querySelector(".daily-category__count");
-    if (countLabel) {
-      countLabel.textContent = `${total} consigne${total > 1 ? "s" : ""}`;
-    }
-    const stack = getHighStackForSection(section);
-    if (stack) {
-      const lowDetails = Array.from(stack.children).find((child) =>
-        child instanceof Element && child.classList.contains("daily-category__low"),
-      );
-      if (lowDetails) {
-        const lowStack = lowDetails.querySelector(".daily-category__items--nested");
-        const lowGroups = lowStack ? Array.from(lowStack.querySelectorAll(".consigne-group")) : [];
-        const lowTotal = lowGroups.reduce((sum, group) => sum + computeGroupTotal(group), 0);
-        const summary = lowDetails.querySelector(".daily-category__low-summary");
-        if (lowTotal) {
-          if (summary) {
-            summary.textContent = `Priorité basse (${lowTotal})`;
+      // Post-render audit: detect pre-marked rows without matching history/pre-fills for the current day
+      try {
+        const auditDay = normalizedCurrentDayKey || dayKey || null;
+        window.requestAnimationFrame(() => {
+          try {
+            const datasetStatus = row?.dataset?.status || null;
+            const currentVal = readConsigneCurrentValue(item, row);
+            const computedStatus = dotColor(item.type, currentVal, item);
+            const prevEntry = previousAnswers.get(item.id) || null;
+            const prevKey = prevEntry ? resolvePreviousEntryDayKey(prevEntry) : null;
+            const hasPrevForToday = Boolean(prevKey && auditDay && prevKey === auditDay);
+            const isSummaryLike = prevEntry ? Boolean((prevEntry.summaryScope || prevEntry.summary_scope || "").trim()) ||
+              (typeof prevEntry.source === "string" && prevEntry.source.toLowerCase().includes("summary")) ||
+              (typeof prevEntry.origin === "string" && prevEntry.origin.toLowerCase().includes("summary")) : false;
+            const mismatch = (datasetStatus && datasetStatus !== "na") && !hasPrevForToday;
+            prefillLog("row-init", {
+              at: "renderItemCard",
+              consigneId: item.id,
+              type: item.type,
+              dayKey: auditDay,
+              datasetStatus,
+              computedStatus,
+              hasPrevForToday,
+              prevEntryDayKey: prevKey || null,
+              isSummaryLikePrev: isSummaryLike,
+            });
+            if (mismatch) {
+              prefillAlert("row-mismatch", {
+                consigneId: item.id,
+                reason: "status-not-na-without-day-prev",
+                at: "renderItemCard:post",
+              });
+            }
+          } catch (_) { }
+        });
+      } catch (_) { }
+
+      return row;
+    };
+
+    const renderGroup = (group, target) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "consigne-group";
+      const parentCard = renderItemCard(group.consigne, { isChild: false, deferEditor: true });
+      wrapper.appendChild(parentCard);
+      const childConfigs = group.children.map((child) => {
+        const previous = previousAnswers.get(child.id);
+        const previousHasValue = Boolean(
+          previous && Object.prototype.hasOwnProperty.call(previous, "value"),
+        );
+        let hasPrevValue = false;
+        if (previousHasValue) {
+          if (child.type === "checklist") {
+            const previousDayKey = resolvePreviousEntryDayKey(previous);
+            const sameDay = normalizedCurrentDayKey
+              ? previousDayKey === normalizedCurrentDayKey
+              : Boolean(previousDayKey);
+            if (sameDay && hasChecklistResponse(child, null, previous.value)) {
+              hasPrevValue = true;
+            }
+          } else {
+            hasPrevValue = true;
           }
+        }
+        // Neutraliser le prefill daily pour l'enfant si aucun point d'historique ne correspond au jour
+        try {
+          const snapshot = collectConsigneTimelineSnapshot(child);
+          const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+          const targetKey = normalizedCurrentDayKey || (typeof dayKey === "string" ? normalizeHistoryDayKey(dayKey) : "");
+          const hasTimelineMatch = targetKey
+            ? items.some((it) => {
+              const k = it?.normalizedDayKey || normalizeHistoryDayKey(it?.dayKey || "");
+              const hasId = Boolean((it && it.historyId) || (it && it.responseId));
+              return k === targetKey && hasId;
+            })
+            : false;
+          if (!hasTimelineMatch) {
+            hasPrevValue = false;
+          }
+        } catch (_) { }
+        const initialValue = hasPrevValue ? previous.value : null;
+        const childRow = createHiddenConsigneRow(child, { initialValue });
+        childRow.dataset.parentId = child.parentId || group.consigne.id || "";
+        childRow.draggable = false;
+        parentCard.appendChild(childRow);
+        const childSummary = normalizeSummaryMetadataInput(previous);
+        if (childSummary) {
+          setConsigneSummaryMetadata(childRow, childSummary);
         } else {
-          lowDetails.remove();
+          clearConsigneSummaryMetadata(childRow);
+        }
+        bindConsigneRowValue(childRow, child, {
+          initialValue,
+          onChange: (value) => {
+            const normalizedValue = normalizeConsigneValueForPersistence(child, childRow, value);
+            const baseSerialized = serializeValueForComparison(child, normalizedValue);
+            const summaryMetadata = readConsigneSummaryMetadata(childRow);
+            const summarySerialized = serializeSummaryMetadataForComparison(summaryMetadata);
+            const combinedSerialized = summarySerialized
+              ? `${baseSerialized}__summary__${summarySerialized}`
+              : baseSerialized;
+            const prevSerialized = observedValues.get(child.id);
+            if (prevSerialized === undefined) {
+              observedValues.set(child.id, combinedSerialized);
+              return;
+            }
+            if (prevSerialized === combinedSerialized) {
+              return;
+            }
+            observedValues.set(child.id, combinedSerialized);
+            handleValueChange(child, childRow, normalizedValue, {
+              serialized: combinedSerialized,
+              summary: summaryMetadata,
+              baseSerialized,
+            });
+          },
+        });
+        let srEnabled = child?.srEnabled !== false;
+        const config = {
+          consigne: child,
+          row: childRow,
+          srEnabled,
+          onHistory: () => {
+            Schema.D.info("ui.history.click", child.id);
+            openHistory(ctx, child, { source: "daily" });
+          },
+          onEdit: ({ close } = {}) => {
+            Schema.D.info("ui.editConsigne.click", child.id);
+            if (typeof close === "function") {
+              close();
+            }
+            openConsigneForm(ctx, child);
+          },
+          onDelete: async ({ close } = {}) => {
+            if (!confirm("Supprimer cette consigne ? (historique conservé)")) {
+              return false;
+            }
+            Schema.D.info("ui.deleteConsigne.confirm", child.id);
+            await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, child.id);
+            if (typeof close === "function") {
+              close();
+            }
+            renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
+            return true;
+          },
+          onToggleSr: async (next) => {
+            try {
+              await Schema.updateConsigne(ctx.db, ctx.user.uid, child.id, { srEnabled: next });
+              srEnabled = next;
+              config.srEnabled = srEnabled;
+              child.srEnabled = next;
+              return srEnabled;
+            } catch (err) {
+              console.error(err);
+              showToast("Impossible de mettre à jour la répétition espacée.");
+              return srEnabled;
+            }
+          },
+        };
+        return config;
+      });
+      attachConsigneEditor(parentCard, group.consigne, {
+        variant: "modal",
+        childConsignes: childConfigs,
+      });
+      target.appendChild(wrapper);
+    };
+
+    const form = document.createElement("form");
+    form.className = "daily-grid";
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+    });
+    card.appendChild(form);
+    const DAILY_EMPTY_TEXT = "Aucune consigne visible pour ce jour.";
+    const findDailyPlaceholder = () => form.querySelector("[data-daily-empty-placeholder]");
+    const dailyHasPlaceholder = () => Boolean(findDailyPlaceholder());
+    const clearDailyPlaceholder = () => {
+      const placeholder = findDailyPlaceholder();
+      if (placeholder) {
+        placeholder.remove();
+      }
+    };
+    const hasDailyVisibleGroups = () =>
+      Boolean(form.querySelector(".daily-category[data-category] .consigne-group"));
+    const ensureDailyPlaceholder = () => {
+      if (hasDailyVisibleGroups()) {
+        clearDailyPlaceholder();
+        return;
+      }
+      if (!dailyHasPlaceholder()) {
+        const placeholder = document.createElement("div");
+        placeholder.className =
+          "rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-[var(--muted)] daily-grid__item";
+        placeholder.textContent = DAILY_EMPTY_TEXT;
+        placeholder.dataset.dailyEmptyPlaceholder = "1";
+        const actionsNode = form.querySelector(".daily-grid__actions");
+        form.insertBefore(placeholder, actionsNode || null);
+      }
+    };
+    const escapeSelectorValue = (value) => {
+      if (value === null || value === undefined) return "";
+      const stringValue = String(value);
+      if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+        return CSS.escape(stringValue);
+      }
+      return stringValue.replace(/"/g, '\\"');
+    };
+    const normalizeCategoryName = (value) => {
+      if (value === null || value === undefined) return "Général";
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed || "Général";
+      }
+      const stringValue = String(value).trim();
+      return stringValue || "Général";
+    };
+    const findDailyCategorySection = (categoryName) => {
+      const normalized = normalizeCategoryName(categoryName);
+      const selector = `.daily-category[data-category="${escapeSelectorValue(normalized)}"]`;
+      return form.querySelector(selector);
+    };
+    const getHighStackForSection = (section) => {
+      if (!section) return null;
+      return Array.from(section.children).find(
+        (child) =>
+          child instanceof Element &&
+          child.classList.contains("daily-category__items") &&
+          !child.classList.contains("daily-category__items--nested"),
+      ) || null;
+    };
+    const ensureCategoryLowContainer = (section) => {
+      const stack = getHighStackForSection(section);
+      if (!stack) {
+        return { lowDetails: null, lowStack: null };
+      }
+      let lowDetails = Array.from(stack.children).find((child) =>
+        child instanceof Element && child.classList.contains("daily-category__low"),
+      ) || null;
+      let lowStack = lowDetails?.querySelector(".daily-category__items--nested") || null;
+      if (!lowDetails) {
+        lowDetails = document.createElement("details");
+        lowDetails.className = "daily-category__low";
+        const summary = document.createElement("summary");
+        summary.className = "daily-category__low-summary";
+        summary.textContent = "Priorité basse (0)";
+        lowDetails.appendChild(summary);
+        lowStack = document.createElement("div");
+        lowStack.className = "daily-category__items daily-category__items--nested";
+        lowDetails.appendChild(lowStack);
+        stack.appendChild(lowDetails);
+      } else if (!lowStack) {
+        lowStack = document.createElement("div");
+        lowStack.className = "daily-category__items daily-category__items--nested";
+        lowDetails.appendChild(lowStack);
+      }
+      return { lowDetails, lowStack };
+    };
+    const computeGroupTotal = (groupEl) => {
+      if (!groupEl) return 0;
+      const hasParent = Boolean(groupEl.querySelector(".consigne-row--parent"));
+      const childCount = groupEl.querySelectorAll(".consigne-row--child:not(.consigne-row--parent)").length;
+      return (hasParent ? 1 : 0) + childCount;
+    };
+    const updateDailyCategoryStats = (section) => {
+      if (!section) return;
+      const groups = Array.from(section.querySelectorAll(".consigne-group"));
+      if (!groups.length) {
+        section.remove();
+        return;
+      }
+      const total = groups.reduce((sum, group) => sum + computeGroupTotal(group), 0);
+      const countLabel = section.querySelector(".daily-category__count");
+      if (countLabel) {
+        countLabel.textContent = `${total} consigne${total > 1 ? "s" : ""}`;
+      }
+      const stack = getHighStackForSection(section);
+      if (stack) {
+        const lowDetails = Array.from(stack.children).find((child) =>
+          child instanceof Element && child.classList.contains("daily-category__low"),
+        );
+        if (lowDetails) {
+          const lowStack = lowDetails.querySelector(".daily-category__items--nested");
+          const lowGroups = lowStack ? Array.from(lowStack.querySelectorAll(".consigne-group")) : [];
+          const lowTotal = lowGroups.reduce((sum, group) => sum + computeGroupTotal(group), 0);
+          const summary = lowDetails.querySelector(".daily-category__low-summary");
+          if (lowTotal) {
+            if (summary) {
+              summary.textContent = `Priorité basse (${lowTotal})`;
+            }
+          } else {
+            lowDetails.remove();
+          }
         }
       }
-    }
-  };
-  const insertCategorySection = (section) => {
-    if (!section) return;
-    const normalized = normalizeCategoryName(section.dataset.category);
-    const existingSections = Array.from(form.querySelectorAll(".daily-category[data-category]")).filter(
-      (node) => node !== section,
-    );
-    const insertionPoint = existingSections.find((node) => {
-      const name = normalizeCategoryName(node.dataset.category);
-      return name.localeCompare(normalized, "fr", { sensitivity: "base" }) > 0;
-    });
-    const actionsNode = form.querySelector(".daily-grid__actions");
-    if (insertionPoint) {
-      form.insertBefore(section, insertionPoint);
-    } else if (actionsNode) {
-      form.insertBefore(section, actionsNode);
-    } else {
-      form.appendChild(section);
-    }
-  };
-  const createDailyCategorySection = (categoryName) => {
-    const normalized = normalizeCategoryName(categoryName);
-    const section = document.createElement("section");
-    section.className = "daily-category daily-grid__item";
-    section.dataset.category = normalized;
-    section.innerHTML = `
+    };
+    const insertCategorySection = (section) => {
+      if (!section) return;
+      const normalized = normalizeCategoryName(section.dataset.category);
+      const existingSections = Array.from(form.querySelectorAll(".daily-category[data-category]")).filter(
+        (node) => node !== section,
+      );
+      const insertionPoint = existingSections.find((node) => {
+        const name = normalizeCategoryName(node.dataset.category);
+        return name.localeCompare(normalized, "fr", { sensitivity: "base" }) > 0;
+      });
+      const actionsNode = form.querySelector(".daily-grid__actions");
+      if (insertionPoint) {
+        form.insertBefore(section, insertionPoint);
+      } else if (actionsNode) {
+        form.insertBefore(section, actionsNode);
+      } else {
+        form.appendChild(section);
+      }
+    };
+    const createDailyCategorySection = (categoryName) => {
+      const normalized = normalizeCategoryName(categoryName);
+      const section = document.createElement("section");
+      section.className = "daily-category daily-grid__item";
+      section.dataset.category = normalized;
+      section.innerHTML = `
         <div class="daily-category__header">
           <div class="daily-category__name">${escapeHtml(normalized)}</div>
           <span class="daily-category__count">0 consigne</span>
         </div>`;
-    const stack = document.createElement("div");
-    stack.className = "daily-category__items";
-    section.appendChild(stack);
-    insertCategorySection(section);
-    return { section, stack };
-  };
-  const ensureDailyCategorySection = (categoryName) => {
-    const existing = findDailyCategorySection(categoryName);
-    if (existing) {
-      return { section: existing, stack: getHighStackForSection(existing) };
-    }
-    return createDailyCategorySection(categoryName);
-  };
-  const insertGroupIntoSection = (groupEl, section, isLowPriority) => {
-    if (!groupEl || !section) return false;
-    const stack = getHighStackForSection(section);
-    if (!stack) return false;
-    if (isLowPriority) {
-      const { lowStack } = ensureCategoryLowContainer(section);
-      if (!lowStack) return false;
-      lowStack.appendChild(groupEl);
+      const stack = document.createElement("div");
+      stack.className = "daily-category__items";
+      section.appendChild(stack);
+      insertCategorySection(section);
+      return { section, stack };
+    };
+    const ensureDailyCategorySection = (categoryName) => {
+      const existing = findDailyCategorySection(categoryName);
+      if (existing) {
+        return { section: existing, stack: getHighStackForSection(existing) };
+      }
+      return createDailyCategorySection(categoryName);
+    };
+    const insertGroupIntoSection = (groupEl, section, isLowPriority) => {
+      if (!groupEl || !section) return false;
+      const stack = getHighStackForSection(section);
+      if (!stack) return false;
+      if (isLowPriority) {
+        const { lowStack } = ensureCategoryLowContainer(section);
+        if (!lowStack) return false;
+        lowStack.appendChild(groupEl);
+        return true;
+      }
+      const lowDetails = Array.from(stack.children).find((child) =>
+        child instanceof Element && child.classList.contains("daily-category__low"),
+      ) || null;
+      stack.insertBefore(groupEl, lowDetails || null);
       return true;
-    }
-    const lowDetails = Array.from(stack.children).find((child) =>
-      child instanceof Element && child.classList.contains("daily-category__low"),
-    ) || null;
-    stack.insertBefore(groupEl, lowDetails || null);
-    return true;
-  };
-  const buildDailyGroupElement = (consigne) => {
-    if (!consigne) return null;
-    const groups = groupConsignes([consigne]);
-    if (!groups.length) return null;
-    const tempContainer = document.createElement("div");
-    renderGroup(groups[0], tempContainer);
-    return tempContainer.firstElementChild;
-  };
-  const highlightDailyGroup = (group) => {
-    if (!group) return;
-    const targetRow =
-      group.querySelector(".consigne-row--parent") ||
-      group.querySelector(".consigne-row");
-    if (targetRow) {
-      triggerConsigneRowUpdateHighlight(targetRow);
-    }
-  };
-  const upsertDailyConsigneRow = (nextConsigne, action = "update") => {
-    if (!nextConsigne || !form) return false;
-    if (nextConsigne.active === false || nextConsigne.archived === true || nextConsigne.visible === false || nextConsigne.hidden === true) {
-      return false;
-    }
-    if (nextConsigne.parentId) return false;
-    if (Array.isArray(nextConsigne.children) && nextConsigne.children.length) return false;
-    if (nextConsigne.summaryOnlyScope) return false;
-    const nextId = nextConsigne.id ?? nextConsigne.consigneId ?? null;
-    if (nextConsigne.id == null && nextId != null) {
-      nextConsigne.id = nextId;
-    }
-    const shouldDisplayToday = (() => {
-      if (!Array.isArray(nextConsigne.days) || !nextConsigne.days.length) return true;
-      if (!currentDay) return false;
-      return nextConsigne.days.includes(currentDay);
-    })();
-    const selectorId = nextConsigne.id != null ? escapeSelectorValue(nextConsigne.id) : "";
-    const existingRow = selectorId
-      ? form.querySelector(`[data-consigne-id="${selectorId}"]`)
-      : null;
-    const existingGroup = existingRow ? existingRow.closest(".consigne-group") : null;
-    const existingSection = existingGroup
-      ? existingGroup.closest(".daily-category[data-category]")
-      : null;
-
-    if (!shouldDisplayToday) {
-      return false;
-    }
-
-    const targetCategory = normalizeCategoryName(nextConsigne.category);
-    const isLowPriority = Number(nextConsigne.priority || 0) >= 3;
-
-    if (existingGroup) {
-      const currentSection = existingSection;
-      const currentCategory = normalizeCategoryName(currentSection?.dataset?.category);
-      if (currentCategory !== targetCategory) {
+    };
+    const buildDailyGroupElement = (consigne) => {
+      if (!consigne) return null;
+      const groups = groupConsignes([consigne]);
+      if (!groups.length) return null;
+      const tempContainer = document.createElement("div");
+      renderGroup(groups[0], tempContainer);
+      return tempContainer.firstElementChild;
+    };
+    const highlightDailyGroup = (group) => {
+      if (!group) return;
+      const targetRow =
+        group.querySelector(".consigne-row--parent") ||
+        group.querySelector(".consigne-row");
+      if (targetRow) {
+        triggerConsigneRowUpdateHighlight(targetRow);
+      }
+    };
+    const upsertDailyConsigneRow = (nextConsigne, action = "update") => {
+      if (!nextConsigne || !form) return false;
+      if (nextConsigne.active === false || nextConsigne.archived === true || nextConsigne.visible === false || nextConsigne.hidden === true) {
         return false;
       }
+      if (nextConsigne.parentId) return false;
+      if (Array.isArray(nextConsigne.children) && nextConsigne.children.length) return false;
+      if (nextConsigne.summaryOnlyScope) return false;
+      const nextId = nextConsigne.id ?? nextConsigne.consigneId ?? null;
+      if (nextConsigne.id == null && nextId != null) {
+        nextConsigne.id = nextId;
+      }
+      const shouldDisplayToday = (() => {
+        if (!Array.isArray(nextConsigne.days) || !nextConsigne.days.length) return true;
+        if (!currentDay) return false;
+        return nextConsigne.days.includes(currentDay);
+      })();
+      const selectorId = nextConsigne.id != null ? escapeSelectorValue(nextConsigne.id) : "";
+      const existingRow = selectorId
+        ? form.querySelector(`[data-consigne-id="${selectorId}"]`)
+        : null;
+      const existingGroup = existingRow ? existingRow.closest(".consigne-group") : null;
+      const existingSection = existingGroup
+        ? existingGroup.closest(".daily-category[data-category]")
+        : null;
+
+      if (!shouldDisplayToday) {
+        return false;
+      }
+
+      const targetCategory = normalizeCategoryName(nextConsigne.category);
+      const isLowPriority = Number(nextConsigne.priority || 0) >= 3;
+
+      if (existingGroup) {
+        const currentSection = existingSection;
+        const currentCategory = normalizeCategoryName(currentSection?.dataset?.category);
+        if (currentCategory !== targetCategory) {
+          return false;
+        }
+        const newGroup = buildDailyGroupElement(nextConsigne);
+        if (!newGroup) {
+          return false;
+        }
+        existingGroup.replaceWith(newGroup);
+        highlightDailyGroup(newGroup);
+        let finalGroup = newGroup;
+        const section = currentSection;
+        if (!section) return false;
+        if (isLowPriority && !finalGroup.closest(".daily-category__low")) {
+          const { lowStack } = ensureCategoryLowContainer(section);
+          if (!lowStack) return false;
+          lowStack.appendChild(finalGroup);
+        } else if (!isLowPriority && finalGroup.closest(".daily-category__low")) {
+          const stack = getHighStackForSection(section);
+          if (!stack) return false;
+          const lowDetails = Array.from(stack.children).find((child) =>
+            child instanceof Element && child.classList.contains("daily-category__low"),
+          ) || null;
+          stack.insertBefore(finalGroup, lowDetails || null);
+        }
+        updateDailyCategoryStats(section);
+        ensureDailyPlaceholder();
+        return true;
+      }
+
+      if (action !== "create") {
+        return false;
+      }
+
       const newGroup = buildDailyGroupElement(nextConsigne);
       if (!newGroup) {
         return false;
       }
-      existingGroup.replaceWith(newGroup);
-      highlightDailyGroup(newGroup);
-      let finalGroup = newGroup;
-      const section = currentSection;
-      if (!section) return false;
-      if (isLowPriority && !finalGroup.closest(".daily-category__low")) {
-        const { lowStack } = ensureCategoryLowContainer(section);
-        if (!lowStack) return false;
-        lowStack.appendChild(finalGroup);
-      } else if (!isLowPriority && finalGroup.closest(".daily-category__low")) {
-        const stack = getHighStackForSection(section);
-        if (!stack) return false;
-        const lowDetails = Array.from(stack.children).find((child) =>
-          child instanceof Element && child.classList.contains("daily-category__low"),
-        ) || null;
-        stack.insertBefore(finalGroup, lowDetails || null);
+      clearDailyPlaceholder();
+      const ensured = ensureDailyCategorySection(targetCategory);
+      const targetSection = ensured.section;
+      if (!insertGroupIntoSection(newGroup, targetSection, isLowPriority)) {
+        return false;
       }
-      updateDailyCategoryStats(section);
+      updateDailyCategoryStats(targetSection);
       ensureDailyPlaceholder();
+      highlightDailyGroup(newGroup);
       return true;
-    }
+    };
 
-    if (action !== "create") {
-      return false;
-    }
+    dailyMutationListener = (event) => {
+      const detail = event?.detail || {};
+      if (detail.mode !== "daily") return;
+      const nextConsigne = detail.consigne ? { ...detail.consigne } : null;
+      if (!nextConsigne) return;
+      if (nextConsigne.id == null && detail.consigneId != null) {
+        nextConsigne.id = detail.consigneId;
+      }
+      const handled = upsertDailyConsigneRow(nextConsigne, detail.action || "update");
+      if (!handled) return;
+      if (typeof window.attachConsignesDragDrop === "function") {
+        window.attachConsignesDragDrop(form, ctx);
+      }
+      if (typeof window.attachDailyCategoryDragDrop === "function") {
+        window.attachDailyCategoryDragDrop(form, ctx);
+      }
+      event.preventDefault();
+    };
+    document.addEventListener("consigne:mutated", dailyMutationListener);
 
-    const newGroup = buildDailyGroupElement(nextConsigne);
-    if (!newGroup) {
-      return false;
-    }
-    clearDailyPlaceholder();
-    const ensured = ensureDailyCategorySection(targetCategory);
-    const targetSection = ensured.section;
-    if (!insertGroupIntoSection(newGroup, targetSection, isLowPriority)) {
-      return false;
-    }
-    updateDailyCategoryStats(targetSection);
-    ensureDailyPlaceholder();
-    highlightDailyGroup(newGroup);
-    return true;
-  };
+    // Insère une section dédiée si un ou plusieurs objectifs sont dus aujourd’hui
+    const objectiveEntryKeyForDate = (objective, date) => {
+      const rawType = typeof objective?.type === "string" ? objective.type.trim().toLowerCase() : "";
+      const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
+      const dayKey = typeof Schema?.dayKeyFromDate === "function"
+        ? Schema.dayKeyFromDate(safeDate)
+        : safeDate.toISOString().slice(0, 10);
 
-  dailyMutationListener = (event) => {
-    const detail = event?.detail || {};
-    if (detail.mode !== "daily") return;
-    const nextConsigne = detail.consigne ? { ...detail.consigne } : null;
-    if (!nextConsigne) return;
-    if (nextConsigne.id == null && detail.consigneId != null) {
-      nextConsigne.id = detail.consigneId;
-    }
-    const handled = upsertDailyConsigneRow(nextConsigne, detail.action || "update");
-    if (!handled) return;
-    if (typeof window.attachConsignesDragDrop === "function") {
-      window.attachConsignesDragDrop(form, ctx);
-    }
-    if (typeof window.attachDailyCategoryDragDrop === "function") {
-      window.attachDailyCategoryDragDrop(form, ctx);
-    }
-    event.preventDefault();
-  };
-  document.addEventListener("consigne:mutated", dailyMutationListener);
-
-  // Insère une section dédiée si un ou plusieurs objectifs sont dus aujourd’hui
-  const objectiveEntryKeyForDate = (objective, date) => {
-    const rawType = typeof objective?.type === "string" ? objective.type.trim().toLowerCase() : "";
-    const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
-    const dayKey = typeof Schema?.dayKeyFromDate === "function"
-      ? Schema.dayKeyFromDate(safeDate)
-      : safeDate.toISOString().slice(0, 10);
-
-    if (rawType === "hebdo" || rawType === "weekly") {
-      if (typeof Schema?.weekKeyFromDate === "function") {
-        const weekKey = Schema.weekKeyFromDate(safeDate);
-        if (weekKey) {
-          return `weekly:${weekKey}`;
+      if (rawType === "hebdo" || rawType === "weekly") {
+        if (typeof Schema?.weekKeyFromDate === "function") {
+          const weekKey = Schema.weekKeyFromDate(safeDate);
+          if (weekKey) {
+            return `weekly:${weekKey}`;
+          }
         }
+        return `weekly:${dayKey}`;
       }
-      return `weekly:${dayKey}`;
-    }
 
-    if (rawType === "mensuel" || rawType === "monthly") {
-      if (typeof Schema?.monthKeyFromDate === "function") {
-        const monthKey = Schema.monthKeyFromDate(safeDate);
-        if (monthKey) {
-          return `monthly:${monthKey}`;
+      if (rawType === "mensuel" || rawType === "monthly") {
+        if (typeof Schema?.monthKeyFromDate === "function") {
+          const monthKey = Schema.monthKeyFromDate(safeDate);
+          if (monthKey) {
+            return `monthly:${monthKey}`;
+          }
         }
+        const monthLabel = `${safeDate.getFullYear()}-${String(safeDate.getMonth() + 1).padStart(2, "0")}`;
+        return `monthly:${monthLabel}`;
       }
-      const monthLabel = `${safeDate.getFullYear()}-${String(safeDate.getMonth() + 1).padStart(2, "0")}`;
-      return `monthly:${monthLabel}`;
-    }
 
-    if (rawType === "annuel" || rawType === "yearly" || rawType === "annual") {
-      return `yearly:${String(safeDate.getFullYear())}`;
-    }
+      if (rawType === "annuel" || rawType === "yearly" || rawType === "annual") {
+        return `yearly:${String(safeDate.getFullYear())}`;
+      }
 
-    return dayKey;
-  };
+      return dayKey;
+    };
 
-  const summarizeObjectiveScopeLabel = (objective, date) => {
-    const rawType = typeof objective?.type === "string" ? objective.type.trim().toLowerCase() : "";
-    const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
-    if (rawType === "hebdo" || rawType === "weekly") {
-      const range = Schema.weekRangeFromDate
-        ? Schema.weekRangeFromDate(safeDate)
-        : null;
-      if (range?.start && range?.end) {
-        const startLabel = range.start.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
-        const endLabel = range.end.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
-        if (startLabel && endLabel) {
-          return startLabel === endLabel ? startLabel : `${startLabel} → ${endLabel}`;
+    const summarizeObjectiveScopeLabel = (objective, date) => {
+      const rawType = typeof objective?.type === "string" ? objective.type.trim().toLowerCase() : "";
+      const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
+      if (rawType === "hebdo" || rawType === "weekly") {
+        const range = Schema.weekRangeFromDate
+          ? Schema.weekRangeFromDate(safeDate)
+          : null;
+        if (range?.start && range?.end) {
+          const startLabel = range.start.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+          const endLabel = range.end.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+          if (startLabel && endLabel) {
+            return startLabel === endLabel ? startLabel : `${startLabel} → ${endLabel}`;
+          }
         }
+        return "Objectif hebdomadaire";
       }
-      return "Objectif hebdomadaire";
-    }
-    if (rawType === "mensuel" || rawType === "monthly") {
-      const label = safeDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-      return label ? label.charAt(0).toUpperCase() + label.slice(1) : "Objectif mensuel";
-    }
-    if (rawType === "annuel" || rawType === "yearly" || rawType === "annual") {
-      return String(safeDate.getFullYear());
-    }
-    return "";
-  };
+      if (rawType === "mensuel" || rawType === "monthly") {
+        const label = safeDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+        return label ? label.charAt(0).toUpperCase() + label.slice(1) : "Objectif mensuel";
+      }
+      if (rawType === "annuel" || rawType === "yearly" || rawType === "annual") {
+        return String(safeDate.getFullYear());
+      }
+      return "";
+    };
 
-  const computeObjectivePeriodInfo = (objective, date) => {
-    const rawType = typeof objective?.type === "string" ? objective.type.trim().toLowerCase() : "";
-    const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
-    const baseDayKey = typeof Schema?.dayKeyFromDate === "function"
-      ? Schema.dayKeyFromDate(safeDate)
-      : safeDate.toISOString().slice(0, 10);
-    if (rawType === "hebdo" || rawType === "weekly") {
-      const weekKey = typeof Schema?.weekKeyFromDate === "function"
-        ? Schema.weekKeyFromDate(safeDate)
-        : null;
-      const range = typeof Schema?.weekRangeFromDate === "function"
-        ? Schema.weekRangeFromDate(safeDate)
-        : null;
-      if (!weekKey || !range?.start || !range?.end) {
-        return null;
+    const computeObjectivePeriodInfo = (objective, date) => {
+      const rawType = typeof objective?.type === "string" ? objective.type.trim().toLowerCase() : "";
+      const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? new Date(date.getTime()) : new Date();
+      const baseDayKey = typeof Schema?.dayKeyFromDate === "function"
+        ? Schema.dayKeyFromDate(safeDate)
+        : safeDate.toISOString().slice(0, 10);
+      if (rawType === "hebdo" || rawType === "weekly") {
+        const weekKey = typeof Schema?.weekKeyFromDate === "function"
+          ? Schema.weekKeyFromDate(safeDate)
+          : null;
+        const range = typeof Schema?.weekRangeFromDate === "function"
+          ? Schema.weekRangeFromDate(safeDate)
+          : null;
+        if (!weekKey || !range?.start || !range?.end) {
+          return null;
+        }
+        const periodLabel = summarizeObjectiveScopeLabel(objective, safeDate);
+        return {
+          scope: "week",
+          summaryScope: "weekly",
+          periodKey: weekKey,
+          periodLabel,
+          start: range.start,
+          end: range.end,
+          storageKey: `weekly:${weekKey}`,
+          summaryLabel: "Bilan hebdomadaire",
+        };
       }
-      const periodLabel = summarizeObjectiveScopeLabel(objective, safeDate);
-      return {
-        scope: "week",
-        summaryScope: "weekly",
-        periodKey: weekKey,
-        periodLabel,
-        start: range.start,
-        end: range.end,
-        storageKey: `weekly:${weekKey}`,
-        summaryLabel: "Bilan hebdomadaire",
-      };
-    }
-    if (rawType === "mensuel" || rawType === "monthly") {
-      const monthKey = typeof Schema?.monthKeyFromDate === "function"
-        ? Schema.monthKeyFromDate(safeDate)
-        : null;
-      const range = monthKey && typeof Schema?.monthRangeFromKey === "function"
-        ? Schema.monthRangeFromKey(monthKey)
-        : null;
-      if (!monthKey || !range?.start || !range?.end) {
-        return null;
+      if (rawType === "mensuel" || rawType === "monthly") {
+        const monthKey = typeof Schema?.monthKeyFromDate === "function"
+          ? Schema.monthKeyFromDate(safeDate)
+          : null;
+        const range = monthKey && typeof Schema?.monthRangeFromKey === "function"
+          ? Schema.monthRangeFromKey(monthKey)
+          : null;
+        if (!monthKey || !range?.start || !range?.end) {
+          return null;
+        }
+        const monthLabel = safeDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+        const periodLabel = monthLabel ? monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1) : "";
+        return {
+          scope: "month",
+          summaryScope: "monthly",
+          periodKey: monthKey,
+          periodLabel,
+          start: range.start,
+          end: range.end,
+          storageKey: `monthly:${monthKey}`,
+          summaryLabel: "Bilan mensuel",
+        };
       }
-      const monthLabel = safeDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-      const periodLabel = monthLabel ? monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1) : "";
-      return {
-        scope: "month",
-        summaryScope: "monthly",
-        periodKey: monthKey,
-        periodLabel,
-        start: range.start,
-        end: range.end,
-        storageKey: `monthly:${monthKey}`,
-        summaryLabel: "Bilan mensuel",
-      };
-    }
-    if (rawType === "annuel" || rawType === "yearly" || rawType === "annual") {
-      const year = safeDate.getFullYear();
-      const start = new Date(year, 0, 1);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(year, 11, 31);
-      end.setHours(23, 59, 59, 999);
-      return {
-        scope: "year",
-        summaryScope: "yearly",
-        periodKey: String(year),
-        periodLabel: String(year),
-        start,
-        end,
-        storageKey: `yearly:${year}`,
-        summaryLabel: "Bilan annuel",
-      };
-    }
-    return null;
-  };
+      if (rawType === "annuel" || rawType === "yearly" || rawType === "annual") {
+        const year = safeDate.getFullYear();
+        const start = new Date(year, 0, 1);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(year, 11, 31);
+        end.setHours(23, 59, 59, 999);
+        return {
+          scope: "year",
+          summaryScope: "yearly",
+          periodKey: String(year),
+          periodLabel: String(year),
+          start,
+          end,
+          storageKey: `yearly:${year}`,
+          summaryLabel: "Bilan annuel",
+        };
+      }
+      return null;
+    };
 
-  if (Array.isArray(objectivesDueToday) && objectivesDueToday.length) {
-    const section = document.createElement("section");
-    section.className = "daily-category daily-grid__item";
-    section.dataset.category = "Objectifs du jour";
-    const total = objectivesDueToday.length;
-    section.innerHTML = `
+    if (Array.isArray(objectivesDueToday) && objectivesDueToday.length) {
+      const section = document.createElement("section");
+      section.className = "daily-category daily-grid__item";
+      section.dataset.category = "Objectifs du jour";
+      const total = objectivesDueToday.length;
+      section.innerHTML = `
       <div class="daily-category__header">
         <div class="daily-category__name">Objectifs du jour</div>
         <span class="daily-category__count">${total} objectif${total > 1 ? "s" : ""}</span>
       </div>`;
-    const stack = document.createElement("div");
-    stack.className = "daily-category__items";
-    section.appendChild(stack);
+      const stack = document.createElement("div");
+      stack.className = "daily-category__items";
+      section.appendChild(stack);
 
-    objectivesDueToday.forEach((obj) => {
-      const title = obj?.titre || obj?.title || obj?.name || "Objectif";
-      const row = document.createElement("div");
-      row.className = "consigne-row priority-surface priority-surface-medium";
-      row.dataset.objectiveId = String(obj?.id || "");
+      objectivesDueToday.forEach((obj) => {
+        const title = obj?.titre || obj?.title || obj?.name || "Objectif";
+        const row = document.createElement("div");
+        row.className = "consigne-row priority-surface priority-surface-medium";
+        row.dataset.objectiveId = String(obj?.id || "");
 
-      const fieldId = `obj-${String(obj?.id || Math.random()).replace(/[^a-zA-Z0-9_-]/g, "")}`;
-      const periodLabel = summarizeObjectiveScopeLabel(obj, selectedDate);
-      row.innerHTML = `
+        const fieldId = `obj-${String(obj?.id || Math.random()).replace(/[^a-zA-Z0-9_-]/g, "")}`;
+        const periodLabel = summarizeObjectiveScopeLabel(obj, selectedDate);
+        row.innerHTML = `
         <div class="consigne-row__header">
           <div class="consigne-row__main">
             <button type="button" class="consigne-row__toggle" data-objective-open aria-haspopup="dialog">
@@ -22152,70 +22117,70 @@ async function renderDaily(ctx, root, opts = {}) {
           </div>
         </div>`;
 
-      const openBtn = row.querySelector('[data-objective-open]');
-      const currentEntryKey = objectiveEntryKeyForDate(obj, selectedDate);
-      const fallbackDayKey = typeof Schema?.dayKeyFromDate === "function"
-        ? Schema.dayKeyFromDate(selectedDate)
-        : (selectedDate && selectedDate.toISOString ? selectedDate.toISOString().slice(0, 10) : "");
-      const entryKeyCandidates = Array.from(
-        new Set(
-          [currentEntryKey, fallbackDayKey].filter((key) => typeof key === "string" && key.trim()),
-        ),
-      );
+        const openBtn = row.querySelector('[data-objective-open]');
+        const currentEntryKey = objectiveEntryKeyForDate(obj, selectedDate);
+        const fallbackDayKey = typeof Schema?.dayKeyFromDate === "function"
+          ? Schema.dayKeyFromDate(selectedDate)
+          : (selectedDate && selectedDate.toISOString ? selectedDate.toISOString().slice(0, 10) : "");
+        const entryKeyCandidates = Array.from(
+          new Set(
+            [currentEntryKey, fallbackDayKey].filter((key) => typeof key === "string" && key.trim()),
+          ),
+        );
 
-      // Utilitaire statut couleur comme les consignes
-      const applyObjectiveStatus = (val) => {
-        const statusHolder = row.querySelector('[data-status]');
-        const dot = row.querySelector('[data-status-dot]');
-        const mark = row.querySelector('[data-status-mark]');
-        const live = row.querySelector('[data-status-live]');
-        const n = val == null ? null : Number(val);
-        let status = 'na';
-        if (Number.isFinite(n) && n > 0) {
-          if (n >= 5) status = 'ok-strong';
-          else if (n === 4) status = 'ok-soft';
-          else if (n === 3) status = 'mid';
-          else if (n === 2) status = 'ko-soft';
-          else status = 'ko-strong';
-        }
-        row.dataset.status = status;
-        if (statusHolder) {
-          statusHolder.dataset.status = status;
-          statusHolder.setAttribute('data-status', status);
-        }
-        if (dot) {
-          dot.className = `consigne-row__dot consigne-row__dot--${status}`;
-        }
-        if (mark) {
-          mark.classList.toggle('consigne-row__mark--checked', status !== 'na');
-        }
-        if (live) {
-          const labels = { 'ok-strong': 'Très positif', 'ok-soft': 'Plutôt positif', mid: 'Intermédiaire', 'ko-soft': 'Plutôt négatif', 'ko-strong': 'Très négatif', note: 'Réponse notée', na: 'Sans donnée' };
-          live.textContent = `${labels[status] || 'Valeur'}`;
-        }
-      };
-
-      // Ouvre une modale pour répondre à l'objectif (même logique que les consignes)
-      if (openBtn) {
-        openBtn.addEventListener('click', async () => {
-          let initialValue = "";
-          let existingEntryKey = null;
-          let existingEntry = null;
-          for (const candidateKey of entryKeyCandidates) {
-            try {
-              const loaded = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, candidateKey);
-              if (loaded && loaded.v !== undefined && loaded.v !== null) {
-                initialValue = String(loaded.v);
-                existingEntryKey = candidateKey;
-                existingEntry = loaded;
-                break;
-              }
-            } catch (e) {
-              try { modesLogger?.warn?.("daily.objectivesDue.prefill", e); } catch (_) { }
-            }
+        // Utilitaire statut couleur comme les consignes
+        const applyObjectiveStatus = (val) => {
+          const statusHolder = row.querySelector('[data-status]');
+          const dot = row.querySelector('[data-status-dot]');
+          const mark = row.querySelector('[data-status-mark]');
+          const live = row.querySelector('[data-status-live]');
+          const n = val == null ? null : Number(val);
+          let status = 'na';
+          if (Number.isFinite(n) && n > 0) {
+            if (n >= 5) status = 'ok-strong';
+            else if (n === 4) status = 'ok-soft';
+            else if (n === 3) status = 'mid';
+            else if (n === 2) status = 'ko-soft';
+            else status = 'ko-strong';
           }
-          const content = document.createElement('div');
-          content.innerHTML = `
+          row.dataset.status = status;
+          if (statusHolder) {
+            statusHolder.dataset.status = status;
+            statusHolder.setAttribute('data-status', status);
+          }
+          if (dot) {
+            dot.className = `consigne-row__dot consigne-row__dot--${status}`;
+          }
+          if (mark) {
+            mark.classList.toggle('consigne-row__mark--checked', status !== 'na');
+          }
+          if (live) {
+            const labels = { 'ok-strong': 'Très positif', 'ok-soft': 'Plutôt positif', mid: 'Intermédiaire', 'ko-soft': 'Plutôt négatif', 'ko-strong': 'Très négatif', note: 'Réponse notée', na: 'Sans donnée' };
+            live.textContent = `${labels[status] || 'Valeur'}`;
+          }
+        };
+
+        // Ouvre une modale pour répondre à l'objectif (même logique que les consignes)
+        if (openBtn) {
+          openBtn.addEventListener('click', async () => {
+            let initialValue = "";
+            let existingEntryKey = null;
+            let existingEntry = null;
+            for (const candidateKey of entryKeyCandidates) {
+              try {
+                const loaded = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, candidateKey);
+                if (loaded && loaded.v !== undefined && loaded.v !== null) {
+                  initialValue = String(loaded.v);
+                  existingEntryKey = candidateKey;
+                  existingEntry = loaded;
+                  break;
+                }
+              } catch (e) {
+                try { modesLogger?.warn?.("daily.objectivesDue.prefill", e); } catch (_) { }
+              }
+            }
+            const content = document.createElement('div');
+            content.innerHTML = `
             <div class="space-y-4">
               <header class="space-y-1">
                 <h2 class="text-lg font-semibold">${escapeHtml(title)}</h2>
@@ -22238,188 +22203,188 @@ async function renderDaily(ctx, root, opts = {}) {
                 <button type="button" class="btn btn-primary" data-save>Enregistrer</button>
               </div>
             </div>`;
-          const overlay = modal(content.outerHTML);
-          if (!overlay) return;
-          const close = () => overlay.remove();
-          overlay.querySelector('[data-close]')?.addEventListener('click', close);
-          overlay.querySelector('[data-save]')?.addEventListener('click', async () => {
-            const sel = overlay.querySelector(`#${CSS.escape(fieldId)}`);
-            const raw = sel ? sel.value : '';
-            const val = raw === '' ? null : Number(raw);
-            try {
-              await Schema.saveObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentEntryKey, val);
-              modesLogger?.info?.("daily.objectivesDue.saveEntry", {
-                objectiveId: obj.id,
-                storageKey: currentEntryKey,
-                value: val,
-              });
-              if (existingEntryKey && existingEntryKey !== currentEntryKey) {
-                try {
-                  await Schema.deleteObjectiveEntry(ctx.db, ctx.user.uid, obj.id, existingEntryKey);
-                  modesLogger?.info?.("daily.objectivesDue.cleanupEntry", {
-                    objectiveId: obj.id,
-                    removedKey: existingEntryKey,
-                  });
-                } catch (cleanupError) {
-                  modesLogger?.warn?.("daily.objectivesDue.cleanup", cleanupError);
+            const overlay = modal(content.outerHTML);
+            if (!overlay) return;
+            const close = () => overlay.remove();
+            overlay.querySelector('[data-close]')?.addEventListener('click', close);
+            overlay.querySelector('[data-save]')?.addEventListener('click', async () => {
+              const sel = overlay.querySelector(`#${CSS.escape(fieldId)}`);
+              const raw = sel ? sel.value : '';
+              const val = raw === '' ? null : Number(raw);
+              try {
+                await Schema.saveObjectiveEntry(ctx.db, ctx.user.uid, obj.id, currentEntryKey, val);
+                modesLogger?.info?.("daily.objectivesDue.saveEntry", {
+                  objectiveId: obj.id,
+                  storageKey: currentEntryKey,
+                  value: val,
+                });
+                if (existingEntryKey && existingEntryKey !== currentEntryKey) {
+                  try {
+                    await Schema.deleteObjectiveEntry(ctx.db, ctx.user.uid, obj.id, existingEntryKey);
+                    modesLogger?.info?.("daily.objectivesDue.cleanupEntry", {
+                      objectiveId: obj.id,
+                      removedKey: existingEntryKey,
+                    });
+                  } catch (cleanupError) {
+                    modesLogger?.warn?.("daily.objectivesDue.cleanup", cleanupError);
+                  }
                 }
-              }
-              const periodInfo = computeObjectivePeriodInfo(obj, selectedDate);
-              if (periodInfo && periodInfo.scope && periodInfo.periodKey) {
-                const summaryKey = `objective__${obj.id}`;
-                const baseLabel = obj?.titre || obj?.title || obj?.name || obj?.id || "Objectif";
-                const metadata = {
-                  start: periodInfo.start,
-                  end: periodInfo.end,
-                  label: periodInfo.periodLabel,
-                  moduleId: "daily",
-                  summaryPeriodKey: periodInfo.periodKey,
-                  summaryPeriodLabel: periodInfo.periodLabel,
-                  summaryScope: periodInfo.summaryScope,
-                  extras: {
-                    summaryScope: periodInfo.summaryScope,
+                const periodInfo = computeObjectivePeriodInfo(obj, selectedDate);
+                if (periodInfo && periodInfo.scope && periodInfo.periodKey) {
+                  const summaryKey = `objective__${obj.id}`;
+                  const baseLabel = obj?.titre || obj?.title || obj?.name || obj?.id || "Objectif";
+                  const metadata = {
+                    start: periodInfo.start,
+                    end: periodInfo.end,
+                    label: periodInfo.periodLabel,
+                    moduleId: "daily",
                     summaryPeriodKey: periodInfo.periodKey,
                     summaryPeriodLabel: periodInfo.periodLabel,
-                  },
-                };
-                if (val === null || val === undefined) {
-                  try {
-                    await Schema.deleteSummaryAnswer(
-                      ctx.db,
-                      ctx.user.uid,
-                      periodInfo.scope,
-                      periodInfo.periodKey,
-                      summaryKey,
-                      metadata,
-                    );
-                  } catch (summaryDeleteError) {
-                    modesLogger?.warn?.("daily.objectivesDue.summaryDelete", summaryDeleteError);
-                  }
-                } else {
-                  try {
-                    const summaryValue = Schema.objectiveLikertLabelFromValue
-                      ? Schema.objectiveLikertLabelFromValue(val)
-                      : val;
-                    await Schema.saveSummaryAnswers(
-                      ctx.db,
-                      ctx.user.uid,
-                      periodInfo.scope,
-                      periodInfo.periodKey,
-                      [
-                        {
-                          key: summaryKey,
-                          consigneId: obj.id,
-                          family: "objective",
-                          type: obj.type || "likert6",
-                          value: summaryValue,
-                          summaryScope: periodInfo.summaryScope,
-                          summaryLabel: periodInfo.summaryLabel,
-                          label: baseLabel,
-                          category: "Objectifs",
-                          summaryPeriodKey: periodInfo.periodKey,
-                          summaryPeriodLabel: periodInfo.periodLabel,
-                        },
-                      ],
-                      metadata,
-                    );
-                  } catch (summarySaveError) {
-                    modesLogger?.warn?.("daily.objectivesDue.summarySave", summarySaveError);
+                    summaryScope: periodInfo.summaryScope,
+                    extras: {
+                      summaryScope: periodInfo.summaryScope,
+                      summaryPeriodKey: periodInfo.periodKey,
+                      summaryPeriodLabel: periodInfo.periodLabel,
+                    },
+                  };
+                  if (val === null || val === undefined) {
+                    try {
+                      await Schema.deleteSummaryAnswer(
+                        ctx.db,
+                        ctx.user.uid,
+                        periodInfo.scope,
+                        periodInfo.periodKey,
+                        summaryKey,
+                        metadata,
+                      );
+                    } catch (summaryDeleteError) {
+                      modesLogger?.warn?.("daily.objectivesDue.summaryDelete", summaryDeleteError);
+                    }
+                  } else {
+                    try {
+                      const summaryValue = Schema.objectiveLikertLabelFromValue
+                        ? Schema.objectiveLikertLabelFromValue(val)
+                        : val;
+                      await Schema.saveSummaryAnswers(
+                        ctx.db,
+                        ctx.user.uid,
+                        periodInfo.scope,
+                        periodInfo.periodKey,
+                        [
+                          {
+                            key: summaryKey,
+                            consigneId: obj.id,
+                            family: "objective",
+                            type: obj.type || "likert6",
+                            value: summaryValue,
+                            summaryScope: periodInfo.summaryScope,
+                            summaryLabel: periodInfo.summaryLabel,
+                            label: baseLabel,
+                            category: "Objectifs",
+                            summaryPeriodKey: periodInfo.periodKey,
+                            summaryPeriodLabel: periodInfo.periodLabel,
+                          },
+                        ],
+                        metadata,
+                      );
+                    } catch (summarySaveError) {
+                      modesLogger?.warn?.("daily.objectivesDue.summarySave", summarySaveError);
+                    }
                   }
                 }
+                applyObjectiveStatus(val);
+                showToast('Réponse enregistrée.');
+                close();
+              } catch (err) {
+                console.error('objective.entry.save', err);
+                showToast('Impossible d’enregistrer la réponse.');
               }
-              applyObjectiveStatus(val);
-              showToast('Réponse enregistrée.');
-              close();
-            } catch (err) {
-              console.error('objective.entry.save', err);
-              showToast('Impossible d’enregistrer la réponse.');
-            }
+            });
           });
-        });
-      }
-
-      stack.appendChild(row);
-
-      // Initialiser le statut visuel depuis la valeur existante
-      (async () => {
-        try {
-          let initialEntry = null;
-          for (const candidateKey of entryKeyCandidates) {
-            try {
-              const loaded = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, candidateKey);
-              if (loaded && loaded.v !== undefined && loaded.v !== null) {
-                initialEntry = loaded;
-                break;
-              }
-            } catch (e) {
-              try { modesLogger?.warn?.("daily.objectivesDue.initStatus", e); } catch (_) { }
-            }
-          }
-          if (initialEntry && initialEntry.v !== undefined && initialEntry.v !== null) {
-            applyObjectiveStatus(initialEntry.v);
-          } else {
-            applyObjectiveStatus(null);
-          }
-        } catch (e) {
-          try { modesLogger?.warn?.('daily.objectivesDue.initStatus', e); } catch (_) { }
         }
-      })();
-    });
 
-    // Mettre la section en tête de grille
-    form.appendChild(section);
-  }
+        stack.appendChild(row);
 
-  if (!visibleConsignes.length) {
-    ensureDailyPlaceholder();
-  } else {
-    clearDailyPlaceholder();
-    categoryGroups.forEach(([cat, info]) => {
-      const { groups, total } = info;
-      const section = document.createElement("section");
-      section.className = "daily-category daily-grid__item";
-      section.dataset.category = cat;
-      section.innerHTML = `
+        // Initialiser le statut visuel depuis la valeur existante
+        (async () => {
+          try {
+            let initialEntry = null;
+            for (const candidateKey of entryKeyCandidates) {
+              try {
+                const loaded = await Schema.getObjectiveEntry(ctx.db, ctx.user.uid, obj.id, candidateKey);
+                if (loaded && loaded.v !== undefined && loaded.v !== null) {
+                  initialEntry = loaded;
+                  break;
+                }
+              } catch (e) {
+                try { modesLogger?.warn?.("daily.objectivesDue.initStatus", e); } catch (_) { }
+              }
+            }
+            if (initialEntry && initialEntry.v !== undefined && initialEntry.v !== null) {
+              applyObjectiveStatus(initialEntry.v);
+            } else {
+              applyObjectiveStatus(null);
+            }
+          } catch (e) {
+            try { modesLogger?.warn?.('daily.objectivesDue.initStatus', e); } catch (_) { }
+          }
+        })();
+      });
+
+      // Mettre la section en tête de grille
+      form.appendChild(section);
+    }
+
+    if (!visibleConsignes.length) {
+      ensureDailyPlaceholder();
+    } else {
+      clearDailyPlaceholder();
+      categoryGroups.forEach(([cat, info]) => {
+        const { groups, total } = info;
+        const section = document.createElement("section");
+        section.className = "daily-category daily-grid__item";
+        section.dataset.category = cat;
+        section.innerHTML = `
         <div class="daily-category__header">
           <div class="daily-category__name">${escapeHtml(cat)}</div>
           <span class="daily-category__count">${total} consigne${total > 1 ? "s" : ""}</span>
         </div>`;
-      const stack = document.createElement("div");
-      stack.className = "daily-category__items";
-      section.appendChild(stack);
+        const stack = document.createElement("div");
+        stack.className = "daily-category__items";
+        section.appendChild(stack);
 
-      const highs = groups.filter((g) => (g.consigne.priority || 2) <= 2);
-      const lows = groups.filter((g) => (g.consigne.priority || 2) >= 3);
+        const highs = groups.filter((g) => (g.consigne.priority || 2) <= 2);
+        const lows = groups.filter((g) => (g.consigne.priority || 2) >= 3);
 
-      highs.forEach((group) => renderGroup(group, stack));
+        highs.forEach((group) => renderGroup(group, stack));
 
-      if (lows.length) {
-        const det = document.createElement("details");
-        det.className = "daily-category__low";
-        const lowCount = lows.reduce((acc, group) => acc + 1 + group.children.length, 0);
-        det.innerHTML = `<summary class="daily-category__low-summary">Priorité basse (${lowCount})</summary>`;
-        const box = document.createElement("div");
-        box.className = "daily-category__items daily-category__items--nested";
-        lows.forEach((group) => renderGroup(group, box));
-        det.appendChild(box);
-        stack.appendChild(det);
-      }
+        if (lows.length) {
+          const det = document.createElement("details");
+          det.className = "daily-category__low";
+          const lowCount = lows.reduce((acc, group) => acc + 1 + group.children.length, 0);
+          det.innerHTML = `<summary class="daily-category__low-summary">Priorité basse (${lowCount})</summary>`;
+          const box = document.createElement("div");
+          box.className = "daily-category__items daily-category__items--nested";
+          lows.forEach((group) => renderGroup(group, box));
+          det.appendChild(box);
+          stack.appendChild(det);
+        }
 
-      form.appendChild(section);
-    });
-  }
+        form.appendChild(section);
+      });
+    }
 
-  if (typeof window.attachConsignesDragDrop === "function") {
-    window.attachConsignesDragDrop(form, ctx);
-  }
-  if (typeof window.attachDailyCategoryDragDrop === "function") {
-    window.attachDailyCategoryDragDrop(form, ctx);
-  }
+    if (typeof window.attachConsignesDragDrop === "function") {
+      window.attachConsignesDragDrop(form, ctx);
+    }
+    if (typeof window.attachDailyCategoryDragDrop === "function") {
+      window.attachDailyCategoryDragDrop(form, ctx);
+    }
 
-  if (hidden.length) {
-    const box = document.createElement("div");
-    box.className = "card p-3 space-y-2";
-    box.innerHTML = `<div class="font-medium">Masquées par répétition espacée (${hidden.length})</div>
+    if (hidden.length) {
+      const box = document.createElement("div");
+      box.className = "card p-3 space-y-2";
+      box.innerHTML = `<div class="font-medium">Masquées par répétition espacée (${hidden.length})</div>
   <ul class="text-sm text-[var(--muted)] space-y-1">
     ${hidden.map(h => `
       <li class="practice-hidden__item">
@@ -22430,46 +22395,46 @@ async function renderDaily(ctx, root, opts = {}) {
         </div>
       </li>`).join("")}
   </ul>`;
-    container.appendChild(box);
+      container.appendChild(box);
 
-    box.addEventListener("click", async (e) => {
-      const id = e.target?.dataset?.id;
-      if (!id) return;
-      if (e.target.classList.contains("js-histo-hidden")) {
-        const c = hidden.find((x) => x.c.id === id)?.c;
-        if (c) openHistory(ctx, c, { source: "daily" });
-      } else if (e.target.classList.contains("js-reset-sr")) {
-        await Schema.resetSRForConsigne(ctx.db, ctx.user.uid, id);
-        renderDaily(ctx, root, { day: currentDay });
-      }
-    });
-  }
+      box.addEventListener("click", async (e) => {
+        const id = e.target?.dataset?.id;
+        if (!id) return;
+        if (e.target.classList.contains("js-histo-hidden")) {
+          const c = hidden.find((x) => x.c.id === id)?.c;
+          if (c) openHistory(ctx, c, { source: "daily" });
+        } else if (e.target.classList.contains("js-reset-sr")) {
+          await Schema.resetSRForConsigne(ctx.db, ctx.user.uid, id);
+          renderDaily(ctx, root, { day: currentDay });
+        }
+      });
+    }
 
-  const actions = document.createElement("div");
-  actions.className = "daily-grid__item daily-grid__actions";
-  actions.innerHTML = `
+    const actions = document.createElement("div");
+    actions.className = "daily-grid__item daily-grid__actions";
+    actions.innerHTML = `
     <div class="flex w-full justify-end text-sm text-[var(--muted)]">
       <span class="inline-flex items-center gap-2 rounded-full border border-dashed border-slate-300/60 px-3 py-1">
         <span aria-hidden="true">💾</span>
         <span>Enregistrement automatique</span>
       </span>
     </div>`;
-  form.appendChild(actions);
+    form.appendChild(actions);
 
-  modesLogger.groupEnd();
-  if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
-    window.__appBadge.refresh(ctx.user?.uid).catch(() => { });
+    modesLogger.groupEnd();
+    if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
+      window.__appBadge.refresh(ctx.user?.uid).catch(() => { });
+    }
   }
-}
 
-function renderHistory() { }
+  function renderHistory() { }
 
-async function openPracticeArchiveViewer(ctx) {
-  if (!ctx?.db || !ctx?.user?.uid) {
-    showToast("Connecte-toi pour accéder aux archives.");
-    return;
-  }
-  const overlay = modal(`
+  async function openPracticeArchiveViewer(ctx) {
+    if (!ctx?.db || !ctx?.user?.uid) {
+      showToast("Connecte-toi pour accéder aux archives.");
+      return;
+    }
+    const overlay = modal(`
     <div class="space-y-6" data-practice-archive-modal>
       <header class="space-y-1">
         <h2 class="text-xl font-semibold">Réponses archivées</h2>
@@ -22483,79 +22448,79 @@ async function openPracticeArchiveViewer(ctx) {
       </div>
     </div>
   `);
-  const dialog = overlay.querySelector("[data-modal-content]");
-  const heading = overlay.querySelector("h2");
-  if (dialog && heading) {
-    if (!heading.id) {
-      heading.id = `practice-archive-title-${Date.now()}`;
-    }
-    dialog.setAttribute("aria-labelledby", heading.id);
-  }
-  const closeBtn = overlay.querySelector("[data-practice-archive-close]");
-  closeBtn?.addEventListener("click", () => overlay.remove());
-  const list = overlay.querySelector("[data-practice-archive-list]");
-  const showEmpty = () => {
-    if (list) {
-      list.innerHTML = "<div class=\"text-sm text-[var(--muted)]\">Aucune consigne archivée.</div>";
-    }
-  };
-  const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-  const normalizeDate = (value) => {
-    if (!value) return null;
-    if (value instanceof Date) return value;
-    if (typeof value?.toDate === "function") {
-      try {
-        return value.toDate();
-      } catch (_) {
-        return null;
+    const dialog = overlay.querySelector("[data-modal-content]");
+    const heading = overlay.querySelector("h2");
+    if (dialog && heading) {
+      if (!heading.id) {
+        heading.id = `practice-archive-title-${Date.now()}`;
       }
+      dialog.setAttribute("aria-labelledby", heading.id);
     }
-    if (typeof value === "string") {
-      const parsed = new Date(value);
-      return Number.isNaN(parsed.getTime()) ? null : parsed;
-    }
-    return null;
-  };
-  let archivedItems = [];
-  try {
-    archivedItems = await Schema.listArchivedConsignes(ctx.db, ctx.user.uid, "practice");
-  } catch (error) {
-    console.error("practice.archives.load", error);
-    if (list) {
-      list.innerHTML = "<div class=\"text-sm text-red-600\">Impossible de charger les archives.</div>";
-    }
-    return;
-  }
-  if (!list) {
-    return;
-  }
-  if (!archivedItems.length) {
-    showEmpty();
-  } else {
-    const sorted = archivedItems
-      .slice()
-      .sort((a, b) => {
-        const catA = (a.category || "").localeCompare(b.category || "");
-        if (catA !== 0) return catA;
-        return (a.text || a.titre || "").localeCompare(b.text || b.titre || "");
-      });
-    const itemsMarkup = sorted
-      .map((consigne) => {
-        const title = consigne.text || consigne.titre || consigne.name || consigne.id || "Consigne";
-        const category = consigne.category || "Sans catégorie";
-        const archivedDate = normalizeDate(consigne.archivedAt);
-        const archivedLabel = archivedDate ? dateFormatter.format(archivedDate) : null;
-        const noteParts = [];
-        if (category) {
-          noteParts.push(`<span class=\"rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600\">${escapeHtml(category)}</span>`);
+    const closeBtn = overlay.querySelector("[data-practice-archive-close]");
+    closeBtn?.addEventListener("click", () => overlay.remove());
+    const list = overlay.querySelector("[data-practice-archive-list]");
+    const showEmpty = () => {
+      if (list) {
+        list.innerHTML = "<div class=\"text-sm text-[var(--muted)]\">Aucune consigne archivée.</div>";
+      }
+    };
+    const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    const normalizeDate = (value) => {
+      if (!value) return null;
+      if (value instanceof Date) return value;
+      if (typeof value?.toDate === "function") {
+        try {
+          return value.toDate();
+        } catch (_) {
+          return null;
         }
-        if (archivedLabel) {
-          noteParts.push(`<span class=\"text-xs text-slate-500\">Archivée le ${escapeHtml(archivedLabel)}</span>`);
-        }
-        return `
+      }
+      if (typeof value === "string") {
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+      }
+      return null;
+    };
+    let archivedItems = [];
+    try {
+      archivedItems = await Schema.listArchivedConsignes(ctx.db, ctx.user.uid, "practice");
+    } catch (error) {
+      console.error("practice.archives.load", error);
+      if (list) {
+        list.innerHTML = "<div class=\"text-sm text-red-600\">Impossible de charger les archives.</div>";
+      }
+      return;
+    }
+    if (!list) {
+      return;
+    }
+    if (!archivedItems.length) {
+      showEmpty();
+    } else {
+      const sorted = archivedItems
+        .slice()
+        .sort((a, b) => {
+          const catA = (a.category || "").localeCompare(b.category || "");
+          if (catA !== 0) return catA;
+          return (a.text || a.titre || "").localeCompare(b.text || b.titre || "");
+        });
+      const itemsMarkup = sorted
+        .map((consigne) => {
+          const title = consigne.text || consigne.titre || consigne.name || consigne.id || "Consigne";
+          const category = consigne.category || "Sans catégorie";
+          const archivedDate = normalizeDate(consigne.archivedAt);
+          const archivedLabel = archivedDate ? dateFormatter.format(archivedDate) : null;
+          const noteParts = [];
+          if (category) {
+            noteParts.push(`<span class=\"rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600\">${escapeHtml(category)}</span>`);
+          }
+          if (archivedLabel) {
+            noteParts.push(`<span class=\"text-xs text-slate-500\">Archivée le ${escapeHtml(archivedLabel)}</span>`);
+          }
+          return `
           <article class="space-y-3 rounded-xl border border-slate-200 p-3" data-practice-archive-entry data-consigne-id="${escapeHtml(consigne.id)}">
             <header class="flex flex-wrap items-start justify-between gap-3">
               <div class="space-y-1">
@@ -22567,95 +22532,95 @@ async function openPracticeArchiveViewer(ctx) {
             ${consigne.description ? `<p class="text-sm text-slate-600 whitespace-pre-line">${escapeHtml(consigne.description)}</p>` : ""}
           </article>
         `;
-      })
-      .join("");
-    list.innerHTML = itemsMarkup;
-  }
-  list.addEventListener("click", async (event) => {
-    const restoreBtn = event.target?.closest?.("[data-practice-archive-restore]");
-    if (!restoreBtn) return;
-    const entry = restoreBtn.closest("[data-practice-archive-entry]");
-    if (!entry) return;
-    const consigneId = entry.getAttribute("data-consigne-id");
-    if (!consigneId) return;
-    restoreBtn.disabled = true;
-    try {
-      await Schema.unarchiveConsigne(ctx.db, ctx.user.uid, consigneId);
-      showToast("Consigne restaurée.");
-      entry.remove();
-      if (!list.querySelector("[data-practice-archive-entry]")) {
-        showEmpty();
-      }
-      if (ctx.route && String(ctx.route).startsWith("#/practice")) {
-        const viewRoot = document.getElementById("view-root");
-        if (viewRoot) {
-          renderPractice(ctx, viewRoot);
-        }
-      }
-    } catch (error) {
-      console.error("practice.archives.restore", error);
-      restoreBtn.disabled = false;
-      showToast("Impossible de restaurer la consigne.");
+        })
+        .join("");
+      list.innerHTML = itemsMarkup;
     }
-  });
-  requestAnimationFrame(() => {
-    closeBtn?.focus?.();
-  });
-}
+    list.addEventListener("click", async (event) => {
+      const restoreBtn = event.target?.closest?.("[data-practice-archive-restore]");
+      if (!restoreBtn) return;
+      const entry = restoreBtn.closest("[data-practice-archive-entry]");
+      if (!entry) return;
+      const consigneId = entry.getAttribute("data-consigne-id");
+      if (!consigneId) return;
+      restoreBtn.disabled = true;
+      try {
+        await Schema.unarchiveConsigne(ctx.db, ctx.user.uid, consigneId);
+        showToast("Consigne restaurée.");
+        entry.remove();
+        if (!list.querySelector("[data-practice-archive-entry]")) {
+          showEmpty();
+        }
+        if (ctx.route && String(ctx.route).startsWith("#/practice")) {
+          const viewRoot = document.getElementById("view-root");
+          if (viewRoot) {
+            renderPractice(ctx, viewRoot);
+          }
+        }
+      } catch (error) {
+        console.error("practice.archives.restore", error);
+        restoreBtn.disabled = false;
+        showToast("Impossible de restaurer la consigne.");
+      }
+    });
+    requestAnimationFrame(() => {
+      closeBtn?.focus?.();
+    });
+  }
 
-Modes.openCategoryDashboard = window.openCategoryDashboard;
-Modes.openConsigneForm = openConsigneForm;
-Modes.openHistory = openHistory;
-Modes.renderPractice = renderPractice;
-Modes.renderDaily = renderDaily;
-Modes.renderHistory = renderHistory;
-Modes.openPracticeArchiveViewer = openPracticeArchiveViewer;
-Modes.attachConsignesDragDrop = window.attachConsignesDragDrop;
-Modes.attachDailyCategoryDragDrop = window.attachDailyCategoryDragDrop;
-Modes.inputForType = inputForType;
-Modes.collectAnswers = collectAnswers;
-Modes.enhanceRangeMeters = enhanceRangeMeters;
-Modes.groupConsignes = groupConsignes;
-Modes.priorityTone = priorityTone;
-Modes.prioChip = prioChip;
-Modes.showToast = showToast;
-Modes.openBilanModal = openBilanModal;
-Modes.bindConsigneRowValue = bindConsigneRowValue;
-Modes.attachConsigneEditor = attachConsigneEditor;
-Modes.createHiddenConsigneRow = createHiddenConsigneRow;
-Modes.hasValueForConsigne = hasValueForConsigne;
-Modes.setConsigneSummaryMetadata = setConsigneSummaryMetadata;
-Modes.clearConsigneSummaryMetadata = clearConsigneSummaryMetadata;
-Modes.readConsigneSummaryMetadata = readConsigneSummaryMetadata;
-Modes.buildSummaryMetadataForScope = buildSummaryMetadataForScope;
-Modes.setupConsigneActionMenus = setupConsigneActionMenus;
-Modes.setupConsignePriorityMenu = setupConsignePriorityMenu;
-Modes.closeConsigneActionMenuFromNode = closeConsigneActionMenuFromNode;
-Modes.setupConsigneHistoryTimeline = setupConsigneHistoryTimeline;
-// Expose timeline updater and status resolver for other modules (bilan)
-Modes.updateConsigneHistoryTimeline = updateConsigneHistoryTimeline;
-Modes.dotColor = dotColor;
-Modes.triggerConsigneRowUpdateHighlight = triggerConsigneRowUpdateHighlight;
+  Modes.openCategoryDashboard = window.openCategoryDashboard;
+  Modes.openConsigneForm = openConsigneForm;
+  Modes.openHistory = openHistory;
+  Modes.renderPractice = renderPractice;
+  Modes.renderDaily = renderDaily;
+  Modes.renderHistory = renderHistory;
+  Modes.openPracticeArchiveViewer = openPracticeArchiveViewer;
+  Modes.attachConsignesDragDrop = window.attachConsignesDragDrop;
+  Modes.attachDailyCategoryDragDrop = window.attachDailyCategoryDragDrop;
+  Modes.inputForType = inputForType;
+  Modes.collectAnswers = collectAnswers;
+  Modes.enhanceRangeMeters = enhanceRangeMeters;
+  Modes.groupConsignes = groupConsignes;
+  Modes.priorityTone = priorityTone;
+  Modes.prioChip = prioChip;
+  Modes.showToast = showToast;
+  Modes.openBilanModal = openBilanModal;
+  Modes.bindConsigneRowValue = bindConsigneRowValue;
+  Modes.attachConsigneEditor = attachConsigneEditor;
+  Modes.createHiddenConsigneRow = createHiddenConsigneRow;
+  Modes.hasValueForConsigne = hasValueForConsigne;
+  Modes.setConsigneSummaryMetadata = setConsigneSummaryMetadata;
+  Modes.clearConsigneSummaryMetadata = clearConsigneSummaryMetadata;
+  Modes.readConsigneSummaryMetadata = readConsigneSummaryMetadata;
+  Modes.buildSummaryMetadataForScope = buildSummaryMetadataForScope;
+  Modes.setupConsigneActionMenus = setupConsigneActionMenus;
+  Modes.setupConsignePriorityMenu = setupConsignePriorityMenu;
+  Modes.closeConsigneActionMenuFromNode = closeConsigneActionMenuFromNode;
+  Modes.setupConsigneHistoryTimeline = setupConsigneHistoryTimeline;
+  // Expose timeline updater and status resolver for other modules (bilan)
+  Modes.updateConsigneHistoryTimeline = updateConsigneHistoryTimeline;
+  Modes.dotColor = dotColor;
+  Modes.triggerConsigneRowUpdateHighlight = triggerConsigneRowUpdateHighlight;
 
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = {
-    readConsigneCurrentValue,
-    dotColor,
-    buildChecklistValue,
-    sanitizeChecklistItems,
-    readChecklistStates,
-    readChecklistSkipped,
-    dispatchConsigneMutation,
-    // Expose select internals for tests (non-breaking for runtime)
-    setConsigneSkipState,
-    normalizeConsigneValueForPersistence,
-    normalizeMontantValue,
-    parseHistoryTimelineDateInfo,
-    __test__: {
-      resolveHistoryTimelineKeyBase,
-      renderConsigneValueField,
-      readConsigneValueFromForm,
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = {
+      readConsigneCurrentValue,
+      dotColor,
+      buildChecklistValue,
+      sanitizeChecklistItems,
+      readChecklistStates,
+      readChecklistSkipped,
       dispatchConsigneMutation,
-    },
-  };
-}
+      // Expose select internals for tests (non-breaking for runtime)
+      setConsigneSkipState,
+      normalizeConsigneValueForPersistence,
+      normalizeMontantValue,
+      parseHistoryTimelineDateInfo,
+      __test__: {
+        resolveHistoryTimelineKeyBase,
+        renderConsigneValueField,
+        readConsigneValueFromForm,
+        dispatchConsigneMutation,
+      },
+    };
+  }
