@@ -9747,36 +9747,39 @@ function buildConsigneHistoryTimeline(entries, consigne) {
     });
   }
 
-  // Fill in missing days with placeholders
-  try {
-    const existingKeys = new Set(records.map((r) => r.dayKey).filter(Boolean));
-    const limit = typeof CONSIGNE_HISTORY_TIMELINE_DAY_COUNT === "number" ? CONSIGNE_HISTORY_TIMELINE_DAY_COUNT : 21;
-    for (let i = 0; i < limit; i++) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      const key = coerceDayKeyFromDate(d);
-      if (key && !existingKeys.has(key)) {
-        records.push({
-          dayKey: key,
-          date: d,
-          status: "na",
-          value: "",
-          note: "",
-          isBilan: false,
-          isSummary: false,
-          summaryScope: "",
-          timestamp: d.getTime(),
-          iterationIndex: null,
-          iterationNumber: null,
-          iterationLabel: "",
-          historyId: "",
-          responseId: "",
-          isPlaceholder: true,
-        });
+  // Fill in missing days with placeholders (Daily mode only)
+  const isPractice = consigne?.mode === "practice";
+  if (!isPractice) {
+    try {
+      const existingKeys = new Set(records.map((r) => r.dayKey).filter(Boolean));
+      const limit = typeof CONSIGNE_HISTORY_TIMELINE_DAY_COUNT === "number" ? CONSIGNE_HISTORY_TIMELINE_DAY_COUNT : 21;
+      for (let i = 0; i < limit; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const key = coerceDayKeyFromDate(d);
+        if (key && !existingKeys.has(key)) {
+          records.push({
+            dayKey: key,
+            date: d,
+            status: "na",
+            value: "",
+            note: "",
+            isBilan: false,
+            isSummary: false,
+            summaryScope: "",
+            timestamp: d.getTime(),
+            iterationIndex: null,
+            iterationNumber: null,
+            iterationLabel: "",
+            historyId: "",
+            responseId: "",
+            isPlaceholder: true,
+          });
+        }
       }
+    } catch (err) {
+      console.error("buildConsigneHistoryTimeline.fillMissing", err);
     }
-  } catch (err) {
-    console.error("buildConsigneHistoryTimeline.fillMissing", err);
   }
   records.sort((a, b) => {
     if (typeof b.timestamp === "number" && typeof a.timestamp === "number" && b.timestamp !== a.timestamp) {
