@@ -14983,235 +14983,240 @@ function attachConsigneEditor(row, consigne, options = {}) {
       if (typeof options.onSubmit === "function") {
         options.onSubmit(newValue, { childValues: childValueMap, summary });
       }
-      if (delaySelect) {
-        delaySelect.value = "";
+      const selectedDelayAmount = readSelectedDelayAmount();
+      if (close) {
+        closeOverlay();
       }
-      Promise.resolve()
-        .then(() =>
-          delayConfig.applyDelay(selectedDelayAmount, {
-            consigne,
-            row,
-            value: newValue,
-            summary,
-            childValues: childValueMap,
-            childAnswers: childAnswerItems,
-          })
-        )
-        .catch((error) => {
-          try {
-            modesLogger?.warn?.("consigne.delay.apply", error);
-          } catch (_) { }
-        });
-    }
-    return true;
-  };
-  let summaryMenuOpen = false;
-  const onSummaryDocumentClick = (event) => {
-    if (!summaryRoot) return;
-    if (summaryRoot.contains(event.target)) return;
-    closeSummaryMenu();
-  };
-  const onSummaryDocumentKeydown = (event) => {
-    if (event.key === "Escape" || event.key === "Esc") {
-      event.preventDefault();
-      event.stopPropagation();
-      closeSummaryMenu({ focusToggle: true });
-    }
-  };
-  const closeSummaryMenu = ({ focusToggle = false } = {}) => {
-    if (!summaryMenuOpen) return;
-    summaryMenuOpen = false;
-    if (summaryMenu) {
-      summaryMenu.hidden = true;
-    }
-    if (summaryRoot) {
-      delete summaryRoot.dataset.summaryMenuOpen;
-    }
-    if (summaryToggle) {
-      summaryToggle.setAttribute("aria-expanded", "false");
-    }
-    document.removeEventListener("click", onSummaryDocumentClick, true);
-    document.removeEventListener("keydown", onSummaryDocumentKeydown, true);
-    if (focusToggle && summaryToggle && typeof summaryToggle.focus === "function") {
-      try {
-        summaryToggle.focus({ preventScroll: true });
-      } catch (err) {
-        summaryToggle.focus();
+      if (selectedDelayAmount > 0 && delayConfig?.applyDelay) {
+        if (delaySelect) {
+          delaySelect.value = "";
+        }
+        Promise.resolve()
+          .then(() =>
+            delayConfig.applyDelay(selectedDelayAmount, {
+              consigne,
+              row,
+              value: newValue,
+              summary,
+              childValues: childValueMap,
+              childAnswers: childAnswerItems,
+            })
+          )
+          .catch((error) => {
+            try {
+              modesLogger?.warn?.("consigne.delay.apply", error);
+            } catch (_) { }
+          });
       }
-    }
-  };
-  const openSummaryMenu = () => {
-    if (!summaryRoot || !summaryMenu || !summaryToggle || summaryMenuOpen) return;
-    summaryMenu.hidden = false;
-    summaryRoot.dataset.summaryMenuOpen = "1";
-    summaryToggle.setAttribute("aria-expanded", "true");
-    summaryMenuOpen = true;
-    document.addEventListener("click", onSummaryDocumentClick, true);
-    document.addEventListener("keydown", onSummaryDocumentKeydown, true);
-  };
-  const toggleSummaryMenu = () => {
-    if (summaryMenuOpen) {
+      return true;
+    };
+    let summaryMenuOpen = false;
+    const onSummaryDocumentClick = (event) => {
+      if (!summaryRoot) return;
+      if (summaryRoot.contains(event.target)) return;
       closeSummaryMenu();
-    } else {
-      openSummaryMenu();
-    }
-  };
-  if (summaryToggle && summaryMenu) {
-    summaryToggle.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      toggleSummaryMenu();
-    });
-    summaryToggle.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" || event.key === "Esc") {
-        event.preventDefault();
-        closeSummaryMenu({ focusToggle: true });
-      }
-    });
-    summaryMenu.addEventListener("keydown", (event) => {
+    };
+    const onSummaryDocumentKeydown = (event) => {
       if (event.key === "Escape" || event.key === "Esc") {
         event.preventDefault();
         event.stopPropagation();
         closeSummaryMenu({ focusToggle: true });
       }
-    });
-    summaryMenu.addEventListener("click", (event) => {
-      const target = event.target?.closest("[data-summary-option]");
-      if (!target) return;
-      event.preventDefault();
-      const choice = target.getAttribute("data-summary-option");
-      if (!choice) return;
-      if (choice === "clear") {
+    };
+    const closeSummaryMenu = ({ focusToggle = false } = {}) => {
+      if (!summaryMenuOpen) return;
+      summaryMenuOpen = false;
+      if (summaryMenu) {
+        summaryMenu.hidden = true;
+      }
+      if (summaryRoot) {
+        delete summaryRoot.dataset.summaryMenuOpen;
+      }
+      if (summaryToggle) {
+        summaryToggle.setAttribute("aria-expanded", "false");
+      }
+      document.removeEventListener("click", onSummaryDocumentClick, true);
+      document.removeEventListener("keydown", onSummaryDocumentKeydown, true);
+      if (focusToggle && summaryToggle && typeof summaryToggle.focus === "function") {
+        try {
+          summaryToggle.focus({ preventScroll: true });
+        } catch (err) {
+          summaryToggle.focus();
+        }
+      }
+    };
+    const openSummaryMenu = () => {
+      if (!summaryRoot || !summaryMenu || !summaryToggle || summaryMenuOpen) return;
+      summaryMenu.hidden = false;
+      summaryRoot.dataset.summaryMenuOpen = "1";
+      summaryToggle.setAttribute("aria-expanded", "true");
+      summaryMenuOpen = true;
+      document.addEventListener("click", onSummaryDocumentClick, true);
+      document.addEventListener("keydown", onSummaryDocumentKeydown, true);
+    };
+    const toggleSummaryMenu = () => {
+      if (summaryMenuOpen) {
         closeSummaryMenu();
-        commitResponse({ summary: null, close: true, requireValueForSummary: false });
-        return;
+      } else {
+        openSummaryMenu();
       }
-      const metadata = buildSummaryMetadataForScope(choice, { date: new Date() });
-      if (!metadata) {
+    };
+    if (summaryToggle && summaryMenu) {
+      summaryToggle.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleSummaryMenu();
+      });
+      summaryToggle.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" || event.key === "Esc") {
+          event.preventDefault();
+          closeSummaryMenu({ focusToggle: true });
+        }
+      });
+      summaryMenu.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" || event.key === "Esc") {
+          event.preventDefault();
+          event.stopPropagation();
+          closeSummaryMenu({ focusToggle: true });
+        }
+      });
+      summaryMenu.addEventListener("click", (event) => {
+        const target = event.target?.closest("[data-summary-option]");
+        if (!target) return;
+        event.preventDefault();
+        const choice = target.getAttribute("data-summary-option");
+        if (!choice) return;
+        if (choice === "clear") {
+          closeSummaryMenu();
+          commitResponse({ summary: null, close: true, requireValueForSummary: false });
+          return;
+        }
+        const metadata = buildSummaryMetadataForScope(choice, { date: new Date() });
+        if (!metadata) {
+          closeSummaryMenu();
+          return;
+        }
+        const success = commitResponse({ summary: metadata, close: true, requireValueForSummary: true });
+        if (!success) {
+          return;
+        }
         closeSummaryMenu();
-        return;
-      }
-      const success = commitResponse({ summary: metadata, close: true, requireValueForSummary: true });
-      if (!success) {
-        return;
-      }
-      closeSummaryMenu();
-      if (typeof showToast === "function") {
-        const toastLabel = metadata.summaryLabel || metadata.label || "Bilan";
-        showToast(`${toastLabel} enregistré.`);
-      }
-    });
-    childMenuCleanups.push(() => closeSummaryMenu());
-  }
-  const background = variant === "drawer" ? overlay.firstElementChild : overlay;
-  if (background) {
-    background.addEventListener("click", (event) => {
-      const isDrawerBg = variant === "drawer" && event.target === background;
-      const isModalBg = variant !== "drawer" && event.target === overlay;
-      if (isDrawerBg || isModalBg) {
+        if (typeof showToast === "function") {
+          const toastLabel = metadata.summaryLabel || metadata.label || "Bilan";
+          showToast(`${toastLabel} enregistré.`);
+        }
+      });
+      childMenuCleanups.push(() => closeSummaryMenu());
+    }
+    const background = variant === "drawer" ? overlay.firstElementChild : overlay;
+    if (background) {
+      background.addEventListener("click", (event) => {
+        const isDrawerBg = variant === "drawer" && event.target === background;
+        const isModalBg = variant !== "drawer" && event.target === overlay;
+        if (isDrawerBg || isModalBg) {
+          event.preventDefault();
+          closeOverlay();
+        }
+      });
+    }
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
         event.preventDefault();
         closeOverlay();
       }
-    });
-  }
-  const onKeyDown = (event) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeOverlay();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    const cancelBtn = overlay.querySelector("[data-consigne-editor-cancel]");
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        closeOverlay();
+      });
     }
-  };
-  document.addEventListener("keydown", onKeyDown, true);
-  const cancelBtn = overlay.querySelector("[data-consigne-editor-cancel]");
-  if (cancelBtn) {
-    cancelBtn.addEventListener("click", (event) => {
-      event.preventDefault();
-      closeOverlay();
-    });
-  }
-  const skipBtn = overlay.querySelector("[data-consigne-editor-skip]");
-  if (skipBtn) {
-    skipBtn.addEventListener("click", (event) => {
-      event.preventDefault();
-      // Assure la présence du champ caché et met à jour l'UI immédiatement
-      try {
-        modesLogger?.group?.("ui.consigne.skip.click", { consigneId: consigne?.id ?? null });
-      } catch (_) { }
-      try {
-        const targetRow = (row && row.isConnected) ? row : overlay.ownerDocument?.querySelector?.(`[data-consigne-id="${String(consigne?.id ?? "")}" ]`);
-        const r = targetRow || row;
-        if (r) {
-          ensureConsigneSkipField(r, consigne);
-          setConsigneSkipState(r, consigne, true);
-          // Sécurise l’UI si un écouteur manquerait
-          applyConsigneSkipState(r, consigne, true, { updateUI: true });
-          // Déclenche une persistance applicative immédiate
-          try {
-            if (typeof handleValueChange === 'function') {
-              handleValueChange(consigne, r, { skipped: true });
-            }
-            if (typeof runAutoSave === 'function' && consigne?.id != null) {
-              runAutoSave(consigne.id);
-            }
-          } catch (e) {
-            modesLogger?.warn?.('consigne.skip.click.persist', e);
-          }
-          // Déclenche une persistance éventuelle pour les checklists imbriquées dans la consigne
-          const root = r.querySelector?.('[data-checklist-root]');
-          const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
-          if (root && typeof persistFn === 'function') {
-            const ctxUid = window.AppCtx?.user?.uid || null;
-            const ctxDb = window.AppCtx?.db || null;
+    const skipBtn = overlay.querySelector("[data-consigne-editor-skip]");
+    if (skipBtn) {
+      skipBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        // Assure la présence du champ caché et met à jour l'UI immédiatement
+        try {
+          modesLogger?.group?.("ui.consigne.skip.click", { consigneId: consigne?.id ?? null });
+        } catch (_) { }
+        try {
+          const targetRow = (row && row.isConnected) ? row : overlay.ownerDocument?.querySelector?.(`[data-consigne-id="${String(consigne?.id ?? "")}" ]`);
+          const r = targetRow || row;
+          if (r) {
+            ensureConsigneSkipField(r, consigne);
+            setConsigneSkipState(r, consigne, true);
+            // Sécurise l’UI si un écouteur manquerait
+            applyConsigneSkipState(r, consigne, true, { updateUI: true });
+            // Déclenche une persistance applicative immédiate
             try {
-              modesLogger?.info?.('consigne.skip.persist.attempt', {
+              if (typeof handleValueChange === 'function') {
+                handleValueChange(consigne, r, { skipped: true });
+              }
+              if (typeof runAutoSave === 'function' && consigne?.id != null) {
+                runAutoSave(consigne.id);
+              }
+            } catch (e) {
+              modesLogger?.warn?.('consigne.skip.click.persist', e);
+            }
+            // Déclenche une persistance éventuelle pour les checklists imbriquées dans la consigne
+            const root = r.querySelector?.('[data-checklist-root]');
+            const persistFn = window.ChecklistState && window.ChecklistState.persistRoot;
+            if (root && typeof persistFn === 'function') {
+              const ctxUid = window.AppCtx?.user?.uid || null;
+              const ctxDb = window.AppCtx?.db || null;
+              try {
+                modesLogger?.info?.('consigne.skip.persist.attempt', {
+                  consigneId: consigne?.id ?? null,
+                  hasChecklistRoot: Boolean(root),
+                });
+              } catch (_) { }
+              Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
+                console.warn('[consigne] persist:skip', e);
+              });
+            }
+            // Persistance daily "responses" désactivée: ne pas appeler Schema.saveResponses('daily')
+            try {
+              modesLogger?.info?.('consigne.skip.persist.disabled', { consigneId: consigne?.id ?? null });
+            } catch (_) { }
+            try {
+              modesLogger?.info?.('consigne.skip.ui', {
                 consigneId: consigne?.id ?? null,
-                hasChecklistRoot: Boolean(root),
+                status: r?.dataset?.status || null,
+                skipFlag: r?.dataset?.skipAnswered || null,
               });
             } catch (_) { }
-            Promise.resolve(persistFn.call(window.ChecklistState, root, { uid: ctxUid, db: ctxDb })).catch((e) => {
-              console.warn('[consigne] persist:skip', e);
-            });
           }
-          // Persistance daily "responses" désactivée: ne pas appeler Schema.saveResponses('daily')
-          try {
-            modesLogger?.info?.('consigne.skip.persist.disabled', { consigneId: consigne?.id ?? null });
-          } catch (_) { }
-          try {
-            modesLogger?.info?.('consigne.skip.ui', {
-              consigneId: consigne?.id ?? null,
-              status: r?.dataset?.status || null,
-              skipFlag: r?.dataset?.skipAnswered || null,
-            });
-          } catch (_) { }
+        } catch (err) {
+          console.warn('[consigne] skip:handler', err);
         }
-      } catch (err) {
-        console.warn('[consigne] skip:handler', err);
-      }
-      updateParentChildAnsweredFlag();
-      syncParentAnswered();
-      updateSummaryControlState();
-      if (typeof options.onSkip === "function") {
-        options.onSkip({ event, close: closeOverlay, consigne, row });
-      }
-      closeOverlay();
-      try { modesLogger?.groupEnd?.(); } catch (_) { }
-    });
+        updateParentChildAnsweredFlag();
+        syncParentAnswered();
+        updateSummaryControlState();
+        if (typeof options.onSkip === "function") {
+          options.onSkip({ event, close: closeOverlay, consigne, row });
+        }
+        closeOverlay();
+        try { modesLogger?.groupEnd?.(); } catch (_) { }
+      });
+    }
+    const validateBtn = overlay.querySelector("[data-consigne-editor-validate]");
+    if (validateBtn) {
+      validateBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        commitResponse({ summary: null, close: true });
+      });
+    }
+  };
+  trigger.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openEditor();
+  });
+  if (trigger && typeof trigger.setAttribute === "function") {
+    trigger.setAttribute("aria-expanded", "false");
   }
-  const validateBtn = overlay.querySelector("[data-consigne-editor-validate]");
-  if (validateBtn) {
-    validateBtn.addEventListener("click", (event) => {
-      event.preventDefault();
-      commitResponse({ summary: null, close: true });
-    });
-  }
-};
-trigger.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  openEditor();
-});
-if (trigger && typeof trigger.setAttribute === "function") {
-  trigger.setAttribute("aria-expanded", "false");
-}
 }
 
 function hasChecklistResponse(consigne, row, value) {
