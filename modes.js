@@ -14987,6 +14987,38 @@ function attachConsigneEditor(row, consigne, options = {}) {
       if (close) {
         closeOverlay();
       }
+      // Persist to history to synchronize with History editor
+      try {
+        const dayKey = typeof window !== "undefined" && window.AppCtx?.dateIso
+          ? window.AppCtx.dateIso
+          : new Date().toISOString().split('T')[0];
+        const db = typeof window !== "undefined" && window.AppCtx?.db
+          ? window.AppCtx.db
+          : null;
+        const uid = typeof window !== "undefined" && window.AppCtx?.user?.uid
+          ? window.AppCtx.user.uid
+          : null;
+
+        if (db && uid && consigne?.id && Schema && typeof Schema.saveHistoryEntry === "function") {
+          const note = "";  // Daily editor doesn't have notes
+          const responseSyncOptions = {
+            responseId: row?.dataset?.responseId || dayKey,
+            responseMode: "daily",
+          };
+
+          await Schema.saveHistoryEntry(
+            db,
+            uid,
+            consigne.id,
+            dayKey,
+            newValue,
+            note,
+            responseSyncOptions
+          );
+        }
+      } catch (error) {
+        console.warn("daily.editor.saveHistory", error);
+      }
       if (selectedDelayAmount > 0 && delayConfig?.applyDelay) {
         if (delaySelect) {
           delaySelect.value = "";
