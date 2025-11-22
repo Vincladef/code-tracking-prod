@@ -14509,6 +14509,10 @@ function attachConsigneEditor(row, consigne, options = {}) {
       overlay.classList.add(preferTop ? "phone-top" : "phone-center");
     }
     initializeChecklistScope(overlay, {});
+    const richTextRoot = overlay.querySelector("[data-rich-text-root]");
+    if (richTextRoot) {
+      setupRichTextEditor(richTextRoot);
+    }
     overlay.querySelectorAll("textarea").forEach((textarea) => {
       autoGrowTextarea(textarea);
     });
