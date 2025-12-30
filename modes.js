@@ -477,17 +477,20 @@ function modal(html) {
   // seule fois. Comportement vérifié manuellement sur les deux navigateurs.
   const updateFromViewport = () => {
     if (!modalEl) return;
-    const height = viewport ? viewport.height : window.innerHeight;
-    const offsetTop = viewport ? viewport.offsetTop : 0;
-    const offsetLeft = viewport ? viewport.offsetLeft : 0;
+    const likelyTouchDevice = Boolean(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    const useViewport = Boolean(viewport && likelyTouchDevice);
+    const height = useViewport ? viewport.height : window.innerHeight;
+    const offsetTop = useViewport ? viewport.offsetTop : 0;
+    const offsetLeft = useViewport ? viewport.offsetLeft : 0;
     const hiddenBottom = Math.max(0, window.innerHeight - (height + offsetTop));
-    const keyboardVisible = viewport ? height + offsetTop < window.innerHeight : false;
+    const KEYBOARD_THRESHOLD = 120;
+    const keyboardVisible = useViewport ? hiddenBottom > KEYBOARD_THRESHOLD : false;
     const reservedTop = keyboardVisible ? offsetTop + SAFE_PADDING : 0;
     const reservedBottom = keyboardVisible ? SAFE_PADDING : VIEWPORT_MARGIN_BOTTOM;
     const maxHeight = Math.max(0, height - reservedTop - reservedBottom);
 
     modalEl.style.maxHeight = `${maxHeight}px`;
-    modalEl.style.transform = viewport
+    modalEl.style.transform = useViewport
       ? `translate3d(${offsetLeft}px, ${keyboardVisible ? 0 : offsetTop}px, 0)`
       : "";
     docEl?.style?.setProperty("--viewport-safe-height", `${maxHeight}px`);
