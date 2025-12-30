@@ -18618,7 +18618,6 @@ async function renderPractice(ctx, root, _opts = {}) {
         <div data-practice-category-holder class="relative"></div>
       </div>
       <div class="flex items-center gap-2">
-        ${smallBtn("📝 Faire un bilan", "js-bilan")}
         ${smallBtn("+ Nouvelle consigne", "js-new")}
       </div>
     </div>
@@ -20433,7 +20432,7 @@ async function renderDaily(ctx, root, opts = {}) {
           <span aria-hidden="true">→</span>
         </button>
       </div>
-      <div class="daily-header-actions flex items-center gap-2">${smallBtn("📝 Faire un bilan", "js-bilan")}${smallBtn("+ Nouvelle consigne", "js-new")}</div>
+      <div class="daily-header-actions flex items-center gap-2">${smallBtn("+ Nouvelle consigne", "js-new")}</div>
     </div>
   `;
   container.appendChild(card);
