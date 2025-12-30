@@ -311,7 +311,7 @@
     .scale-ticks{ display:grid; grid-template-columns:repeat(11,1fr); font-size:.85rem; margin-top:.25rem; }
     .scale-ticks span{ text-align:center; }
 
-    .modal { position:fixed; inset:0; display:flex; justify-content:center; background:rgba(0,0,0,.45); z-index:1000; }
+    .modal { position:fixed; inset:0; display:flex; justify-content:center; align-items:center; background:rgba(0,0,0,.45); z-index:1000; min-height:100vh; }
     .modal.phone-center { align-items:center; }
     .modal.phone-top { align-items:flex-start; padding-top:8px; }
     .modal__dialog { width:min(900px, 92vw); max-height:90vh; background:#fff; border-radius:16px; display:grid; grid-template-rows:auto 1fr auto; overflow:hidden; }

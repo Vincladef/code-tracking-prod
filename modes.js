@@ -427,6 +427,7 @@ window.Modes.richText = {
 function modal(html) {
   const wrap = document.createElement("div");
   wrap.className = "modal fixed inset-0 z-50 bg-black/40 p-4 phone-center";
+  wrap.style.cssText = "display: flex; justify-content: center; align-items: center; min-height: 100vh;";
   wrap.innerHTML = `
     <div class="modal__dialog w-[min(680px,92vw)] overflow-y-auto rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl" data-modal-content style="max-height:var(--viewport-safe-height, calc(100vh - 2rem));">
       ${html}
