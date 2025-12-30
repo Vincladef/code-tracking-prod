@@ -10320,7 +10320,7 @@ function updateConsigneHistoryNavState(state) {
     navPrev.disabled = !showPrev;
   }
   if (navNext) {
-    const showNext = (hasOverflow && !atEnd) || (state.navMore && state.navMore.hidden === false);
+    const showNext = (hasOverflow && !atEnd) || (typeof state.canPageOlder === "function" ? state.canPageOlder() : false);
     navNext.hidden = !showNext;
     navNext.disabled = !showNext;
   }
@@ -10371,7 +10371,7 @@ function setupConsigneHistoryNavigation(state) {
       const hasOverflow = Math.round(scrollWidth) - Math.round(clientWidth) > CONSIGNE_HISTORY_SCROLL_EPSILON;
       const canLoadOlderViaPagination =
         canPageOlder &&
-        (typeof state.canPageOlder === "function" ? state.canPageOlder() : state.navMore?.hidden === false);
+        (typeof state.canPageOlder === "function" ? state.canPageOlder() : false);
       if (canLoadOlderViaPagination && (!hasOverflow || atEnd)) {
         try {
           state.pageOlder();
@@ -13084,14 +13084,12 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
   const viewport = row.querySelector("[data-consigne-history-viewport]") || container;
   const navPrev = row.querySelector("[data-consigne-history-prev]") || null;
   const navNext = row.querySelector("[data-consigne-history-next]") || null;
-  const navMore = row.querySelector("[data-consigne-history-more]") || null;
   const state = {
     track,
     container,
     viewport,
     navPrev,
     navNext,
-    navMore,
     hasDayTimeline: false,
     limit: CONSIGNE_HISTORY_TIMELINE_DAY_COUNT,
     dayKey: explicitDayKey,
@@ -13163,13 +13161,6 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
 
   state.canPageOlder = computeHasOlderPage;
 
-  const syncMoreButton = () => {
-    if (!state.navMore) return;
-    const hasOlder = computeHasOlderPage();
-    state.navMore.hidden = !hasOlder;
-    state.navMore.disabled = !hasOlder;
-  };
-
   const renderFromState = () => {
     const points = buildConsigneHistoryTimeline(state.entries, consigne, {
       limit: state.limit,
@@ -13181,7 +13172,6 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
         state.viewport.scrollLeft = 0;
       }
     } catch (_) { }
-    syncMoreButton();
     scheduleConsigneHistoryNavUpdate(state);
   };
 
@@ -13223,28 +13213,10 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     }
   };
 
-  if (state.navMore) {
-    state.navMore.addEventListener("click", async (event) => {
-      event.preventDefault();
-      if (state.navMore.disabled) {
-        return;
-      }
-      const targetPage = state.pageIndex + 1;
-      await ensureFetchedForPage(targetPage);
-      if (!computeHasOlderPage()) {
-        syncMoreButton();
-        return;
-      }
-      state.pageIndex = targetPage;
-      renderFromState();
-    });
-  }
-
   state.pageOlder = async () => {
     const targetPage = state.pageIndex + 1;
     await ensureFetchedForPage(targetPage);
     if (!computeHasOlderPage()) {
-      syncMoreButton();
       return;
     }
     state.pageIndex = targetPage;
@@ -19050,7 +19022,6 @@ async function renderPractice(ctx, root, _opts = {}) {
         </div>
         <div class="consigne-history" data-consigne-history hidden>
           <button type="button" class="consigne-history__nav" data-consigne-history-prev aria-label="Faire défiler l’historique vers la gauche" hidden><span aria-hidden="true">&lsaquo;</span></button>
-          <button type="button" class="consigne-history__nav" data-consigne-history-more aria-label="Afficher des réponses plus anciennes" hidden><span aria-hidden="true">&hellip;</span></button>
           <div class="consigne-history__viewport" data-consigne-history-viewport>
             <div class="consigne-history__track" data-consigne-history-track role="list"></div>
           </div>
@@ -21456,7 +21427,6 @@ async function renderDaily(ctx, root, opts = {}) {
       </div>
       <div class="consigne-history" data-consigne-history hidden>
         <button type="button" class="consigne-history__nav" data-consigne-history-prev aria-label="Faire défiler l’historique vers la gauche" hidden><span aria-hidden="true">&lsaquo;</span></button>
-        <button type="button" class="consigne-history__nav" data-consigne-history-more aria-label="Afficher des réponses plus anciennes" hidden><span aria-hidden="true">&hellip;</span></button>
         <div class="consigne-history__viewport" data-consigne-history-viewport>
           <div class="consigne-history__track" data-consigne-history-track role="list"></div>
         </div>

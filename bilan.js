@@ -915,7 +915,6 @@
       ${shouldRenderHistory ? `
       <div class="consigne-history" data-consigne-history hidden>
         <button type="button" class="consigne-history__nav" data-consigne-history-prev aria-label="Faire défiler l’historique vers la gauche" hidden><span aria-hidden="true">&lsaquo;</span></button>
-        <button type="button" class="consigne-history__nav" data-consigne-history-more aria-label="Afficher des réponses plus anciennes" hidden><span aria-hidden="true">&hellip;</span></button>
         <div class="consigne-history__viewport" data-consigne-history-viewport>
           <div class="consigne-history__track" data-consigne-history-track role="list"></div>
         </div>
