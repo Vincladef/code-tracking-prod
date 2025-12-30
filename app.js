@@ -2353,6 +2353,7 @@
     panel: document.getElementById("user-actions-panel"),
     notif: document.getElementById("user-actions-notifications"),
     archives: document.getElementById("user-actions-archives"),
+    toggleHistory: document.getElementById("user-actions-toggle-history"),
     install: document.getElementById("install-app-button"),
   };
 
@@ -2369,6 +2370,9 @@
   }
 
   function openUserActionsMenu() {
+    try {
+      window.Modes?.updateHistoryNaToggleButton?.();
+    } catch (_) { }
     if (userActions.panel) {
       userActions.panel.classList.remove("hidden");
     }
@@ -2455,6 +2459,22 @@
       }
     }
   });
+
+  userActions.toggleHistory?.addEventListener("click", () => {
+    closeUserActionsMenu();
+    try {
+      const toggle = window.Modes?.toggleHistoryNaVisibility;
+      if (typeof toggle === "function") {
+        toggle();
+      }
+    } catch (error) {
+      console.error("user-actions:toggle-history", error);
+    }
+  });
+
+  try {
+    window.Modes?.updateHistoryNaToggleButton?.();
+  } catch (_) { }
 
   if (userActions.install) {
     userActions.install.addEventListener("click", () => {

@@ -26,6 +26,68 @@ const prefillAlert = (label, payload = {}) => {
   } catch (_) { }
 };
 
+let historyNaVisible = true;
+try {
+  const saved = window?.localStorage?.getItem("historyNaVisible");
+  if (saved === "0" || saved === "1") {
+    historyNaVisible = saved === "1";
+  }
+} catch (_) { }
+
+function updateHistoryNaToggleButton() {
+  const btn = document.getElementById("user-actions-toggle-history");
+  if (!btn) return;
+  btn.textContent = historyNaVisible ? "👁️ Masquer les pastilles vides" : "👁️‍🗨️ Montrer les pastilles vides";
+}
+
+function applyHistoryNaVisibilityToItem(item) {
+  if (!(item instanceof HTMLElement)) return;
+  const status = item.dataset?.status || "";
+  const shouldHide = status === "na" && !historyNaVisible;
+  item.hidden = shouldHide;
+  item.setAttribute("aria-hidden", shouldHide ? "true" : "false");
+  item.tabIndex = shouldHide ? -1 : 0;
+}
+
+function updateHistoryNaVisibilityForTrack(track) {
+  if (!(track instanceof HTMLElement)) return;
+  const container = track.closest("[data-consigne-history]");
+  Array.from(track.children).forEach((child) => {
+    applyHistoryNaVisibilityToItem(child);
+  });
+  if (container instanceof HTMLElement) {
+    const hasVisible = Array.from(track.children).some((child) => child instanceof HTMLElement && !child.hidden);
+    container.hidden = !hasVisible;
+  }
+}
+
+function updateAllHistoryNaVisibility() {
+  document.querySelectorAll("[data-consigne-history-track]").forEach((track) => {
+    updateHistoryNaVisibilityForTrack(track);
+  });
+}
+
+function toggleHistoryNaVisibility() {
+  historyNaVisible = !historyNaVisible;
+  try {
+    window?.localStorage?.setItem("historyNaVisible", historyNaVisible ? "1" : "0");
+  } catch (_) { }
+  try {
+    window.Modes = window.Modes || {};
+    window.Modes.historyNaVisible = historyNaVisible;
+  } catch (_) { }
+  updateAllHistoryNaVisibility();
+  updateHistoryNaToggleButton();
+}
+
+try {
+  window.Modes = window.Modes || {};
+  window.Modes.historyNaVisible = historyNaVisible;
+  window.Modes.toggleHistoryNaVisibility = toggleHistoryNaVisibility;
+  window.Modes.updateHistoryNaToggleButton = updateHistoryNaToggleButton;
+  window.Modes.updateAllHistoryNaVisibility = updateAllHistoryNaVisibility;
+} catch (_) { }
+
 let checkboxBehaviorSetupPromise = null;
 
 let flushAutoSaveForConsigne = async () => { };
@@ -10126,6 +10188,9 @@ function applyConsigneHistoryPoint(item, point) {
   item.dataset.status = status;
   item.dataset.placeholder = point.isPlaceholder ? "1" : "0";
   item.tabIndex = 0;
+  try {
+    applyHistoryNaVisibilityToItem(item);
+  } catch (_) { }
   // Tag scope to allow styling (weekly/monthly/yearly) for bilan points
   try {
     const scope = typeof point.summaryScope === "string" ? point.summaryScope.trim() : "";
@@ -12562,7 +12627,11 @@ function renderConsigneHistoryTimeline(row, points) {
       applyConsigneHistoryPoint(item, point);
       track.appendChild(item);
     });
-    container.hidden = false;
+    try {
+      updateHistoryNaVisibilityForTrack(track);
+    } catch (_) {
+      container.hidden = false;
+    }
     track.dataset.historyMode = "day";
     return true;
   }
