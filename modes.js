@@ -4357,6 +4357,48 @@ function setupConsigneActionMenus(scope = document, configure) {
         }
       });
     }
+
+    const prioLowBtn = actionsRoot.querySelector(".js-prio-low");
+    const prioLowConfig = config?.prioLow;
+    if (prioLowBtn && prioLowConfig) {
+      const resolveEnabled = () => {
+        if (typeof prioLowConfig.getEnabled === "function") {
+          try {
+            return Boolean(prioLowConfig.getEnabled());
+          } catch (err) {
+            console.error(err);
+            return true;
+          }
+        }
+        return true;
+      };
+      const updateButton = (enabled) => {
+        const nextEnabled = Boolean(enabled);
+        prioLowBtn.disabled = !nextEnabled;
+        prioLowBtn.hidden = !nextEnabled;
+      };
+      updateButton(resolveEnabled());
+      prioLowBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        console.log("DEBUG: bPrioLow clicked in setupConsigneActionMenus!");
+        alert("DEBUG: Priorité basse cliqué!");
+        prioLowBtn.disabled = true;
+        try {
+          await prioLowConfig.onClick?.({
+            event,
+            update: updateButton,
+            close: () => closeConsigneActionMenu(actionsRoot),
+            actionsRoot,
+          });
+        } catch (err) {
+          console.error("Error in prioLow onClick:", err);
+        } finally {
+          prioLowBtn.disabled = false;
+          closeConsigneActionMenu(actionsRoot);
+        }
+      });
+    }
   });
 }
 
@@ -21142,6 +21184,22 @@ async function renderDaily(ctx, root, opts = {}) {
             console.error(err);
             showToast("Impossible de mettre à jour la répétition espacée.");
             return srEnabled;
+          }
+        },
+      },
+      prioLow: {
+        getEnabled: () => (Number(item.priority) || 2) < 3,
+        onClick: async ({ close }) => {
+          try {
+            console.log("Setting priority to low (3) for consigne:", item.id, "current priority:", item.priority);
+            await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { priority: 3 });
+            console.log("Priority updated successfully");
+            item.priority = 3;
+            renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
+            showToast("Consigne passée en priorité basse.");
+          } catch (err) {
+            console.error("Error updating priority:", err);
+            showToast("Impossible de changer la priorité.");
           }
         },
       },
