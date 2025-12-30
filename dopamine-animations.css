@@ -1,0 +1,349 @@
+/* Dopamine-boosting animations for habit tracker */
+
+/* Confetti animation for task completion */
+@keyframes confetti-burst {
+  0% {
+    transform: scale(0) rotate(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2) rotate(180deg);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(0.8) rotate(360deg) translateY(-20px);
+    opacity: 0;
+  }
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-100vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+.confetti-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+.confetti-piece {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #feca57);
+  animation: confetti-fall 3s ease-out forwards;
+}
+
+/* Checkbox satisfaction animations */
+@keyframes checkbox-check-bounce {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.3) rotate(-5deg); }
+  50% { transform: scale(0.9) rotate(5deg); }
+  70% { transform: scale(1.1) rotate(-2deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+@keyframes checkbox-success-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7);
+    background: rgba(76, 175, 80, 0.1);
+  }
+  70% {
+    box-shadow: 0 0 0 20px rgba(76, 175, 80, 0);
+    background: rgba(76, 175, 80, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
+    background: rgba(76, 175, 80, 0);
+  }
+}
+
+.checkbox-dopamine {
+  animation: checkbox-check-bounce 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.checkbox-dopamine::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: checkbox-success-pulse 0.8s ease-out;
+}
+
+/* Progress bar fill animation */
+@keyframes progress-fill-glow {
+  0% {
+    background-position: 0% 50%;
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+  }
+  50% {
+    background-position: 100% 50%;
+    box-shadow: 0 0 20px rgba(76, 175, 80, 0.6);
+  }
+  100% {
+    background-position: 0% 50%;
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+  }
+}
+
+.progress-dopamine {
+  background: linear-gradient(90deg, #4CAF50, #8BC34A, #CDDC39, #4CAF50);
+  background-size: 200% 100%;
+  animation: progress-fill-glow 2s linear infinite;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Streak celebration */
+@keyframes streak-fire {
+  0%, 100% {
+    transform: scale(1) translateY(0);
+    filter: hue-rotate(0deg);
+  }
+  25% {
+    transform: scale(1.1) translateY(-3px);
+    filter: hue-rotate(10deg);
+  }
+  50% {
+    transform: scale(1.05) translateY(-5px);
+    filter: hue-rotate(-10deg);
+  }
+  75% {
+    transform: scale(1.08) translateY(-2px);
+    filter: hue-rotate(5deg);
+  }
+}
+
+.streak-dopamine {
+  animation: streak-fire 2s ease-in-out infinite;
+  background: linear-gradient(45deg, #ff6b6b, #feca57, #ff6b6b);
+  background-size: 200% 200%;
+  animation: streak-fire 1.5s ease-in-out infinite, progress-fill-glow 3s linear infinite;
+}
+
+/* Level up animation */
+@keyframes level-up-burst {
+  0% {
+    transform: scale(0.5) rotate(0deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2) rotate(180deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(360deg);
+    opacity: 1;
+  }
+}
+
+.level-up-dopamine {
+  animation: level-up-burst 1s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* Floating achievement badges */
+@keyframes float-achievement {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-10px) rotate(2deg);
+  }
+  75% {
+    transform: translateY(-5px) rotate(-2deg);
+  }
+}
+
+.achievement-float {
+  animation: float-achievement 3s ease-in-out infinite;
+}
+
+/* Success ripple effect */
+@keyframes success-ripple {
+  0% {
+    transform: scale(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+.success-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(76, 175, 80, 0.3), transparent);
+  animation: success-ripple 1s ease-out;
+  pointer-events: none;
+}
+
+/* Magnetic button effect */
+@keyframes magnetic-pull {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.magnetic-button {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.magnetic-button:hover {
+  animation: magnetic-pull 0.6s ease-in-out infinite;
+}
+
+/* Sparkle effects */
+@keyframes sparkle {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1) rotate(180deg);
+  }
+}
+
+.sparkle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: white;
+  border-radius: 50%;
+  animation: sparkle 1.5s ease-in-out;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+}
+
+/* Task completion celebration */
+@keyframes celebration-bounce {
+  0%, 20%, 50%, 80%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  40% {
+    transform: translateY(-20px) scale(1.1);
+  }
+  60% {
+    transform: translateY(-10px) scale(1.05);
+  }
+}
+
+.celebration-dance {
+  animation: celebration-bounce 1s ease-in-out;
+}
+
+/* Rainbow text effect for achievements */
+@keyframes rainbow-text {
+  0% { color: #ff6b6b; }
+  16.66% { color: #feca57; }
+  33.33% { color: #48dbfb; }
+  50% { color: #ff9ff3; }
+  66.66% { color: #54a0ff; }
+  83.33% { color: #5f27cd; }
+  100% { color: #ff6b6b; }
+}
+
+.rainbow-text {
+  animation: rainbow-text 3s linear infinite;
+  font-weight: bold;
+}
+
+/* Pulse for important notifications */
+@keyframes urgent-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 15px rgba(255, 107, 107, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0);
+  }
+}
+
+.urgent-notification {
+  animation: urgent-pulse 2s infinite;
+}
+
+/* Smooth slide and fade for new items */
+@keyframes slide-in-glow {
+  0% {
+    opacity: 0;
+    transform: translateX(-30px);
+    filter: blur(5px);
+  }
+  50% {
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.slide-in-dopamine {
+  animation: slide-in-glow 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Micro-interactions for hover states */
+.hover-lift {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+}
+
+/* Success notification slide */
+@keyframes success-notification {
+  0% {
+    transform: translateX(100%) rotate(5deg);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+.success-slide-in {
+  animation: success-notification 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* Loading shimmer effect */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer-dopamine {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
