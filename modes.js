@@ -444,6 +444,7 @@ function modal(html) {
   `;
   wrap.innerHTML = `
     <div class="modal__dialog" data-modal-content style="
+      display: block !important;
       width: min(680px, 92vw);
       max-height: 90vh;
       overflow-y: auto;
