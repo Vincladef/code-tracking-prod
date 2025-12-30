@@ -76,8 +76,38 @@ function toggleHistoryNaVisibility() {
     window.Modes = window.Modes || {};
     window.Modes.historyNaVisible = historyNaVisible;
   } catch (_) { }
+  try {
+    refreshAllConsigneHistoryTimelines();
+  } catch (_) { }
   updateAllHistoryNaVisibility();
   updateHistoryNaToggleButton();
+}
+
+function refreshAllConsigneHistoryTimelines() {
+  const tracks = document.querySelectorAll("[data-consigne-history-track]");
+  tracks.forEach((track) => {
+    const row = track?.closest?.(".consigne-row") || null;
+    const state = row ? CONSIGNE_HISTORY_ROW_STATE.get(row) : null;
+    if (!state || !state.consigne) {
+      updateHistoryNaVisibilityForTrack(track);
+      return;
+    }
+    if (!historyNaVisible) {
+      state.pageIndex = 0;
+    }
+    const points = buildConsigneHistoryTimeline(state.entries, state.consigne, {
+      limit: state.limit,
+      pageIndex: state.pageIndex,
+      answeredOnly: !historyNaVisible,
+    });
+    state.hasDayTimeline = renderConsigneHistoryTimeline(row, points);
+    try {
+      updateHistoryNaVisibilityForTrack(state.track || track);
+    } catch (_) { }
+    try {
+      scheduleConsigneHistoryNavUpdate(state);
+    } catch (_) { }
+  });
 }
 
 try {
@@ -9910,6 +9940,8 @@ function buildConsigneHistoryTimeline(entries, consigne, options = {}) {
         : 21;
   const pageIndex = Number.isFinite(options?.pageIndex) && options.pageIndex > 0 ? Math.floor(options.pageIndex) : 0;
   const isPracticeMode = consigne?.mode === "practice";
+  const answeredOnly = options?.answeredOnly === true;
+  const effectiveListMode = isPracticeMode || answeredOnly;
   const anchorDate = (() => {
     if (isPracticeMode) {
       return today;
@@ -9982,7 +10014,7 @@ function buildConsigneHistoryTimeline(entries, consigne, options = {}) {
 
   // Fill in missing days with placeholders (Daily mode only)
   const isPractice = consigne?.mode === "practice";
-  if (!isPractice) {
+  if (!isPractice && !answeredOnly) {
     try {
       const existingKeys = new Set(records.map((r) => r.dayKey).filter(Boolean));
       const DOW = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
@@ -10032,9 +10064,12 @@ function buildConsigneHistoryTimeline(entries, consigne, options = {}) {
     return (b.date?.getTime?.() || 0) - (a.date?.getTime?.() || 0);
   });
   const limited = (() => {
-    if (isPracticeMode) {
+    if (effectiveListMode) {
+      const answered = answeredOnly
+        ? records.filter((r) => r && r.status && r.status !== "na")
+        : records;
       const start = pageIndex * limit;
-      return records.slice(start, start + limit);
+      return answered.slice(start, start + limit);
     }
     const startTs = windowStart instanceof Date && !Number.isNaN(windowStart.getTime()) ? windowStart.getTime() : null;
     const endTs = anchorDate instanceof Date && !Number.isNaN(anchorDate.getTime()) ? anchorDate.getTime() : null;
@@ -13159,6 +13194,8 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     viewport,
     navPrev,
     navNext,
+    consigne,
+    ctx,
     hasDayTimeline: false,
     limit: CONSIGNE_HISTORY_TIMELINE_DAY_COUNT,
     dayKey: explicitDayKey,
@@ -13181,7 +13218,9 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
   if (!ctx?.db || !ctx?.user?.uid || !consigne?.id) {
     return;
   }
-  const timelineFetchLimit = Math.max(CONSIGNE_HISTORY_TIMELINE_DAY_COUNT * 3, 60);
+  const timelineFetchLimit = !historyNaVisible
+    ? 200
+    : Math.max(CONSIGNE_HISTORY_TIMELINE_DAY_COUNT * 3, 60);
   state.fetchLimit = timelineFetchLimit;
 
   const resolveOldestTimelineDate = (rows) => {
@@ -13211,7 +13250,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
   const computeHasOlderPage = () => {
     const limit = state.limit;
     const rows = Array.isArray(state.entries) ? state.entries : [];
-    if (consigne?.mode === "practice") {
+    if (consigne?.mode === "practice" || !historyNaVisible) {
       const nextStart = (state.pageIndex + 1) * limit;
       if (nextStart < rows.length) return true;
       return Boolean(state.hasMoreRemote && state.fetchLimit < 500);
@@ -13234,6 +13273,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     const points = buildConsigneHistoryTimeline(state.entries, consigne, {
       limit: state.limit,
       pageIndex: state.pageIndex,
+      answeredOnly: !historyNaVisible,
     });
     state.hasDayTimeline = renderConsigneHistoryTimeline(row, points);
     try {
@@ -13249,7 +13289,7 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     if (!(state.hasMoreRemote && state.fetchLimit < 500)) return;
     const limit = state.limit;
     const rows = Array.isArray(state.entries) ? state.entries : [];
-    if (consigne?.mode === "practice") {
+    if (consigne?.mode === "practice" || !historyNaVisible) {
       const requiredCount = (targetPageIndex + 1) * limit + 1;
       if (rows.length >= requiredCount) return;
     } else {
