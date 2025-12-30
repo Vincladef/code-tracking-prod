@@ -18738,10 +18738,15 @@ async function renderPractice(ctx, root, _opts = {}) {
       };
     }
     if (bPrioLow) {
+      console.log("DEBUG: bPrioLow button found for consigne:", c.id, "current priority:", c.priority);
       if ((Number(c.priority) || 2) >= 3) {
         bPrioLow.hidden = true;
+        console.log("DEBUG: bPrioLow button hidden (priority already low)");
       } else {
+        console.log("DEBUG: Setting up click handler for bPrioLow");
         bPrioLow.onclick = async (e) => {
+          console.log("DEBUG: bPrioLow clicked! Event fired for consigne:", c.id);
+          alert("DEBUG: Priorité basse cliqué pour consigne " + c.id);
           e.preventDefault();
           e.stopPropagation();
           closeConsigneActionMenuFromNode(bPrioLow);
@@ -18765,6 +18770,8 @@ async function renderPractice(ctx, root, _opts = {}) {
           }
         };
       }
+    } else {
+      console.log("DEBUG: bPrioLow button NOT FOUND for consigne:", c.id);
     }
     let srEnabled = c?.srEnabled !== false;
     const delayBtn = row.querySelector(".js-delay");
