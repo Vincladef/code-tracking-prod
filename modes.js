@@ -10315,12 +10315,12 @@ function updateConsigneHistoryNavState(state) {
   const atStart = normalizedScrollLeft <= CONSIGNE_HISTORY_SCROLL_EPSILON;
   const atEnd = normalizedScrollLeft >= maxScroll - CONSIGNE_HISTORY_SCROLL_EPSILON;
   if (navPrev) {
-    const showPrev = hasOverflow && !atStart;
+    const showPrev = (hasOverflow && !atStart) || (Number.isFinite(state.pageIndex) && state.pageIndex > 0);
     navPrev.hidden = !showPrev;
     navPrev.disabled = !showPrev;
   }
   if (navNext) {
-    const showNext = hasOverflow && !atEnd;
+    const showNext = (hasOverflow && !atEnd) || (state.navMore && state.navMore.hidden === false);
     navNext.hidden = !showNext;
     navNext.disabled = !showNext;
   }
@@ -10341,6 +10341,15 @@ function setupConsigneHistoryNavigation(state) {
   if (navPrev) {
     navPrev.addEventListener("click", (event) => {
       event.preventDefault();
+      const hasPagination = typeof state.pageNewer === "function" && Number.isFinite(state.pageIndex) && state.pageIndex > 0;
+      const normalizedScrollLeft = Math.round(viewport.scrollLeft || 0);
+      const atStart = normalizedScrollLeft <= CONSIGNE_HISTORY_SCROLL_EPSILON;
+      if (hasPagination && atStart) {
+        try {
+          state.pageNewer();
+          return;
+        } catch (_) { }
+      }
       const step = computeConsigneHistoryScrollStep(viewport);
       try {
         viewport.scrollBy({ left: -step, behavior: "smooth" });
@@ -10353,6 +10362,22 @@ function setupConsigneHistoryNavigation(state) {
   if (navNext) {
     navNext.addEventListener("click", (event) => {
       event.preventDefault();
+      const canPageOlder = typeof state.pageOlder === "function";
+      const scrollWidth = viewport.scrollWidth || 0;
+      const clientWidth = viewport.clientWidth || 0;
+      const maxScroll = Math.max(0, Math.round(Math.max(0, scrollWidth - clientWidth)));
+      const normalizedScrollLeft = Math.round(viewport.scrollLeft || 0);
+      const atEnd = normalizedScrollLeft >= maxScroll - CONSIGNE_HISTORY_SCROLL_EPSILON;
+      const hasOverflow = Math.round(scrollWidth) - Math.round(clientWidth) > CONSIGNE_HISTORY_SCROLL_EPSILON;
+      const canLoadOlderViaPagination =
+        canPageOlder &&
+        (typeof state.canPageOlder === "function" ? state.canPageOlder() : state.navMore?.hidden === false);
+      if (canLoadOlderViaPagination && (!hasOverflow || atEnd)) {
+        try {
+          state.pageOlder();
+          return;
+        } catch (_) { }
+      }
       const step = computeConsigneHistoryScrollStep(viewport);
       try {
         viewport.scrollBy({ left: step, behavior: "smooth" });
@@ -13077,6 +13102,9 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     hasMoreRemote: false,
     entries: [],
     isFetchingMore: false,
+    pageOlder: null,
+    pageNewer: null,
+    canPageOlder: null,
   };
   setupConsigneHistoryNavigation(state);
   CONSIGNE_HISTORY_ROW_STATE.set(row, state);
@@ -13132,6 +13160,8 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     nextAnchor.setHours(0, 0, 0, 0);
     return nextAnchor.getTime() >= oldest.getTime() || Boolean(state.hasMoreRemote && state.fetchLimit < 500);
   };
+
+  state.canPageOlder = computeHasOlderPage;
 
   const syncMoreButton = () => {
     if (!state.navMore) return;
@@ -13209,6 +13239,23 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
       renderFromState();
     });
   }
+
+  state.pageOlder = async () => {
+    const targetPage = state.pageIndex + 1;
+    await ensureFetchedForPage(targetPage);
+    if (!computeHasOlderPage()) {
+      syncMoreButton();
+      return;
+    }
+    state.pageIndex = targetPage;
+    renderFromState();
+  };
+
+  state.pageNewer = () => {
+    const next = Number.isFinite(state.pageIndex) ? state.pageIndex - 1 : 0;
+    state.pageIndex = Math.max(0, next);
+    renderFromState();
+  };
 
   fetchConsigneHistoryRows(ctx, consigne.id, { limit: timelineFetchLimit })
     .then((result) => {
