@@ -452,10 +452,6 @@ function modal(html) {
       border: 1px solid #e5e7eb;
       padding: 24px;
       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-      position: relative !important;
-      transform: translate(-50%, -50%) !important;
-      top: 50% !important;
-      left: 50% !important;
       margin: 0 !important;
     ">
       ${html}
