@@ -18745,13 +18745,23 @@ async function renderPractice(ctx, root, _opts = {}) {
           e.preventDefault();
           e.stopPropagation();
           closeConsigneActionMenuFromNode(bPrioLow);
+          
+          // Mise à jour optimiste - mettre à jour les données locales immédiatement
+          const oldPriority = c.priority;
+          c.priority = 3;
+          
           try {
+            console.log("Setting priority to low (3) for consigne:", c.id, "current priority:", oldPriority);
             await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { priority: 3 });
+            console.log("Priority updated successfully");
             renderPractice(ctx, root);
             showToast("Consigne passée en priorité basse.");
           } catch (err) {
-            console.error(err);
+            // Annuler en cas d'erreur
+            c.priority = oldPriority;
+            console.error("Error updating priority:", err);
             showToast("Impossible de changer la priorité.");
+            renderPractice(ctx, root);
           }
         };
       }
