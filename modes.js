@@ -426,19 +426,38 @@ window.Modes.richText = {
 
 function modal(html) {
   const wrap = document.createElement("div");
-  wrap.className = "modal fixed inset-0 z-50 bg-black/40 phone-center";
+  wrap.className = "modal-overlay";
   wrap.style.cssText = `
-    display: flex !important; 
-    justify-content: center !important; 
-    align-items: center !important; 
-    min-height: 100vh !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background: rgba(0, 0, 0, 0.4) !important;
+    z-index: 9999 !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
     padding: 0 !important;
     margin: 0 !important;
-    position: fixed !important;
-    inset: 0 !important;
+    box-sizing: border-box !important;
   `;
   wrap.innerHTML = `
-    <div class="modal__dialog w-[min(680px,92vw)] overflow-y-auto rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl" data-modal-content style="max-height:var(--viewport-safe-height, calc(100vh - 2rem));">
+    <div class="modal__dialog" data-modal-content style="
+      width: min(680px, 92vw);
+      max-height: 90vh;
+      overflow-y: auto;
+      border-radius: 16px;
+      background: white;
+      border: 1px solid #e5e7eb;
+      padding: 24px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+      position: relative !important;
+      transform: translate(-50%, -50%) !important;
+      top: 50% !important;
+      left: 50% !important;
+      margin: 0 !important;
+    ">
       ${html}
     </div>`;
   const modalEl = wrap.querySelector("[data-modal-content]");
