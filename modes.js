@@ -3997,6 +3997,7 @@ function consigneActions() {
         ${actionBtn("Décaler", "js-delay")}
         ${actionBtn("Activer la répétition espacée", "js-sr-toggle")}
         ${actionBtn("Priorité basse", "js-prio-low")}
+        ${actionBtn("Priorité moyenne", "js-prio-medium")}
         ${actionBtn("Archiver", "js-archive")}
         ${actionBtn("Supprimer", "js-del text-red-600")}
       </div>
@@ -4381,8 +4382,6 @@ function setupConsigneActionMenus(scope = document, configure) {
       prioLowBtn.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
-        console.log("DEBUG: bPrioLow clicked in setupConsigneActionMenus!");
-        alert("DEBUG: Priorité basse cliqué!");
         prioLowBtn.disabled = true;
         try {
           await prioLowConfig.onClick?.({
@@ -4395,6 +4394,46 @@ function setupConsigneActionMenus(scope = document, configure) {
           console.error("Error in prioLow onClick:", err);
         } finally {
           prioLowBtn.disabled = false;
+          closeConsigneActionMenu(actionsRoot);
+        }
+      });
+    }
+
+    const prioMediumBtn = actionsRoot.querySelector(".js-prio-medium");
+    const prioMediumConfig = config?.prioMedium;
+    if (prioMediumBtn && prioMediumConfig) {
+      const resolveEnabled = () => {
+        if (typeof prioMediumConfig.getEnabled === "function") {
+          try {
+            return Boolean(prioMediumConfig.getEnabled());
+          } catch (err) {
+            console.error(err);
+            return true;
+          }
+        }
+        return true;
+      };
+      const updateButton = (enabled) => {
+        const nextEnabled = Boolean(enabled);
+        prioMediumBtn.disabled = !nextEnabled;
+        prioMediumBtn.hidden = !nextEnabled;
+      };
+      updateButton(resolveEnabled());
+      prioMediumBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        prioMediumBtn.disabled = true;
+        try {
+          await prioMediumConfig.onClick?.({
+            event,
+            update: updateButton,
+            close: () => closeConsigneActionMenu(actionsRoot),
+            actionsRoot,
+          });
+        } catch (err) {
+          console.error("Error in prioMedium onClick:", err);
+        } finally {
+          prioMediumBtn.disabled = false;
           closeConsigneActionMenu(actionsRoot);
         }
       });
@@ -18780,15 +18819,10 @@ async function renderPractice(ctx, root, _opts = {}) {
       };
     }
     if (bPrioLow) {
-      console.log("DEBUG: bPrioLow button found for consigne:", c.id, "current priority:", c.priority);
       if ((Number(c.priority) || 2) >= 3) {
         bPrioLow.hidden = true;
-        console.log("DEBUG: bPrioLow button hidden (priority already low)");
       } else {
-        console.log("DEBUG: Setting up click handler for bPrioLow");
         bPrioLow.onclick = async (e) => {
-          console.log("DEBUG: bPrioLow clicked! Event fired for consigne:", c.id);
-          alert("DEBUG: Priorité basse cliqué pour consigne " + c.id);
           e.preventDefault();
           e.stopPropagation();
           closeConsigneActionMenuFromNode(bPrioLow);
@@ -18798,9 +18832,7 @@ async function renderPractice(ctx, root, _opts = {}) {
           c.priority = 3;
           
           try {
-            console.log("Setting priority to low (3) for consigne:", c.id, "current priority:", oldPriority);
             await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { priority: 3 });
-            console.log("Priority updated successfully");
             renderPractice(ctx, root);
             showToast("Consigne passée en priorité basse.");
           } catch (err) {
@@ -18812,8 +18844,6 @@ async function renderPractice(ctx, root, _opts = {}) {
           }
         };
       }
-    } else {
-      console.log("DEBUG: bPrioLow button NOT FOUND for consigne:", c.id);
     }
     let srEnabled = c?.srEnabled !== false;
     const delayBtn = row.querySelector(".js-delay");
@@ -21191,12 +21221,24 @@ async function renderDaily(ctx, root, opts = {}) {
         getEnabled: () => (Number(item.priority) || 2) < 3,
         onClick: async ({ close }) => {
           try {
-            console.log("Setting priority to low (3) for consigne:", item.id, "current priority:", item.priority);
             await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { priority: 3 });
-            console.log("Priority updated successfully");
             item.priority = 3;
             renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
             showToast("Consigne passée en priorité basse.");
+          } catch (err) {
+            console.error("Error updating priority:", err);
+            showToast("Impossible de changer la priorité.");
+          }
+        },
+      },
+      prioMedium: {
+        getEnabled: () => (Number(item.priority) || 2) >= 3,
+        onClick: async ({ close }) => {
+          try {
+            await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { priority: 2 });
+            item.priority = 2;
+            renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
+            showToast("Consigne passée en priorité moyenne.");
           } catch (err) {
             console.error("Error updating priority:", err);
             showToast("Impossible de changer la priorité.");
