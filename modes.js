@@ -9837,9 +9837,37 @@ function resolveHistoryTimelineKey(entry, consigne) {
   return base;
 }
 
-function buildConsigneHistoryTimeline(entries, consigne) {
+function buildConsigneHistoryTimeline(entries, consigne, options = {}) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const limit =
+    Number.isFinite(options?.limit) && options.limit > 0
+      ? Math.max(1, Math.floor(options.limit))
+      : typeof CONSIGNE_HISTORY_TIMELINE_DAY_COUNT === "number"
+        ? CONSIGNE_HISTORY_TIMELINE_DAY_COUNT
+        : 21;
+  const pageIndex = Number.isFinite(options?.pageIndex) && options.pageIndex > 0 ? Math.floor(options.pageIndex) : 0;
+  const isPracticeMode = consigne?.mode === "practice";
+  const anchorDate = (() => {
+    if (isPracticeMode) {
+      return today;
+    }
+    const base = new Date(today);
+    if (pageIndex > 0) {
+      base.setDate(base.getDate() - pageIndex * limit);
+      base.setHours(0, 0, 0, 0);
+    }
+    return base;
+  })();
+  const windowStart = (() => {
+    if (isPracticeMode) {
+      return null;
+    }
+    const start = new Date(anchorDate);
+    start.setDate(start.getDate() - (limit - 1));
+    start.setHours(0, 0, 0, 0);
+    return start;
+  })();
   const records = [];
   if (Array.isArray(entries)) {
     entries.forEach((entry) => {
@@ -9895,11 +9923,10 @@ function buildConsigneHistoryTimeline(entries, consigne) {
   if (!isPractice) {
     try {
       const existingKeys = new Set(records.map((r) => r.dayKey).filter(Boolean));
-      const limit = typeof CONSIGNE_HISTORY_TIMELINE_DAY_COUNT === "number" ? CONSIGNE_HISTORY_TIMELINE_DAY_COUNT : 21;
       const DOW = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
 
       for (let i = 0; i < limit; i++) {
-        const d = new Date(today);
+        const d = new Date(anchorDate);
         d.setDate(d.getDate() - i);
         const key = coerceDayKeyFromDate(d);
 
@@ -9942,7 +9969,34 @@ function buildConsigneHistoryTimeline(entries, consigne) {
     }
     return (b.date?.getTime?.() || 0) - (a.date?.getTime?.() || 0);
   });
-  const limited = records.slice(0, CONSIGNE_HISTORY_TIMELINE_DAY_COUNT);
+  const limited = (() => {
+    if (isPracticeMode) {
+      const start = pageIndex * limit;
+      return records.slice(start, start + limit);
+    }
+    const startTs = windowStart instanceof Date && !Number.isNaN(windowStart.getTime()) ? windowStart.getTime() : null;
+    const endTs = anchorDate instanceof Date && !Number.isNaN(anchorDate.getTime()) ? anchorDate.getTime() : null;
+    if (startTs == null || endTs == null) {
+      return records.slice(0, limit);
+    }
+    return records
+      .filter((record) => {
+        if (!record) return false;
+        let d = record.date instanceof Date && !Number.isNaN(record.date.getTime()) ? record.date : null;
+        if (!d && record.dayKey) {
+          const parsed = modesParseDayKeyToDate(record.dayKey);
+          if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+            d = parsed;
+          }
+        }
+        if (!(d instanceof Date) || Number.isNaN(d.getTime())) {
+          return true;
+        }
+        const ts = d.getTime();
+        return ts >= startTs && ts <= endTs;
+      })
+      .slice(0, limit);
+  })();
 
   // DEBUG: Log generated records
   try {
@@ -10261,12 +10315,12 @@ function updateConsigneHistoryNavState(state) {
   const atStart = normalizedScrollLeft <= CONSIGNE_HISTORY_SCROLL_EPSILON;
   const atEnd = normalizedScrollLeft >= maxScroll - CONSIGNE_HISTORY_SCROLL_EPSILON;
   if (navPrev) {
-    const showPrev = hasOverflow && !atStart;
+    const showPrev = (hasOverflow && !atStart) || (Number.isFinite(state.pageIndex) && state.pageIndex > 0);
     navPrev.hidden = !showPrev;
     navPrev.disabled = !showPrev;
   }
   if (navNext) {
-    const showNext = hasOverflow && !atEnd;
+    const showNext = (hasOverflow && !atEnd) || (typeof state.canPageOlder === "function" ? state.canPageOlder() : false);
     navNext.hidden = !showNext;
     navNext.disabled = !showNext;
   }
@@ -10287,6 +10341,15 @@ function setupConsigneHistoryNavigation(state) {
   if (navPrev) {
     navPrev.addEventListener("click", (event) => {
       event.preventDefault();
+      const hasPagination = typeof state.pageNewer === "function" && Number.isFinite(state.pageIndex) && state.pageIndex > 0;
+      const normalizedScrollLeft = Math.round(viewport.scrollLeft || 0);
+      const atStart = normalizedScrollLeft <= CONSIGNE_HISTORY_SCROLL_EPSILON;
+      if (hasPagination && atStart) {
+        try {
+          state.pageNewer();
+          return;
+        } catch (_) { }
+      }
       const step = computeConsigneHistoryScrollStep(viewport);
       try {
         viewport.scrollBy({ left: -step, behavior: "smooth" });
@@ -10299,6 +10362,22 @@ function setupConsigneHistoryNavigation(state) {
   if (navNext) {
     navNext.addEventListener("click", (event) => {
       event.preventDefault();
+      const canPageOlder = typeof state.pageOlder === "function";
+      const scrollWidth = viewport.scrollWidth || 0;
+      const clientWidth = viewport.clientWidth || 0;
+      const maxScroll = Math.max(0, Math.round(Math.max(0, scrollWidth - clientWidth)));
+      const normalizedScrollLeft = Math.round(viewport.scrollLeft || 0);
+      const atEnd = normalizedScrollLeft >= maxScroll - CONSIGNE_HISTORY_SCROLL_EPSILON;
+      const hasOverflow = Math.round(scrollWidth) - Math.round(clientWidth) > CONSIGNE_HISTORY_SCROLL_EPSILON;
+      const canLoadOlderViaPagination =
+        canPageOlder &&
+        (typeof state.canPageOlder === "function" ? state.canPageOlder() : false);
+      if (canLoadOlderViaPagination && (!hasOverflow || atEnd)) {
+        try {
+          state.pageOlder();
+          return;
+        } catch (_) { }
+      }
       const step = computeConsigneHistoryScrollStep(viewport);
       try {
         viewport.scrollBy({ left: step, behavior: "smooth" });
@@ -13015,6 +13094,15 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     limit: CONSIGNE_HISTORY_TIMELINE_DAY_COUNT,
     dayKey: explicitDayKey,
     resolveDayKey,
+    pageIndex: 0,
+    fetchLimit: 0,
+    fetchSize: 0,
+    hasMoreRemote: false,
+    entries: [],
+    isFetchingMore: false,
+    pageOlder: null,
+    pageNewer: null,
+    canPageOlder: null,
   };
   setupConsigneHistoryNavigation(state);
   CONSIGNE_HISTORY_ROW_STATE.set(row, state);
@@ -13025,6 +13113,122 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
     return;
   }
   const timelineFetchLimit = Math.max(CONSIGNE_HISTORY_TIMELINE_DAY_COUNT * 3, 60);
+  state.fetchLimit = timelineFetchLimit;
+
+  const resolveOldestTimelineDate = (rows) => {
+    const list = Array.isArray(rows) ? rows : [];
+    let oldest = null;
+    list.forEach((entry) => {
+      if (!entry || typeof entry !== "object") return;
+      const createdAtSource = entry?.createdAt ?? entry?.updatedAt ?? entry?.recordedAt ?? null;
+      const createdAt = parseHistoryResponseDate(createdAtSource);
+      const primaryDate = resolveHistoryEntryDate(entry) || createdAt;
+      const resolvedDayKey = resolveHistoryResponseDayKey(entry, primaryDate);
+      const dayDate = resolvedDayKey ? modesParseDayKeyToDate(resolvedDayKey) : null;
+      const candidate =
+        (primaryDate instanceof Date && !Number.isNaN(primaryDate.getTime()) ? primaryDate : null) ||
+        (dayDate instanceof Date && !Number.isNaN(dayDate.getTime()) ? dayDate : null) ||
+        null;
+      if (!(candidate instanceof Date) || Number.isNaN(candidate.getTime())) return;
+      const normalized = new Date(candidate);
+      normalized.setHours(0, 0, 0, 0);
+      if (!oldest || normalized.getTime() < oldest.getTime()) {
+        oldest = normalized;
+      }
+    });
+    return oldest;
+  };
+
+  const computeHasOlderPage = () => {
+    const limit = state.limit;
+    const rows = Array.isArray(state.entries) ? state.entries : [];
+    if (consigne?.mode === "practice") {
+      const nextStart = (state.pageIndex + 1) * limit;
+      if (nextStart < rows.length) return true;
+      return Boolean(state.hasMoreRemote && state.fetchLimit < 500);
+    }
+    const oldest = resolveOldestTimelineDate(rows);
+    if (!(oldest instanceof Date)) {
+      return Boolean(state.hasMoreRemote && state.fetchLimit < 500);
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const nextAnchor = new Date(today);
+    nextAnchor.setDate(nextAnchor.getDate() - (state.pageIndex + 1) * limit);
+    nextAnchor.setHours(0, 0, 0, 0);
+    return nextAnchor.getTime() >= oldest.getTime() || Boolean(state.hasMoreRemote && state.fetchLimit < 500);
+  };
+
+  state.canPageOlder = computeHasOlderPage;
+
+  const renderFromState = () => {
+    const points = buildConsigneHistoryTimeline(state.entries, consigne, {
+      limit: state.limit,
+      pageIndex: state.pageIndex,
+    });
+    state.hasDayTimeline = renderConsigneHistoryTimeline(row, points);
+    try {
+      if (state.viewport) {
+        state.viewport.scrollLeft = 0;
+      }
+    } catch (_) { }
+    scheduleConsigneHistoryNavUpdate(state);
+  };
+
+  const ensureFetchedForPage = async (targetPageIndex) => {
+    if (state.isFetchingMore) return;
+    if (!(state.hasMoreRemote && state.fetchLimit < 500)) return;
+    const limit = state.limit;
+    const rows = Array.isArray(state.entries) ? state.entries : [];
+    if (consigne?.mode === "practice") {
+      const requiredCount = (targetPageIndex + 1) * limit + 1;
+      if (rows.length >= requiredCount) return;
+    } else {
+      const oldest = resolveOldestTimelineDate(rows);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const targetAnchor = new Date(today);
+      targetAnchor.setDate(targetAnchor.getDate() - targetPageIndex * limit);
+      targetAnchor.setHours(0, 0, 0, 0);
+      if (oldest instanceof Date && oldest.getTime() <= targetAnchor.getTime()) {
+        return;
+      }
+    }
+    state.isFetchingMore = true;
+    try {
+      const step = Math.max(60, limit * 3);
+      const nextLimit = Math.min(500, state.fetchLimit + step);
+      const refetch = await fetchConsigneHistoryRows(ctx, consigne.id, { limit: nextLimit });
+      if (refetch?.error) {
+        return;
+      }
+      const nextEntries = Array.isArray(refetch?.rows) ? refetch.rows : [];
+      state.entries = nextEntries;
+      state.fetchLimit = nextLimit;
+      state.fetchSize = typeof refetch?.size === "number" ? refetch.size : nextEntries.length;
+      state.hasMoreRemote = Boolean(state.fetchSize >= nextLimit);
+    } catch (_) {
+    } finally {
+      state.isFetchingMore = false;
+    }
+  };
+
+  state.pageOlder = async () => {
+    const targetPage = state.pageIndex + 1;
+    await ensureFetchedForPage(targetPage);
+    if (!computeHasOlderPage()) {
+      return;
+    }
+    state.pageIndex = targetPage;
+    renderFromState();
+  };
+
+  state.pageNewer = () => {
+    const next = Number.isFinite(state.pageIndex) ? state.pageIndex - 1 : 0;
+    state.pageIndex = Math.max(0, next);
+    renderFromState();
+  };
+
   fetchConsigneHistoryRows(ctx, consigne.id, { limit: timelineFetchLimit })
     .then((result) => {
       if (!row.isConnected) {
@@ -13042,8 +13246,10 @@ function setupConsigneHistoryTimeline(row, consigne, ctx, options = {}) {
         return;
       }
       const entries = Array.isArray(result.rows) ? result.rows : [];
-      const points = buildConsigneHistoryTimeline(entries, consigne);
-      state.hasDayTimeline = renderConsigneHistoryTimeline(row, points);
+      state.entries = entries;
+      state.fetchSize = typeof result?.size === "number" ? result.size : entries.length;
+      state.hasMoreRemote = Boolean(state.fetchSize >= timelineFetchLimit);
+      renderFromState();
       // Audit: is there a point for the current day? What status?
       try {
         const dayKeyForAudit = state.dayKey || row?.dataset?.dayKey || null;
