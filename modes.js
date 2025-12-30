@@ -426,7 +426,7 @@ window.Modes.richText = {
 
 function modal(html) {
   const wrap = document.createElement("div");
-  wrap.className = "modal-overlay";
+  wrap.className = "modal phone-center";
   wrap.style.cssText = `
     position: fixed !important;
     top: 0 !important;
