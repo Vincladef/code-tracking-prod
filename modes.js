@@ -1,4 +1,4 @@
-// modes.js — Journalier / Pratique / Historique
+﻿// modes.js — Journalier / Pratique / Historique
 /* global Schema, Modes */
 window.Modes = window.Modes || {};
 const modesFirestore = Schema.firestore || window.firestoreAPI || {};
@@ -426,9 +426,35 @@ window.Modes.richText = {
 
 function modal(html) {
   const wrap = document.createElement("div");
-  wrap.className = "modal fixed inset-0 z-50 bg-black/40 p-4 phone-center";
+  wrap.className = "modal phone-center";
+  wrap.style.cssText = `
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background: rgba(0, 0, 0, 0.4) !important;
+    z-index: 9999 !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+  `;
   wrap.innerHTML = `
-    <div class="modal__dialog w-[min(680px,92vw)] overflow-y-auto rounded-2xl bg-white border border-gray-200 p-6 shadow-2xl" data-modal-content style="max-height:var(--viewport-safe-height, calc(100vh - 2rem));">
+    <div class="modal__dialog" data-modal-content style="
+      display: block !important;
+      width: min(680px, 92vw);
+      max-height: 90vh;
+      overflow-y: auto;
+      border-radius: 16px;
+      background: white;
+      border: 1px solid #e5e7eb;
+      padding: 24px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+      margin: 0 !important;
+    ">
       ${html}
     </div>`;
   const modalEl = wrap.querySelector("[data-modal-content]");
@@ -451,17 +477,37 @@ function modal(html) {
   // seule fois. Comportement vérifié manuellement sur les deux navigateurs.
   const updateFromViewport = () => {
     if (!modalEl) return;
-    const height = viewport ? viewport.height : window.innerHeight;
-    const offsetTop = viewport ? viewport.offsetTop : 0;
-    const offsetLeft = viewport ? viewport.offsetLeft : 0;
+    const uaMobile = typeof navigator !== "undefined" && typeof navigator.userAgent === "string"
+      ? /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobi/i.test(navigator.userAgent)
+      : false;
+    const uadMobile = typeof navigator !== "undefined" && navigator.userAgentData
+      ? Boolean(navigator.userAgentData.mobile)
+      : false;
+    const isMobileDevice = uaMobile || uadMobile;
+    const useViewport = Boolean(viewport && isMobileDevice);
+
+    const activeEl = document.activeElement;
+    const hasModalFocus = Boolean(activeEl && modalEl.contains(activeEl));
+    const isEditableFocus = Boolean(
+      hasModalFocus
+      && activeEl
+      && (
+        activeEl.isContentEditable
+        || /^(INPUT|TEXTAREA|SELECT)$/i.test(activeEl.tagName)
+      )
+    );
+    const height = useViewport ? viewport.height : window.innerHeight;
+    const offsetTop = useViewport ? viewport.offsetTop : 0;
+    const offsetLeft = useViewport ? viewport.offsetLeft : 0;
     const hiddenBottom = Math.max(0, window.innerHeight - (height + offsetTop));
-    const keyboardVisible = viewport ? height + offsetTop < window.innerHeight : false;
+    const KEYBOARD_THRESHOLD = 120;
+    const keyboardVisible = useViewport ? (isEditableFocus && hiddenBottom > KEYBOARD_THRESHOLD) : false;
     const reservedTop = keyboardVisible ? offsetTop + SAFE_PADDING : 0;
     const reservedBottom = keyboardVisible ? SAFE_PADDING : VIEWPORT_MARGIN_BOTTOM;
     const maxHeight = Math.max(0, height - reservedTop - reservedBottom);
 
     modalEl.style.maxHeight = `${maxHeight}px`;
-    modalEl.style.transform = viewport
+    modalEl.style.transform = useViewport
       ? `translate3d(${offsetLeft}px, ${keyboardVisible ? 0 : offsetTop}px, 0)`
       : "";
     docEl?.style?.setProperty("--viewport-safe-height", `${maxHeight}px`);
@@ -3996,6 +4042,8 @@ function consigneActions() {
         ${actionBtn("Modifier", "js-edit")}
         ${actionBtn("Décaler", "js-delay")}
         ${actionBtn("Activer la répétition espacée", "js-sr-toggle")}
+        ${actionBtn("Priorité basse", "js-prio-low")}
+        ${actionBtn("Priorité moyenne", "js-prio-medium")}
         ${actionBtn("Archiver", "js-archive")}
         ${actionBtn("Supprimer", "js-del text-red-600")}
       </div>
@@ -4352,6 +4400,86 @@ function setupConsigneActionMenus(scope = document, configure) {
           updateButton(current);
         } finally {
           srToggleBtn.disabled = false;
+          closeConsigneActionMenu(actionsRoot);
+        }
+      });
+    }
+
+    const prioLowBtn = actionsRoot.querySelector(".js-prio-low");
+    const prioLowConfig = config?.prioLow;
+    if (prioLowBtn && prioLowConfig) {
+      const resolveEnabled = () => {
+        if (typeof prioLowConfig.getEnabled === "function") {
+          try {
+            return Boolean(prioLowConfig.getEnabled());
+          } catch (err) {
+            console.error(err);
+            return true;
+          }
+        }
+        return true;
+      };
+      const updateButton = (enabled) => {
+        const nextEnabled = Boolean(enabled);
+        prioLowBtn.disabled = !nextEnabled;
+        prioLowBtn.hidden = !nextEnabled;
+      };
+      updateButton(resolveEnabled());
+      prioLowBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        prioLowBtn.disabled = true;
+        try {
+          await prioLowConfig.onClick?.({
+            event,
+            update: updateButton,
+            close: () => closeConsigneActionMenu(actionsRoot),
+            actionsRoot,
+          });
+        } catch (err) {
+          console.error("Error in prioLow onClick:", err);
+        } finally {
+          prioLowBtn.disabled = false;
+          closeConsigneActionMenu(actionsRoot);
+        }
+      });
+    }
+
+    const prioMediumBtn = actionsRoot.querySelector(".js-prio-medium");
+    const prioMediumConfig = config?.prioMedium;
+    if (prioMediumBtn && prioMediumConfig) {
+      const resolveEnabled = () => {
+        if (typeof prioMediumConfig.getEnabled === "function") {
+          try {
+            return Boolean(prioMediumConfig.getEnabled());
+          } catch (err) {
+            console.error(err);
+            return true;
+          }
+        }
+        return true;
+      };
+      const updateButton = (enabled) => {
+        const nextEnabled = Boolean(enabled);
+        prioMediumBtn.disabled = !nextEnabled;
+        prioMediumBtn.hidden = !nextEnabled;
+      };
+      updateButton(resolveEnabled());
+      prioMediumBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        prioMediumBtn.disabled = true;
+        try {
+          await prioMediumConfig.onClick?.({
+            event,
+            update: updateButton,
+            close: () => closeConsigneActionMenu(actionsRoot),
+            actionsRoot,
+          });
+        } catch (err) {
+          console.error("Error in prioMedium onClick:", err);
+        } finally {
+          prioMediumBtn.disabled = false;
           closeConsigneActionMenu(actionsRoot);
         }
       });
@@ -18716,6 +18844,7 @@ async function renderPractice(ctx, root, _opts = {}) {
     const bE = row.querySelector(".js-edit");
     const bD = row.querySelector(".js-del");
     const bA = row.querySelector(".js-archive");
+    const bPrioLow = row.querySelector(".js-prio-low");
     bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c, { source: "practice" }); };
     bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
     bD.onclick = async (e) => {
@@ -18734,6 +18863,33 @@ async function renderPractice(ctx, root, _opts = {}) {
         closeConsigneActionMenuFromNode(bA);
         await archiveConsigneWithRefresh(c, { row });
       };
+    }
+    if (bPrioLow) {
+      if ((Number(c.priority) || 2) >= 3) {
+        bPrioLow.hidden = true;
+      } else {
+        bPrioLow.onclick = async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          closeConsigneActionMenuFromNode(bPrioLow);
+          
+          // Mise à jour optimiste - mettre à jour les données locales immédiatement
+          const oldPriority = c.priority;
+          c.priority = 3;
+          
+          try {
+            await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { priority: 3 });
+            renderPractice(ctx, root);
+            showToast("Consigne passée en priorité basse.");
+          } catch (err) {
+            // Annuler en cas d'erreur
+            c.priority = oldPriority;
+            console.error("Error updating priority:", err);
+            showToast("Impossible de changer la priorité.");
+            renderPractice(ctx, root);
+          }
+        };
+      }
     }
     let srEnabled = c?.srEnabled !== false;
     const delayBtn = row.querySelector(".js-delay");
@@ -19064,419 +19220,7 @@ async function renderPractice(ctx, root, _opts = {}) {
     form.innerHTML = PRACTICE_EMPTY_HTML;
   } else {
     form.innerHTML = "";
-    /* Legacy practice rendering helpers (remapped earlier)
-  const makeItem = (c, { isChild = false, deferEditor = false, editorOptions = null } = {}) => {
-    const tone = priorityTone(c.priority);
-    const row = document.createElement("div");
-    row.className = `consigne-row priority-surface priority-surface-${tone}`;
-    row.dataset.id = c.id;
-    if (c?.id != null) {
-      const stringId = String(c.id);
-      row.dataset.consigneId = stringId;
-      row.setAttribute("data-consigne-id", stringId);
-    } else {
-      delete row.dataset.consigneId;
-      row.removeAttribute("data-consigne-id");
-    }
-    row.dataset.priorityTone = tone;
-    if (isChild) {
-      row.classList.add("consigne-row--child");
-      if (c.parentId) {
-        row.dataset.parentId = c.parentId;
-      } else {
-        delete row.dataset.parentId;
-      }
-      row.draggable = false;
-    } else {
-      row.classList.add("consigne-row--parent");
-      delete row.dataset.parentId;
-      row.draggable = true;
-    }
-    row.innerHTML = `
-        <div class="consigne-row__header">
-          <div class="consigne-row__main">
-            <button type="button" class="consigne-row__toggle" data-consigne-open aria-haspopup="dialog">
-              <span class="consigne-row__title">${escapeHtml(c.text)}</span>
-              ${prioChip(Number(c.priority) || 2)}
-            </button>
-          </div>
-        <div class="consigne-row__meta">
-          <span class="consigne-row__status" data-status="na">
-            <button type="button"
-                    class="consigne-row__dot-button"
-                    data-priority-trigger
-                    aria-haspopup="true"
-                    aria-expanded="false"
-                    title="Changer la priorité">
-              <span class="consigne-row__dot consigne-row__dot--na" data-status-dot aria-hidden="true"></span>
-            </button>
-            <div class="consigne-row__priority-menu" data-priority-menu hidden></div>
-            <span class="consigne-row__mark" data-status-mark aria-hidden="true"></span>
-            <span class="sr-only" data-status-live aria-live="polite"></span>
-          </span>
-          ${consigneActions()}
-        </div>
-        </div>
-        <div class="consigne-history" data-consigne-history hidden>
-          <button type="button" class="consigne-history__nav" data-consigne-history-prev aria-label="Faire défiler l’historique vers la gauche" hidden><span aria-hidden="true">&lsaquo;</span></button>
-          <div class="consigne-history__viewport" data-consigne-history-viewport>
-            <div class="consigne-history__track" data-consigne-history-track role="list"></div>
-          </div>
-          <button type="button" class="consigne-history__nav" data-consigne-history-next aria-label="Faire défiler l’historique vers la droite" hidden><span aria-hidden="true">&rsaquo;</span></button>
-        </div>
-        <div data-consigne-input-holder hidden></div>
-      `;
-      const statusHolder = row.querySelector("[data-status]");
-      if (statusHolder) {
-        statusHolder.dataset.priorityTone = tone;
-      }
-      const statusDot = row.querySelector("[data-status-dot]");
-      if (statusDot) {
-        statusDot.dataset.priorityTone = tone;
-      }
-      setupConsignePriorityMenu(row, c, ctx);
-      const holder = row.querySelector("[data-consigne-input-holder]");
-      if (holder) {
-        holder.innerHTML = inputForType(c);
-        enhanceRangeMeters(holder);
-        initializeChecklistScope(holder, { consigneId: c?.id ?? null });
-        ensureConsigneSkipField(row, c);
-      }
-      setupConsigneHistoryTimeline(row, c, ctx, { mode: "practice" });
-      const bH = row.querySelector(".js-histo");
-      const bE = row.querySelector(".js-edit");
-      const bD = row.querySelector(".js-del");
-      const bA = row.querySelector(".js-archive");
-      bH.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bH); Schema.D.info("ui.history.click", c.id); openHistory(ctx, c, { source: "practice" }); };
-      bE.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeConsigneActionMenuFromNode(bE); Schema.D.info("ui.editConsigne.click", c.id); openConsigneForm(ctx, c); };
-      bD.onclick = async (e) => {
-        e.preventDefault(); e.stopPropagation();
-        closeConsigneActionMenuFromNode(bD);
-        if (confirm("Supprimer cette consigne ? (historique conservé)")) {
-          Schema.D.info("ui.deleteConsigne.confirm", c.id);
-          await Schema.softDeleteConsigne(ctx.db, ctx.user.uid, c.id);
-          renderPractice(ctx, root);
-        }
-      };
-      if (bA) {
-        bA.onclick = async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          closeConsigneActionMenuFromNode(bA);
-          await archiveConsigneWithRefresh(c, { row });
-        };
-      }
-      let srEnabled = c?.srEnabled !== false;
-      const delayBtn = row.querySelector(".js-delay");
-      const updateDelayState = (enabled) => {
-        if (!delayBtn) return;
-        delayBtn.disabled = !enabled;
-        delayBtn.classList.toggle("opacity-50", !enabled);
-        delayBtn.title = enabled
-          ? "Décaler la prochaine itération"
-          : "Active la répétition espacée pour décaler";
-      };
-      if (delayBtn) {
-        updateDelayState(srEnabled);
-        delayBtn.onclick = async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          closeConsigneActionMenuFromNode(delayBtn);
-          if (delayBtn.disabled) {
-            showToast("Active la répétition espacée pour utiliser le décalage.");
-            return;
-          }
-          const raw = prompt("Décaler de combien d'itérations ?", "1");
-          if (raw === null) return;
-          const value = Number(String(raw).replace(",", "."));
-          const rounded = Math.round(value);
-          if (!Number.isFinite(value) || !Number.isFinite(rounded) || rounded < 1) {
-            showToast("Entre un entier positif.");
-            return;
-          }
-          const amount = rounded;
-          delayBtn.disabled = true;
-          try {
-            const state = await Schema.delayConsigne({
-              db: ctx.db,
-              uid: ctx.user.uid,
-              consigne: c,
-              mode: "practice",
-              amount,
-              sessionIndex,
-            });
-            showToast(`Consigne décalée de ${amount} itération${amount > 1 ? "s" : ""}.`);
-            handlePracticeConsigneDelayed(c, row, state);
-          } catch (err) {
-            console.error(err);
-            showToast("Impossible de décaler la consigne.");
-          } finally {
-            updateDelayState(srEnabled);
-          }
-        };
-      }
-      setupConsigneActionMenus(row, () => ({
-        srToggle: {
-          getEnabled: () => srEnabled,
-          onToggle: async (next) => {
-            try {
-              await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { srEnabled: next });
-              srEnabled = next;
-              c.srEnabled = next;
-              updateDelayState(srEnabled);
-              return srEnabled;
-            } catch (err) {
-              console.error(err);
-              showToast("Impossible de mettre à jour la répétition espacée.");
-              return srEnabled;
-            }
-          },
-        },
-        archive: () => archiveConsigneWithRefresh(c, { row }),
-      }));
-      const applyDelayFromEditor = async (rawAmount, context = {}) => {
-        const numeric = Number(rawAmount);
-        const rounded = Math.round(numeric);
-        if (!Number.isFinite(numeric) || rounded < 1) {
-          return false;
-        }
-        if (!srEnabled) {
-          showToast("Active la répétition espacée pour utiliser le décalage.");
-          return false;
-        }
-        if (!ctx?.db || !ctx?.user?.uid) {
-          return false;
-        }
-        const answersToPersist = [];
-        const rawSessionIndex = Number(sessionIndex);
-        const normalizedSessionIndex = Number.isFinite(rawSessionIndex) ? rawSessionIndex : 0;
-        const sessionNumber = normalizedSessionIndex + 1;
-        const sessionId = `session-${String(sessionNumber).padStart(4, "0")}`;
-        const pushAnswer = (targetConsigne, targetRow, rawValue, extraSummary = null) => {
-          if (!targetConsigne || targetConsigne.id == null) {
-            return;
-          }
-          if (rawValue === undefined) {
-            return;
-          }
-          const hostRow = targetRow || row;
-          const normalizedValue = normalizeConsigneValueForPersistence(
-            targetConsigne,
-            hostRow,
-            rawValue,
-          );
-          const hasContent = hasValueForConsigne(targetConsigne, normalizedValue);
-          if (!hasContent) {
-            return;
-          }
-          const answer = {
-            consigne: targetConsigne,
-            value: normalizedValue,
-            sessionIndex: normalizedSessionIndex,
-            sessionNumber,
-            sessionId,
-          };
-          const normalizedSummary =
-            extraSummary && typeof extraSummary === "object"
-              ? normalizeSummaryMetadataInput(extraSummary)
-              : null;
-          if (normalizedSummary) {
-            Object.assign(answer, normalizedSummary);
-          }
-          answersToPersist.push(answer);
-        };
-        if (context && Object.prototype.hasOwnProperty.call(context, "value")) {
-          pushAnswer(consigne, row, context.value, context.summary || null);
-        }
-        if (Array.isArray(context?.childAnswers)) {
-          context.childAnswers.forEach((entry) => {
-            if (!entry || typeof entry !== "object") {
-              return;
-            }
-            pushAnswer(entry.consigne, entry.row || null, entry.value);
-          });
-        }
-        if (answersToPersist.length) {
-          try {
-            await Schema.saveResponses(ctx.db, ctx.user.uid, "practice", answersToPersist);
-          } catch (error) {
-            console.error("practice.delay.save", error);
-            showToast("Impossible d'enregistrer la réponse avant de décaler.");
-            return false;
-          }
-        }
-        try {
-          const state = await Schema.delayConsigne({
-            db: ctx.db,
-            uid: ctx.user.uid,
-            consigne: c,
-            mode: "practice",
-            amount: rounded,
-            sessionIndex,
-          });
-          showToast(`Consigne décalée de ${rounded} itération${rounded > 1 ? "s" : ""}.`);
-          handlePracticeConsigneDelayed(c, row, state);
-          return true;
-        } catch (err) {
-          console.error(err);
-          showToast("Impossible de décaler la consigne.");
-          return false;
-        }
-      };
-      const editorConfig = { variant: "modal", ...(editorOptions || {}) };
-      if (!editorConfig.delayOptions) {
-        editorConfig.delayOptions = {
-          amounts: [1, 3, 5, 10, 15, 20],
-          label: "Revoir dans",
-          placeholder: "Sans délai",
-          helper: "Appliqué après validation.",
-          disabledHint: "Active la répétition espacée pour décaler.",
-          getSrEnabled: () => srEnabled,
-          applyDelay: applyDelayFromEditor,
-          allowArchive: true,
-          archiveLabel: "Archiver la consigne",
-          archiveValue: CONSIGNE_ARCHIVE_DELAY_VALUE,
-          onArchive: ({ close } = {}) => archiveConsigneWithRefresh(c, { close, row }),
-        };
-      }
-      row.__practiceEditorConfig = editorConfig;
-      if (!deferEditor) {
-        attachConsigneEditor(row, c, editorConfig);
-      }
-      bindConsigneRowValue(row, c, {
-        onChange: (value) => {
-          if (value === null || value === undefined) {
-            delete row.dataset.currentValue;
-          } else {
-            row.dataset.currentValue = String(value);
-          }
-        },
-      });
-      return row;
-    };
- 
-    const ensurePracticeLowContainer = () => {
-      if (!form) {
-        return { lowDetails: null, lowStack: null };
-      }
-      let lowDetails = form.querySelector(".daily-category__low");
-      let lowStack = lowDetails?.querySelector(".daily-category__items--nested") || null;
-      if (!lowDetails) {
-        lowDetails = document.createElement("details");
-        lowDetails.className = "daily-category__low";
-        const summary = document.createElement("summary");
-        summary.className = "daily-category__low-summary";
-        summary.textContent = "Priorité basse (0)";
-        lowDetails.appendChild(summary);
-        lowStack = document.createElement("div");
-        lowStack.className = "daily-category__items daily-category__items--nested";
-        lowDetails.appendChild(lowStack);
-        form.appendChild(lowDetails);
-      } else if (!lowStack) {
-        lowStack = document.createElement("div");
-        lowStack.className = "daily-category__items daily-category__items--nested";
-        lowDetails.appendChild(lowStack);
-      }
-      return { lowDetails, lowStack };
-    };
- 
-    const updateLowPrioritySummary = () => {
-      if (!form) return;
-      const lowDetails = form.querySelector(".daily-category__low");
-      if (!lowDetails) return;
-      const lowStack = lowDetails.querySelector(".daily-category__items--nested");
-      const summary = lowDetails.querySelector(".daily-category__low-summary");
-      const count = lowStack ? lowStack.querySelectorAll(".consigne-group").length : 0;
-      if (summary) {
-        summary.textContent = `Priorité basse (${count})`;
-      }
-      if (!count) {
-        lowDetails.remove();
-        ensurePracticePlaceholder();
-      }
-    };
- 
-    const createPracticeGroup = (nextConsigne) => {
-      const wrapper = document.createElement("div");
-      wrapper.className = "consigne-group";
-      const row = makeItem(nextConsigne, { isChild: false, deferEditor: false });
-      wrapper.appendChild(row);
-      return { wrapper, row };
-    };
- 
-    const upsertPracticeConsigneRow = (nextConsigne, action = "update") => {
-      if (!nextConsigne || !form) return false;
-      if (nextConsigne.parentId) return false;
-      const targetCategory = nextConsigne.category || "";
-      if (targetCategory !== (currentCat || "")) return false;
-      const priorityValue = Number(nextConsigne.priority || 0);
-      const isLowPriority = priorityValue >= 3;
-      const existingRow = nextConsigne.id ? findPracticeConsigneRowById(nextConsigne.id, container) : null;
-      if (existingRow) {
-        const wrapper = existingRow.closest(".consigne-group");
-        if (!wrapper) return false;
-        if (wrapper.querySelector(".consigne-row--child:not(.consigne-row--parent)")) {
-          return false;
-        }
-        const parentNode = wrapper.parentElement;
-        if (!parentNode) return false;
-        const { wrapper: newGroup } = createPracticeGroup(nextConsigne);
-        parentNode.replaceChild(newGroup, wrapper);
-        if (isLowPriority) {
-          const { lowStack } = ensurePracticeLowContainer();
-          if (lowStack) {
-            lowStack.appendChild(newGroup);
-          }
-        } else if (newGroup.closest(".daily-category__low")) {
-          const lowDetails = form.querySelector(".daily-category__low");
-          if (lowDetails) {
-            form.insertBefore(newGroup, lowDetails);
-          } else {
-            form.appendChild(newGroup);
-          }
-        }
-        updateLowPrioritySummary();
-        ensurePracticePlaceholder();
-        return true;
-      }
-      if (action !== "create") {
-        return false;
-      }
-      clearPracticePlaceholder();
-      const { wrapper: group } = createPracticeGroup(nextConsigne);
-      if (isLowPriority) {
-        const { lowStack } = ensurePracticeLowContainer();
-        if (!lowStack) return false;
-        lowStack.appendChild(group);
-        updateLowPrioritySummary();
-      } else {
-        const lowDetails = form.querySelector(".daily-category__low");
-        if (lowDetails) {
-          form.insertBefore(group, lowDetails);
-        } else {
-          form.appendChild(group);
-        }
-      }
-      ensurePracticePlaceholder();
-      return true;
-    };
- 
-    practiceMutationListener = (event) => {
-      const detail = event?.detail || {};
-      if (!detail || detail.mode !== "practice") return;
-      const nextConsigne = detail.consigne || null;
-      if (!nextConsigne) return;
-      if ((nextConsigne.category || "") !== (currentCat || "")) return;
-      if (nextConsigne.summaryOnlyScope) return;
-      const handled = upsertPracticeConsigneRow(nextConsigne, detail.action || "update");
-      if (!handled) return;
-      if (typeof window.attachConsignesDragDrop === "function") {
-        window.attachConsignesDragDrop(form, ctx);
-      }
-      event.preventDefault();
-    };
-    document.addEventListener("consigne:mutated", practiceMutationListener);
-    */
+    /* Legacy practice rendering helpers deleted */
     const grouped = groupConsignes(visibleConsignes);
     const renderGroup = (group, target) => {
       const wrapper = document.createElement("div");
@@ -19484,9 +19228,7 @@ async function renderPractice(ctx, root, _opts = {}) {
       const parentCard = makeItem(group.consigne, { isChild: false, deferEditor: true });
       wrapper.appendChild(parentCard);
       const childConfigs = group.children.map((child) => {
-        const childRow = createHiddenConsigneRow(child);
-        childRow.dataset.parentId = child.parentId || group.consigne.id || "";
-        childRow.draggable = false;
+        const childRow = makeItem(child, { isChild: true, deferEditor: true });
         parentCard.appendChild(childRow);
         bindConsigneRowValue(childRow, child);
         let srEnabled = child?.srEnabled !== false;
@@ -20302,6 +20044,81 @@ function dateForDayFromToday(label) {
 function daysBetween(a, b) {
   const ms = (b.setHours(0, 0, 0, 0), a.setHours(0, 0, 0, 0), (b - a));
   return Math.max(0, Math.round(ms / 86400000));
+}
+
+function moveConsigneToPrioritySection(consigneRow, newPriority, currentDay, dateIso) {
+  const cardRoot = consigneRow.closest("[data-daily-root]");
+  if (!cardRoot) return false;
+
+  // Find the target priority section
+  const targetSection = newPriority === 3 
+    ? cardRoot.querySelector(".daily-category__low")
+    : newPriority === 2 
+    ? cardRoot.querySelector(".daily-category__medium") 
+    : cardRoot.querySelector(".daily-category__high");
+  
+  if (!targetSection) return false;
+
+  // Find the target items container
+  const targetContainer = targetSection.querySelector(".daily-category__items--nested") || 
+                       targetSection.querySelector(".daily-category__items");
+  
+  if (!targetContainer) return false;
+
+  // Find the consigne group
+  const consigneGroup = consigneRow.closest(".consigne-group");
+  if (!consigneGroup) return false;
+
+  // Move the group to the new section
+  targetContainer.appendChild(consigneGroup);
+  
+  // Update priority tone classes
+  const tone = newPriority === 3 ? "low" : newPriority === 2 ? "medium" : "high";
+  consigneRow.className = consigneRow.className.replace(/priority-surface-\w+/, `priority-surface-${tone}`);
+  consigneRow.dataset.priorityTone = tone;
+  
+  // Update priority chip
+  const prioChip = consigneRow.querySelector(".consigne-row__chip");
+  if (prioChip) {
+    prioChip.textContent = newPriority === 3 ? "Basse" : newPriority === 2 ? "Moyenne" : "Haute";
+    prioChip.className = prioChip.className.replace(/bg-\w+-100/, `bg-${tone}-100`);
+  }
+
+  // Update section summaries
+  updateDailySectionSummaries(cardRoot);
+  
+  return true;
+}
+
+function updateDailySectionSummaries(cardRoot) {
+  const sections = [
+    { selector: ".daily-category__high", summarySelector: ".daily-category__high-summary", label: "Priorité haute" },
+    { selector: ".daily-category__medium", summarySelector: ".daily-category__medium-summary", label: "Priorité moyenne" },
+    { selector: ".daily-category__low", summarySelector: ".daily-category__low-summary", label: "Priorité basse" }
+  ];
+
+  sections.forEach(({ selector, summarySelector, label }) => {
+    const section = cardRoot.querySelector(selector);
+    if (!section) return;
+
+    const container = section.querySelector(".daily-category__items--nested") || 
+                     section.querySelector(".daily-category__items");
+    
+    if (container) {
+      const count = container.querySelectorAll(".consigne-group").length;
+      const summary = section.querySelector(summarySelector);
+      if (summary) {
+        summary.textContent = `${label} (${count})`;
+      }
+      
+      // Hide section if empty
+      if (count === 0) {
+        section.style.display = "none";
+      } else {
+        section.style.display = "";
+      }
+    }
+  });
 }
 
 async function renderDaily(ctx, root, opts = {}) {
@@ -21518,6 +21335,60 @@ async function renderDaily(ctx, root, opts = {}) {
             console.error(err);
             showToast("Impossible de mettre à jour la répétition espacée.");
             return srEnabled;
+          }
+        },
+      },
+      prioLow: {
+        getEnabled: () => (Number(item.priority) || 2) < 3,
+        onClick: async ({ close }) => {
+          try {
+            await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { priority: 3 });
+            item.priority = 3;
+            
+            // Find the row and move it without full reload
+            const row = document.querySelector(`[data-consigne-id="${item.id}"]`);
+            if (row) {
+              const moved = moveConsigneToPrioritySection(row, 3, currentDay, dateIso);
+              if (!moved) {
+                // Fallback to full render if move fails
+                renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
+              }
+            } else {
+              // Fallback to full render if row not found
+              renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
+            }
+            
+            showToast("Consigne passée en priorité basse.");
+          } catch (err) {
+            console.error("Error updating priority:", err);
+            showToast("Impossible de changer la priorité.");
+          }
+        },
+      },
+      prioMedium: {
+        getEnabled: () => (Number(item.priority) || 2) >= 3,
+        onClick: async ({ close }) => {
+          try {
+            await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { priority: 2 });
+            item.priority = 2;
+            
+            // Find the row and move it without full reload
+            const row = document.querySelector(`[data-consigne-id="${item.id}"]`);
+            if (row) {
+              const moved = moveConsigneToPrioritySection(row, 2, currentDay, dateIso);
+              if (!moved) {
+                // Fallback to full render if move fails
+                renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
+              }
+            } else {
+              // Fallback to full render if row not found
+              renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
+            }
+            
+            showToast("Consigne passée en priorité moyenne.");
+          } catch (err) {
+            console.error("Error updating priority:", err);
+            showToast("Impossible de changer la priorité.");
           }
         },
       },
