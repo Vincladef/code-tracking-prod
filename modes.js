@@ -477,14 +477,31 @@ function modal(html) {
   // seule fois. Comportement vérifié manuellement sur les deux navigateurs.
   const updateFromViewport = () => {
     if (!modalEl) return;
-    const likelyTouchDevice = Boolean(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
-    const useViewport = Boolean(viewport && likelyTouchDevice);
+    const uaMobile = typeof navigator !== "undefined" && typeof navigator.userAgent === "string"
+      ? /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobi/i.test(navigator.userAgent)
+      : false;
+    const uadMobile = typeof navigator !== "undefined" && navigator.userAgentData
+      ? Boolean(navigator.userAgentData.mobile)
+      : false;
+    const isMobileDevice = uaMobile || uadMobile;
+    const useViewport = Boolean(viewport && isMobileDevice);
+
+    const activeEl = document.activeElement;
+    const hasModalFocus = Boolean(activeEl && modalEl.contains(activeEl));
+    const isEditableFocus = Boolean(
+      hasModalFocus
+      && activeEl
+      && (
+        activeEl.isContentEditable
+        || /^(INPUT|TEXTAREA|SELECT)$/i.test(activeEl.tagName)
+      )
+    );
     const height = useViewport ? viewport.height : window.innerHeight;
     const offsetTop = useViewport ? viewport.offsetTop : 0;
     const offsetLeft = useViewport ? viewport.offsetLeft : 0;
     const hiddenBottom = Math.max(0, window.innerHeight - (height + offsetTop));
     const KEYBOARD_THRESHOLD = 120;
-    const keyboardVisible = useViewport ? hiddenBottom > KEYBOARD_THRESHOLD : false;
+    const keyboardVisible = useViewport ? (isEditableFocus && hiddenBottom > KEYBOARD_THRESHOLD) : false;
     const reservedTop = keyboardVisible ? offsetTop + SAFE_PADDING : 0;
     const reservedBottom = keyboardVisible ? SAFE_PADDING : VIEWPORT_MARGIN_BOTTOM;
     const maxHeight = Math.max(0, height - reservedTop - reservedBottom);
