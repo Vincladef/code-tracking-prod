@@ -2649,6 +2649,21 @@
     return list.slice(list.length - max);
   }
 
+  function toMillisSafe(value) {
+    if (!value) return 0;
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : 0;
+    if (value && typeof value.toDate === "function") {
+      try {
+        const d = value.toDate();
+        if (d instanceof Date && Number.isFinite(d.getTime())) return d.getTime();
+      } catch (_) { }
+    }
+    const parsed = new Date(value);
+    const ms = parsed.getTime();
+    return Number.isFinite(ms) ? ms : 0;
+  }
+
   function normalizeConsigneTitle(consigne) {
     const label =
       consigne?.text ||
@@ -3123,9 +3138,11 @@
       const practiceResponseRows = (responses || []).filter((r) => r?.mode === "practice");
 
       const sessionDayKeyById = new Map();
+      const sessionById = new Map();
       (sessions || []).forEach((s) => {
         const id = s?.id;
         if (!id) return;
+        sessionById.set(String(id), s);
         const dayKey = toDayKey(s?.startedAt || s?.createdAt || null);
         if (dayKey) sessionDayKeyById.set(String(id), dayKey);
       });
@@ -3143,25 +3160,90 @@
         )
       ).sort((a, b) => a.localeCompare(b));
 
-      const dailyDayKeys = pickRecentSorted(
-        [
-          ...dailyResponseRows.map((r) => toDayKey(r?.dayKey || r?.pageDateIso || null)),
-          ...checklistRows.map((r) => toDayKey(r?.dateKey || r?.dayKey || null)),
-        ],
-        180
-      );
+      const DAILY_MAX_DAYS = 720;
+      const PRACTICE_MAX_SESSIONS = 800;
+
+      const dailyDayKeys = pickRecentSorted(allDailyDayKeys, DAILY_MAX_DAYS);
 
       const sortedSessions = (sessions || []).slice().sort((a, b) => {
-        const at = new Date(a?.startedAt || a?.createdAt || 0).getTime();
-        const bt = new Date(b?.startedAt || b?.createdAt || 0).getTime();
+        const at = toMillisSafe(a?.startedAt || a?.createdAt || 0);
+        const bt = toMillisSafe(b?.startedAt || b?.createdAt || 0);
         return at - bt;
       });
-      const sessionColumns = sortedSessions.map((s, idx) => {
+
+      // Build practice session columns from:
+      // - actual session docs (preferred)
+      // - any sessionId found in practice responses (covers legacy/fallback ids like session-0001)
+      const practiceSessionMetaById = new Map();
+      sortedSessions.forEach((s, idx) => {
+        const id = String(s?.id || "");
+        if (!id) return;
         const dayKey = toDayKey(s?.startedAt || s?.createdAt || null) || "";
-        const label = `S${idx + 1}${dayKey ? ` — ${dayKey}` : ""}`;
-        return { id: String(s?.id || ""), label };
-      }).filter((s) => s.id);
-      const practiceSessionCols = sessionColumns.length > 250 ? sessionColumns.slice(sessionColumns.length - 250) : sessionColumns;
+        practiceSessionMetaById.set(id, {
+          id,
+          dayKey,
+          order: idx,
+          source: "sessions",
+        });
+      });
+
+      (practiceResponseRows || []).forEach((row) => {
+        const rawId = row?.sessionId || row?.session_id || null;
+        if (!rawId) return;
+        const id = String(rawId);
+        if (!id) return;
+        if (practiceSessionMetaById.has(id)) {
+          const existing = practiceSessionMetaById.get(id);
+          const dk = existing?.dayKey || "";
+          if (dk) return;
+          const inferred =
+            toDayKey(row?.dayKey || row?.pageDateIso || row?.createdAt || row?.updatedAt || null) || "";
+          if (inferred) {
+            practiceSessionMetaById.set(id, { ...existing, dayKey: inferred });
+          }
+          return;
+        }
+        const inferredDayKey =
+          toDayKey(row?.dayKey || row?.pageDateIso || row?.createdAt || row?.updatedAt || null) || "";
+        const numericOrder = Number.isFinite(Number(row?.sessionIndex))
+          ? Number(row.sessionIndex)
+          : Number.isFinite(Number(row?.sessionNumber))
+            ? Number(row.sessionNumber) - 1
+            : null;
+        practiceSessionMetaById.set(id, {
+          id,
+          dayKey: inferredDayKey,
+          order: numericOrder,
+          source: "responses",
+        });
+        if (inferredDayKey && !sessionDayKeyById.has(id)) {
+          sessionDayKeyById.set(id, inferredDayKey);
+        }
+      });
+
+      const sessionColumnsAll = Array.from(practiceSessionMetaById.values())
+        .sort((a, b) => {
+          const ao = Number.isFinite(a.order) ? a.order : Number.POSITIVE_INFINITY;
+          const bo = Number.isFinite(b.order) ? b.order : Number.POSITIVE_INFINITY;
+          if (ao !== bo) return ao - bo;
+          const ad = a.dayKey || "";
+          const bd = b.dayKey || "";
+          if (ad && bd && ad !== bd) return ad.localeCompare(bd);
+          if (ad && !bd) return -1;
+          if (!ad && bd) return 1;
+          return String(a.id).localeCompare(String(b.id));
+        })
+        .map((meta, idx) => {
+          const dayKey = meta.dayKey || "";
+          const label = `S${idx + 1}${dayKey ? ` — ${dayKey}` : ""}`;
+          return { id: String(meta.id || ""), label };
+        })
+        .filter((s) => s.id);
+
+      const practiceSessionCols =
+        sessionColumnsAll.length > PRACTICE_MAX_SESSIONS
+          ? sessionColumnsAll.slice(sessionColumnsAll.length - PRACTICE_MAX_SESSIONS)
+          : sessionColumnsAll;
 
       const dailyWindows = {
         "7j": pickLastWindow(allDailyDayKeys, 7),
@@ -3169,9 +3251,9 @@
         "90j": pickLastWindow(allDailyDayKeys, 90),
       };
       const practiceWindows = {
-        "10 sessions": pickLastWindow(sessionColumns, 10),
-        "30 sessions": pickLastWindow(sessionColumns, 30),
-        "100 sessions": pickLastWindow(sessionColumns, 100),
+        "10 sessions": pickLastWindow(sessionColumnsAll, 10),
+        "30 sessions": pickLastWindow(sessionColumnsAll, 30),
+        "100 sessions": pickLastWindow(sessionColumnsAll, 100),
       };
 
       const summaryRows = [];
@@ -3278,7 +3360,7 @@
       });
       const monthsSorted = Array.from(dailyByMonth.keys()).sort((a, b) => a.localeCompare(b));
       const practiceByMonth = new Map();
-      sessionColumns.forEach((sess) => {
+      sessionColumnsAll.forEach((sess) => {
         const dayKey = sessionDayKeyById.get(sess.id) || null;
         const monthKey = dayKey ? monthKeyFromDayKey(dayKey) : null;
         if (!monthKey) return;
