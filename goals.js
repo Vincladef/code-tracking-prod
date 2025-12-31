@@ -12,8 +12,36 @@
   let lastCtx = null;
   let activeReminderPopover = null;
   let detachReminderOutsideHandlers = null;
+  const VIEW_MODE_STORAGE_KEY = "goals:viewMode";
+  let viewMode = "month";
   // Notes cache (mois + semaines)
   const __notesCache = new Map(); // monthKey -> { month: {id, monthKey, type:"month", value}, weeks: { [week]: {id, monthKey, type:"week", weekOfMonth, value} } }
+
+  function getStoredViewMode() {
+    try {
+      const raw = (window.localStorage && window.localStorage.getItem(VIEW_MODE_STORAGE_KEY)) || "";
+      const normalized = String(raw || "").trim().toLowerCase();
+      if (normalized === "year") return "year";
+      return "month";
+    } catch (_err) {
+      return "month";
+    }
+  }
+
+  function setStoredViewMode(next) {
+    try {
+      if (!window.localStorage) return;
+      window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, next);
+    } catch (_err) {}
+  }
+
+  function setViewMode(next) {
+    const normalized = String(next || "").trim().toLowerCase();
+    const resolved = normalized === "year" ? "year" : "month";
+    if (resolved === viewMode) return;
+    viewMode = resolved;
+    setStoredViewMode(viewMode);
+  }
 
   async function loadNotesForMonth(monthKey) {
     const safeMonth = String(monthKey || "").trim();
@@ -561,6 +589,15 @@
       explicitEnd.setHours(0, 0, 0, 0);
       return explicitEnd;
     }
+    if (goal.type === "annuel") {
+      const rawYear = String(goal.yearKey || "").trim();
+      const year = Number(rawYear || String(goal.monthKey || "").split("-")[0]);
+      if (Number.isFinite(year)) {
+        const end = new Date(year, 11, 31);
+        end.setHours(0, 0, 0, 0);
+        return end;
+      }
+    }
     if (goal.type === "hebdo") {
       const range = Schema.weekDateRange(goal.monthKey, goal.weekOfMonth || goal.weekIndex || 1);
       if (range?.end instanceof Date) {
@@ -632,6 +669,18 @@
       }
     }
 
+    if (goal.type === "annuel") {
+      const rawYear = String(goal.yearKey || "").trim();
+      const year = Number(rawYear || String(goal.monthKey || "").split("-")[0]);
+      if (Number.isFinite(year)) {
+        const start = new Date(year, 0, 1);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(year, 11, 31);
+        end.setHours(0, 0, 0, 0);
+        return { start, end };
+      }
+    }
+
     const theoretical = computeTheoreticalGoalDate(goal);
     if (theoretical instanceof Date && !Number.isNaN(theoretical.getTime())) {
       const start = new Date(theoretical.getTime());
@@ -659,6 +708,13 @@
     return Schema.monthKeyFromDate(base);
   }
 
+  function yearShift(yearKey, offset) {
+    const baseYear = Number(String(yearKey || "").trim());
+    const resolved = Number.isFinite(baseYear) ? baseYear : new Date().getFullYear();
+    const next = resolved + Number(offset || 0);
+    return String(next);
+  }
+
   function typeLabel(goal, monthKey) {
     if (goal.type === "hebdo") {
       const range = Schema.weekDateRange(monthKey || goal.monthKey, Number(goal.weekOfMonth || 1));
@@ -667,12 +723,16 @@
     if (goal.type === "mensuel") {
       return "Mensuel";
     }
+    if (goal.type === "annuel") {
+      return "Annuel";
+    }
     return goal.type || "Objectif";
   }
 
   async function renderGoals(ctx, root) {
     lastMount = root;
     lastCtx = ctx;
+    viewMode = getStoredViewMode();
     root.innerHTML = "";
 
     const section = document.createElement("section");
@@ -682,6 +742,40 @@
     section.style.gap = "12px";
     section.style.padding = "16px";
     root.appendChild(section);
+
+    const viewSwitchWrap = document.createElement("div");
+    viewSwitchWrap.className = "goal-view-switch";
+    viewSwitchWrap.innerHTML = `
+      <div class="goal-segmented" role="group" aria-label="Vue objectifs">
+        <button type="button" class="goal-segmented__btn" data-view="month" aria-pressed="false">Mois</button>
+        <button type="button" class="goal-segmented__btn" data-view="year" aria-pressed="false">Année</button>
+      </div>
+    `;
+    section.appendChild(viewSwitchWrap);
+
+    const syncViewSwitch = () => {
+      const buttons = Array.from(viewSwitchWrap.querySelectorAll("[data-view]"));
+      buttons.forEach((btn) => {
+        const mode = btn.dataset.view === "year" ? "year" : "month";
+        const isActive = viewMode === mode;
+        btn.classList.toggle("is-active", isActive);
+        btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+    };
+    syncViewSwitch();
+
+    let rerenderCurrentView = () => {};
+
+    viewSwitchWrap.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const btn = target.closest("[data-view]");
+      if (!(btn instanceof HTMLElement)) return;
+      const nextMode = btn.dataset.view === "year" ? "year" : "month";
+      setViewMode(nextMode);
+      syncViewSwitch();
+      rerenderCurrentView();
+    });
 
     const navUpWrap = document.createElement("div");
     navUpWrap.className = "goal-nav goal-nav--up";
@@ -703,6 +797,7 @@
     `;
     section.appendChild(navDownWrap);
     let activeMonthKey = null;
+    let activeYearKey = null;
 
     const toneClasses = ["goal-row--positive", "goal-row--neutral", "goal-row--negative", "goal-row--none"];
 
@@ -1008,7 +1103,7 @@
     // Expose row factory to outer helpers (inline creator)
     GoalsNS.__createGoalRow = createGoalRow;
 
-    const renderMonth = async (monthKey) => {
+    const renderMonthView = async (monthKey) => {
       const box = document.createElement("section");
       box.className = "goal-month";
       box.dataset.month = monthKey;
@@ -1224,9 +1319,9 @@
       return box;
     };
 
-    const showMonth = async (monthKey, behavior = "auto") => {
+    const mountMonthView = async (monthKey, behavior = "auto") => {
       if (!monthKey) return;
-      const element = await renderMonth(monthKey);
+      const element = await renderMonthView(monthKey);
       if (!element) return;
       activeMonthKey = monthKey;
       timeline.innerHTML = "";
@@ -1239,15 +1334,223 @@
       }
     };
 
+    const renderYearView = async (yearKey) => {
+      const safeYear = String(yearKey || "").trim();
+      if (!safeYear) return null;
+
+      const yearBox = document.createElement("section");
+      yearBox.className = "goal-year";
+      yearBox.dataset.year = safeYear;
+
+      const title = document.createElement("h3");
+      title.className = "goal-year__title";
+      title.textContent = `Année ${safeYear}`;
+
+      const yearActions = document.createElement("div");
+      yearActions.style.display = "flex";
+      yearActions.style.justifyContent = "center";
+
+      const addYearButton = document.createElement("button");
+      addYearButton.type = "button";
+      addYearButton.className = "btn btn-ghost btn-compact";
+      addYearButton.textContent = "＋ Ajouter un objectif annuel";
+      yearActions.appendChild(addYearButton);
+
+      const monthsWrap = document.createElement("div");
+      monthsWrap.className = "goal-year__months";
+      monthsWrap.style.display = "grid";
+      monthsWrap.style.gap = "12px";
+
+      const monthKeys = Array.from({ length: 12 }, (_, idx) => {
+        const mm = String(idx + 1).padStart(2, "0");
+        return `${safeYear}-${mm}`;
+      });
+
+      const rows = await Promise.all(
+        monthKeys.map(async (monthKey) => {
+          const [goals, notes] = await Promise.all([
+            Schema.listObjectivesByMonth(ctx.db, ctx.user.uid, monthKey).catch(() => []),
+            loadNotesForMonth(monthKey).catch(() => ({ month: null, weeks: {} })),
+          ]);
+          return { monthKey, goals, notes };
+        })
+      );
+
+      let annualGoals = [];
+      try {
+        if (typeof Schema.listObjectivesByYear === "function") {
+          annualGoals = await Schema.listObjectivesByYear(ctx.db, ctx.user.uid, safeYear);
+        }
+      } catch (err) {
+        goalsLogger.warn("goals.year.annual.load", err);
+      }
+      annualGoals = sortGoals((annualGoals || []).filter((g) => g && g.archived !== true && g.type === "annuel"));
+
+      const annualBlock = document.createElement("div");
+      annualBlock.className = "goal-monthly";
+      annualBlock.innerHTML = `<div class="goal-monthly__title">Objectifs de l’année</div>`;
+      const annualList = document.createElement("div");
+      annualList.className = "goal-list";
+      annualList.dataset.yearList = safeYear;
+      if (annualGoals.length) {
+        annualGoals.forEach((goal) => {
+          annualList.appendChild(createGoalRow(goal, typeLabel(goal, "")));
+        });
+      }
+      enableGoalDragAndDrop(annualList);
+      annualBlock.appendChild(annualList);
+
+      rows.forEach((row) => {
+        const monthKey = row.monthKey;
+        const box = document.createElement("section");
+        box.className = "goal-month";
+        box.dataset.month = monthKey;
+
+        const monthDate = (() => {
+          const [y, m] = monthKey.split("-").map(Number);
+          return Number.isFinite(y) && Number.isFinite(m) ? new Date(y, (m || 1) - 1, 1) : new Date();
+        })();
+        const localeLabel = monthDate.toLocaleDateString("fr-FR", { month: "long" });
+        const label = localeLabel.charAt(0).toUpperCase() + localeLabel.slice(1);
+
+        const headerRow = document.createElement("div");
+        headerRow.className = "goal-month__header";
+        headerRow.style.display = "flex";
+        headerRow.style.alignItems = "center";
+        headerRow.style.justifyContent = "space-between";
+        headerRow.style.gap = "12px";
+
+        const headerTitle = document.createElement("h3");
+        headerTitle.className = "goal-month__title";
+        headerTitle.textContent = label;
+
+        const headerActions = document.createElement("div");
+        headerActions.style.display = "flex";
+        headerActions.style.alignItems = "center";
+        headerActions.style.gap = "8px";
+
+        const monthNoteButton = document.createElement("button");
+        monthNoteButton.type = "button";
+        monthNoteButton.className = "goal-month__note btn btn-ghost btn-compact";
+        monthNoteButton.setAttribute("aria-pressed", "false");
+        const monthNoteLabel = "Notes du mois";
+
+        const addMonthButton = document.createElement("button");
+        addMonthButton.type = "button";
+        addMonthButton.className = "goal-month__add btn btn-ghost";
+        addMonthButton.dataset.addMonth = "";
+        addMonthButton.textContent = "＋ Ajouter un objectif";
+
+        headerActions.append(addMonthButton);
+        headerRow.append(headerTitle, headerActions);
+        box.appendChild(headerRow);
+
+        const monthNotesBar = document.createElement("div");
+        monthNotesBar.className = "goal-month__notes";
+        monthNotesBar.appendChild(monthNoteButton);
+        box.appendChild(monthNotesBar);
+
+        let notes = row.notes && typeof row.notes === "object" ? row.notes : { month: null, weeks: {} };
+        if (!notes.weeks || typeof notes.weeks !== "object") {
+          notes.weeks = {};
+        }
+        updateNoteButtonState(monthNoteButton, notes.month, monthNoteLabel);
+
+        monthNoteButton.addEventListener("click", () => {
+          openObjectiveNoteEditor({
+            monthKey,
+            existingNote: notes.month,
+            onChange: (next) => {
+              notes = updateNotesCache(monthKey, (state) => {
+                state.month = next;
+                return state;
+              });
+              updateNoteButtonState(monthNoteButton, notes.month, monthNoteLabel);
+            },
+          });
+        });
+
+        addMonthButton.addEventListener("click", () => {
+          ensureMonthlyInlineCreator(box, monthKey);
+        });
+
+        let goals = Array.isArray(row.goals) ? row.goals : [];
+        goals = sortGoals((goals || []).filter((g) => g && g.archived !== true));
+        const monthlyGoals = goals.filter((goal) => goal.type !== "hebdo");
+
+        if (monthlyGoals.length) {
+          const monthlyBlock = document.createElement("div");
+          monthlyBlock.className = "goal-monthly";
+          monthlyBlock.innerHTML = `<div class="goal-monthly__title">Objectifs du mois</div>`;
+          const monthlyList = document.createElement("div");
+          monthlyList.className = "goal-list";
+          monthlyList.dataset.monthList = monthKey;
+          monthlyGoals.forEach((goal) => {
+            monthlyList.appendChild(createGoalRow(goal, typeLabel(goal, monthKey)));
+          });
+          enableGoalDragAndDrop(monthlyList);
+          monthlyBlock.appendChild(monthlyList);
+          box.appendChild(monthlyBlock);
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "goal-empty muted";
+          empty.textContent = "Aucun objectif pour ce mois.";
+          box.appendChild(empty);
+        }
+
+        monthsWrap.appendChild(box);
+      });
+
+      yearBox.appendChild(title);
+      yearBox.appendChild(yearActions);
+      yearBox.appendChild(annualBlock);
+      yearBox.appendChild(monthsWrap);
+
+      addYearButton.addEventListener("click", () => {
+        try {
+          openGoalForm(ctx, null, { type: "annuel", yearKey: safeYear });
+        } catch (_err) {}
+      });
+
+      return yearBox;
+    };
+
+    const mountYearView = async (yearKey, behavior = "auto") => {
+      if (!yearKey) return;
+      const element = await renderYearView(yearKey);
+      if (!element) return;
+      activeYearKey = String(yearKey);
+      timeline.innerHTML = "";
+      timeline.appendChild(element);
+      if (typeof timeline.scrollTo === "function") {
+        const behaviorMode = behavior === "smooth" ? "smooth" : "auto";
+        timeline.scrollTo({ top: 0, behavior: behaviorMode });
+      } else {
+        timeline.scrollTop = 0;
+      }
+    };
+
     let navigateQueue = Promise.resolve();
     const navigateMonth = (offset) => {
+      if (!offset) return Promise.resolve();
+      const startFrom = activeMonthKey || Schema.monthKeyFromDate(new Date());
+      const target = monthShift(startFrom, offset);
+      return mountMonthView(target, "smooth");
+    };
+
+    const navigateYear = (offset) => {
+      if (!offset) return Promise.resolve();
+      const startFrom = activeYearKey
+        || (activeMonthKey ? String(activeMonthKey).split("-")[0] : "")
+        || Schema.yearKeyFromDate(new Date());
+      const target = yearShift(startFrom, offset);
+      return mountYearView(target, "smooth");
+    };
+
+    const navigate = (offset) => {
       if (!offset) return;
       navigateQueue = navigateQueue
-        .then(() => {
-          const startFrom = activeMonthKey || Schema.monthKeyFromDate(new Date());
-          const target = monthShift(startFrom, offset);
-          return showMonth(target, "smooth");
-        })
+        .then(() => (viewMode === "year" ? navigateYear(offset) : navigateMonth(offset)))
         .catch((error) => {
           goalsLogger.warn("goals.navigate.error", error);
         });
@@ -1256,14 +1559,54 @@
     const navUp = navUpWrap.querySelector("[data-nav-up]");
     const navDown = navDownWrap.querySelector("[data-nav-down]");
     if (navUp) {
-      navUp.addEventListener("click", () => navigateMonth(-1));
+      navUp.addEventListener("click", () => navigate(-1));
     }
     if (navDown) {
-      navDown.addEventListener("click", () => navigateMonth(1));
+      navDown.addEventListener("click", () => navigate(1));
     }
 
-    const currentMonth = Schema.monthKeyFromDate(new Date());
-    await showMonth(currentMonth, "auto");
+    const mountCurrentView = async (behavior = "auto") => {
+      const upBtn = navUpWrap.querySelector("[data-nav-up]");
+      const downBtn = navDownWrap.querySelector("[data-nav-down]");
+      if (viewMode === "year") {
+        if (upBtn instanceof HTMLButtonElement) {
+          upBtn.disabled = false;
+          upBtn.setAttribute("aria-disabled", "false");
+          upBtn.setAttribute("aria-label", "Année précédente");
+        }
+        if (downBtn instanceof HTMLButtonElement) {
+          downBtn.disabled = false;
+          downBtn.setAttribute("aria-disabled", "false");
+          downBtn.setAttribute("aria-label", "Année suivante");
+        }
+        const yearKey = activeYearKey
+          || (activeMonthKey ? String(activeMonthKey).split("-")[0] : "")
+          || Schema.yearKeyFromDate(new Date());
+        await mountYearView(yearKey, behavior);
+      } else {
+        if (upBtn instanceof HTMLButtonElement) {
+          upBtn.disabled = false;
+          upBtn.setAttribute("aria-disabled", "false");
+          upBtn.setAttribute("aria-label", "Mois précédent");
+        }
+        if (downBtn instanceof HTMLButtonElement) {
+          downBtn.disabled = false;
+          downBtn.setAttribute("aria-disabled", "false");
+          downBtn.setAttribute("aria-label", "Mois suivant");
+        }
+        const currentMonth = activeMonthKey || Schema.monthKeyFromDate(new Date());
+        await mountMonthView(currentMonth, behavior);
+      }
+    };
+
+    rerenderCurrentView = () => {
+      mountCurrentView("auto").catch((error) => {
+        goalsLogger.warn("goals.view.switch", error);
+      });
+    };
+    GoalsNS.__rerenderCurrentView = rerenderCurrentView;
+
+    await mountCurrentView("auto");
     if (window.__appBadge && typeof window.__appBadge.refresh === "function") {
       window.__appBadge.refresh(ctx.user?.uid).catch(() => {});
     }
@@ -1484,6 +1827,7 @@
   }
 
   async function openGoalForm(ctx, goal = null, initial = {}) {
+    const yearKey = String(goal?.yearKey || initial.yearKey || Schema.yearKeyFromDate(new Date()) || "").trim();
     const monthKey = goal?.monthKey || initial.monthKey || Schema.monthKeyFromDate(new Date());
     let weekOfMonth = Number(goal?.weekOfMonth || initial.weekOfMonth || 1);
     const typeInitial = goal?.type || initial.type || "hebdo";
@@ -1523,11 +1867,11 @@
       const raw = date.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
       return raw.charAt(0).toUpperCase() + raw.slice(1);
     })();
-    const weekChoices = Schema.weeksOf(monthKey);
-    if (!weekChoices.includes(weekOfMonth)) {
+    const weekChoices = typeInitial === "annuel" ? [] : Schema.weeksOf(monthKey);
+    if (weekChoices.length && !weekChoices.includes(weekOfMonth)) {
       weekOfMonth = weekChoices[0] || 1;
     }
-    const weekButtonsMarkup = weekChoices
+    const weekButtonsMarkup = (weekChoices || [])
       .map((w) => `<button type="button" class="btn-ghost" data-w="${w}">S${w}</button>`)
       .join("");
 
@@ -1640,6 +1984,10 @@
           <button class="btn-ghost" type="button" data-close>✕</button>
         </div>
         <form class="goal-form" id="goal-form" data-autosave-key="${escapeHtml(autosaveKey)}">
+          <div class="goal-field" id="year-picker">
+            <span class="goal-label">Année concernée</span>
+            <input id="goal-year" class="goal-input" inputmode="numeric" value="${escapeHtml(yearKey)}" placeholder="YYYY">
+          </div>
           <div class="goal-field">
             <span class="goal-label">Mois concerné</span>
             <div class="goal-month-pill">${escapeHtml(monthLabel)}</div>
@@ -1653,6 +2001,7 @@
             <select id="obj-type" class="goal-input">
               <option value="hebdo" ${typeInitial === "hebdo" ? "selected" : ""}>Hebdomadaire</option>
               <option value="mensuel" ${typeInitial === "mensuel" ? "selected" : ""}>Mensuel</option>
+              <option value="annuel" ${typeInitial === "annuel" ? "selected" : ""}>Annuel</option>
             </select>
           </label>
           <div class="goal-field" id="week-picker">
@@ -1724,6 +2073,8 @@
     const typeSelect = form.querySelector("#obj-type");
     const weekPicker = form.querySelector("#week-picker");
     const weekButtons = form.querySelectorAll("#week-picker [data-w]");
+    const yearPicker = form.querySelector("#year-picker");
+    const yearInput = form.querySelector("#goal-year");
   const notifyCheckbox = form.querySelector("[name=notifyEmail]");
     const notifyDateInput = form.querySelector("[name=notifyAt]");
     const notifyChannelWrap = form.querySelector("[data-reminder-channel]");
@@ -1840,17 +2191,31 @@
     syncLinkerSummary();
 
     const syncWeekPicker = () => {
-      weekPicker.style.display = typeSelect.value === "hebdo" ? "" : "none";
+      const isAnnual = typeSelect.value === "annuel";
+      weekPicker.style.display = typeSelect.value === "hebdo" && !isAnnual ? "" : "none";
+      if (yearPicker) {
+        yearPicker.style.display = isAnnual ? "" : "none";
+      }
+      const monthField = form.querySelector('.goal-field .goal-month-pill')?.closest('.goal-field');
+      if (monthField) {
+        monthField.style.display = isAnnual ? "none" : "";
+      }
     };
     syncWeekPicker();
 
-    const currentGoalConfig = () => ({
-      type: typeSelect.value,
-      monthKey,
-      weekOfMonth,
-      startDate: goal?.startDate ?? initial.startDate,
-      endDate: goal?.endDate ?? initial.endDate,
-    });
+    const currentGoalConfig = () => {
+      const type = typeSelect.value;
+      const isAnnual = type === "annuel";
+      const rawYear = (yearInput?.value || yearKey || "").trim();
+      return {
+        type,
+        monthKey: isAnnual ? null : monthKey,
+        yearKey: isAnnual ? rawYear : null,
+        weekOfMonth,
+        startDate: goal?.startDate ?? initial.startDate,
+        endDate: goal?.endDate ?? initial.endDate,
+      };
+    };
 
     const updateNotifyDefault = () => {
       const config = currentGoalConfig();
@@ -2019,7 +2384,8 @@
         titre,
         description,
         type,
-        monthKey,
+        monthKey: type === "annuel" ? null : monthKey,
+        ...(type === "annuel" ? { yearKey: (yearInput?.value || yearKey || "").trim() } : {}),
   notifyOnTarget,
   notifyChannel,
         notifyAt: notifyAt || null,
@@ -2058,6 +2424,16 @@
         }
         // Local DOM update instead of full page reload
         close();
+        const needsFullRerender = viewMode === "year" || type === "annuel" || goal?.type === "annuel";
+        if (needsFullRerender) {
+          if (GoalsNS.__rerenderCurrentView) {
+            try { GoalsNS.__rerenderCurrentView(); } catch (_err) {}
+          } else if (lastCtx && lastMount && typeof GoalsNS.renderGoals === "function") {
+            try { GoalsNS.renderGoals(lastCtx, lastMount); } catch (_err) {}
+          }
+          return;
+        }
+
         const monthBox = document.querySelector('.goal-month');
         const existingRow = document.querySelector(`[data-goal-id="${objectiveId}"]`);
         const updatedGoal = { id: objectiveId, ...data };
