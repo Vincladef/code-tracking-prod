@@ -2752,6 +2752,35 @@
     return index;
   }
 
+  function parseSessionOrderFromKey(key) {
+    const str = String(key || "");
+    const m = str.match(/^session-(\d+)$/i);
+    if (!m) return null;
+    const n = Number(m[1]);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n - 1;
+  }
+
+  function buildPracticeHistoryIndex(rows) {
+    const index = new Map();
+    (rows || []).forEach((row) => {
+      const consigneId = row?.consigneId || row?.consigne_id || row?.consigne || null;
+      const historyKey = row?.historyKey || row?.entryId || row?.key || row?.id || null;
+      if (!consigneId || !historyKey) return;
+      const key = String(consigneId);
+      const sessKey = String(historyKey);
+      const bySession = index.get(key) || new Map();
+      const existing = bySession.get(sessKey) || null;
+      const existingTime = existing ? toMillisSafe(existing.updatedAt || existing.createdAt || 0) : 0;
+      const nextTime = toMillisSafe(row.updatedAt || row.createdAt || 0);
+      if (!existing || nextTime >= existingTime) {
+        bySession.set(sessKey, row);
+      }
+      index.set(key, bySession);
+    });
+    return index;
+  }
+
   function formatChecklistCell(consigne, answerRow) {
     if (!answerRow) return "";
     const checkedCount = Number(answerRow.checkedCount ?? answerRow.checked_count);
@@ -3137,6 +3166,26 @@
       const dailyResponseRows = (responses || []).filter((r) => r?.mode === "daily");
       const practiceResponseRows = (responses || []).filter((r) => r?.mode === "practice");
 
+      // Practice timeline in the UI is driven by /u/{uid}/history/{consigneId}/entries/*
+      // We read those entries to ensure the Sheets export shows the same answers.
+      const practiceHistoryRows = [];
+      try {
+        for (const c of practiceConsignes) {
+          const consigneId = String(c?.id || "");
+          if (!consigneId) continue;
+          const snap = await userRef.collection("history").doc(consigneId).collection("entries").get();
+          snap.forEach((docSnap) => {
+            practiceHistoryRows.push({
+              consigneId,
+              historyKey: docSnap.id,
+              ...(docSnap.data() || {}),
+            });
+          });
+        }
+      } catch (error) {
+        console.warn("exportUserToSheet:practiceHistory:read", error);
+      }
+
       const sessionDayKeyById = new Map();
       const sessionById = new Map();
       (sessions || []).forEach((s) => {
@@ -3149,6 +3198,7 @@
 
       const dailyIndex = buildResponseIndex(dailyResponseRows);
       const practiceSessionIndex = buildPracticeSessionIndex(practiceResponseRows);
+      const practiceHistoryIndex = buildPracticeHistoryIndex(practiceHistoryRows);
       const checklistIndex = buildResponseIndex(checklistRows);
 
       const allDailyDayKeys = Array.from(
@@ -3215,6 +3265,41 @@
           dayKey: inferredDayKey,
           order: numericOrder,
           source: "responses",
+        });
+        if (inferredDayKey && !sessionDayKeyById.has(id)) {
+          sessionDayKeyById.set(id, inferredDayKey);
+        }
+      });
+
+      (practiceHistoryRows || []).forEach((row) => {
+        const rawId = row?.historyKey || row?.entryId || row?.key || row?.id || null;
+        if (!rawId) return;
+        const id = String(rawId);
+        if (!id) return;
+        if (practiceSessionMetaById.has(id)) {
+          const existing = practiceSessionMetaById.get(id);
+          const dk = existing?.dayKey || "";
+          if (dk) return;
+          const inferred =
+            toDayKey(row?.dayKey || row?.pageDateIso || row?.pageDate || row?.createdAt || row?.updatedAt || id) || "";
+          if (inferred) {
+            practiceSessionMetaById.set(id, { ...existing, dayKey: inferred });
+            if (!sessionDayKeyById.has(id)) sessionDayKeyById.set(id, inferred);
+          }
+          return;
+        }
+        const inferredDayKey =
+          toDayKey(row?.dayKey || row?.pageDateIso || row?.pageDate || row?.createdAt || row?.updatedAt || id) || "";
+        const numericOrder = Number.isFinite(Number(row?.sessionIndex))
+          ? Number(row.sessionIndex)
+          : Number.isFinite(Number(row?.sessionNumber))
+            ? Number(row.sessionNumber) - 1
+            : parseSessionOrderFromKey(id);
+        practiceSessionMetaById.set(id, {
+          id,
+          dayKey: inferredDayKey,
+          order: numericOrder,
+          source: "history",
         });
         if (inferredDayKey && !sessionDayKeyById.has(id)) {
           sessionDayKeyById.set(id, inferredDayKey);
@@ -3292,13 +3377,15 @@
       practiceConsignes.forEach((c) => {
         const id = String(c?.id || "");
         if (!id) return;
+        const byHistory = practiceHistoryIndex.get(id) || new Map();
         const bySession = practiceSessionIndex.get(id) || new Map();
         const calc = (sessList) => {
           const list = Array.isArray(sessList) ? sessList : [];
           if (!list.length) return "";
           let answered = 0;
           list.forEach((sess) => {
-            const row = bySession.get(String(sess?.id || "")) || null;
+            const key = String(sess?.id || "");
+            const row = byHistory.get(key) || bySession.get(key) || null;
             if (hasResponseContent(c, row)) answered += 1;
           });
           return answered / list.length;
@@ -3342,9 +3429,10 @@
           cellValueForSheets(c?.category || ""),
           normalizeConsigneTitle(c),
         ];
+        const byHistory = practiceHistoryIndex.get(id) || new Map();
         const bySession = practiceSessionIndex.get(id) || new Map();
         practiceSessionCols.forEach((sess) => {
-          row.push(formatValueCell(c, bySession.get(sess.id) || null));
+          row.push(formatValueCell(c, byHistory.get(sess.id) || bySession.get(sess.id) || null));
         });
         practiceTable.push(row);
       });
