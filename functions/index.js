@@ -2422,25 +2422,6 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function formatWeekRangeLabel(monthKey, weekIndex) {
-  const range = weekDateRange(monthKey, weekIndex);
-  if (!range?.start || !range?.end) {
-    return `Semaine ${weekIndex}`;
-  }
-  const startLabel = range.start.toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
-  const endLabel = range.end.toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
-  return `Semaine du ${startLabel} au ${endLabel}`;
-}
-
-function formatMonthLabelForObjective(monthKey) {
-  const parsed = parseMonthKey(monthKey);
-  if (!parsed) return monthKey || "";
-  const date = new Date(parsed.year, parsed.month - 1, 1);
-  const label = date.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-  if (!label) return monthKey || "";
-  return label.charAt(0).toUpperCase() + label.slice(1);
-}
-
 function buildGoalReminderEmail({ firstName, displayName, objectives, context, link } = {}) {
   // Date courte JJ/MM/AAAA basée sur le jour du rappel de l’objectif
   const safeObjectives = Array.isArray(objectives) ? objectives.filter(Boolean) : [];
