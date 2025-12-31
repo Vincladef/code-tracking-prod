@@ -82,6 +82,8 @@ jobs:
         run: |
           echo "Best-effort enabling runtimeconfig on project: $PROJECT_ID"
           gcloud services enable runtimeconfig.googleapis.com --project "$PROJECT_ID" || echo "Skip enabling API (insufficient perms or already enabled)"
+          echo "Best-effort enabling Sheets/Drive APIs on project: $PROJECT_ID"
+          gcloud services enable sheets.googleapis.com drive.googleapis.com --project "$PROJECT_ID" || echo "Skip enabling Sheets/Drive APIs (insufficient perms or already enabled)"
 
       - name: Create runtime mail config file (no runtimeconfig API)
         shell: bash
@@ -112,7 +114,7 @@ jobs:
           fi
 
       - name: Install Functions dependencies
-        run: npm ci --prefix functions
+        run: npm install --prefix functions --no-audit --no-fund
 
       - name: Deploy Functions (using Service Account auth)
         run: firebase deploy --only functions --project "$PROJECT_ID"
