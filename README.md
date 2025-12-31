@@ -126,7 +126,8 @@ Cette V1 inclut un export complet des données utilisateur vers Google Sheets.
 
 - `create` : crée un nouveau Google Sheet (plusieurs onglets : Profil, Consignes, Réponses, etc.), renvoie `spreadsheetUrl`, et enregistre le dernier `spreadsheetId` dans `u/{uid}.exportSheets`.
 - `refresh` : réécrit le contenu du spreadsheet existant (mêmes onglets), renvoie `spreadsheetUrl` et met à jour `u/{uid}.exportSheets`.
-- Partage : si le profil Firestore contient `email` et/ou `emails[]`, la fonction tente de partager le fichier (Drive permissions) à ces adresses (rôle `writer`).
+- Accès : la fonction tente de rendre le fichier accessible en **lecture** à toute personne ayant le lien (Drive permission `anyone` + `allowFileDiscovery=false`).
+- Partage (optionnel) : si le profil Firestore contient `email` et/ou `emails[]`, la fonction tente aussi de partager le fichier à ces adresses (rôle `writer`).
 
 **Données exportées (onglets)**
 
@@ -159,7 +160,9 @@ Dans Google Cloud Console (projet Firebase) :
 
 #### 3) Fournir les credentials à la Cloud Function
 
-Le code serveur lit les credentials de l’un des emplacements suivants :
+Par défaut, la Cloud Function utilise les **Application Default Credentials** (ADC) du runtime (le compte de service Cloud Functions).
+
+Optionnellement, tu peux override les credentials (utile en local) via :
 
 - Variable d’environnement `GOOGLE_SERVICE_ACCOUNT_JSON` (contenu JSON complet)
 - Fichier `functions/sheets.runtime.json` (ou `functions/.sheets.runtime.json`)
@@ -179,10 +182,9 @@ Le dépôt ignore déjà ces fichiers (`functions/.gitignore`).
 
 #### 4) Accès au spreadsheet
 
-Par défaut, le spreadsheet est **créé au nom du service account**.
+Par défaut, le spreadsheet est **créé au nom du service account** (celui du runtime Cloud Functions).
 
-- Si tu mets `email` / `emails[]` dans `u/{uid}`, la fonction tente de le partager automatiquement.
-- Sinon, il faut partager manuellement le sheet (ou ajouter une adresse e-mail dans le profil).
+- La fonction tente de le rendre accessible en lecture à toute personne ayant le lien (pas besoin d’e-mail).
 
 - `sendDailyRemindersScheduled` — tâche planifiée (Europe/Paris, 6h00) qui exécute `sendDailyRemindersHandler` sans requête HTTP. Cette fonction remplace les déclenchements manuels quotidiens ; conservez l’endpoint `sendDailyReminders` uniquement si un appel manuel reste nécessaire.
   - Déployez les deux fonctions avec `firebase deploy --only functions:sendDailyReminders,functions:sendDailyRemindersScheduled`.

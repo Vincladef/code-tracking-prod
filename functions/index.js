@@ -577,13 +577,8 @@ function resolveGoogleServiceAccount() {
 
 async function getGoogleApis() {
   const credentials = resolveGoogleServiceAccount();
-  if (!credentials) {
-    throw new Error(
-      "Configuration Google manquante. Ajoute GOOGLE_SERVICE_ACCOUNT_JSON (ou sheets.runtime.json) avec un service account ayant accès à Google Sheets."
-    );
-  }
   const auth = new google.auth.GoogleAuth({
-    credentials,
+    ...(credentials ? { credentials } : {}),
     scopes: [
       "https://www.googleapis.com/auth/spreadsheets",
       "https://www.googleapis.com/auth/drive",
@@ -1922,6 +1917,28 @@ exports.exportUserToSheet = functions
 
       await formatSheetsBasic(sheets, spreadsheetId, sheetIdsByTitle);
 
+      let publicPermissionOk = false;
+      let publicPermissionError = null;
+      try {
+        await drive.permissions.create({
+          fileId: spreadsheetId,
+          sendNotificationEmail: false,
+          requestBody: {
+            type: "anyone",
+            role: "reader",
+            allowFileDiscovery: false,
+          },
+        });
+        publicPermissionOk = true;
+      } catch (error) {
+        publicPermissionError = error?.message || String(error);
+        functions.logger.warn("exportUserToSheet:publicPermission:error", {
+          uid,
+          spreadsheetId,
+          message: publicPermissionError,
+        });
+      }
+
       const emails = extractEmailList(profile);
       if (emails.length) {
         await Promise.allSettled(
@@ -1956,6 +1973,12 @@ exports.exportUserToSheet = functions
         spreadsheetId,
         spreadsheetUrl,
         sharedTo: emails,
+        publicAccess: {
+          type: "anyone_with_link",
+          role: "reader",
+          ok: publicPermissionOk,
+          error: publicPermissionError,
+        },
         counts: {
           categories: categories.length,
           consignes: consignes.length,
