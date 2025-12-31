@@ -1706,6 +1706,12 @@
 
     /* Objectifs */
     .goal-header{ display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:12px; }
+    .goal-view-switch{ display:flex; justify-content:center; }
+    .goal-segmented{ display:inline-flex; align-items:center; padding:3px; gap:3px; border-radius:999px; border:1px solid rgba(148,163,184,.28); background:rgba(248,250,252,.8); }
+    .goal-segmented__btn{ border:none; background:transparent; color:var(--muted); font:inherit; font-weight:600; font-size:.82rem; padding:.35rem .7rem; border-radius:999px; cursor:pointer; transition:background .15s ease, color .15s ease, box-shadow .15s ease; }
+    .goal-segmented__btn:hover{ background:rgba(99,102,241,.07); color:#334155; }
+    .goal-segmented__btn:focus-visible{ outline:none; box-shadow:0 0 0 3px rgba(99,102,241,.18); }
+    .goal-segmented__btn.is-active{ background:rgba(99,102,241,.12); color:#312e81; }
     .goal-nav{ display:flex; justify-content:center; }
     .goal-nav-button{ width:2.75rem; height:2.75rem; padding:0; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; font-size:1.1rem; }
     .goal-timeline{ display:grid; gap:12px; padding:8px 0; }

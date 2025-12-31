@@ -2445,6 +2445,16 @@ async function listObjectivesByMonth(db, uid, monthKey) {
   return rows;
 }
 
+async function listObjectivesByYear(db, uid, yearKey) {
+  const safeYear = String(yearKey || "").trim();
+  if (!safeYear) return [];
+  const q = query(collection(db, "u", uid, "objectifs"), where("yearKey", "==", safeYear));
+  const snap = await getDocs(q);
+  const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  rows.sort(compareObjectives);
+  return rows;
+}
+
 function objectiveNoteDocId(monthKey, type, weekOfMonth) {
   const safeMonth = String(monthKey || "").trim();
   if (!safeMonth) return "";
@@ -2562,6 +2572,15 @@ function objectiveDueDateIso(objective) {
     const d = startOfDay(explicitEnd);
     return dayKeyFromDate(d);
   }
+  if (objective?.type === "annuel") {
+    const rawYear = String(objective.yearKey || "").trim();
+    const year = Number(rawYear || String(objective.monthKey || "").split("-")[0]);
+    if (Number.isFinite(year)) {
+      const end = new Date(year, 11, 31);
+      end.setHours(0, 0, 0, 0);
+      return dayKeyFromDate(end);
+    }
+  }
   if (objective?.type === "hebdo") {
     const range = weekDateRange(objective.monthKey, objective.weekOfMonth || 1);
     if (range?.end) {
@@ -2646,25 +2665,34 @@ async function upsertObjective(db, uid, data, objectifId = null) {
     const typeRaw = typeof input.type === "string" ? input.type.trim() : input.type;
     const resolvedType = typeRaw ? String(typeRaw) : "hebdo";
     payload.type = resolvedType;
-    const resolvedMonthKey = typeof input.monthKey === "string" && input.monthKey.trim()
-      ? input.monthKey
-      : baseMonthKey;
-    payload.monthKey = resolvedMonthKey;
-    if (resolvedType === "hebdo") {
-      const providedWeek = has("weekOfMonth") ? input.weekOfMonth : null;
-      const weekValue = (() => {
-        if (providedWeek !== null && providedWeek !== undefined) {
-          const numeric = Number(providedWeek);
-          return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
-        }
-        const placementWeek = placement?.weekIndex;
-        const fallbackWeek = weekIndexForDateInMonth(rawStart, resolvedMonthKey);
-        const numeric = Number(placementWeek || fallbackWeek || 1);
-        return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
-      })();
-      payload.weekOfMonth = weekValue;
-    } else {
+    if (resolvedType === "annuel") {
+      const rawYear = typeof input.yearKey === "string" ? input.yearKey.trim() : "";
+      const derivedYear = String(rawYear || yearKeyFromDate(rawStart) || String(baseMonthKey).split("-")[0] || "").trim();
+      payload.yearKey = derivedYear || null;
+      payload.monthKey = null;
       payload.weekOfMonth = null;
+    } else {
+      const resolvedMonthKey = typeof input.monthKey === "string" && input.monthKey.trim()
+        ? input.monthKey
+        : baseMonthKey;
+      payload.monthKey = resolvedMonthKey;
+      payload.yearKey = null;
+      if (resolvedType === "hebdo") {
+        const providedWeek = has("weekOfMonth") ? input.weekOfMonth : null;
+        const weekValue = (() => {
+          if (providedWeek !== null && providedWeek !== undefined) {
+            const numeric = Number(providedWeek);
+            return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+          }
+          const placementWeek = placement?.weekIndex;
+          const fallbackWeek = weekIndexForDateInMonth(rawStart, resolvedMonthKey);
+          const numeric = Number(placementWeek || fallbackWeek || 1);
+          return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+        })();
+        payload.weekOfMonth = weekValue;
+      } else {
+        payload.weekOfMonth = null;
+      }
     }
     if (!has("notifyOnTarget")) {
       payload.notifyOnTarget = true;
@@ -2688,6 +2716,14 @@ async function upsertObjective(db, uid, data, objectifId = null) {
     }
     if (has("monthKey")) {
       payload.monthKey = input.monthKey;
+    } else if (nextType === "annuel") {
+      payload.monthKey = null;
+    }
+    if (has("yearKey")) {
+      const rawYear = typeof input.yearKey === "string" ? input.yearKey.trim() : "";
+      payload.yearKey = rawYear || null;
+    } else if (nextType && nextType !== "annuel") {
+      payload.yearKey = null;
     }
     if (has("weekOfMonth")) {
       if ((nextType && nextType !== "hebdo")) {
@@ -3500,6 +3536,7 @@ Object.assign(Schema, {
   weekDateRange,
   // objectifs & rappels
   listObjectivesByMonth,
+  listObjectivesByYear,
   listObjectivesByReminderDate,
   listObjectivesDueOn,
   sortObjectives,
