@@ -603,7 +603,9 @@ function cellValue(value) {
       if (dt instanceof Date && !Number.isNaN(dt.getTime())) {
         return dt.toISOString();
       }
-    } catch (_) { }
+    } catch (_) {
+      void _;
+    }
   }
   try {
     return JSON.stringify(value);
@@ -2399,7 +2401,7 @@ function resolveSummaryRecipients() {
       }
     }
   } catch (e) {
-    // silencieux
+    void e;
   }
   const combined = envSummary || cfgSummary || envMail || cfgMail || fileSummary || fileMail;
   if (!combined) {
@@ -2420,28 +2422,6 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function formatEmailDateLabel(context) {
-  if (!context) return "";
-  if (context.selectedDate instanceof Date && !Number.isNaN(context.selectedDate.getTime?.())) {
-    return context.selectedDate.toLocaleDateString("fr-FR", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-  }
-  const fromIso = toDate(context.dateIso);
-  if (fromIso) {
-    return fromIso.toLocaleDateString("fr-FR", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-  }
-  return String(context.dateIso || "");
-}
-
 function formatWeekRangeLabel(monthKey, weekIndex) {
   const range = weekDateRange(monthKey, weekIndex);
   if (!range?.start || !range?.end) {
@@ -2459,24 +2439,6 @@ function formatMonthLabelForObjective(monthKey) {
   const label = date.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
   if (!label) return monthKey || "";
   return label.charAt(0).toUpperCase() + label.slice(1);
-}
-
-function describeObjectiveForEmail(objective = {}) {
-  const title = objective.titre || objective.title || "Objectif";
-  const meta = [];
-  if (objective.type === "hebdo") {
-    const weekIndex = objective.weekOfMonth || objective.weekIndex || 1;
-    meta.push(formatWeekRangeLabel(objective.monthKey, weekIndex));
-  } else if (objective.type === "mensuel") {
-    const monthLabel = formatMonthLabelForObjective(objective.monthKey);
-    if (monthLabel) {
-      meta.push(`Mensuel — ${monthLabel}`);
-    }
-  }
-  if (meta.length) {
-    return `${title} — ${meta.join(" — ")}`;
-  }
-  return title;
 }
 
 function buildGoalReminderEmail({ firstName, displayName, objectives, context, link } = {}) {
@@ -2896,10 +2858,6 @@ async function sendDailySummaryEmail(context, results) {
 
 function buildUserDailyLink(uid, dateIso) {
   return `${DAILY_BASE}#/daily?u=${encodeURIComponent(uid)}&d=${dateIso}`;
-}
-
-function buildUserGoalsLink(uid, dateIso) {
-  return `${DAILY_BASE}#/u/${encodeURIComponent(uid)}/goals?d=${dateIso}`;
 }
 
 exports.__testables = {
