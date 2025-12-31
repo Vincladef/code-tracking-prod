@@ -2356,7 +2356,6 @@
     archives: document.getElementById("user-actions-archives"),
     toggleHistory: document.getElementById("user-actions-toggle-history"),
     exportSheets: document.getElementById("user-actions-export-sheets"),
-    refreshSheets: document.getElementById("user-actions-refresh-sheets"),
     install: document.getElementById("install-app-button"),
   };
 
@@ -2533,14 +2532,7 @@
   }
 
   function syncSheetsMenuVisibility() {
-    const sheetId = resolveLastExportSheetId();
-    if (userActions.refreshSheets) {
-      if (sheetId) {
-        userActions.refreshSheets.classList.remove("hidden");
-      } else {
-        userActions.refreshSheets.classList.add("hidden");
-      }
-    }
+    // refresh button removed; keep for future extensions.
   }
 
   async function googleApiJson(url, { method = "GET", token, body } = {}) {
@@ -3493,7 +3485,7 @@
         ["Utilisateur", displayName],
         ["Mode", exportMode],
         ["Aide", "Les onglets Journalier / Pratique affichent les consignes en lignes et les dates/sessions en colonnes."],
-        ["Aide", "Clique sur Exporter/Actualiser depuis l’app pour régénérer le tableau."],
+        ["Aide", "Clique sur Exporter depuis l’app pour régénérer le tableau."],
         ["Historique", "Des onglets par mois sont générés pour l’historique complet (limité aux 36 derniers mois pour éviter un fichier trop lourd)."],
       ];
 
@@ -3635,33 +3627,6 @@
       popup = null;
     }
     const result = await callSheetsExport("create");
-    const url = result?.spreadsheetUrl || "";
-    if (url) {
-      if (popup && !popup.closed) {
-        try {
-          popup.location.href = url;
-          return;
-        } catch (_) { }
-      }
-      window.location.href = url;
-      return;
-    }
-    if (popup && !popup.closed) {
-      try {
-        popup.close();
-      } catch (_) { }
-    }
-  });
-
-  userActions.refreshSheets?.addEventListener("click", async () => {
-    closeUserActionsMenu();
-    let popup = null;
-    try {
-      popup = window.open("about:blank", "_blank", "noopener,noreferrer");
-    } catch (_) {
-      popup = null;
-    }
-    const result = await callSheetsExport("refresh");
     const url = result?.spreadsheetUrl || "";
     if (url) {
       if (popup && !popup.closed) {
