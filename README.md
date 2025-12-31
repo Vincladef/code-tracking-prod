@@ -109,6 +109,81 @@ Le job CI applique automatiquement `functions:config:set` avec ces valeurs, puis
   - `topic`: identifiant de topic FCM.
   - `tokens`: tableau de tokens d’enregistrement.
 
+#### Export Google Sheets
+
+Cette V1 inclut un export complet des données utilisateur vers Google Sheets.
+
+**Endpoint**
+
+- `exportUserToSheet` — `POST https://<region>-<project>.cloudfunctions.net/exportUserToSheet`
+  - Body JSON :
+    - `uid`: UID Firebase de l’utilisateur
+    - `mode`: `create` (nouveau spreadsheet) ou `refresh` (réécrit un spreadsheet existant)
+    - `spreadsheetId`: requis si `mode=refresh`
+  - Auth : header `Authorization: Bearer <Firebase ID Token>` (le token doit correspondre au `uid`).
+
+**Comportement**
+
+- `create` : crée un nouveau Google Sheet (plusieurs onglets : Profil, Consignes, Réponses, etc.), renvoie `spreadsheetUrl`, et enregistre le dernier `spreadsheetId` dans `u/{uid}.exportSheets`.
+- `refresh` : réécrit le contenu du spreadsheet existant (mêmes onglets), renvoie `spreadsheetUrl` et met à jour `u/{uid}.exportSheets`.
+- Partage : si le profil Firestore contient `email` et/ou `emails[]`, la fonction tente de partager le fichier (Drive permissions) à ces adresses (rôle `writer`).
+
+**Données exportées (onglets)**
+
+- `README` (métadonnées export)
+- `Profil` (document `u/{uid}`)
+- `Catégories` (`u/{uid}/categories`)
+- `Consignes` (`u/{uid}/consignes`)
+- `Réponses` (`u/{uid}/responses`)
+- `Sessions` (`u/{uid}/sessions`)
+- `Checklist Answers` (`u/{uid}/answers/*/consignes/*`)
+- `SR` (`u/{uid}/sr`)
+- `Modules` (`u/{uid}/modules`)
+- `Push Tokens` (`u/{uid}/pushTokens`)
+- `Consigne History` (`u/{uid}/consignes/{consigneId}/history`)
+- `Checklist History` (`u/{uid}/history`)
+
+### Configuration Google Cloud (Sheets/Drive)
+
+#### 1) Activer les APIs
+
+Dans Google Cloud Console (projet Firebase) :
+
+- Activer **Google Sheets API**
+- Activer **Google Drive API**
+
+#### 2) Créer un Service Account
+
+- IAM & Admin → Service Accounts → Create service account
+- Générer une **clé JSON**
+
+#### 3) Fournir les credentials à la Cloud Function
+
+Le code serveur lit les credentials de l’un des emplacements suivants :
+
+- Variable d’environnement `GOOGLE_SERVICE_ACCOUNT_JSON` (contenu JSON complet)
+- Fichier `functions/sheets.runtime.json` (ou `functions/.sheets.runtime.json`)
+- Variable d’environnement `GOOGLE_SERVICE_ACCOUNT_FILE` (chemin vers un JSON)
+
+Le dépôt ignore déjà ces fichiers (`functions/.gitignore`).
+
+**Local / dev**
+
+- Placer la clé dans `functions/sheets.runtime.json`
+- Déployer : `firebase deploy --only functions`
+
+**CI/CD**
+
+- Stocker la clé JSON dans un Secret GitHub (par ex. `GOOGLE_SERVICE_ACCOUNT_JSON`)
+- Au moment du workflow, écrire le secret dans `functions/sheets.runtime.json` avant `firebase deploy`.
+
+#### 4) Accès au spreadsheet
+
+Par défaut, le spreadsheet est **créé au nom du service account**.
+
+- Si tu mets `email` / `emails[]` dans `u/{uid}`, la fonction tente de le partager automatiquement.
+- Sinon, il faut partager manuellement le sheet (ou ajouter une adresse e-mail dans le profil).
+
 - `sendDailyRemindersScheduled` — tâche planifiée (Europe/Paris, 6h00) qui exécute `sendDailyRemindersHandler` sans requête HTTP. Cette fonction remplace les déclenchements manuels quotidiens ; conservez l’endpoint `sendDailyReminders` uniquement si un appel manuel reste nécessaire.
   - Déployez les deux fonctions avec `firebase deploy --only functions:sendDailyReminders,functions:sendDailyRemindersScheduled`.
   - Si les appels manuels ne sont plus utilisés, supprimez l’ancienne fonction HTTP via `firebase functions:delete sendDailyReminders` ou désactivez son invocation dans la console Firebase.

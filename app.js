@@ -2329,6 +2329,7 @@
           const data = snap.data() || {};
           ctx.profile = { ...(ctx.profile || {}), ...data, uid };
           renderSidebar();
+          syncSheetsMenuVisibility();
           refreshUserBadge(uid, data.displayName || data.name || data.slug || "Utilisateur");
           safeUpdateInstallShortcutLabel(resolveInstallLabelFromProfile(ctx.profile), "profile-watch");
           appLog("profile:watch:update", { uid, hasData: !!Object.keys(data || {}).length });
@@ -2354,6 +2355,8 @@
     notif: document.getElementById("user-actions-notifications"),
     archives: document.getElementById("user-actions-archives"),
     toggleHistory: document.getElementById("user-actions-toggle-history"),
+    exportSheets: document.getElementById("user-actions-export-sheets"),
+    refreshSheets: document.getElementById("user-actions-refresh-sheets"),
     install: document.getElementById("install-app-button"),
   };
 
@@ -2420,6 +2423,74 @@
     }
   }
 
+  function resolveFunctionsBaseUrl() {
+    const projectId = "tracking-d-habitudes";
+    const region = "europe-west1";
+    return `https://${region}-${projectId}.cloudfunctions.net`;
+  }
+
+  function resolveLastExportSheetId() {
+    const profile = ctx.profile || {};
+    const exportState = profile.exportSheets || profile.export_sheets || null;
+    if (!exportState || typeof exportState !== "object") return null;
+    const sheetId = exportState.spreadsheetId || exportState.spreadsheet_id || null;
+    return typeof sheetId === "string" && sheetId.trim() ? sheetId.trim() : null;
+  }
+
+  function syncSheetsMenuVisibility() {
+    const sheetId = resolveLastExportSheetId();
+    if (userActions.refreshSheets) {
+      if (sheetId) {
+        userActions.refreshSheets.classList.remove("hidden");
+      } else {
+        userActions.refreshSheets.classList.add("hidden");
+      }
+    }
+  }
+
+  async function callSheetsExport(mode) {
+    const uid = ctx.user?.uid;
+    if (!uid) {
+      alert("Aucun utilisateur sélectionné.");
+      return null;
+    }
+    const url = `${resolveFunctionsBaseUrl()}/exportUserToSheet`;
+    const payload = {
+      uid,
+      mode: mode === "refresh" ? "refresh" : "create",
+    };
+    if (payload.mode === "refresh") {
+      payload.spreadsheetId = resolveLastExportSheetId();
+    }
+    try {
+      let authToken = null;
+      try {
+        authToken = await firebaseCompatApp.auth().currentUser?.getIdToken();
+      } catch (error) {
+        console.warn("exportUserToSheet:token", error);
+      }
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || data.ok !== true) {
+        const message = data?.error || `Erreur export (${res.status})`;
+        alert(message);
+        return null;
+      }
+      return data;
+    } catch (error) {
+      console.warn("exportUserToSheet:error", error);
+      alert("Impossible de contacter le serveur d’export.");
+      return null;
+    }
+  }
+
   function handleUserActionsOutsideClick(event) {
     if (!userActionsOpen || !userActions.container) return;
     if (!userActions.container.contains(event.target)) {
@@ -2469,6 +2540,22 @@
       }
     } catch (error) {
       console.error("user-actions:toggle-history", error);
+    }
+  });
+
+  userActions.exportSheets?.addEventListener("click", async () => {
+    closeUserActionsMenu();
+    const result = await callSheetsExport("create");
+    if (result?.spreadsheetUrl) {
+      window.open(result.spreadsheetUrl, "_blank", "noopener,noreferrer");
+    }
+  });
+
+  userActions.refreshSheets?.addEventListener("click", async () => {
+    closeUserActionsMenu();
+    const result = await callSheetsExport("refresh");
+    if (result?.spreadsheetUrl) {
+      window.open(result.spreadsheetUrl, "_blank", "noopener,noreferrer");
     }
   });
 
@@ -2627,6 +2714,7 @@
     if (visible) {
       updateUserActionsTarget(activeUid);
       syncNotificationButtonsForUid(activeUid);
+      syncSheetsMenuVisibility();
     } else {
       updateUserActionsTarget(null);
     }
