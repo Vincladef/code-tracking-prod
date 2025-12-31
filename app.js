@@ -2594,6 +2594,150 @@
     return [header, ...rows];
   }
 
+  function toDayKey(value) {
+    if (!value) return null;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+      if (trimmed.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10);
+      const parsed = new Date(trimmed);
+      if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+      return null;
+    }
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+    if (typeof value.toDate === "function") {
+      try {
+        const d = value.toDate();
+        if (d instanceof Date && !Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+      } catch (_) { }
+    }
+    if (typeof value === "number") {
+      const d = new Date(value);
+      if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+    return null;
+  }
+
+  function pickRecentSorted(values, limitCount) {
+    const list = Array.from(new Set((values || []).filter(Boolean)));
+    list.sort((a, b) => a.localeCompare(b));
+    const max = Math.max(1, Number(limitCount) || 0);
+    if (list.length <= max) return list;
+    return list.slice(list.length - max);
+  }
+
+  function normalizeConsigneTitle(consigne) {
+    const label = consigne?.title || consigne?.label || consigne?.name || "";
+    return String(label || "").trim() || String(consigne?.id || "");
+  }
+
+  function buildResponseIndex(rows, { sessionDayKeyById = null } = {}) {
+    const index = new Map();
+    (rows || []).forEach((row) => {
+      const consigneId = row?.consigneId || row?.consigne_id || row?.consigne || null;
+      if (!consigneId) return;
+      let dayKey = toDayKey(row?.dayKey || row?.pageDateIso || row?.dateKey || null);
+      if (!dayKey && row?.sessionId && sessionDayKeyById) {
+        dayKey = sessionDayKeyById.get(String(row.sessionId)) || null;
+      }
+      if (!dayKey) return;
+      const key = String(consigneId);
+      const byDay = index.get(key) || new Map();
+      const existing = byDay.get(dayKey);
+      const next = existing ? existing : row;
+      byDay.set(dayKey, next);
+      index.set(key, byDay);
+    });
+    return index;
+  }
+
+  function formatChecklistCell(consigne, answerRow) {
+    if (!answerRow) return "";
+    const checkedCount = Number(answerRow.checkedCount ?? answerRow.checked_count);
+    const total = Number(answerRow.total);
+    if (Number.isFinite(checkedCount) && Number.isFinite(total) && total > 0) {
+      const pct = Math.round((checkedCount / total) * 100);
+      return `${checkedCount}/${total} (${pct}%)`;
+    }
+    const selected = Array.isArray(answerRow.selectedIds) ? answerRow.selectedIds.length : null;
+    const skipped = Array.isArray(answerRow.skippedIds) ? answerRow.skippedIds.length : null;
+    if (selected !== null && skipped !== null) {
+      return `${selected} cochés, ${skipped} passés`;
+    }
+    const answers = answerRow.answers;
+    if (answers && typeof answers === "object") {
+      try {
+        return JSON.stringify(answers);
+      } catch (_) { }
+    }
+    return cellValueForSheets(answerRow);
+  }
+
+  function formatValueCell(consigne, responseRow) {
+    if (!responseRow) return "";
+    const v = responseRow.value;
+    if (v === undefined || v === null || v === "") {
+      const note = responseRow.note;
+      if (note) return String(note);
+      return "";
+    }
+    if (consigne?.type === "yesno") {
+      if (v === "yes") return "Oui";
+      if (v === "no") return "Non";
+    }
+    if (consigne?.type === "likert6") {
+      const map = {
+        yes: "Oui",
+        rather_yes: "Plutôt oui",
+        neutral: "Neutre",
+        rather_no: "Plutôt non",
+        no: "Non",
+        no_answer: "Sans réponse",
+      };
+      if (map[String(v)]) return map[String(v)];
+    }
+    return cellValueForSheets(v);
+  }
+
+  async function formatDashboardSheets(token, spreadsheetId, sheetIdsByTitle) {
+    const requests = [];
+    Object.entries(sheetIdsByTitle || {}).forEach(([title, sheetId]) => {
+      if (typeof sheetId !== "number") return;
+      if (!["Journalier", "Pratique", "Objectifs", "README"].includes(title)) return;
+      requests.push({
+        updateSheetProperties: {
+          properties: {
+            sheetId,
+            gridProperties: {
+              frozenRowCount: 1,
+              frozenColumnCount: title === "README" ? 0 : 2,
+            },
+          },
+          fields: "gridProperties.frozenRowCount,gridProperties.frozenColumnCount",
+        },
+      });
+      if (title !== "README") {
+        requests.push({
+          repeatCell: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: { red: 0.95, green: 0.95, blue: 0.95 },
+                textFormat: { bold: true },
+              },
+            },
+            fields: "userEnteredFormat(backgroundColor,textFormat)",
+          },
+        });
+      }
+    });
+    if (!requests.length) return;
+    await googleApiJson(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}:batchUpdate`,
+      { method: "POST", token, body: { requests } }
+    );
+  }
+
   async function readCollectionDocsCompat(ref) {
     try {
       const snap = await ref.get();
@@ -2772,22 +2916,98 @@
         console.warn("exportUserToSheet:consigneHistory:read", error);
       }
 
-      const tabTitles = [
-        "README",
-        "Profil",
-        "Catégories",
-        "Consignes",
-        "Réponses",
-        "Sessions",
-        "Checklist Answers",
-        "SR",
-        "Modules",
-        "Push Tokens",
-        "Consigne History",
-        "Checklist History",
+      const objectifs = await readCollectionDocsCompat(userRef.collection("objectifs"));
+      const objectiveNotes = await readCollectionDocsCompat(userRef.collection("objectiveNotes"));
+
+      const dailyConsignes = (consignes || []).filter((c) => c?.mode === "daily");
+      const practiceConsignes = (consignes || []).filter((c) => c?.mode === "practice");
+
+      const dailyResponseRows = (responses || []).filter((r) => r?.mode === "daily");
+      const practiceResponseRows = (responses || []).filter((r) => r?.mode === "practice");
+
+      const sessionDayKeyById = new Map();
+      (sessions || []).forEach((s) => {
+        const id = s?.id;
+        if (!id) return;
+        const dayKey = toDayKey(s?.startedAt || s?.createdAt || null);
+        if (dayKey) sessionDayKeyById.set(String(id), dayKey);
+      });
+
+      const dailyIndex = buildResponseIndex(dailyResponseRows);
+      const practiceIndex = buildResponseIndex(practiceResponseRows, { sessionDayKeyById });
+      const checklistIndex = buildResponseIndex(checklistRows);
+
+      const dailyDayKeys = pickRecentSorted(
+        [
+          ...dailyResponseRows.map((r) => toDayKey(r?.dayKey || r?.pageDateIso || null)),
+          ...checklistRows.map((r) => toDayKey(r?.dateKey || r?.dayKey || null)),
+        ],
+        31
+      );
+      const practiceDayKeys = pickRecentSorted(
+        [
+          ...practiceResponseRows.map((r) => toDayKey(r?.dayKey || r?.pageDateIso || null)),
+          ...practiceResponseRows.map((r) => (r?.sessionId ? sessionDayKeyById.get(String(r.sessionId)) : null)),
+        ],
+        50
+      );
+
+      const dailyHeader = ["Catégorie", "Consigne", ...dailyDayKeys];
+      const dailyTable = [dailyHeader];
+      dailyConsignes.forEach((c) => {
+        const id = String(c?.id || "");
+        if (!id) return;
+        const row = [
+          cellValueForSheets(c?.category || ""),
+          normalizeConsigneTitle(c),
+        ];
+        const byDayChecklist = checklistIndex.get(id) || new Map();
+        const byDayResp = dailyIndex.get(id) || new Map();
+        dailyDayKeys.forEach((dayKey) => {
+          if (c?.type === "checklist") {
+            row.push(formatChecklistCell(c, byDayChecklist.get(dayKey) || null));
+          } else {
+            row.push(formatValueCell(c, byDayResp.get(dayKey) || null));
+          }
+        });
+        dailyTable.push(row);
+      });
+
+      const practiceHeader = ["Catégorie", "Consigne", ...practiceDayKeys];
+      const practiceTable = [practiceHeader];
+      practiceConsignes.forEach((c) => {
+        const id = String(c?.id || "");
+        if (!id) return;
+        const row = [
+          cellValueForSheets(c?.category || ""),
+          normalizeConsigneTitle(c),
+        ];
+        const byDay = practiceIndex.get(id) || new Map();
+        practiceDayKeys.forEach((dayKey) => {
+          row.push(formatValueCell(c, byDay.get(dayKey) || null));
+        });
+        practiceTable.push(row);
+      });
+
+      const objectifsRows = makeRowsFromObjectsAuto(objectifs);
+      const objectiveNotesRows = makeRowsFromObjectsAuto(objectiveNotes);
+      const objectifsTable = [
+        ["Section", "Données"],
+        ["Objectifs", ""],
+        ...objectifsRows,
+        ["", ""],
+        ["Notes Objectifs", ""],
+        ...objectiveNotesRows,
       ];
 
-      await ensureSheetTabs(token, spreadsheetId, tabTitles);
+      const tabTitles = [
+        "README",
+        "Journalier",
+        "Pratique",
+        "Objectifs",
+      ];
+
+      const sheetIdsByTitle = await ensureSheetTabs(token, spreadsheetId, tabTitles);
 
       const readmeRows = [
         ["Clé", "Valeur"],
@@ -2795,23 +3015,16 @@
         ["UID", uid],
         ["Utilisateur", displayName],
         ["Mode", exportMode],
+        ["Aide", "Les onglets Journalier / Pratique affichent les consignes en lignes et les dates en colonnes."],
+        ["Aide", "Clique sur Exporter/Actualiser depuis l’app pour régénérer le tableau."],
       ];
 
-      const profileRows = Object.entries({ uid, ...(profile || {}) }).map(([k, v]) => [k, cellValueForSheets(v)]);
-      profileRows.unshift(["champ", "valeur"]);
-
       await clearAndWriteSheet(token, spreadsheetId, "README", readmeRows);
-      await clearAndWriteSheet(token, spreadsheetId, "Profil", profileRows);
-      await clearAndWriteSheet(token, spreadsheetId, "Catégories", makeRowsFromObjectsAuto(categories));
-      await clearAndWriteSheet(token, spreadsheetId, "Consignes", makeRowsFromObjectsAuto(consignes));
-      await clearAndWriteSheet(token, spreadsheetId, "Réponses", makeRowsFromObjectsAuto(responses));
-      await clearAndWriteSheet(token, spreadsheetId, "Sessions", makeRowsFromObjectsAuto(sessions));
-      await clearAndWriteSheet(token, spreadsheetId, "Checklist Answers", makeRowsFromObjectsAuto(checklistRows));
-      await clearAndWriteSheet(token, spreadsheetId, "SR", makeRowsFromObjectsAuto(sr));
-      await clearAndWriteSheet(token, spreadsheetId, "Modules", makeRowsFromObjectsAuto(modules));
-      await clearAndWriteSheet(token, spreadsheetId, "Push Tokens", makeRowsFromObjectsAuto(pushTokens));
-      await clearAndWriteSheet(token, spreadsheetId, "Consigne History", makeRowsFromObjectsAuto(consigneHistory));
-      await clearAndWriteSheet(token, spreadsheetId, "Checklist History", makeRowsFromObjectsAuto(history));
+      await clearAndWriteSheet(token, spreadsheetId, "Journalier", dailyTable);
+      await clearAndWriteSheet(token, spreadsheetId, "Pratique", practiceTable);
+      await clearAndWriteSheet(token, spreadsheetId, "Objectifs", objectifsTable);
+
+      await formatDashboardSheets(token, spreadsheetId, sheetIdsByTitle);
 
       const publicAccess = await setPublicReadPermission(token, spreadsheetId);
 
@@ -2902,17 +3115,55 @@
 
   userActions.exportSheets?.addEventListener("click", async () => {
     closeUserActionsMenu();
+    let popup = null;
+    try {
+      popup = window.open("about:blank", "_blank", "noopener,noreferrer");
+    } catch (_) {
+      popup = null;
+    }
     const result = await callSheetsExport("create");
-    if (result?.spreadsheetUrl) {
-      window.open(result.spreadsheetUrl, "_blank", "noopener,noreferrer");
+    const url = result?.spreadsheetUrl || "";
+    if (url) {
+      if (popup && !popup.closed) {
+        try {
+          popup.location.href = url;
+          return;
+        } catch (_) { }
+      }
+      window.location.href = url;
+      return;
+    }
+    if (popup && !popup.closed) {
+      try {
+        popup.close();
+      } catch (_) { }
     }
   });
 
   userActions.refreshSheets?.addEventListener("click", async () => {
     closeUserActionsMenu();
+    let popup = null;
+    try {
+      popup = window.open("about:blank", "_blank", "noopener,noreferrer");
+    } catch (_) {
+      popup = null;
+    }
     const result = await callSheetsExport("refresh");
-    if (result?.spreadsheetUrl) {
-      window.open(result.spreadsheetUrl, "_blank", "noopener,noreferrer");
+    const url = result?.spreadsheetUrl || "";
+    if (url) {
+      if (popup && !popup.closed) {
+        try {
+          popup.location.href = url;
+          return;
+        } catch (_) { }
+      }
+      window.location.href = url;
+      return;
+    }
+    if (popup && !popup.closed) {
+      try {
+        popup.close();
+      } catch (_) { }
     }
   });
 
