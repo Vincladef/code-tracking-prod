@@ -63,7 +63,7 @@
     })();
     btn.setAttribute("aria-pressed", hasValue ? "true" : "false");
     btn.dataset.hasNote = hasValue ? "1" : "0";
-    const label = String(baseLabel || "📝 Note");
+    const label = String(baseLabel || "Note");
     btn.textContent = hasValue ? `${label} ★` : label;
     btn.title = hasValue ? "Note enregistrée" : "Ajouter une note";
   }
@@ -1043,7 +1043,7 @@
   monthNoteButton.type = "button";
   monthNoteButton.className = "goal-month__note btn btn-ghost btn-compact";
   monthNoteButton.setAttribute("aria-pressed", "false");
-  const monthNoteLabel = "📝 Notes du mois";
+  const monthNoteLabel = "Notes du mois";
 
   const addMonthButton = document.createElement("button");
   addMonthButton.type = "button";
@@ -1119,7 +1119,7 @@
   weekNoteButton.type = "button";
   weekNoteButton.className = "goal-week__note btn btn-ghost btn-compact";
   weekNoteButton.setAttribute("aria-pressed", "false");
-  const weekNoteLabel = "📝 Note";
+  const weekNoteLabel = "Note";
   updateNoteButtonState(weekNoteButton, (notes.weeks || {})[week] || null, weekNoteLabel);
 
   const addButton = document.createElement("button");
