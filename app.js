@@ -2423,10 +2423,105 @@
     }
   }
 
-  function resolveFunctionsBaseUrl() {
-    const projectId = "tracking-d-habitudes";
-    const region = "europe-west1";
-    return `https://${region}-${projectId}.cloudfunctions.net`;
+  const GOOGLE_OAUTH_CLIENT_ID =
+    "739389871966-gsbgn9tfg0vnv3imtsfvtn4rgn7emafu.apps.googleusercontent.com";
+  const GOOGLE_OAUTH_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+  ].join(" ");
+  const GOOGLE_TOKEN_STORAGE_KEY = "hp::google::access_token";
+  const GOOGLE_TOKEN_EXP_STORAGE_KEY = "hp::google::access_token_expires_at";
+  let googleTokenClient = null;
+
+  function readStoredGoogleAccessToken() {
+    try {
+      const token = window.sessionStorage?.getItem(GOOGLE_TOKEN_STORAGE_KEY) || "";
+      const rawExp = window.sessionStorage?.getItem(GOOGLE_TOKEN_EXP_STORAGE_KEY) || "";
+      const expiresAt = rawExp ? Number(rawExp) : 0;
+      if (!token || !expiresAt || Number.isNaN(expiresAt)) return null;
+      if (Date.now() >= expiresAt - 15_000) return null;
+      return token;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function storeGoogleAccessToken(token, expiresInSeconds) {
+    try {
+      const expiresAt = Date.now() + Math.max(0, Number(expiresInSeconds) || 0) * 1000;
+      window.sessionStorage?.setItem(GOOGLE_TOKEN_STORAGE_KEY, token);
+      window.sessionStorage?.setItem(GOOGLE_TOKEN_EXP_STORAGE_KEY, String(expiresAt));
+    } catch (_) { }
+  }
+
+  function clearStoredGoogleAccessToken() {
+    try {
+      window.sessionStorage?.removeItem(GOOGLE_TOKEN_STORAGE_KEY);
+      window.sessionStorage?.removeItem(GOOGLE_TOKEN_EXP_STORAGE_KEY);
+    } catch (_) { }
+  }
+
+  function waitForGoogleOAuth(timeoutMs = 12_000) {
+    if (window.google?.accounts?.oauth2?.initTokenClient) {
+      return Promise.resolve(true);
+    }
+    return new Promise((resolve, reject) => {
+      const started = Date.now();
+      const timer = window.setInterval(() => {
+        if (window.google?.accounts?.oauth2?.initTokenClient) {
+          window.clearInterval(timer);
+          resolve(true);
+          return;
+        }
+        if (Date.now() - started > timeoutMs) {
+          window.clearInterval(timer);
+          reject(new Error("Google OAuth indisponible"));
+        }
+      }, 120);
+    });
+  }
+
+  async function getGoogleAccessToken({ interactive = true } = {}) {
+    const cached = readStoredGoogleAccessToken();
+    if (cached) return cached;
+    await waitForGoogleOAuth();
+    if (!GOOGLE_OAUTH_CLIENT_ID) {
+      throw new Error("Google OAuth client_id manquant");
+    }
+    return new Promise((resolve, reject) => {
+      googleTokenClient =
+        googleTokenClient ||
+        window.google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_OAUTH_CLIENT_ID,
+          scope: GOOGLE_OAUTH_SCOPES,
+          callback: () => { },
+        });
+
+      googleTokenClient.callback = (resp) => {
+        if (!resp) {
+          reject(new Error("Autorisation Google annulée"));
+          return;
+        }
+        if (resp.error) {
+          clearStoredGoogleAccessToken();
+          reject(new Error(resp.error_description || resp.error));
+          return;
+        }
+        const token = resp.access_token;
+        if (!token) {
+          reject(new Error("Token Google manquant"));
+          return;
+        }
+        storeGoogleAccessToken(token, resp.expires_in);
+        resolve(token);
+      };
+
+      try {
+        googleTokenClient.requestAccessToken({ prompt: interactive ? "consent" : "" });
+      } catch (error) {
+        reject(error);
+      }
+    });
   }
 
   function resolveLastExportSheetId() {
@@ -2448,45 +2543,306 @@
     }
   }
 
+  async function googleApiJson(url, { method = "GET", token, body } = {}) {
+    const res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const message = data?.error?.message || data?.message || `Erreur Google (${res.status})`;
+      const error = new Error(message);
+      error.status = res.status;
+      error.payload = data;
+      throw error;
+    }
+    return data;
+  }
+
+  function cellValueForSheets(value) {
+    if (value === undefined || value === null) return "";
+    if (typeof value === "string") return value;
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "boolean") return value ? "1" : "0";
+    const maybeDate = value && typeof value.toDate === "function" ? value.toDate() : null;
+    if (maybeDate instanceof Date && !Number.isNaN(maybeDate.getTime())) {
+      return maybeDate.toISOString();
+    }
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
+    try {
+      return JSON.stringify(value);
+    } catch (_) {
+      return String(value);
+    }
+  }
+
+  function makeRowsFromObjectsAuto(items) {
+    const list = Array.isArray(items) ? items : [];
+    const keySet = new Set();
+    list.forEach((item) => {
+      if (!item || typeof item !== "object") return;
+      Object.keys(item).forEach((k) => keySet.add(k));
+    });
+    const keys = Array.from(keySet);
+    keys.sort();
+    const header = keys.length ? keys : ["id"];
+    const rows = list.map((item) => header.map((k) => cellValueForSheets(item?.[k])));
+    return [header, ...rows];
+  }
+
+  async function readCollectionDocsCompat(ref) {
+    try {
+      const snap = await ref.get();
+      return snap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) }));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function ensureSheetTabs(token, spreadsheetId, tabTitles) {
+    const meta = await googleApiJson(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=sheets.properties`,
+      { token }
+    );
+    const existing = new Map();
+    (meta?.sheets || []).forEach((s) => {
+      const title = s?.properties?.title;
+      const sheetId = s?.properties?.sheetId;
+      if (typeof title === "string" && title && typeof sheetId === "number") {
+        existing.set(title, sheetId);
+      }
+    });
+    const missing = (Array.isArray(tabTitles) ? tabTitles : []).filter((t) => t && !existing.has(t));
+    if (missing.length) {
+      await googleApiJson(
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}:batchUpdate`,
+        {
+          method: "POST",
+          token,
+          body: {
+            requests: missing.map((title) => ({ addSheet: { properties: { title } } })),
+          },
+        }
+      );
+      return ensureSheetTabs(token, spreadsheetId, tabTitles);
+    }
+    const out = {};
+    existing.forEach((sheetId, title) => {
+      out[title] = sheetId;
+    });
+    return out;
+  }
+
+  async function clearAndWriteSheet(token, spreadsheetId, sheetTitle, rows) {
+    const range = encodeURIComponent(`${sheetTitle}!A1`);
+    await googleApiJson(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${range}:clear`,
+      { method: "POST", token, body: {} }
+    );
+    await googleApiJson(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${range}?valueInputOption=RAW`,
+      { method: "PUT", token, body: { values: Array.isArray(rows) ? rows : [] } }
+    );
+  }
+
+  async function setPublicReadPermission(token, spreadsheetId) {
+    try {
+      await googleApiJson(
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(spreadsheetId)}/permissions?sendNotificationEmail=false`,
+        {
+          method: "POST",
+          token,
+          body: { type: "anyone", role: "reader", allowFileDiscovery: false },
+        }
+      );
+      return { ok: true, error: null };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  }
+
   async function callSheetsExport(mode) {
     const uid = ctx.user?.uid;
     if (!uid) {
       alert("Aucun utilisateur sélectionné.");
       return null;
     }
-    const url = `${resolveFunctionsBaseUrl()}/exportUserToSheet`;
-    const payload = {
-      uid,
-      mode: mode === "refresh" ? "refresh" : "create",
-    };
-    if (payload.mode === "refresh") {
-      payload.spreadsheetId = resolveLastExportSheetId();
-    }
     try {
-      let authToken = null;
-      try {
-        authToken = await firebaseCompatApp.auth().currentUser?.getIdToken();
-      } catch (error) {
-        console.warn("exportUserToSheet:token", error);
-      }
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data || data.ok !== true) {
-        const message = data?.error || `Erreur export (${res.status})`;
-        alert(message);
+      const exportMode = mode === "refresh" ? "refresh" : "create";
+      const existingSheetId = exportMode === "refresh" ? resolveLastExportSheetId() : null;
+      if (exportMode === "refresh" && !existingSheetId) {
+        alert("Aucun Google Sheet existant à actualiser.");
         return null;
       }
-      return data;
+      const token = await getGoogleAccessToken({ interactive: true });
+
+      if (!ctx.db || typeof ctx.db.collection !== "function") {
+        alert("Firestore non initialisé.");
+        return null;
+      }
+
+      const userRef = ctx.db.collection("u").doc(uid);
+      const profileSnap = await userRef.get();
+      const profile = profileSnap?.exists ? profileSnap.data() || {} : {};
+      const displayName = profile.displayName || profile.name || uid;
+
+      let spreadsheetId = existingSheetId;
+      let spreadsheetUrl = null;
+
+      if (exportMode === "create") {
+        const dateLabel = new Date().toISOString().slice(0, 10);
+        const title = `Export Habitudes — ${displayName} — ${dateLabel}`;
+        const created = await googleApiJson("https://sheets.googleapis.com/v4/spreadsheets", {
+          method: "POST",
+          token,
+          body: {
+            properties: { title },
+            sheets: [{ properties: { title: "README" } }],
+          },
+        });
+        spreadsheetId = created?.spreadsheetId || null;
+        spreadsheetUrl = created?.spreadsheetUrl || null;
+      }
+
+      if (!spreadsheetId) {
+        alert("Impossible de créer le Google Sheet.");
+        return null;
+      }
+
+      const meta = await googleApiJson(
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=spreadsheetId,spreadsheetUrl`,
+        { token }
+      );
+      spreadsheetUrl = meta?.spreadsheetUrl || spreadsheetUrl;
+
+      const categories = await readCollectionDocsCompat(userRef.collection("categories"));
+      const consignes = await readCollectionDocsCompat(userRef.collection("consignes"));
+      const responses = await readCollectionDocsCompat(userRef.collection("responses"));
+      const sessions = await readCollectionDocsCompat(userRef.collection("sessions"));
+      const sr = await readCollectionDocsCompat(userRef.collection("sr"));
+      const modules = await readCollectionDocsCompat(userRef.collection("modules"));
+      const pushTokens = await readCollectionDocsCompat(userRef.collection("pushTokens"));
+      const history = await readCollectionDocsCompat(userRef.collection("history"));
+
+      const checklistRows = [];
+      try {
+        const answerDatesSnap = await userRef.collection("answers").get();
+        for (const dateDoc of answerDatesSnap.docs) {
+          const dateKey = dateDoc.id;
+          const consSnap = await userRef
+            .collection("answers")
+            .doc(dateKey)
+            .collection("consignes")
+            .get();
+          consSnap.forEach((doc) => {
+            checklistRows.push({
+              dateKey,
+              consigneId: doc.id,
+              ...(doc.data() || {}),
+            });
+          });
+        }
+      } catch (error) {
+        console.warn("exportUserToSheet:answers:read", error);
+      }
+
+      const consigneHistory = [];
+      try {
+        for (const consigne of consignes) {
+          if (!consigne?.id) continue;
+          const snap = await userRef
+            .collection("consignes")
+            .doc(consigne.id)
+            .collection("history")
+            .get();
+          snap.forEach((doc) => {
+            consigneHistory.push({
+              consigneId: consigne.id,
+              entryId: doc.id,
+              ...(doc.data() || {}),
+            });
+          });
+        }
+      } catch (error) {
+        console.warn("exportUserToSheet:consigneHistory:read", error);
+      }
+
+      const tabTitles = [
+        "README",
+        "Profil",
+        "Catégories",
+        "Consignes",
+        "Réponses",
+        "Sessions",
+        "Checklist Answers",
+        "SR",
+        "Modules",
+        "Push Tokens",
+        "Consigne History",
+        "Checklist History",
+      ];
+
+      await ensureSheetTabs(token, spreadsheetId, tabTitles);
+
+      const readmeRows = [
+        ["Clé", "Valeur"],
+        ["Exporté le", new Date().toISOString()],
+        ["UID", uid],
+        ["Utilisateur", displayName],
+        ["Mode", exportMode],
+      ];
+
+      const profileRows = Object.entries({ uid, ...(profile || {}) }).map(([k, v]) => [k, cellValueForSheets(v)]);
+      profileRows.unshift(["champ", "valeur"]);
+
+      await clearAndWriteSheet(token, spreadsheetId, "README", readmeRows);
+      await clearAndWriteSheet(token, spreadsheetId, "Profil", profileRows);
+      await clearAndWriteSheet(token, spreadsheetId, "Catégories", makeRowsFromObjectsAuto(categories));
+      await clearAndWriteSheet(token, spreadsheetId, "Consignes", makeRowsFromObjectsAuto(consignes));
+      await clearAndWriteSheet(token, spreadsheetId, "Réponses", makeRowsFromObjectsAuto(responses));
+      await clearAndWriteSheet(token, spreadsheetId, "Sessions", makeRowsFromObjectsAuto(sessions));
+      await clearAndWriteSheet(token, spreadsheetId, "Checklist Answers", makeRowsFromObjectsAuto(checklistRows));
+      await clearAndWriteSheet(token, spreadsheetId, "SR", makeRowsFromObjectsAuto(sr));
+      await clearAndWriteSheet(token, spreadsheetId, "Modules", makeRowsFromObjectsAuto(modules));
+      await clearAndWriteSheet(token, spreadsheetId, "Push Tokens", makeRowsFromObjectsAuto(pushTokens));
+      await clearAndWriteSheet(token, spreadsheetId, "Consigne History", makeRowsFromObjectsAuto(consigneHistory));
+      await clearAndWriteSheet(token, spreadsheetId, "Checklist History", makeRowsFromObjectsAuto(history));
+
+      const publicAccess = await setPublicReadPermission(token, spreadsheetId);
+
+      const exportState = {
+        spreadsheetId,
+        spreadsheetUrl,
+        updatedAt: appFirestore.serverTimestamp(),
+      };
+      if (exportMode === "create") {
+        exportState.createdAt = appFirestore.serverTimestamp();
+      }
+      await userRef.set({ exportSheets: exportState }, { merge: true });
+
+      return {
+        ok: true,
+        uid,
+        mode: exportMode,
+        spreadsheetId,
+        spreadsheetUrl,
+        publicAccess: {
+          type: "anyone_with_link",
+          role: "reader",
+          ok: publicAccess.ok,
+          error: publicAccess.error,
+        },
+      };
     } catch (error) {
       console.warn("exportUserToSheet:error", error);
-      alert("Impossible de contacter le serveur d’export.");
+      if (error && (error.status === 401 || error.status === 403)) {
+        clearStoredGoogleAccessToken();
+      }
+      alert(error?.message || "Impossible d’exporter vers Google Sheets.");
       return null;
     }
   }
