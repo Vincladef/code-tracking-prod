@@ -2658,6 +2658,36 @@
     return index;
   }
 
+  function hasResponseContent(consigne, responseRow) {
+    if (!responseRow) return false;
+    if (consigne?.type === "checklist") return true;
+    const v = responseRow.value;
+    if (v === undefined || v === null) {
+      return Boolean(String(responseRow.note || "").trim());
+    }
+    if (typeof v === "string") {
+      return Boolean(v.trim()) || Boolean(String(responseRow.note || "").trim());
+    }
+    if (typeof v === "object") {
+      try {
+        if (window?.Modes?.richText?.hasContent && window?.Modes?.richText?.normalizeValue) {
+          const normalized = Modes.richText.normalizeValue(v);
+          return Modes.richText.hasContent(normalized);
+        }
+      } catch (_) { }
+      return true;
+    }
+    return true;
+  }
+
+  function pickLastWindow(list, size) {
+    const arr = Array.isArray(list) ? list : [];
+    const n = Math.max(0, Number(size) || 0);
+    if (n <= 0) return [];
+    if (arr.length <= n) return arr.slice();
+    return arr.slice(arr.length - n);
+  }
+
   function buildPracticeSessionIndex(rows) {
     const index = new Map();
     (rows || []).forEach((row) => {
@@ -2684,12 +2714,17 @@
     const total = Number(answerRow.total);
     if (Number.isFinite(checkedCount) && Number.isFinite(total) && total > 0) {
       const pct = Math.round((checkedCount / total) * 100);
-      return `${checkedCount}/${total} (${pct}%)`;
+      return `${pct}%`;
     }
     const selected = Array.isArray(answerRow.selectedIds) ? answerRow.selectedIds.length : null;
     const skipped = Array.isArray(answerRow.skippedIds) ? answerRow.skippedIds.length : null;
     if (selected !== null && skipped !== null) {
-      return `${selected} cochés, ${skipped} passés`;
+      const totalCount = selected + skipped;
+      if (totalCount > 0) {
+        const pct = Math.round((selected / totalCount) * 100);
+        return `${pct}%`;
+      }
+      return "";
     }
     const answers = answerRow.answers;
     if (answers && typeof answers === "object") {
@@ -2727,12 +2762,31 @@
   }
 
   async function formatDashboardSheets(token, spreadsheetId, sheetIdsByTitle) {
+    const meta = await googleApiJson(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=sheets.properties,sheets.conditionalFormats`,
+      { token }
+    );
+    const conditionalCountsBySheetId = new Map();
+    (meta?.sheets || []).forEach((s) => {
+      const sheetId = s?.properties?.sheetId;
+      if (typeof sheetId !== "number") return;
+      const count = Array.isArray(s?.conditionalFormats) ? s.conditionalFormats.length : 0;
+      conditionalCountsBySheetId.set(sheetId, count);
+    });
+
     const requests = [];
     Object.entries(sheetIdsByTitle || {}).forEach(([title, sheetId]) => {
       if (typeof sheetId !== "number") return;
       const isDashboard = ["Journalier", "Pratique", "Objectifs", "README"].includes(title);
       const isMonthly = /^Journalier \d{4}-\d{2}$/.test(title) || /^Pratique \d{4}-\d{2}$/.test(title);
-      if (!isDashboard && !isMonthly) return;
+      const isSummary = title === "Résumé";
+      if (!isDashboard && !isMonthly && !isSummary) return;
+
+      const existingRules = conditionalCountsBySheetId.get(sheetId) || 0;
+      for (let i = existingRules - 1; i >= 0; i -= 1) {
+        requests.push({ deleteConditionalFormatRule: { sheetId, index: i } });
+      }
+
       requests.push({
         updateSheetProperties: {
           properties: {
@@ -2758,6 +2812,91 @@
             fields: "userEnteredFormat(backgroundColor,textFormat)",
           },
         });
+      }
+
+      if (title !== "README") {
+        requests.push({
+          setBasicFilter: {
+            filter: {
+              range: {
+                sheetId,
+                startRowIndex: 0,
+                startColumnIndex: 0,
+                endRowIndex: 2000,
+                endColumnIndex: 2000,
+              },
+            },
+          },
+        });
+      }
+
+      if (title !== "README") {
+        const dataRange = {
+          sheetId,
+          startRowIndex: 1,
+          startColumnIndex: 3,
+          endRowIndex: 2000,
+          endColumnIndex: 2000,
+        };
+        const yesRule = {
+          addConditionalFormatRule: {
+            index: 0,
+            rule: {
+              ranges: [dataRange],
+              booleanRule: {
+                condition: { type: "TEXT_EQ", values: [{ userEnteredValue: "Oui" }] },
+                format: { backgroundColor: { red: 0.85, green: 0.95, blue: 0.85 } },
+              },
+            },
+          },
+        };
+        const noRule = {
+          addConditionalFormatRule: {
+            index: 0,
+            rule: {
+              ranges: [dataRange],
+              booleanRule: {
+                condition: { type: "TEXT_EQ", values: [{ userEnteredValue: "Non" }] },
+                format: { backgroundColor: { red: 0.98, green: 0.86, blue: 0.86 } },
+              },
+            },
+          },
+        };
+        requests.push(yesRule, noRule);
+
+        if (isSummary) {
+          requests.push({
+            repeatCell: {
+              range: {
+                sheetId,
+                startRowIndex: 0,
+                startColumnIndex: 3,
+                endRowIndex: 2000,
+                endColumnIndex: 2000,
+              },
+              cell: {
+                userEnteredFormat: {
+                  numberFormat: { type: "PERCENT", pattern: "0%" },
+                },
+              },
+              fields: "userEnteredFormat.numberFormat",
+            },
+          });
+          const pctRule = {
+            addConditionalFormatRule: {
+              index: 0,
+              rule: {
+                ranges: [dataRange],
+                gradientRule: {
+                  minpoint: { type: "NUMBER", value: "0", color: { red: 0.98, green: 0.86, blue: 0.86 } },
+                  midpoint: { type: "NUMBER", value: "0.5", color: { red: 0.99, green: 0.95, blue: 0.82 } },
+                  maxpoint: { type: "NUMBER", value: "1", color: { red: 0.85, green: 0.95, blue: 0.85 } },
+                },
+              },
+            },
+          };
+          requests.push(pctRule);
+        }
       }
     });
     if (!requests.length) return;
@@ -2817,7 +2956,7 @@
       { method: "POST", token, body: {} }
     );
     await googleApiJson(
-      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${range}?valueInputOption=RAW`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${range}?valueInputOption=USER_ENTERED`,
       { method: "PUT", token, body: { values: Array.isArray(rows) ? rows : [] } }
     );
   }
@@ -2995,6 +3134,75 @@
       }).filter((s) => s.id);
       const practiceSessionCols = sessionColumns.length > 250 ? sessionColumns.slice(sessionColumns.length - 250) : sessionColumns;
 
+      const dailyWindows = {
+        "7j": pickLastWindow(allDailyDayKeys, 7),
+        "30j": pickLastWindow(allDailyDayKeys, 30),
+        "90j": pickLastWindow(allDailyDayKeys, 90),
+      };
+      const practiceWindows = {
+        "10 sessions": pickLastWindow(sessionColumns, 10),
+        "30 sessions": pickLastWindow(sessionColumns, 30),
+        "100 sessions": pickLastWindow(sessionColumns, 100),
+      };
+
+      const summaryRows = [];
+      summaryRows.push(["Journalier — complétion", "", "", "", "", ""]);
+      summaryRows.push(["Catégorie", "Consigne", "ID", "7j", "30j", "90j"]);
+      dailyConsignes.forEach((c) => {
+        const id = String(c?.id || "");
+        if (!id) return;
+        const byDayChecklist = checklistIndex.get(id) || new Map();
+        const byDayResp = dailyIndex.get(id) || new Map();
+        const calc = (keys) => {
+          const list = Array.isArray(keys) ? keys : [];
+          if (!list.length) return "";
+          let answered = 0;
+          list.forEach((dayKey) => {
+            if (c?.type === "checklist") {
+              if (byDayChecklist.get(dayKey)) answered += 1;
+            } else {
+              const row = byDayResp.get(dayKey) || null;
+              if (hasResponseContent(c, row)) answered += 1;
+            }
+          });
+          return answered / list.length;
+        };
+        summaryRows.push([
+          cellValueForSheets(c?.category || ""),
+          normalizeConsigneTitle(c),
+          id,
+          calc(dailyWindows["7j"]),
+          calc(dailyWindows["30j"]),
+          calc(dailyWindows["90j"]),
+        ]);
+      });
+      summaryRows.push(["", "", "", "", "", ""]);
+      summaryRows.push(["Pratique — complétion", "", "", "", "", ""]);
+      summaryRows.push(["Catégorie", "Consigne", "ID", "10 sessions", "30 sessions", "100 sessions"]);
+      practiceConsignes.forEach((c) => {
+        const id = String(c?.id || "");
+        if (!id) return;
+        const bySession = practiceSessionIndex.get(id) || new Map();
+        const calc = (sessList) => {
+          const list = Array.isArray(sessList) ? sessList : [];
+          if (!list.length) return "";
+          let answered = 0;
+          list.forEach((sess) => {
+            const row = bySession.get(String(sess?.id || "")) || null;
+            if (hasResponseContent(c, row)) answered += 1;
+          });
+          return answered / list.length;
+        };
+        summaryRows.push([
+          cellValueForSheets(c?.category || ""),
+          normalizeConsigneTitle(c),
+          id,
+          calc(practiceWindows["10 sessions"]),
+          calc(practiceWindows["30 sessions"]),
+          calc(practiceWindows["100 sessions"]),
+        ]);
+      });
+
       const dailyHeader = ["Catégorie", "Consigne", "ID", ...dailyDayKeys];
       const dailyTable = [dailyHeader];
       dailyConsignes.forEach((c) => {
@@ -3074,6 +3282,7 @@
 
       const tabTitles = [
         "README",
+        "Résumé",
         "Journalier",
         "Pratique",
         "Objectifs",
@@ -3094,6 +3303,7 @@
       ];
 
       await clearAndWriteSheet(token, spreadsheetId, "README", readmeRows);
+      await clearAndWriteSheet(token, spreadsheetId, "Résumé", summaryRows);
       await clearAndWriteSheet(token, spreadsheetId, "Journalier", dailyTable);
       await clearAndWriteSheet(token, spreadsheetId, "Pratique", practiceTable);
       await clearAndWriteSheet(token, spreadsheetId, "Objectifs", objectifsTable);
