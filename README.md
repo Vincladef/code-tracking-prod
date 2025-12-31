@@ -2,7 +2,7 @@
 
 Cette V1 est **100% front** (HTML/JS modules), déployable sur GitHub Pages, avec **Firestore** et **auth anonyme**.
 
-## Dossiers & fichiers !!!
+## Dossiers & fichiers !!
 ```
 /code-tracking-prod
 ├── index.html
