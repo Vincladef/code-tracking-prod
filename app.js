@@ -2631,6 +2631,13 @@
     return String(label || "").trim() || String(consigne?.id || "");
   }
 
+  function monthKeyFromDayKey(dayKey) {
+    if (!dayKey || typeof dayKey !== "string") return null;
+    const trimmed = dayKey.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+    return trimmed.slice(0, 7);
+  }
+
   function buildResponseIndex(rows, { sessionDayKeyById = null } = {}) {
     const index = new Map();
     (rows || []).forEach((row) => {
@@ -2647,6 +2654,26 @@
       const next = existing ? existing : row;
       byDay.set(dayKey, next);
       index.set(key, byDay);
+    });
+    return index;
+  }
+
+  function buildPracticeSessionIndex(rows) {
+    const index = new Map();
+    (rows || []).forEach((row) => {
+      const consigneId = row?.consigneId || row?.consigne_id || row?.consigne || null;
+      const sessionId = row?.sessionId || row?.session_id || null;
+      if (!consigneId || !sessionId) return;
+      const key = String(consigneId);
+      const sessKey = String(sessionId);
+      const bySession = index.get(key) || new Map();
+      const existing = bySession.get(sessKey) || null;
+      const existingTime = existing ? new Date(existing.createdAt || existing.updatedAt || 0).getTime() : 0;
+      const nextTime = new Date(row.createdAt || row.updatedAt || 0).getTime();
+      if (!existing || nextTime >= existingTime) {
+        bySession.set(sessKey, row);
+      }
+      index.set(key, bySession);
     });
     return index;
   }
@@ -2703,14 +2730,16 @@
     const requests = [];
     Object.entries(sheetIdsByTitle || {}).forEach(([title, sheetId]) => {
       if (typeof sheetId !== "number") return;
-      if (!["Journalier", "Pratique", "Objectifs", "README"].includes(title)) return;
+      const isDashboard = ["Journalier", "Pratique", "Objectifs", "README"].includes(title);
+      const isMonthly = /^Journalier \d{4}-\d{2}$/.test(title) || /^Pratique \d{4}-\d{2}$/.test(title);
+      if (!isDashboard && !isMonthly) return;
       requests.push({
         updateSheetProperties: {
           properties: {
             sheetId,
             gridProperties: {
               frozenRowCount: 1,
-              frozenColumnCount: title === "README" ? 0 : 2,
+              frozenColumnCount: title === "README" ? 0 : 3,
             },
           },
           fields: "gridProperties.frozenRowCount,gridProperties.frozenColumnCount",
@@ -2934,25 +2963,39 @@
       });
 
       const dailyIndex = buildResponseIndex(dailyResponseRows);
-      const practiceIndex = buildResponseIndex(practiceResponseRows, { sessionDayKeyById });
+      const practiceSessionIndex = buildPracticeSessionIndex(practiceResponseRows);
       const checklistIndex = buildResponseIndex(checklistRows);
+
+      const allDailyDayKeys = Array.from(
+        new Set(
+          [
+            ...dailyResponseRows.map((r) => toDayKey(r?.dayKey || r?.pageDateIso || null)),
+            ...checklistRows.map((r) => toDayKey(r?.dateKey || r?.dayKey || null)),
+          ].filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b));
 
       const dailyDayKeys = pickRecentSorted(
         [
           ...dailyResponseRows.map((r) => toDayKey(r?.dayKey || r?.pageDateIso || null)),
           ...checklistRows.map((r) => toDayKey(r?.dateKey || r?.dayKey || null)),
         ],
-        31
-      );
-      const practiceDayKeys = pickRecentSorted(
-        [
-          ...practiceResponseRows.map((r) => toDayKey(r?.dayKey || r?.pageDateIso || null)),
-          ...practiceResponseRows.map((r) => (r?.sessionId ? sessionDayKeyById.get(String(r.sessionId)) : null)),
-        ],
-        50
+        180
       );
 
-      const dailyHeader = ["Catégorie", "Consigne", ...dailyDayKeys];
+      const sortedSessions = (sessions || []).slice().sort((a, b) => {
+        const at = new Date(a?.startedAt || a?.createdAt || 0).getTime();
+        const bt = new Date(b?.startedAt || b?.createdAt || 0).getTime();
+        return at - bt;
+      });
+      const sessionColumns = sortedSessions.map((s, idx) => {
+        const dayKey = toDayKey(s?.startedAt || s?.createdAt || null) || "";
+        const label = `S${idx + 1}${dayKey ? ` — ${dayKey}` : ""}`;
+        return { id: String(s?.id || ""), label };
+      }).filter((s) => s.id);
+      const practiceSessionCols = sessionColumns.length > 250 ? sessionColumns.slice(sessionColumns.length - 250) : sessionColumns;
+
+      const dailyHeader = ["Catégorie", "Consigne", "ID", ...dailyDayKeys];
       const dailyTable = [dailyHeader];
       dailyConsignes.forEach((c) => {
         const id = String(c?.id || "");
@@ -2960,6 +3003,7 @@
         const row = [
           cellValueForSheets(c?.category || ""),
           normalizeConsigneTitle(c),
+          id,
         ];
         const byDayChecklist = checklistIndex.get(id) || new Map();
         const byDayResp = dailyIndex.get(id) || new Map();
@@ -2973,7 +3017,7 @@
         dailyTable.push(row);
       });
 
-      const practiceHeader = ["Catégorie", "Consigne", ...practiceDayKeys];
+      const practiceHeader = ["Catégorie", "Consigne", "ID", ...practiceSessionCols.map((s) => s.label)];
       const practiceTable = [practiceHeader];
       practiceConsignes.forEach((c) => {
         const id = String(c?.id || "");
@@ -2981,12 +3025,40 @@
         const row = [
           cellValueForSheets(c?.category || ""),
           normalizeConsigneTitle(c),
+          id,
         ];
-        const byDay = practiceIndex.get(id) || new Map();
-        practiceDayKeys.forEach((dayKey) => {
-          row.push(formatValueCell(c, byDay.get(dayKey) || null));
+        const bySession = practiceSessionIndex.get(id) || new Map();
+        practiceSessionCols.forEach((sess) => {
+          row.push(formatValueCell(c, bySession.get(sess.id) || null));
         });
         practiceTable.push(row);
+      });
+
+      const monthlyTitles = [];
+      const dailyByMonth = new Map();
+      allDailyDayKeys.forEach((dayKey) => {
+        const monthKey = monthKeyFromDayKey(dayKey);
+        if (!monthKey) return;
+        const list = dailyByMonth.get(monthKey) || [];
+        list.push(dayKey);
+        dailyByMonth.set(monthKey, list);
+      });
+      const monthsSorted = Array.from(dailyByMonth.keys()).sort((a, b) => a.localeCompare(b));
+      const practiceByMonth = new Map();
+      sessionColumns.forEach((sess) => {
+        const dayKey = sessionDayKeyById.get(sess.id) || null;
+        const monthKey = dayKey ? monthKeyFromDayKey(dayKey) : null;
+        if (!monthKey) return;
+        const list = practiceByMonth.get(monthKey) || [];
+        list.push(sess);
+        practiceByMonth.set(monthKey, list);
+      });
+      const practiceMonthsSorted = Array.from(practiceByMonth.keys()).sort((a, b) => a.localeCompare(b));
+      const allMonths = Array.from(new Set([...monthsSorted, ...practiceMonthsSorted])).sort((a, b) => a.localeCompare(b));
+      const cappedMonths = allMonths.length > 36 ? allMonths.slice(allMonths.length - 36) : allMonths;
+      cappedMonths.forEach((monthKey) => {
+        monthlyTitles.push(`Journalier ${monthKey}`);
+        monthlyTitles.push(`Pratique ${monthKey}`);
       });
 
       const objectifsRows = makeRowsFromObjectsAuto(objectifs);
@@ -3005,6 +3077,7 @@
         "Journalier",
         "Pratique",
         "Objectifs",
+        ...monthlyTitles,
       ];
 
       const sheetIdsByTitle = await ensureSheetTabs(token, spreadsheetId, tabTitles);
@@ -3015,14 +3088,49 @@
         ["UID", uid],
         ["Utilisateur", displayName],
         ["Mode", exportMode],
-        ["Aide", "Les onglets Journalier / Pratique affichent les consignes en lignes et les dates en colonnes."],
+        ["Aide", "Les onglets Journalier / Pratique affichent les consignes en lignes et les dates/sessions en colonnes."],
         ["Aide", "Clique sur Exporter/Actualiser depuis l’app pour régénérer le tableau."],
+        ["Historique", "Des onglets par mois sont générés pour l’historique complet (limité aux 36 derniers mois pour éviter un fichier trop lourd)."],
       ];
 
       await clearAndWriteSheet(token, spreadsheetId, "README", readmeRows);
       await clearAndWriteSheet(token, spreadsheetId, "Journalier", dailyTable);
       await clearAndWriteSheet(token, spreadsheetId, "Pratique", practiceTable);
       await clearAndWriteSheet(token, spreadsheetId, "Objectifs", objectifsTable);
+
+      for (const monthKey of cappedMonths) {
+        const dailyKeys = (dailyByMonth.get(monthKey) || []).slice().sort((a, b) => a.localeCompare(b));
+        const dailyMonthHeader = ["Catégorie", "Consigne", "ID", ...dailyKeys];
+        const dailyMonthTable = [dailyMonthHeader];
+        dailyConsignes.forEach((c) => {
+          const id = String(c?.id || "");
+          if (!id) return;
+          const row = [cellValueForSheets(c?.category || ""), normalizeConsigneTitle(c), id];
+          const byDayChecklist = checklistIndex.get(id) || new Map();
+          const byDayResp = dailyIndex.get(id) || new Map();
+          dailyKeys.forEach((dayKey) => {
+            if (c?.type === "checklist") row.push(formatChecklistCell(c, byDayChecklist.get(dayKey) || null));
+            else row.push(formatValueCell(c, byDayResp.get(dayKey) || null));
+          });
+          dailyMonthTable.push(row);
+        });
+        await clearAndWriteSheet(token, spreadsheetId, `Journalier ${monthKey}`, dailyMonthTable);
+
+        const practiceSess = (practiceByMonth.get(monthKey) || []).slice();
+        const practiceMonthHeader = ["Catégorie", "Consigne", "ID", ...practiceSess.map((s) => s.label)];
+        const practiceMonthTable = [practiceMonthHeader];
+        practiceConsignes.forEach((c) => {
+          const id = String(c?.id || "");
+          if (!id) return;
+          const row = [cellValueForSheets(c?.category || ""), normalizeConsigneTitle(c), id];
+          const bySession = practiceSessionIndex.get(id) || new Map();
+          practiceSess.forEach((sess) => {
+            row.push(formatValueCell(c, bySession.get(sess.id) || null));
+          });
+          practiceMonthTable.push(row);
+        });
+        await clearAndWriteSheet(token, spreadsheetId, `Pratique ${monthKey}`, practiceMonthTable);
+      }
 
       await formatDashboardSheets(token, spreadsheetId, sheetIdsByTitle);
 
