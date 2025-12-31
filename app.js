@@ -2532,10 +2532,18 @@
     return typeof sheetId === "string" && sheetId.trim() ? sheetId.trim() : null;
   }
 
+  function resolveLastExportSheetUrl() {
+    const profile = ctx.profile || {};
+    const exportState = profile.exportSheets || profile.export_sheets || null;
+    if (!exportState || typeof exportState !== "object") return null;
+    const url = exportState.spreadsheetUrl || exportState.spreadsheet_url || null;
+    return typeof url === "string" && url.trim() ? url.trim() : null;
+  }
+
   function syncSheetsMenuVisibility() {
     const sheetId = resolveLastExportSheetId();
     if (userActions.refreshSheets) {
-      if (sheetId) {
+      if (sheetId && hasAdminAccess()) {
         userActions.refreshSheets.classList.remove("hidden");
       } else {
         userActions.refreshSheets.classList.add("hidden");
@@ -2671,6 +2679,22 @@
       alert("Aucun utilisateur sélectionné.");
       return null;
     }
+
+    if (!hasAdminAccess()) {
+      const spreadsheetUrl = resolveLastExportSheetUrl();
+      if (!spreadsheetUrl) {
+        alert("Le Google Sheet n’est pas encore généré. Contacte l’administrateur.");
+        return null;
+      }
+      return {
+        ok: true,
+        uid,
+        mode: "open",
+        spreadsheetId: resolveLastExportSheetId(),
+        spreadsheetUrl,
+      };
+    }
+
     try {
       const exportMode = mode === "refresh" ? "refresh" : "create";
       const existingSheetId = exportMode === "refresh" ? resolveLastExportSheetId() : null;
