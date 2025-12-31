@@ -272,6 +272,7 @@
     .btn-ghost:hover{ background:var(--accent-50); }
     .btn-danger{ background:#fee2e2; border:1px solid #fecaca; color:#b91c1c; }
     .btn-danger:hover{ background:#fecaca; }
+    .btn-compact{ padding:.35rem .75rem; font-size:.82rem; border-radius:999px; }
 
     .install-banner{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; background:var(--accent-50); border:1px solid var(--accent-200); border-radius:1rem; padding:.65rem .85rem; font-size:.85rem; color:#0f172a; margin-bottom:1rem; }
     .install-banner__content{ display:flex; align-items:center; gap:.6rem; flex:1 1 auto; }
@@ -1722,6 +1723,14 @@
     .goal-week__header{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.45rem; }
     .goal-week__label{ font-size:.82rem; }
     .goal-week__add{ padding:.25rem .75rem; font-size:.78rem; border-radius:999px; }
+    .goal-month__note,
+    .goal-week__note{ border-color:transparent; background:transparent; color:var(--muted); padding:.2rem .55rem; font-size:.8rem; border-radius:999px; transition:background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease; }
+    .goal-month__note:hover,
+    .goal-week__note:hover{ background:rgba(99,102,241,.07); border-color:rgba(99,102,241,.18); color:#334155; }
+    .goal-month__note:focus-visible,
+    .goal-week__note:focus-visible{ outline:none; box-shadow:0 0 0 3px rgba(99,102,241,.18); border-color:rgba(99,102,241,.28); background:rgba(99,102,241,.08); color:#0f172a; }
+    .goal-month__note[data-has-note="1"],
+    .goal-week__note[data-has-note="1"]{ color:#4f46e5; }
     .goal-row{ display:flex; flex-direction:column; align-items:flex-start; gap:.75rem; padding:10px 12px; border-radius:12px; transition:background .15s ease, box-shadow .15s ease; border-left:4px solid transparent; }
     .goal-row:hover{ box-shadow:0 6px 14px rgba(15,23,42,.08); }
     .goal-row--positive{ background:#ecfdf5; border-left-color:#22c55e; }
