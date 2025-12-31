@@ -2568,6 +2568,29 @@
     if (typeof value === "string") return value;
     if (typeof value === "number" && Number.isFinite(value)) return value;
     if (typeof value === "boolean") return value ? "1" : "0";
+    if (value && typeof value === "object") {
+      if (value.kind === "richtext") {
+        const text = typeof value.text === "string" ? value.text.trim() : "";
+        if (text) return text;
+        const html = typeof value.html === "string" ? value.html : "";
+        if (html && typeof document !== "undefined") {
+          try {
+            const el = document.createElement("div");
+            el.innerHTML = html;
+            const plain = (el.textContent || "").trim();
+            if (plain) return plain;
+          } catch (_) { }
+        }
+      }
+      const noteKeys = ["note", "comment", "remark", "text", "message"];
+      for (const key of noteKeys) {
+        const candidate = value[key];
+        if (typeof candidate === "string") {
+          const trimmed = candidate.trim();
+          if (trimmed) return trimmed;
+        }
+      }
+    }
     const maybeDate = value && typeof value.toDate === "function" ? value.toDate() : null;
     if (maybeDate instanceof Date && !Number.isNaN(maybeDate.getTime())) {
       return maybeDate.toISOString();
@@ -2627,7 +2650,13 @@
   }
 
   function normalizeConsigneTitle(consigne) {
-    const label = consigne?.title || consigne?.label || consigne?.name || "";
+    const label =
+      consigne?.text ||
+      consigne?.titre ||
+      consigne?.title ||
+      consigne?.label ||
+      consigne?.name ||
+      "";
     return String(label || "").trim() || String(consigne?.id || "");
   }
 
@@ -2793,7 +2822,7 @@
             sheetId,
             gridProperties: {
               frozenRowCount: 1,
-              frozenColumnCount: title === "README" ? 0 : 3,
+              frozenColumnCount: title === "README" ? 0 : 2,
             },
           },
           fields: "gridProperties.frozenRowCount,gridProperties.frozenColumnCount",
@@ -2834,7 +2863,7 @@
         const dataRange = {
           sheetId,
           startRowIndex: 1,
-          startColumnIndex: 3,
+          startColumnIndex: 2,
           endRowIndex: 2000,
           endColumnIndex: 2000,
         };
@@ -2870,7 +2899,7 @@
               range: {
                 sheetId,
                 startRowIndex: 0,
-                startColumnIndex: 3,
+                startColumnIndex: 2,
                 endRowIndex: 2000,
                 endColumnIndex: 2000,
               },
@@ -3147,7 +3176,7 @@
 
       const summaryRows = [];
       summaryRows.push(["Journalier — complétion", "", "", "", "", ""]);
-      summaryRows.push(["Catégorie", "Consigne", "ID", "7j", "30j", "90j"]);
+      summaryRows.push(["Catégorie", "Consigne", "7j", "30j", "90j"]);
       dailyConsignes.forEach((c) => {
         const id = String(c?.id || "");
         if (!id) return;
@@ -3170,7 +3199,6 @@
         summaryRows.push([
           cellValueForSheets(c?.category || ""),
           normalizeConsigneTitle(c),
-          id,
           calc(dailyWindows["7j"]),
           calc(dailyWindows["30j"]),
           calc(dailyWindows["90j"]),
@@ -3178,7 +3206,7 @@
       });
       summaryRows.push(["", "", "", "", "", ""]);
       summaryRows.push(["Pratique — complétion", "", "", "", "", ""]);
-      summaryRows.push(["Catégorie", "Consigne", "ID", "10 sessions", "30 sessions", "100 sessions"]);
+      summaryRows.push(["Catégorie", "Consigne", "10 sessions", "30 sessions", "100 sessions"]);
       practiceConsignes.forEach((c) => {
         const id = String(c?.id || "");
         if (!id) return;
@@ -3196,14 +3224,13 @@
         summaryRows.push([
           cellValueForSheets(c?.category || ""),
           normalizeConsigneTitle(c),
-          id,
           calc(practiceWindows["10 sessions"]),
           calc(practiceWindows["30 sessions"]),
           calc(practiceWindows["100 sessions"]),
         ]);
       });
 
-      const dailyHeader = ["Catégorie", "Consigne", "ID", ...dailyDayKeys];
+      const dailyHeader = ["Catégorie", "Consigne", ...dailyDayKeys];
       const dailyTable = [dailyHeader];
       dailyConsignes.forEach((c) => {
         const id = String(c?.id || "");
@@ -3211,7 +3238,6 @@
         const row = [
           cellValueForSheets(c?.category || ""),
           normalizeConsigneTitle(c),
-          id,
         ];
         const byDayChecklist = checklistIndex.get(id) || new Map();
         const byDayResp = dailyIndex.get(id) || new Map();
@@ -3225,7 +3251,7 @@
         dailyTable.push(row);
       });
 
-      const practiceHeader = ["Catégorie", "Consigne", "ID", ...practiceSessionCols.map((s) => s.label)];
+      const practiceHeader = ["Catégorie", "Consigne", ...practiceSessionCols.map((s) => s.label)];
       const practiceTable = [practiceHeader];
       practiceConsignes.forEach((c) => {
         const id = String(c?.id || "");
@@ -3233,7 +3259,6 @@
         const row = [
           cellValueForSheets(c?.category || ""),
           normalizeConsigneTitle(c),
-          id,
         ];
         const bySession = practiceSessionIndex.get(id) || new Map();
         practiceSessionCols.forEach((sess) => {
@@ -3310,12 +3335,12 @@
 
       for (const monthKey of cappedMonths) {
         const dailyKeys = (dailyByMonth.get(monthKey) || []).slice().sort((a, b) => a.localeCompare(b));
-        const dailyMonthHeader = ["Catégorie", "Consigne", "ID", ...dailyKeys];
+        const dailyMonthHeader = ["Catégorie", "Consigne", ...dailyKeys];
         const dailyMonthTable = [dailyMonthHeader];
         dailyConsignes.forEach((c) => {
           const id = String(c?.id || "");
           if (!id) return;
-          const row = [cellValueForSheets(c?.category || ""), normalizeConsigneTitle(c), id];
+          const row = [cellValueForSheets(c?.category || ""), normalizeConsigneTitle(c)];
           const byDayChecklist = checklistIndex.get(id) || new Map();
           const byDayResp = dailyIndex.get(id) || new Map();
           dailyKeys.forEach((dayKey) => {
@@ -3327,12 +3352,12 @@
         await clearAndWriteSheet(token, spreadsheetId, `Journalier ${monthKey}`, dailyMonthTable);
 
         const practiceSess = (practiceByMonth.get(monthKey) || []).slice();
-        const practiceMonthHeader = ["Catégorie", "Consigne", "ID", ...practiceSess.map((s) => s.label)];
+        const practiceMonthHeader = ["Catégorie", "Consigne", ...practiceSess.map((s) => s.label)];
         const practiceMonthTable = [practiceMonthHeader];
         practiceConsignes.forEach((c) => {
           const id = String(c?.id || "");
           if (!id) return;
-          const row = [cellValueForSheets(c?.category || ""), normalizeConsigneTitle(c), id];
+          const row = [cellValueForSheets(c?.category || ""), normalizeConsigneTitle(c)];
           const bySession = practiceSessionIndex.get(id) || new Map();
           practiceSess.forEach((sess) => {
             row.push(formatValueCell(c, bySession.get(sess.id) || null));
