@@ -3,6 +3,7 @@ const admin = require("firebase-admin");
 const tls = require("tls");
 const fs = require("fs");
 const path = require("path");
+const { google } = require("googleapis");
 const { buildReminderBody } = require("./reminder");
 
 admin.initializeApp();
@@ -532,6 +533,179 @@ function parseRequestBody(req) {
   } catch (error) {
     functions.logger.warn("parseRequestBody:json", { error: error?.message });
     return null;
+  }
+}
+
+function resolveGoogleServiceAccount() {
+  const envJson = toStringOrNull(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  if (envJson) {
+    try {
+      const parsed = JSON.parse(envJson);
+      if (parsed && typeof parsed === "object") {
+        return parsed;
+      }
+    } catch (error) {
+      functions.logger.warn("googleAuth:env:parse", { error: error?.message });
+    }
+  }
+
+  const filePath = toStringOrNull(process.env.GOOGLE_SERVICE_ACCOUNT_FILE);
+  const candidates = [];
+  if (filePath) {
+    candidates.push(filePath);
+  }
+  candidates.push(
+    path.join(__dirname, "sheets.runtime.json"),
+    path.join(__dirname, ".sheets.runtime.json"),
+  );
+
+  for (const candidate of candidates) {
+    try {
+      if (!candidate || !fs.existsSync(candidate)) continue;
+      const raw = fs.readFileSync(candidate, "utf8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        return parsed;
+      }
+    } catch (error) {
+      functions.logger.warn("googleAuth:file:parse", { file: candidate, error: error?.message });
+    }
+  }
+
+  return null;
+}
+
+async function getGoogleApis() {
+  const credentials = resolveGoogleServiceAccount();
+  if (!credentials) {
+    throw new Error(
+      "Configuration Google manquante. Ajoute GOOGLE_SERVICE_ACCOUNT_JSON (ou sheets.runtime.json) avec un service account ayant accès à Google Sheets."
+    );
+  }
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: [
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/drive",
+    ],
+  });
+  const authClient = await auth.getClient();
+  return {
+    sheets: google.sheets({ version: "v4", auth: authClient }),
+    drive: google.drive({ version: "v3", auth: authClient }),
+  };
+}
+
+function cellValue(value) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "boolean") return value ? "1" : "0";
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value?.toDate === "function") {
+    try {
+      const dt = value.toDate();
+      if (dt instanceof Date && !Number.isNaN(dt.getTime())) {
+        return dt.toISOString();
+      }
+    } catch (_) { }
+  }
+  try {
+    return JSON.stringify(value);
+  } catch (_) {
+    return String(value);
+  }
+}
+
+function makeRowsFromObjects(items, columns) {
+  const header = columns.map((c) => c.label);
+  const rows = [header];
+  items.forEach((item) => {
+    const obj = item && typeof item === "object" ? item : {};
+    rows.push(columns.map((c) => cellValue(typeof c.get === "function" ? c.get(obj) : obj[c.key])));
+  });
+  return rows;
+}
+
+async function readCollectionDocs(ref, { limitCount = 100000 } = {}) {
+  const snap = await ref.limit(limitCount).get();
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+}
+
+async function ensureSheetTabs(sheetsApi, spreadsheetId, desiredTitles) {
+  const meta = await sheetsApi.spreadsheets.get({ spreadsheetId });
+  const existing = new Map();
+  (meta.data.sheets || []).forEach((s) => {
+    const title = s?.properties?.title;
+    const sheetId = s?.properties?.sheetId;
+    if (title && sheetId != null) existing.set(title, sheetId);
+  });
+
+  const requests = [];
+  desiredTitles.forEach((title) => {
+    if (!title || existing.has(title)) return;
+    requests.push({ addSheet: { properties: { title } } });
+  });
+
+  if (requests.length) {
+    await sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests },
+    });
+  }
+
+  const meta2 = await sheetsApi.spreadsheets.get({ spreadsheetId });
+  const after = new Map();
+  (meta2.data.sheets || []).forEach((s) => {
+    const title = s?.properties?.title;
+    const sheetId = s?.properties?.sheetId;
+    if (title && sheetId != null) after.set(title, sheetId);
+  });
+  return after;
+}
+
+async function clearAndWriteSheet(sheetsApi, spreadsheetId, title, rows) {
+  await sheetsApi.spreadsheets.values.clear({ spreadsheetId, range: title });
+  await sheetsApi.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${title}!A1`,
+    valueInputOption: "RAW",
+    requestBody: { values: rows },
+  });
+}
+
+async function formatSheetsBasic(sheetsApi, spreadsheetId, sheetIdsByTitle) {
+  const requests = [];
+  sheetIdsByTitle.forEach((sheetId, title) => {
+    if (!sheetId) return;
+    if (title === "README") return;
+    requests.push({
+      updateSheetProperties: {
+        properties: {
+          sheetId,
+          gridProperties: { frozenRowCount: 1 },
+        },
+        fields: "gridProperties.frozenRowCount",
+      },
+    });
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.95, green: 0.96, blue: 0.98 },
+            textFormat: { bold: true },
+          },
+        },
+        fields: "userEnteredFormat(backgroundColor,textFormat)",
+      },
+    });
+  });
+  if (requests.length) {
+    await sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests },
+    });
   }
 }
 
@@ -1444,6 +1618,365 @@ exports.manageTopicSubscriptions = functions
         code: error?.code || error?.errorInfo?.code,
       });
       res.status(500).json({ ok: false, error: error?.message || "Action impossible" });
+    }
+  });
+
+exports.exportUserToSheet = functions
+  .region("europe-west1")
+  .https.onRequest(async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "POST,OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type,Authorization");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.status(405).json({ ok: false, error: "Méthode non autorisée" });
+      return;
+    }
+
+    const body = parseRequestBody(req);
+    if (!body || typeof body !== "object") {
+      res.status(400).json({ ok: false, error: "Corps JSON invalide" });
+      return;
+    }
+
+    const uid = toStringOrNull(body.uid);
+    const mode = body.mode === "refresh" ? "refresh" : "create";
+    const requestedSheetId = toStringOrNull(body.spreadsheetId);
+
+    if (!uid) {
+      res.status(400).json({ ok: false, error: "UID manquant" });
+      return;
+    }
+    if (mode === "refresh" && !requestedSheetId) {
+      res
+        .status(400)
+        .json({ ok: false, error: "spreadsheetId manquant pour actualiser" });
+      return;
+    }
+
+    try {
+      const authHeader = toStringOrNull(req.headers.authorization, { trim: true });
+      if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
+        const token = authHeader.slice("bearer ".length).trim();
+        try {
+          const decoded = await admin.auth().verifyIdToken(token);
+          if (decoded?.uid && decoded.uid !== uid) {
+            res.status(403).json({ ok: false, error: "Non autorisé" });
+            return;
+          }
+        } catch (error) {
+          functions.logger.warn("exportUserToSheet:auth:invalid", {
+            uid,
+            error: error?.message,
+          });
+          res.status(401).json({ ok: false, error: "Token invalide" });
+          return;
+        }
+      }
+
+      const userRef = db.collection("u").doc(uid);
+      const profileSnap = await userRef.get();
+      const profile = profileSnap.exists ? profileSnap.data() || {} : {};
+      const displayName =
+        toStringOrNull(profile.displayName) || toStringOrNull(profile.name) || uid;
+
+      const categories = await readCollectionDocs(userRef.collection("categories"));
+      const consignes = await readCollectionDocs(userRef.collection("consignes"));
+      const responses = await readCollectionDocs(userRef.collection("responses"));
+      const sessions = await readCollectionDocs(userRef.collection("sessions"));
+      const sr = await readCollectionDocs(userRef.collection("sr"));
+      const modules = await readCollectionDocs(userRef.collection("modules"));
+      const pushTokens = await readCollectionDocs(userRef.collection("pushTokens"));
+      const history = await readCollectionDocs(userRef.collection("history"));
+
+      const checklistRows = [];
+      try {
+        const answerDates = await userRef.collection("answers").listDocuments();
+        for (const dateRef of answerDates) {
+          const dateKey = dateRef.id;
+          const consSnap = await dateRef.collection("consignes").get();
+          consSnap.forEach((doc) => {
+            const data = doc.data() || {};
+            checklistRows.push({
+              dateKey,
+              consigneId: doc.id,
+              ...data,
+            });
+          });
+        }
+      } catch (error) {
+        functions.logger.warn("exportUserToSheet:answers:read", {
+          uid,
+          error: error?.message,
+        });
+      }
+
+      const consigneHistory = [];
+      try {
+        for (const consigne of consignes) {
+          if (!consigne?.id) continue;
+          const snap = await userRef
+            .collection("consignes")
+            .doc(consigne.id)
+            .collection("history")
+            .get();
+          snap.forEach((doc) => {
+            consigneHistory.push({
+              consigneId: consigne.id,
+              entryId: doc.id,
+              ...doc.data(),
+            });
+          });
+        }
+      } catch (error) {
+        functions.logger.warn("exportUserToSheet:consigneHistory:read", {
+          uid,
+          error: error?.message,
+        });
+      }
+
+      const { sheets, drive } = await getGoogleApis();
+
+      let spreadsheetId = requestedSheetId;
+      let spreadsheetUrl = null;
+
+      if (mode === "create") {
+        const dateLabel = new Date().toISOString().slice(0, 10);
+        const title = `Export Habitudes — ${displayName} — ${dateLabel}`;
+        const created = await sheets.spreadsheets.create({
+          requestBody: {
+            properties: { title },
+            sheets: [{ properties: { title: "README" } }],
+          },
+        });
+        spreadsheetId = created.data.spreadsheetId;
+        spreadsheetUrl = created.data.spreadsheetUrl;
+      } else {
+        const meta = await sheets.spreadsheets.get({ spreadsheetId });
+        spreadsheetUrl = meta.data.spreadsheetUrl;
+      }
+
+      const tabTitles = [
+        "README",
+        "Profil",
+        "Catégories",
+        "Consignes",
+        "Réponses",
+        "Sessions",
+        "Checklist Answers",
+        "SR",
+        "Modules",
+        "Push Tokens",
+        "Consigne History",
+        "Checklist History",
+      ];
+
+      const sheetIdsByTitle = await ensureSheetTabs(sheets, spreadsheetId, tabTitles);
+
+      const readmeRows = [
+        ["Clé", "Valeur"],
+        ["Exporté le", new Date().toISOString()],
+        ["UID", uid],
+        ["Utilisateur", displayName],
+        ["Mode", mode],
+      ];
+
+      const profileRows = Object.entries({ uid, ...(profile || {}) }).map(([k, v]) => [k, cellValue(v)]);
+      profileRows.unshift(["champ", "valeur"]);
+
+      const categoriesRows = makeRowsFromObjects(categories, [
+        { key: "id", label: "id" },
+        { key: "name", label: "name" },
+        { key: "mode", label: "mode" },
+        { key: "order", label: "order" },
+        { key: "createdAt", label: "createdAt" },
+        { key: "updatedAt", label: "updatedAt" },
+      ]);
+
+      const consignesRows = makeRowsFromObjects(consignes, [
+        { key: "id", label: "id" },
+        { key: "mode", label: "mode" },
+        { key: "type", label: "type" },
+        { key: "title", label: "title" },
+        { key: "label", label: "label" },
+        { key: "category", label: "category" },
+        { key: "priority", label: "priority" },
+        { key: "days", label: "days" },
+        { key: "active", label: "active" },
+        { key: "archived", label: "archived" },
+        { key: "archivedAt", label: "archivedAt" },
+        { key: "srEnabled", label: "srEnabled" },
+        { key: "weeklySummaryEnabled", label: "weeklySummaryEnabled" },
+        { key: "monthlySummaryEnabled", label: "monthlySummaryEnabled" },
+        { key: "yearlySummaryEnabled", label: "yearlySummaryEnabled" },
+        { key: "summaryOnlyScope", label: "summaryOnlyScope" },
+        { key: "createdAt", label: "createdAt" },
+        { key: "updatedAt", label: "updatedAt" },
+      ]);
+
+      const responsesRows = makeRowsFromObjects(responses, [
+        { key: "id", label: "id" },
+        { key: "createdAt", label: "createdAt" },
+        { key: "pageDateIso", label: "pageDateIso" },
+        { key: "dayKey", label: "dayKey" },
+        { key: "mode", label: "mode" },
+        { key: "consigneId", label: "consigneId" },
+        { key: "type", label: "type" },
+        { key: "category", label: "category" },
+        { key: "value", label: "value" },
+        { key: "note", label: "note" },
+        { key: "sessionId", label: "sessionId" },
+        { key: "sessionIndex", label: "sessionIndex" },
+        { key: "sessionNumber", label: "sessionNumber" },
+        { key: "weekStart", label: "weekStart" },
+        { key: "selectedIds", label: "selectedIds" },
+        { key: "checkedIds", label: "checkedIds" },
+        { key: "checkedCount", label: "checkedCount" },
+        { key: "total", label: "total" },
+        { key: "percentage", label: "percentage" },
+        { key: "isEmpty", label: "isEmpty" },
+        { key: "optionsHash", label: "optionsHash" },
+      ]);
+
+      const sessionsRows = makeRowsFromObjects(sessions, [
+        { key: "id", label: "id" },
+        { key: "startedAt", label: "startedAt" },
+        { key: "createdAt", label: "createdAt" },
+      ]);
+
+      const checklistAnswersRows = makeRowsFromObjects(checklistRows, [
+        { key: "dateKey", label: "dateKey" },
+        { key: "consigneId", label: "consigneId" },
+        { key: "selectedIds", label: "selectedIds" },
+        { key: "skippedIds", label: "skippedIds" },
+        { key: "optionsHash", label: "optionsHash" },
+        { key: "updatedAt", label: "updatedAt" },
+        { key: "ts", label: "ts" },
+        { key: "answers", label: "answers" },
+      ]);
+
+      const srRows = makeRowsFromObjects(sr, [
+        { key: "id", label: "id" },
+        { key: "streak", label: "streak" },
+        { key: "nextVisibleOn", label: "nextVisibleOn" },
+        { key: "nextAllowedIndex", label: "nextAllowedIndex" },
+        { key: "hideUntil", label: "hideUntil" },
+      ]);
+
+      const modulesRows = makeRowsFromObjects(modules, [
+        { key: "id", label: "id" },
+        { key: "updatedAt", label: "updatedAt" },
+      ]);
+
+      const pushTokensRows = makeRowsFromObjects(pushTokens, [
+        { key: "id", label: "id" },
+        { key: "token", label: "token" },
+        { key: "enabled", label: "enabled" },
+        { key: "ua", label: "ua" },
+        { key: "platform", label: "platform" },
+        { key: "createdAt", label: "createdAt" },
+        { key: "updatedAt", label: "updatedAt" },
+      ]);
+
+      const consigneHistoryRows = makeRowsFromObjects(consigneHistory, [
+        { key: "consigneId", label: "consigneId" },
+        { key: "entryId", label: "entryId" },
+        { key: "dateKey", label: "dateKey" },
+        { key: "kind", label: "kind" },
+        { key: "source", label: "source" },
+        { key: "createdAt", label: "createdAt" },
+        { key: "createdBy", label: "createdBy" },
+        { key: "payload", label: "payload" },
+        { key: "metadata", label: "metadata" },
+        { key: "comment", label: "comment" },
+      ]);
+
+      const checklistHistoryRows = makeRowsFromObjects(history, [
+        { key: "id", label: "id" },
+        { key: "type", label: "type" },
+        { key: "consigneId", label: "consigneId" },
+        { key: "dateKey", label: "dateKey" },
+        { key: "selectedIds", label: "selectedIds" },
+        { key: "skippedIds", label: "skippedIds" },
+        { key: "optionsHash", label: "optionsHash" },
+        { key: "ts", label: "ts" },
+      ]);
+
+      await clearAndWriteSheet(sheets, spreadsheetId, "README", readmeRows);
+      await clearAndWriteSheet(sheets, spreadsheetId, "Profil", profileRows);
+      await clearAndWriteSheet(sheets, spreadsheetId, "Catégories", categoriesRows);
+      await clearAndWriteSheet(sheets, spreadsheetId, "Consignes", consignesRows);
+      await clearAndWriteSheet(sheets, spreadsheetId, "Réponses", responsesRows);
+      await clearAndWriteSheet(sheets, spreadsheetId, "Sessions", sessionsRows);
+      await clearAndWriteSheet(sheets, spreadsheetId, "Checklist Answers", checklistAnswersRows);
+      await clearAndWriteSheet(sheets, spreadsheetId, "SR", srRows);
+      await clearAndWriteSheet(sheets, spreadsheetId, "Modules", modulesRows);
+      await clearAndWriteSheet(sheets, spreadsheetId, "Push Tokens", pushTokensRows);
+      await clearAndWriteSheet(sheets, spreadsheetId, "Consigne History", consigneHistoryRows);
+      await clearAndWriteSheet(sheets, spreadsheetId, "Checklist History", checklistHistoryRows);
+
+      await formatSheetsBasic(sheets, spreadsheetId, sheetIdsByTitle);
+
+      const emails = extractEmailList(profile);
+      if (emails.length) {
+        await Promise.allSettled(
+          emails.map((email) =>
+            drive.permissions.create({
+              fileId: spreadsheetId,
+              sendNotificationEmail: false,
+              requestBody: {
+                type: "user",
+                role: "writer",
+                emailAddress: email,
+              },
+            })
+          )
+        );
+      }
+
+      const exportState = {
+        spreadsheetId,
+        spreadsheetUrl,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      if (mode === "create") {
+        exportState.createdAt = admin.firestore.FieldValue.serverTimestamp();
+      }
+      await userRef.set({ exportSheets: exportState }, { merge: true });
+
+      res.json({
+        ok: true,
+        uid,
+        mode,
+        spreadsheetId,
+        spreadsheetUrl,
+        sharedTo: emails,
+        counts: {
+          categories: categories.length,
+          consignes: consignes.length,
+          responses: responses.length,
+          sessions: sessions.length,
+          answers: checklistRows.length,
+          sr: sr.length,
+          modules: modules.length,
+          pushTokens: pushTokens.length,
+          consigneHistory: consigneHistory.length,
+          checklistHistory: history.length,
+        },
+      });
+    } catch (error) {
+      functions.logger.error("exportUserToSheet:error", {
+        uid,
+        message: error?.message || String(error),
+      });
+      res
+        .status(500)
+        .json({ ok: false, error: error?.message || "Export impossible" });
     }
   });
 
