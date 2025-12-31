@@ -1508,7 +1508,7 @@
 
       addYearButton.addEventListener("click", () => {
         try {
-          openGoalForm(ctx, null, { type: "annuel", yearKey: safeYear });
+          ensureAnnualInlineCreator(annualList, safeYear);
         } catch (_err) {}
       });
 
@@ -1652,21 +1652,35 @@
     weekList.prepend(row);
   }
 
+  function ensureAnnualInlineCreator(yearList, yearKey) {
+    if (!yearList) return;
+    enableGoalDragAndDrop(yearList);
+    if (yearList.querySelector('[data-inline-new]')) {
+      const input = yearList.querySelector('[data-inline-new] input');
+      if (input) input.focus();
+      return;
+    }
+    const safeYear = String(yearKey || '').trim();
+    const resolvedYear = safeYear || String(new Date().getFullYear());
+    const row = buildInlineCreatorRow({ type: 'annuel', yearKey: resolvedYear });
+    yearList.prepend(row);
+  }
+
   function buildInlineCreatorRow(config) {
-    const { type, monthKey, weekOfMonth } = config || {};
+    const { type, monthKey, weekOfMonth, yearKey } = config || {};
     const row = document.createElement('div');
     row.className = 'goal-row goal-row--editable goal-row--new';
     row.draggable = false;
     row.dataset.inlineNew = '1';
-    const dateRange = computeGoalDateRange({ type, monthKey, weekOfMonth });
-    const theoreticalDate = computeTheoreticalGoalDate({ type, monthKey, weekOfMonth });
+    const dateRange = computeGoalDateRange({ type, monthKey, weekOfMonth, yearKey });
+    const theoreticalDate = computeTheoreticalGoalDate({ type, monthKey, weekOfMonth, yearKey });
     const theoreticalIso = formatDateInputValue(theoreticalDate);
     const theoreticalPretty = theoreticalDate
       ? theoreticalDate.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
       : '';
     const theoreticalShort = shortDowLabelFromIso(theoreticalIso) || '—';
     const reminderBtnTitle = theoreticalPretty ? `Jour du rappel : ${theoreticalPretty}` : "Configurer le rappel";
-    const subtitle = type === 'hebdo' ? '' : 'Mensuel';
+    const subtitle = type === 'annuel' ? 'Annuel' : (type === 'hebdo' ? '' : 'Mensuel');
     row.innerHTML = `
       <div class="goal-title" style="display:flex; align-items:center; gap:8px;">
         <div class="goal-inline-editor" style="flex:1;">
@@ -1709,13 +1723,14 @@
         return;
       }
       const theoreticalDate = (() => {
-        const d = computeTheoreticalGoalDate({ type, monthKey, weekOfMonth });
+        const d = computeTheoreticalGoalDate({ type, monthKey, weekOfMonth, yearKey });
         return formatDateInputValue(d) || null;
       })();
       const payload = {
         titre,
         type,
-        monthKey,
+        monthKey: type === 'annuel' ? null : monthKey,
+        ...(type === 'annuel' ? { yearKey: String(yearKey || '').trim() } : {}),
         ...(type === 'hebdo' ? { weekOfMonth: weekOfMonth || 1 } : {}),
         notifyOnTarget: true,
         notifyChannel: 'push',
@@ -1809,7 +1824,7 @@
         e.preventDefault();
         // Open advanced modal with initial config
         try {
-          if (lastCtx) openGoalForm(lastCtx, null, { type, monthKey, weekOfMonth });
+          if (lastCtx) openGoalForm(lastCtx, null, type === 'annuel' ? { type, yearKey } : { type, monthKey, weekOfMonth });
         } catch (_err) {}
       });
     }
