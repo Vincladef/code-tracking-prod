@@ -2427,7 +2427,7 @@
     "739389871966-gsbgn9tfg0vnv3imtsfvtn4rgn7emafu.apps.googleusercontent.com";
   const GOOGLE_OAUTH_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/drive.file",
   ].join(" ");
   const GOOGLE_TOKEN_STORAGE_KEY = "hp::google::access_token";
   const GOOGLE_TOKEN_EXP_STORAGE_KEY = "hp::google::access_token_expires_at";
