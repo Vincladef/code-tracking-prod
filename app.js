@@ -5600,7 +5600,7 @@
           if (!practiceEl) return;
           const raw = sessionsSelect?.value || "all";
           const limit = raw === "all" ? null : Number(raw);
-          const cols = limit ? pickRecentSorted(sessionColumnsAll, limit) : sessionColumnsAll.slice();
+          const cols = limit ? pickLastWindow(sessionColumnsAll, limit) : sessionColumnsAll.slice();
           const header = ["Catégorie", "Consigne", ...cols.map((s) => s.label)];
           const rows = [header];
           practiceConsignes.forEach((c) => {
