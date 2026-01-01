@@ -2680,7 +2680,17 @@
     (rows || []).forEach((row) => {
       const consigneId = row?.consigneId || row?.consigne_id || row?.consigne || null;
       if (!consigneId) return;
-      let dayKey = toDayKey(row?.dayKey || row?.pageDateIso || row?.dateKey || null);
+      let dayKey = toDayKey(
+        row?.dayKey ||
+          row?.pageDateIso ||
+          row?.dateKey ||
+          row?.date ||
+          row?.pageDate ||
+          row?.createdAt ||
+          row?.updatedAt ||
+          row?.timestamp ||
+          null
+      );
       if (!dayKey && row?.sessionId && sessionDayKeyById) {
         dayKey = sessionDayKeyById.get(String(row.sessionId)) || null;
       }
@@ -5289,9 +5299,9 @@
                 <select class='w-44' data-stats-days>
                   <option value='30'>30 jours</option>
                   <option value='90'>90 jours</option>
-                  <option value='180' selected>180 jours</option>
+                  <option value='180'>180 jours</option>
                   <option value='720'>720 jours</option>
-                  <option value='all'>Tout</option>
+                  <option value='all' selected>Tout</option>
                 </select>
               </label>
               <label class='text-sm text-[var(--muted)] flex flex-col gap-1'>
@@ -5405,8 +5415,23 @@
 
         const dailyConsignes = (consignes || []).filter((c) => c?.mode === "daily");
         const practiceConsignes = (consignes || []).filter((c) => c?.mode === "practice");
-        const dailyResponseRows = (responses || []).filter((r) => r?.mode === "daily");
-        const practiceResponseRows = (responses || []).filter((r) => r?.mode === "practice");
+
+        const dailyConsigneIdSet = new Set(dailyConsignes.map((c) => String(c?.id || "")).filter(Boolean));
+        const practiceConsigneIdSet = new Set(practiceConsignes.map((c) => String(c?.id || "")).filter(Boolean));
+
+        const dailyResponseRows = (responses || []).filter((r) => {
+          const consigneId = String(r?.consigneId || r?.consigne_id || r?.consigne || "");
+          if (!consigneId || !dailyConsigneIdSet.has(consigneId)) return false;
+          const mode = String(r?.mode || "");
+          return !mode || mode === "daily";
+        });
+
+        const practiceResponseRows = (responses || []).filter((r) => {
+          const consigneId = String(r?.consigneId || r?.consigne_id || r?.consigne || "");
+          if (!consigneId || !practiceConsigneIdSet.has(consigneId)) return false;
+          const mode = String(r?.mode || "");
+          return !mode || mode === "practice";
+        });
 
         const practiceHistoryRows = [];
         try {
@@ -5428,13 +5453,51 @@
             const snap = await userRef.collection("history").doc(consigneId).collection("entries").get();
             snap.forEach((docSnap) => {
               const data = docSnap.data() || {};
-              const dayKey = toDayKey(data.dateKey || data.date || docSnap.id || null);
+              const dayKey = toDayKey(
+                data.dayKey ||
+                  data.day_key ||
+                  data.pageDateIso ||
+                  data.page_date_iso ||
+                  data.dateKey ||
+                  data.date_key ||
+                  data.dateIso ||
+                  data.date_iso ||
+                  data.date ||
+                  data.day ||
+                  data.createdAt ||
+                  data.created_at ||
+                  data.updatedAt ||
+                  data.updated_at ||
+                  data.pageDate ||
+                  data.page_date ||
+                  data.recordedAt ||
+                  data.recorded_at ||
+                  data.timestamp ||
+                  data.ts ||
+                  docSnap.id ||
+                  null
+              );
               if (!dayKey) return;
+              const value =
+                data.value ??
+                data.v ??
+                data.answer ??
+                data.val ??
+                data.score ??
+                "";
+              const note =
+                data.note ??
+                data.comment ??
+                data.remark ??
+                data.memo ??
+                data.obs ??
+                data.observation ??
+                "";
               dailyHistoryRows.push({
                 consigneId,
                 dayKey,
-                value: Object.prototype.hasOwnProperty.call(data, "value") ? data.value : "",
-                note: Object.prototype.hasOwnProperty.call(data, "note") ? data.note : "",
+                value,
+                note,
                 createdAt: data.createdAt || null,
                 updatedAt: data.updatedAt || null,
                 source: "history",
@@ -5451,9 +5514,11 @@
         const allDailyDayKeys = Array.from(
           new Set(
             [
-              ...dailyResponseRows.map((r) => toDayKey(r?.dayKey || r?.pageDateIso || null)),
+              ...dailyResponseRows.map((r) =>
+                toDayKey(r?.dayKey || r?.pageDateIso || r?.createdAt || r?.updatedAt || null)
+              ),
               ...dailyHistoryRows.map((r) => toDayKey(r?.dayKey || r?.pageDateIso || null)),
-              ...checklistRows.map((r) => toDayKey(r?.dateKey || r?.dayKey || null)),
+              ...checklistRows.map((r) => toDayKey(r?.dateKey || r?.dayKey || r?.createdAt || r?.updatedAt || null)),
             ].filter(Boolean)
           )
         ).sort((a, b) => a.localeCompare(b));
