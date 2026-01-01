@@ -5420,7 +5420,30 @@
           }
         } catch (_) { }
 
-        const dailyIndex = buildResponseIndex(dailyResponseRows);
+        const dailyHistoryRows = [];
+        try {
+          for (const c of dailyConsignes) {
+            const consigneId = String(c?.id || "");
+            if (!consigneId) continue;
+            const snap = await userRef.collection("history").doc(consigneId).collection("entries").get();
+            snap.forEach((docSnap) => {
+              const data = docSnap.data() || {};
+              const dayKey = toDayKey(data.dateKey || data.date || docSnap.id || null);
+              if (!dayKey) return;
+              dailyHistoryRows.push({
+                consigneId,
+                dayKey,
+                value: Object.prototype.hasOwnProperty.call(data, "value") ? data.value : "",
+                note: Object.prototype.hasOwnProperty.call(data, "note") ? data.note : "",
+                createdAt: data.createdAt || null,
+                updatedAt: data.updatedAt || null,
+                source: "history",
+              });
+            });
+          }
+        } catch (_) { }
+
+        const dailyIndex = buildResponseIndex((dailyResponseRows || []).concat(dailyHistoryRows || []));
         const practiceSessionIndex = buildPracticeSessionIndex(practiceResponseRows);
         const practiceHistoryIndex = buildPracticeHistoryIndex(practiceHistoryRows);
         const checklistIndex = buildResponseIndex(checklistRows);
@@ -5429,6 +5452,7 @@
           new Set(
             [
               ...dailyResponseRows.map((r) => toDayKey(r?.dayKey || r?.pageDateIso || null)),
+              ...dailyHistoryRows.map((r) => toDayKey(r?.dayKey || r?.pageDateIso || null)),
               ...checklistRows.map((r) => toDayKey(r?.dateKey || r?.dayKey || null)),
             ].filter(Boolean)
           )
@@ -5484,6 +5508,7 @@
           objectiveNotes,
           checklistRows,
           consigneHistory,
+          dailyHistoryRows,
           practiceHistoryRows,
         };
 
