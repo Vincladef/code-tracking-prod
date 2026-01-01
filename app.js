@@ -3609,18 +3609,7 @@
 
   userActions.stats?.addEventListener("click", () => {
     closeUserActionsMenu();
-    const uid = ctx.user?.uid || null;
-    if (!uid) return;
-    const url = `${location.origin}${location.pathname}#/u/${encodeURIComponent(uid)}/stats`;
-    try {
-      const win = window.open(url, "_blank", "noopener,noreferrer");
-      if (win) return;
-    } catch (_) { }
-    if (typeof window.Modes?.showToast === "function") {
-      window.Modes.showToast("Autorise les popups pour ouvrir les statistiques dans un nouvel onglet.");
-      return;
-    }
-    alert("Autorise les popups pour ouvrir les statistiques dans un nouvel onglet.");
+    routeTo("#/stats");
   });
 
   userActions.toggleHistory?.addEventListener("click", () => {
