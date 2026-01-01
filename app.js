@@ -3616,7 +3616,11 @@
       const win = window.open(url, "_blank", "noopener,noreferrer");
       if (win) return;
     } catch (_) { }
-    routeTo("#/stats");
+    if (typeof window.Modes?.showToast === "function") {
+      window.Modes.showToast("Autorise les popups pour ouvrir les statistiques dans un nouvel onglet.");
+      return;
+    }
+    alert("Autorise les popups pour ouvrir les statistiques dans un nouvel onglet.");
   });
 
   userActions.toggleHistory?.addEventListener("click", () => {
