@@ -2356,6 +2356,7 @@
     archives: document.getElementById("user-actions-archives"),
     toggleHistory: document.getElementById("user-actions-toggle-history"),
     exportSheets: document.getElementById("user-actions-export-sheets"),
+    stats: document.getElementById("user-actions-stats"),
     install: document.getElementById("install-app-button"),
   };
 
@@ -3606,6 +3607,18 @@
     }
   });
 
+  userActions.stats?.addEventListener("click", () => {
+    closeUserActionsMenu();
+    const uid = ctx.user?.uid || null;
+    if (!uid) return;
+    const url = `${location.origin}${location.pathname}#/u/${encodeURIComponent(uid)}/stats`;
+    try {
+      const win = window.open(url, "_blank", "noopener,noreferrer");
+      if (win) return;
+    } catch (_) { }
+    routeTo("#/stats");
+  });
+
   userActions.toggleHistory?.addEventListener("click", () => {
     closeUserActionsMenu();
     try {
@@ -3767,6 +3780,7 @@
       practice: "#/practice",
       history: "#/history",
       goals: "#/goals",
+      stats: "#/stats",
     };
     const activeTarget = map[alias] || "#/admin";
     const accentSection = map[alias] ? alias : "daily";
@@ -5220,6 +5234,424 @@
     });
   }
 
+  function renderStats(ctx, root, qp) {
+    const uid = ctx.user?.uid || null;
+    if (!uid) {
+      root.innerHTML = "<div class='card p-4'>Aucun utilisateur sélectionné.</div>";
+      return;
+    }
+    if (!ctx.db || typeof ctx.db.collection !== "function") {
+      root.innerHTML = "<div class='card p-4'>Firestore non initialisé.</div>";
+      return;
+    }
+
+    const escapeHtml = (value) =>
+      String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+    const tableHtml = (rows) => {
+      const list = Array.isArray(rows) ? rows : [];
+      if (!list.length) return "<div class='text-sm text-[var(--muted)]'>Aucune donnée.</div>";
+      const head = Array.isArray(list[0]) ? list[0] : [];
+      const body = list.slice(1);
+      const thead = head.length
+        ? `<thead><tr>${head
+            .map(
+              (c) =>
+                `<th class='border-b border-slate-200 bg-slate-50 px-2 py-2 text-left text-xs font-semibold text-slate-600'>${escapeHtml(
+                  c
+                )}</th>`
+            )
+            .join("")}</tr></thead>`
+        : "";
+      const tbody = body.length
+        ? `<tbody>${body
+            .map(
+              (row) =>
+                `<tr>${(Array.isArray(row) ? row : [])
+                  .map((cell) => `<td class='border-b border-slate-100 px-2 py-2 align-top text-sm'>${escapeHtml(cell)}</td>`)
+                  .join("")}</tr>`
+            )
+            .join("")}</tbody>`
+        : "";
+      return `<div class='overflow-auto rounded-xl border border-slate-200'><table class='min-w-full border-collapse'>${thead}${tbody}</table></div>`;
+    };
+
+    root.innerHTML = `
+      <div class='space-y-4'>
+        <section class='card p-5'>
+          <div class='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+            <div>
+              <div class='text-xs font-semibold uppercase tracking-wide text-[var(--muted)]'>Statistiques</div>
+              <div class='text-lg font-semibold' data-stats-title>${escapeHtml(uid)}</div>
+              <div class='text-sm text-[var(--muted)]' data-stats-subtitle>Chargement…</div>
+            </div>
+            <div class='flex flex-wrap items-end gap-2'>
+              <label class='text-sm text-[var(--muted)] flex flex-col gap-1'>
+                <span>Journalier</span>
+                <select class='w-44' data-stats-days>
+                  <option value='30'>30 jours</option>
+                  <option value='90'>90 jours</option>
+                  <option value='180' selected>180 jours</option>
+                  <option value='720'>720 jours</option>
+                  <option value='all'>Tout</option>
+                </select>
+              </label>
+              <label class='text-sm text-[var(--muted)] flex flex-col gap-1'>
+                <span>Pratique</span>
+                <select class='w-44' data-stats-sessions>
+                  <option value='10'>10 sessions</option>
+                  <option value='30'>30 sessions</option>
+                  <option value='100'>100 sessions</option>
+                  <option value='300' selected>300 sessions</option>
+                  <option value='800'>800 sessions</option>
+                  <option value='all'>Tout</option>
+                </select>
+              </label>
+              <label class='text-sm text-[var(--muted)] flex flex-col gap-1'>
+                <span>Données brutes</span>
+                <select class='w-56' data-stats-raw></select>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <details class='card p-4' open>
+          <summary class='cursor-pointer font-semibold'>Résumé</summary>
+          <div class='mt-3' data-stats-summary></div>
+        </details>
+
+        <details class='card p-4'>
+          <summary class='cursor-pointer font-semibold'>Journalier</summary>
+          <div class='mt-3' data-stats-daily></div>
+        </details>
+
+        <details class='card p-4'>
+          <summary class='cursor-pointer font-semibold'>Pratique</summary>
+          <div class='mt-3' data-stats-practice></div>
+        </details>
+
+        <details class='card p-4'>
+          <summary class='cursor-pointer font-semibold'>Objectifs</summary>
+          <div class='mt-3 grid gap-4'>
+            <div>
+              <div class='text-sm font-semibold mb-2'>Objectifs</div>
+              <div note=1 data-stats-goals></div>
+            </div>
+            <div>
+              <div class='text-sm font-semibold mb-2'>Notes objectifs</div>
+              <div note=1 data-stats-goal-notes></div>
+            </div>
+          </div>
+        </details>
+
+        <details class='card p-4'>
+          <summary class='cursor-pointer font-semibold'>Données brutes (toutes)</summary>
+          <div class='mt-3' data-stats-raw-table></div>
+        </details>
+      </div>
+    `;
+
+    const subtitleEl = root.querySelector("[data-stats-subtitle]");
+    const daysSelect = root.querySelector("[data-stats-days]");
+    const sessionsSelect = root.querySelector("[data-stats-sessions]");
+    const rawSelect = root.querySelector("[data-stats-raw]");
+    const summaryEl = root.querySelector("[data-stats-summary]");
+    const dailyEl = root.querySelector("[data-stats-daily]");
+    const practiceEl = root.querySelector("[data-stats-practice]");
+    const goalsEl = root.querySelector("[data-stats-goals]");
+    const goalNotesEl = root.querySelector("[data-stats-goal-notes]");
+    const rawTableEl = root.querySelector("[data-stats-raw-table]");
+
+    const userRef = ctx.db.collection("u").doc(uid);
+
+    (async () => {
+      try {
+        const profileSnap = await userRef.get();
+        const profile = profileSnap?.exists ? profileSnap.data() || {} : {};
+        const displayName = profile.displayName || profile.name || uid;
+
+        const categories = await readCollectionDocsCompat(userRef.collection("categories"));
+        const consignes = await readCollectionDocsCompat(userRef.collection("consignes"));
+        const responses = await readCollectionDocsCompat(userRef.collection("responses"));
+        const sessions = await readCollectionDocsCompat(userRef.collection("sessions"));
+        const sr = await readCollectionDocsCompat(userRef.collection("sr"));
+        const modules = await readCollectionDocsCompat(userRef.collection("modules"));
+        const pushTokens = await readCollectionDocsCompat(userRef.collection("pushTokens"));
+        const history = await readCollectionDocsCompat(userRef.collection("history"));
+
+        const checklistRows = [];
+        try {
+          const answerDatesSnap = await userRef.collection("answers").get();
+          for (const dateDoc of answerDatesSnap.docs) {
+            const dateKey = dateDoc.id;
+            const consSnap = await userRef.collection("answers").doc(dateKey).collection("consignes").get();
+            consSnap.forEach((doc) => {
+              checklistRows.push({ dateKey, consigneId: doc.id, ...(doc.data() || {}) });
+            });
+          }
+        } catch (_) { }
+
+        const consigneHistory = [];
+        try {
+          for (const consigne of consignes) {
+            if (!consigne?.id) continue;
+            const snap = await userRef.collection("consignes").doc(consigne.id).collection("history").get();
+            snap.forEach((doc) => {
+              consigneHistory.push({ consigneId: consigne.id, entryId: doc.id, ...(doc.data() || {}) });
+            });
+          }
+        } catch (_) { }
+
+        const objectifs = await readCollectionDocsCompat(userRef.collection("objectifs"));
+        const objectiveNotes = await readCollectionDocsCompat(userRef.collection("objectiveNotes"));
+
+        const dailyConsignes = (consignes || []).filter((c) => c?.mode === "daily");
+        const practiceConsignes = (consignes || []).filter((c) => c?.mode === "practice");
+        const dailyResponseRows = (responses || []).filter((r) => r?.mode === "daily");
+        const practiceResponseRows = (responses || []).filter((r) => r?.mode === "practice");
+
+        const practiceHistoryRows = [];
+        try {
+          for (const c of practiceConsignes) {
+            const consigneId = String(c?.id || "");
+            if (!consigneId) continue;
+            const snap = await userRef.collection("history").doc(consigneId).collection("entries").get();
+            snap.forEach((docSnap) => {
+              practiceHistoryRows.push({ consigneId, historyKey: docSnap.id, ...(docSnap.data() || {}) });
+            });
+          }
+        } catch (_) { }
+
+        const dailyIndex = buildResponseIndex(dailyResponseRows);
+        const practiceSessionIndex = buildPracticeSessionIndex(practiceResponseRows);
+        const practiceHistoryIndex = buildPracticeHistoryIndex(practiceHistoryRows);
+        const checklistIndex = buildResponseIndex(checklistRows);
+
+        const allDailyDayKeys = Array.from(
+          new Set(
+            [
+              ...dailyResponseRows.map((r) => toDayKey(r?.dayKey || r?.pageDateIso || null)),
+              ...checklistRows.map((r) => toDayKey(r?.dateKey || r?.dayKey || null)),
+            ].filter(Boolean)
+          )
+        ).sort((a, b) => a.localeCompare(b));
+
+        const sessionDayKeyById = new Map();
+        const sessionIds = [];
+        const seenSessions = new Set();
+        (sessions || [])
+          .slice()
+          .sort((a, b) => toMillisSafe(a?.startedAt || a?.createdAt || 0) - toMillisSafe(b?.startedAt || b?.createdAt || 0))
+          .forEach((s) => {
+            const id = String(s?.id || "");
+            if (!id || seenSessions.has(id)) return;
+            seenSessions.add(id);
+            sessionIds.push(id);
+            const dk = toDayKey(s?.startedAt || s?.createdAt || null);
+            if (dk) sessionDayKeyById.set(id, dk);
+          });
+        (practiceResponseRows || []).forEach((r) => {
+          const id = String(r?.sessionId || r?.session_id || "");
+          if (!id || seenSessions.has(id)) return;
+          seenSessions.add(id);
+          sessionIds.push(id);
+          const dk = toDayKey(r?.dayKey || r?.pageDateIso || r?.createdAt || r?.updatedAt || null);
+          if (dk && !sessionDayKeyById.has(id)) sessionDayKeyById.set(id, dk);
+        });
+        (practiceHistoryRows || []).forEach((r) => {
+          const id = String(r?.historyKey || r?.entryId || r?.key || r?.id || "");
+          if (!id || seenSessions.has(id)) return;
+          seenSessions.add(id);
+          sessionIds.push(id);
+          const dk = toDayKey(r?.dayKey || r?.pageDateIso || r?.pageDate || r?.createdAt || r?.updatedAt || id);
+          if (dk && !sessionDayKeyById.has(id)) sessionDayKeyById.set(id, dk);
+        });
+
+        const sessionColumnsAll = sessionIds.map((id, idx) => {
+          const dk = sessionDayKeyById.get(id) || "";
+          return { id, label: `S${idx + 1}${dk ? ` — ${dk}` : ""}` };
+        });
+
+        const rawSources = {
+          profile: [profile],
+          categories,
+          consignes,
+          responses,
+          sessions,
+          sr,
+          modules,
+          pushTokens,
+          history,
+          objectifs,
+          objectiveNotes,
+          checklistRows,
+          consigneHistory,
+          practiceHistoryRows,
+        };
+
+        if (rawSelect) {
+          rawSelect.innerHTML = Object.keys(rawSources)
+            .map((k) => `<option value='${escapeHtml(k)}'>${escapeHtml(k)}</option>`)
+            .join("");
+          rawSelect.value = "consignes";
+        }
+
+        const renderSummary = () => {
+          if (!summaryEl) return;
+          const dailyWindows = {
+            "7j": pickLastWindow(allDailyDayKeys, 7),
+            "30j": pickLastWindow(allDailyDayKeys, 30),
+            "90j": pickLastWindow(allDailyDayKeys, 90),
+          };
+          const practiceWindows = {
+            "10 sessions": pickLastWindow(sessionColumnsAll, 10),
+            "30 sessions": pickLastWindow(sessionColumnsAll, 30),
+            "100 sessions": pickLastWindow(sessionColumnsAll, 100),
+          };
+
+          const rows = [];
+          rows.push(["Journalier — complétion", "", "", "", ""]);
+          rows.push(["Catégorie", "Consigne", "7j", "30j", "90j"]);
+          dailyConsignes.forEach((c) => {
+            const id = String(c?.id || "");
+            if (!id) return;
+            const byDayChecklist = checklistIndex.get(id) || new Map();
+            const byDayResp = dailyIndex.get(id) || new Map();
+            const calc = (keys) => {
+              const list = Array.isArray(keys) ? keys : [];
+              if (!list.length) return "";
+              let answered = 0;
+              list.forEach((dayKey) => {
+                if (c?.type === "checklist") {
+                  if (byDayChecklist.get(dayKey)) answered += 1;
+                } else {
+                  const row = byDayResp.get(dayKey) || null;
+                  if (hasResponseContent(c, row)) answered += 1;
+                }
+              });
+              return answered / list.length;
+            };
+            rows.push([
+              cellValueForSheets(c?.category || ""),
+              normalizeConsigneTitle(c),
+              calc(dailyWindows["7j"]),
+              calc(dailyWindows["30j"]),
+              calc(dailyWindows["90j"]),
+            ]);
+          });
+          rows.push(["", "", "", "", ""]);
+          rows.push(["Pratique — complétion", "", "", "", ""]);
+          rows.push(["Catégorie", "Consigne", "10 sessions", "30 sessions", "100 sessions"]);
+          practiceConsignes.forEach((c) => {
+            const id = String(c?.id || "");
+            if (!id) return;
+            const byHistory = practiceHistoryIndex.get(id) || new Map();
+            const bySession = practiceSessionIndex.get(id) || new Map();
+            const calc = (sessList) => {
+              const list = Array.isArray(sessList) ? sessList : [];
+              if (!list.length) return "";
+              let answered = 0;
+              list.forEach((sess) => {
+                const key = String(sess?.id || "");
+                const row = byHistory.get(key) || bySession.get(key) || null;
+                if (hasResponseContent(c, row)) answered += 1;
+              });
+              return answered / list.length;
+            };
+            rows.push([
+              cellValueForSheets(c?.category || ""),
+              normalizeConsigneTitle(c),
+              calc(practiceWindows["10 sessions"]),
+              calc(practiceWindows["30 sessions"]),
+              calc(practiceWindows["100 sessions"]),
+            ]);
+          });
+          summaryEl.innerHTML = tableHtml(rows);
+        };
+
+        const renderDaily = () => {
+          if (!dailyEl) return;
+          const raw = daysSelect?.value || "all";
+          const limit = raw === "all" ? null : Number(raw);
+          const dayKeys = limit ? pickRecentSorted(allDailyDayKeys, limit) : allDailyDayKeys.slice();
+          const header = ["Catégorie", "Consigne", ...dayKeys];
+          const rows = [header];
+          dailyConsignes.forEach((c) => {
+            const id = String(c?.id || "");
+            if (!id) return;
+            const row = [cellValueForSheets(c?.category || ""), normalizeConsigneTitle(c)];
+            const byDayChecklist = checklistIndex.get(id) || new Map();
+            const byDayResp = dailyIndex.get(id) || new Map();
+            dayKeys.forEach((dayKey) => {
+              if (c?.type === "checklist") row.push(formatChecklistCell(c, byDayChecklist.get(dayKey) || null));
+              else row.push(formatValueCell(c, byDayResp.get(dayKey) || null));
+            });
+            rows.push(row);
+          });
+          dailyEl.innerHTML = tableHtml(rows);
+        };
+
+        const renderPractice = () => {
+          if (!practiceEl) return;
+          const raw = sessionsSelect?.value || "all";
+          const limit = raw === "all" ? null : Number(raw);
+          const cols = limit ? pickRecentSorted(sessionColumnsAll, limit) : sessionColumnsAll.slice();
+          const header = ["Catégorie", "Consigne", ...cols.map((s) => s.label)];
+          const rows = [header];
+          practiceConsignes.forEach((c) => {
+            const id = String(c?.id || "");
+            if (!id) return;
+            const row = [cellValueForSheets(c?.category || ""), normalizeConsigneTitle(c)];
+            const byHistory = practiceHistoryIndex.get(id) || new Map();
+            const bySession = practiceSessionIndex.get(id) || new Map();
+            cols.forEach((sess) => {
+              row.push(formatValueCell(c, byHistory.get(sess.id) || bySession.get(sess.id) || null));
+            });
+            rows.push(row);
+          });
+          practiceEl.innerHTML = tableHtml(rows);
+        };
+
+        const renderGoals = () => {
+          if (goalsEl) goalsEl.innerHTML = tableHtml(makeRowsFromObjectsAuto(objectifs));
+          if (goalNotesEl) goalNotesEl.innerHTML = tableHtml(makeRowsFromObjectsAuto(objectiveNotes));
+        };
+
+        const renderRaw = () => {
+          if (!rawTableEl) return;
+          const key = String(rawSelect?.value || "");
+          const data = rawSources[key] || [];
+          rawTableEl.innerHTML = tableHtml(makeRowsFromObjectsAuto(data));
+        };
+
+        if (subtitleEl) {
+          subtitleEl.textContent = `${displayName} — ${dailyConsignes.length} consignes daily, ${practiceConsignes.length} consignes pratique, ${objectifs.length} objectifs.`;
+        }
+
+        const rerender = () => {
+          renderSummary();
+          renderDaily();
+          renderPractice();
+          renderGoals();
+          renderRaw();
+        };
+
+        daysSelect?.addEventListener("change", rerender);
+        sessionsSelect?.addEventListener("change", rerender);
+        rawSelect?.addEventListener("change", rerender);
+
+        rerender();
+      } catch (error) {
+        root.innerHTML = `<div class='card p-4'>${escapeHtml(error?.message || String(error))}</div>`;
+      }
+    })();
+  }
+
   function render() {
     const root = document.getElementById("view-root");
     if (!root) return;
@@ -5324,6 +5756,8 @@
           return;
         }
         return renderWithChecklistHydration(goalsApi.renderGoals(ctx, root), root);
+      case "stats":
+        return renderStats(ctx, root, qp);
       default:
         root.innerHTML = "<div class='card'>Page inconnue.</div>";
     }
