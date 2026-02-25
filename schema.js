@@ -38,42 +38,42 @@ function docFromCompat(base, ...segments) {
 
 window.firestoreAPI = window.firestoreAPI || (firestoreCompat
   ? {
-      getFirestore: (app) => firebaseCompat.firestore(app),
-      collection: collectionFromCompat,
-      doc: docFromCompat,
-      setDoc: (ref, data, options) => ref.set(data, options),
-      getDoc: (ref) => ref.get(),
-      getDocs: (qry) => qry.get(),
-      addDoc: (ref, data) => ref.add(data),
-      deleteDoc: (ref) => ref.delete(),
-      query: (base, ...constraints) =>
-        constraints.reduce((ref, fn) => (typeof fn === "function" ? fn(ref) : ref), base),
-      where: (field, op, value) => (ref) => ref.where(field, op, value),
-      orderBy: (field, direction) => (ref) => ref.orderBy(field, direction),
-      updateDoc: (ref, data) => ref.update(data),
-      limit: (count) => (ref) => ref.limit(count),
-      serverTimestamp: () => firebaseCompat.firestore.FieldValue.serverTimestamp(),
-      deleteField: () => firebaseCompat.firestore.FieldValue.delete(),
-      runTransaction: (db, updateFunction) => db.runTransaction(updateFunction),
-    }
+    getFirestore: (app) => firebaseCompat.firestore(app),
+    collection: collectionFromCompat,
+    doc: docFromCompat,
+    setDoc: (ref, data, options) => ref.set(data, options),
+    getDoc: (ref) => ref.get(),
+    getDocs: (qry) => qry.get(),
+    addDoc: (ref, data) => ref.add(data),
+    deleteDoc: (ref) => ref.delete(),
+    query: (base, ...constraints) =>
+      constraints.reduce((ref, fn) => (typeof fn === "function" ? fn(ref) : ref), base),
+    where: (field, op, value) => (ref) => ref.where(field, op, value),
+    orderBy: (field, direction) => (ref) => ref.orderBy(field, direction),
+    updateDoc: (ref, data) => ref.update(data),
+    limit: (count) => (ref) => ref.limit(count),
+    serverTimestamp: () => firebaseCompat.firestore.FieldValue.serverTimestamp(),
+    deleteField: () => firebaseCompat.firestore.FieldValue.delete(),
+    runTransaction: (db, updateFunction) => db.runTransaction(updateFunction),
+  }
   : {
-      getFirestore: () => missingFirestoreWarning(),
-      collection: () => missingFirestoreWarning(),
-      doc: () => missingFirestoreWarning(),
-      setDoc: () => missingFirestoreWarning(),
-      getDoc: () => missingFirestoreWarning(),
-      getDocs: () => missingFirestoreWarning(),
-      addDoc: () => missingFirestoreWarning(),
-      deleteDoc: () => missingFirestoreWarning(),
-      query: () => missingFirestoreWarning(),
-      where: () => missingFirestoreWarning(),
-      orderBy: () => missingFirestoreWarning(),
-      updateDoc: () => missingFirestoreWarning(),
-      limit: () => missingFirestoreWarning(),
-      serverTimestamp: () => missingFirestoreWarning(),
-      deleteField: () => missingFirestoreWarning(),
-      runTransaction: () => missingFirestoreWarning(),
-    });
+    getFirestore: () => missingFirestoreWarning(),
+    collection: () => missingFirestoreWarning(),
+    doc: () => missingFirestoreWarning(),
+    setDoc: () => missingFirestoreWarning(),
+    getDoc: () => missingFirestoreWarning(),
+    getDocs: () => missingFirestoreWarning(),
+    addDoc: () => missingFirestoreWarning(),
+    deleteDoc: () => missingFirestoreWarning(),
+    query: () => missingFirestoreWarning(),
+    where: () => missingFirestoreWarning(),
+    orderBy: () => missingFirestoreWarning(),
+    updateDoc: () => missingFirestoreWarning(),
+    limit: () => missingFirestoreWarning(),
+    serverTimestamp: () => missingFirestoreWarning(),
+    deleteField: () => missingFirestoreWarning(),
+    runTransaction: () => missingFirestoreWarning(),
+  });
 
 Schema.firestore = Schema.firestore || window.firestoreAPI;
 
@@ -188,7 +188,7 @@ const D = {
   },
 };
 Schema.D = Schema.D || D;
-const schemaLog = () => {};
+const schemaLog = () => { };
 // --- Helpers de chemin /u/{uid}/...
 
 let boundDb = null;
@@ -328,11 +328,11 @@ function objectiveLikertLabelFromValue(value) {
 
 const todayKey = (d = new Date()) => dayKeyFromDate(d); // YYYY-MM-DD
 
-const PRIORITIES = ["high","medium","low"];
-const MODES = ["daily","practice"];
-const TYPES = ["short","long","likert6","likert5","yesno","num","checklist","info"];
+const PRIORITIES = ["high", "medium", "low"];
+const MODES = ["daily", "practice"];
+const TYPES = ["short", "long", "likert6", "likert5", "yesno", "num", "checklist", "info"];
 
-const LIKERT = ["no_answer","no","rather_no","medium","rather_yes","yes"];
+const LIKERT = ["no_answer", "no", "rather_no", "medium", "rather_yes", "yes"];
 const LIKERT_POINTS = {
   no_answer: 0,
   no: 0,
@@ -392,20 +392,20 @@ function normalizeDays(days) {
     .filter(Boolean);
 }
 
-const DOW_LABELS = ["DIM","LUN","MAR","MER","JEU","VEN","SAM"];
+const DOW_LABELS = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
 
-function nextVisibleDateFrom(start, days, skips){
+function nextVisibleDateFrom(start, days, skips) {
   const normalized = normalizeDays(days);
   const everyDay = !normalized.length;
-  const from = new Date(start); from.setHours(0,0,0,0);
+  const from = new Date(start); from.setHours(0, 0, 0, 0);
   let d = new Date(from);
 
   let passed = 0;
-  while (true){
+  while (true) {
     d.setDate(d.getDate() + 1);
     const label = DOW_LABELS[d.getDay()];
     const eligible = everyDay || normalized.includes(label);
-    if (eligible){
+    if (eligible) {
       if (passed >= skips) break;
       passed++;
     }
@@ -550,16 +550,16 @@ async function getUserName(uid) {
   }
 }
 
-async function fetchCategories(db, uid){
+async function fetchCategories(db, uid) {
   const qy = query(col(db, uid, "categories"), orderBy("name"));
   const ss = await getDocs(qy);
   return ss.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
-async function ensureCategory(db, uid, name, mode){
+async function ensureCategory(db, uid, name, mode) {
   D.info("data.ensureCategory", { uid, name, mode });
   const qy = query(col(db, uid, "categories"),
-    where("name","==",name), where("mode","==",mode), limit(1));
+    where("name", "==", name), where("mode", "==", mode), limit(1));
   const snap = await getDocs(qy);
   if (!snap.empty) {
     const existing = { id: snap.docs[0].id, ...snap.docs[0].data() };
@@ -658,6 +658,23 @@ function nextCooldownAfterAnswer(meta, prevState, value) {
     else if (Number.isFinite(details.progress) && details.progress >= 0.75) inc = 0.5;
     else inc = 0;
   }
+  else if (meta.type === "checklist") {
+    if (value && Array.isArray(value.items)) {
+      const skips = Array.isArray(value.skipped) ? value.skipped : [];
+      let considered = 0;
+      let checkedCount = 0;
+      value.items.forEach((checked, i) => {
+        if (skips[i]) return;
+        considered += 1;
+        if (checked) checkedCount += 1;
+      });
+      if (considered > 0 && checkedCount === considered) inc = 1;
+      else if (considered > 0 && checkedCount >= considered * 0.5) inc = 0.5;
+      else inc = 0;
+    } else {
+      inc = 0;
+    }
+  }
   else inc = 1;
 
   // streak strict
@@ -668,7 +685,7 @@ function nextCooldownAfterAnswer(meta, prevState, value) {
 
   if (meta.mode === "daily") {
     let steps = Math.floor(streak); // nb d'occurrences à SAUTER
-    if (inc > 0 && hasInterval) {
+    if (inc >= 1 && hasInterval) {
       steps = Math.max(0, prevState.interval - 1);
     }
     const nextVisibleOn = nextVisibleDateFrom(new Date(), meta.days || [], steps);
@@ -677,10 +694,10 @@ function nextCooldownAfterAnswer(meta, prevState, value) {
     return result;
   } else {
     let steps = Math.floor(streak); // nb d'itérations à SAUTER
-    if (inc > 0 && hasInterval) {
+    if (inc >= 1 && hasInterval) {
       steps = prevState.interval;
     }
-    const base  = (meta.sessionIndex ?? 0) + 1; // prochaine itération immédiate
+    const base = (meta.sessionIndex ?? 0) + 1; // prochaine itération immédiate
     const nextAllowedIndex = base + steps;      // base + nb à sauter
     const result = { streak, nextAllowedIndex };
     if (hasInterval) result.interval = prevState.interval;
@@ -1258,9 +1275,9 @@ async function saveResponses(db, uid, mode, answers) {
       }
     }
     // SR (seulement si activée sur la consigne)
-      if (a.consigne?.srEnabled !== false) {
-        const prev = await readSRState(db, uid, a.consigne.id, "consigne");
-        const upd = nextCooldownAfterAnswer(
+    if (a.consigne?.srEnabled !== false) {
+      const prev = await readSRState(db, uid, a.consigne.id, "consigne");
+      const upd = nextCooldownAfterAnswer(
         {
           mode,
           type: a.consigne.type,
@@ -1315,7 +1332,7 @@ async function saveResponses(db, uid, mode, answers) {
   return results;
 }
 
-async function countPracticeSessions(db, uid){
+async function countPracticeSessions(db, uid) {
   const ss = await getDocs(col(db, uid, "sessions"));
   return ss.size;
 }
@@ -1788,13 +1805,13 @@ async function fetchHistory(db, uid, count = 200) {
 async function fetchResponsesForConsigne(db, uid, consigneId, limitCount = 200) {
   const qy = query(
     col(db, uid, "responses"),
-    where("consigneId","==", consigneId),
-    orderBy("pageDate","desc"),
-    orderBy("createdAt","desc"),
+    where("consigneId", "==", consigneId),
+    orderBy("pageDate", "desc"),
+    orderBy("createdAt", "desc"),
     limit(limitCount)
   );
   const ss = await getDocs(qy);
-  return ss.docs.map(d => ({ id:d.id, ...d.data() }));
+  return ss.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
 function normalizeMontantOperatorValue(value) {
@@ -1890,7 +1907,7 @@ function valueToNumericPoint(type, value, meta = null) {
   if (type === "info") return null;
   if (type === "likert6") return LIKERT_POINTS[value] ?? 0;
   if (type === "likert5") return Number(value) || 0;  // 0..4
-  if (type === "yesno")   return value === "yes" ? 1 : 0;
+  if (type === "yesno") return value === "yes" ? 1 : 0;
   if (type === "num") return Number(value) || 0;
   if (type === "montant") {
     const details = extractMontantDetails(value, meta);
@@ -2002,8 +2019,8 @@ async function resolveHistoryResponseRef(db, uid, consigneId, dayKey, options = 
   const lookupDayKey = typeof options.responseDayKey === "string" && options.responseDayKey.trim()
     ? options.responseDayKey.trim()
     : typeof dayKey === "string"
-    ? dayKey
-    : "";
+      ? dayKey
+      : "";
   if (!lookupDayKey) {
     return null;
   }
@@ -2029,7 +2046,7 @@ async function syncHistoryResponse(db, uid, consigneId, dayKey, data = {}, optio
   }
   const hasSyncMetadata = Boolean(
     (typeof options.responseId === "string" && options.responseId.trim())
-      || (typeof options.responseDayKey === "string" && options.responseDayKey.trim())
+    || (typeof options.responseDayKey === "string" && options.responseDayKey.trim())
   );
   if (!hasSyncMetadata) {
     return;
@@ -2112,7 +2129,7 @@ async function deleteHistoryResponse(db, uid, consigneId, dayKey, options = {}) 
   }
   const hasSyncMetadata = Boolean(
     (typeof options.responseId === "string" && options.responseId.trim())
-      || (typeof options.responseDayKey === "string" && options.responseDayKey.trim())
+    || (typeof options.responseDayKey === "string" && options.responseDayKey.trim())
   );
   if (!hasSyncMetadata) {
     return;
@@ -2633,7 +2650,7 @@ async function listObjectivesDueOn(db, uid, dateInput) {
 
   await Promise.all(
     Array.from(map.values()).map((objective) =>
-      migrateObjectiveEntriesForObjective(db, uid, objective).catch(() => {})
+      migrateObjectiveEntriesForObjective(db, uid, objective).catch(() => { })
     ),
   );
 
@@ -3189,12 +3206,12 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
     || (normalizedSummaryScope === "monthly"
       ? "Bilan mensuel"
       : normalizedSummaryScope === "weekly"
-      ? "Bilan hebdomadaire"
-      : normalizedSummaryScope === "yearly"
-      ? "Bilan annuel"
-      : normalizedSummaryScope === "adhoc"
-      ? "Bilan ponctuel"
-      : "Bilan");
+        ? "Bilan hebdomadaire"
+        : normalizedSummaryScope === "yearly"
+          ? "Bilan annuel"
+          : normalizedSummaryScope === "adhoc"
+            ? "Bilan ponctuel"
+            : "Bilan");
   const baseDate = resolveSummaryBaseDate(metadata);
   const createdAtIso = baseDate instanceof Date && !Number.isNaN(baseDate.getTime())
     ? baseDate.toISOString()
@@ -3383,16 +3400,16 @@ async function saveSummaryAnswers(db, uid, scope, periodKey, answers, metadata =
       if (answer.note !== undefined) {
         responsePayload.note = answer.note;
       }
-        // Always align createdAt to the period base date for summary entries
-        // so history consistently uses the period day (e.g., end of week/month)
-        responsePayload.createdAt = createdAtIso;
+      // Always align createdAt to the period base date for summary entries
+      // so history consistently uses the period day (e.g., end of week/month)
+      responsePayload.createdAt = createdAtIso;
       try {
         await setDoc(responseRef, responsePayload, { merge: true });
       } catch (error) {
         schemaLog("summaryResponse:save:error", { scope, periodKey, consigneId, error });
         return null;
       }
-        const createdAtValue = responsePayload.createdAt ?? createdAtIso;
+      const createdAtValue = responsePayload.createdAt ?? createdAtIso;
       return {
         id: responseId,
         consigneId,
