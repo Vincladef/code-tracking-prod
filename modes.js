@@ -19186,11 +19186,11 @@ async function renderPractice(ctx, root, _opts = {}) {
           e.preventDefault();
           e.stopPropagation();
           closeConsigneActionMenuFromNode(bPrioLow);
-          
+
           // Mise à jour optimiste - mettre à jour les données locales immédiatement
           const oldPriority = c.priority;
           c.priority = 3;
-          
+
           try {
             await Schema.updateConsigne(ctx.db, ctx.user.uid, c.id, { priority: 3 });
             renderPractice(ctx, root);
@@ -19366,7 +19366,7 @@ async function renderPractice(ctx, root, _opts = {}) {
     if (!editorConfig.delayOptions) {
       editorConfig.delayOptions = {
         amounts: [1, 3, 5, 10, 15, 20],
-        label: "Revoir dans",
+        label: "Espacement :",
         placeholder: "Sans délai",
         helper: "Appliqué après validation.",
         disabledHint: "Active la répétition espacée pour décaler.",
@@ -20365,18 +20365,18 @@ function moveConsigneToPrioritySection(consigneRow, newPriority, currentDay, dat
   if (!cardRoot) return false;
 
   // Find the target priority section
-  const targetSection = newPriority === 3 
+  const targetSection = newPriority === 3
     ? cardRoot.querySelector(".daily-category__low")
-    : newPriority === 2 
-    ? cardRoot.querySelector(".daily-category__medium") 
-    : cardRoot.querySelector(".daily-category__high");
-  
+    : newPriority === 2
+      ? cardRoot.querySelector(".daily-category__medium")
+      : cardRoot.querySelector(".daily-category__high");
+
   if (!targetSection) return false;
 
   // Find the target items container
-  const targetContainer = targetSection.querySelector(".daily-category__items--nested") || 
-                       targetSection.querySelector(".daily-category__items");
-  
+  const targetContainer = targetSection.querySelector(".daily-category__items--nested") ||
+    targetSection.querySelector(".daily-category__items");
+
   if (!targetContainer) return false;
 
   // Find the consigne group
@@ -20385,12 +20385,12 @@ function moveConsigneToPrioritySection(consigneRow, newPriority, currentDay, dat
 
   // Move the group to the new section
   targetContainer.appendChild(consigneGroup);
-  
+
   // Update priority tone classes
   const tone = newPriority === 3 ? "low" : newPriority === 2 ? "medium" : "high";
   consigneRow.className = consigneRow.className.replace(/priority-surface-\w+/, `priority-surface-${tone}`);
   consigneRow.dataset.priorityTone = tone;
-  
+
   // Update priority chip
   const prioChip = consigneRow.querySelector(".consigne-row__chip");
   if (prioChip) {
@@ -20400,7 +20400,7 @@ function moveConsigneToPrioritySection(consigneRow, newPriority, currentDay, dat
 
   // Update section summaries
   updateDailySectionSummaries(cardRoot);
-  
+
   return true;
 }
 
@@ -20415,16 +20415,16 @@ function updateDailySectionSummaries(cardRoot) {
     const section = cardRoot.querySelector(selector);
     if (!section) return;
 
-    const container = section.querySelector(".daily-category__items--nested") || 
-                     section.querySelector(".daily-category__items");
-    
+    const container = section.querySelector(".daily-category__items--nested") ||
+      section.querySelector(".daily-category__items");
+
     if (container) {
       const count = container.querySelectorAll(".consigne-group").length;
       const summary = section.querySelector(summarySelector);
       if (summary) {
         summary.textContent = `${label} (${count})`;
       }
-      
+
       // Hide section if empty
       if (count === 0) {
         section.style.display = "none";
@@ -21658,7 +21658,7 @@ async function renderDaily(ctx, root, opts = {}) {
           try {
             await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { priority: 3 });
             item.priority = 3;
-            
+
             // Find the row and move it without full reload
             const row = document.querySelector(`[data-consigne-id="${item.id}"]`);
             if (row) {
@@ -21671,7 +21671,7 @@ async function renderDaily(ctx, root, opts = {}) {
               // Fallback to full render if row not found
               renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
             }
-            
+
             showToast("Consigne passée en priorité basse.");
           } catch (err) {
             console.error("Error updating priority:", err);
@@ -21685,7 +21685,7 @@ async function renderDaily(ctx, root, opts = {}) {
           try {
             await Schema.updateConsigne(ctx.db, ctx.user.uid, item.id, { priority: 2 });
             item.priority = 2;
-            
+
             // Find the row and move it without full reload
             const row = document.querySelector(`[data-consigne-id="${item.id}"]`);
             if (row) {
@@ -21698,7 +21698,7 @@ async function renderDaily(ctx, root, opts = {}) {
               // Fallback to full render if row not found
               renderDaily(ctx, root, { ...opts, day: currentDay, dateIso });
             }
-            
+
             showToast("Consigne passée en priorité moyenne.");
           } catch (err) {
             console.error("Error updating priority:", err);
