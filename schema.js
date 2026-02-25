@@ -664,15 +664,27 @@ function nextCooldownAfterAnswer(meta, prevState, value) {
   let streak = (prevState?.streak || 0);
   streak = inc > 0 ? (streak + inc) : 0;
 
+  const hasInterval = typeof prevState?.interval === "number" && prevState.interval > 0;
+
   if (meta.mode === "daily") {
-    const steps = Math.floor(streak); // nb d'occurrences à SAUTER
+    let steps = Math.floor(streak); // nb d'occurrences à SAUTER
+    if (inc > 0 && hasInterval) {
+      steps = Math.max(0, prevState.interval - 1);
+    }
     const nextVisibleOn = nextVisibleDateFrom(new Date(), meta.days || [], steps);
-    return { streak, nextVisibleOn };
+    const result = { streak, nextVisibleOn };
+    if (hasInterval) result.interval = prevState.interval;
+    return result;
   } else {
-    const steps = Math.floor(streak); // nb d'itérations à SAUTER
+    let steps = Math.floor(streak); // nb d'itérations à SAUTER
+    if (inc > 0 && hasInterval) {
+      steps = prevState.interval;
+    }
     const base  = (meta.sessionIndex ?? 0) + 1; // prochaine itération immédiate
     const nextAllowedIndex = base + steps;      // base + nb à sauter
-    return { streak, nextAllowedIndex };
+    const result = { streak, nextAllowedIndex };
+    if (hasInterval) result.interval = prevState.interval;
+    return result;
   }
 }
 
@@ -688,8 +700,10 @@ async function resetSRForConsigne(db, uid, consigneId) {
   };
   if (canDeleteField) {
     state.hideUntil = deleteField();
+    state.interval = deleteField();
   } else {
     state.hideUntil = null;
+    state.interval = null;
   }
   await upsertSRState(db, uid, consigneId, "consigne", state);
 }
@@ -712,7 +726,7 @@ async function delayConsigne({ db, uid, consigne, mode, amount, sessionIndex }) 
   }
 
   const canDeleteField = typeof deleteField === "function";
-  const state = { streak: 0 };
+  const state = { streak: 0, interval: rounded };
   state.hideUntil = canDeleteField ? deleteField() : null;
 
   if (mode === "daily") {
